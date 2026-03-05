@@ -1,0 +1,120 @@
+version: '3'
+
+vars:
+  BACKEND_DIR: backend
+  FRONTEND_DIR: frontend
+  MIGRATION_TOOL_DIR: migration-tool
+
+tasks:
+  default:
+    desc: Build all projects
+    deps: [backend:build, frontend:build, migration-tool:build]
+
+  # Top-level aggregate tasks
+  build:
+    desc: Build all projects
+    deps: [backend:build, frontend:build, migration-tool:build]
+
+  test:
+    desc: Run all tests
+    deps: [backend:test, frontend:test, migration-tool:test]
+
+  lint:
+    desc: Lint all projects
+    deps: [backend:lint, frontend:lint]
+
+  dev:
+    desc: Start development environment
+    cmds:
+      - echo "TODO:// Start docker-compose + hot reload for backend (air) + frontend (vite)"
+
+  generate:
+    desc: Run all code generation (sqlc, OpenAPI client, etc.)
+    cmds:
+      - echo "TODO:// Run code generation steps"
+
+  docker:build:
+    desc: Build all Docker images
+    cmds:
+      - echo "TODO:// Build Docker images for all projects"
+
+  # Backend tasks
+  backend:build:
+    desc: Build the backend server
+    dir: '{{.BACKEND_DIR}}'
+    cmds:
+      - go build -o server ./cmd/server
+
+  backend:test:
+    desc: Run backend tests
+    dir: '{{.BACKEND_DIR}}'
+    cmds:
+      - go test ./...
+
+  backend:lint:
+    desc: Lint backend code
+    dir: '{{.BACKEND_DIR}}'
+    cmds:
+      - go vet ./...
+
+  backend:run:
+    desc: Run the backend server
+    dir: '{{.BACKEND_DIR}}'
+    cmds:
+      - go run ./cmd/server
+
+  # Frontend tasks
+  frontend:build:
+    desc: Build the frontend
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npm run build
+
+  frontend:test:
+    desc: Run frontend tests
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npm test
+
+  frontend:lint:
+    desc: Lint frontend code
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npx tsc --noEmit
+
+  frontend:dev:
+    desc: Start frontend dev server
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npm run dev
+
+  frontend:install:
+    desc: Install frontend dependencies
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npm install
+
+  # Migration tool tasks
+  migration-tool:build:
+    desc: Build the migration tool
+    dir: '{{.MIGRATION_TOOL_DIR}}'
+    cmds:
+      - go build -o migrate ./cmd/migrate
+
+  migration-tool:test:
+    desc: Run migration tool tests
+    dir: '{{.MIGRATION_TOOL_DIR}}'
+    cmds:
+      - go test ./...
+
+  migration-tool:lint:
+    desc: Lint migration tool code
+    dir: '{{.MIGRATION_TOOL_DIR}}'
+    cmds:
+      - go vet ./...
+
+  migration-tool:run:
+    desc: Run the migration tool
+    dir: '{{.MIGRATION_TOOL_DIR}}'
+    cmds:
+      - go run ./cmd/migrate

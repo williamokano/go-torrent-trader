@@ -1,0 +1,40 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Node.js
+node_modules/
+dist/
+.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+
+# Docker
+docker-compose.override.yml
+
+# Build artifacts
+backend/server
+migration-tool/migrate
+tmp/
+
+# Coverage
+coverage/
+*.coverprofile

@@ -1,0 +1,1854 @@
+# Reimplementation Task Breakdown (Monorepo)
+
+> Each story is independently implementable and testable.
+> Stories are ordered within each epic by dependency (build bottom-up).
+> Estimates are T-shirt sizes: S (1-2 days), M (3-5 days), L (1-2 weeks).
+>
+> Stories are organized by project area: Infrastructure, Backend, Frontend, Migration Tool.
+> See `ARCHITECTURE.md` for monorepo structure and conventions.
+> See `NOT_PORTING.md` for features explicitly excluded.
+
+---
+
+## Phase Overview
+
+| Phase | Focus | Ships |
+|-------|-------|-------|
+| 1 | Foundation | Monorepo scaffolding, dev environment, backend foundation, frontend foundation, migration CLI scaffold |
+| 2 | Core Features | Auth, tracker, torrent management, public frontend pages, data transformers |
+| 3 | Community | Forum, chat, PMs, invites, user pages, real-time features |
+| 4 | Admin & Polish | Admin panel, moderation, migration verification, admin frontend |
+| 5 | Advanced | UDP tracker, additional themes, static pages, polish |
+
+---
+
+## Infrastructure Epics (INFRA-)
+
+### INFRA-1: Monorepo Scaffolding + Taskfile [S] [DONE]
+**As a** developer
+**I want** a monorepo structure with build orchestration
+**So that** all three projects are organized, buildable, and testable from a single repo
+
+**Acceptance Criteria:**
+- Directory structure: `backend/`, `frontend/`, `migration-tool/`, `docs/`
+- `Taskfile.yml` with tasks: `build`, `test`, `lint`, `dev`, `docker:build`, `generate`
+- Per-project tasks: `task backend:build`, `task frontend:build`, `task migration-tool:build`
+- `.gitignore` covering Go, Node.js, Docker, IDE files
+- `README.md` with quickstart instructions
+- `.env.example` with all required config vars (placeholder values only)
+
+### INFRA-2: Docker Compose Dev Environment [S]
+**As a** developer
+**I want** a local dev environment with all dependencies
+**So that** I can develop without installing services manually
+
+**Acceptance Criteria:**
+- `docker-compose.yml` with: PostgreSQL 16, Redis 7, MinIO (S3-compatible), Mailhog (SMTP)
+- Health checks on all services
+- Named volumes for data persistence
+- Port mappings documented in `.env.example`
+- `task dev:up` and `task dev:down` tasks
+- Backend and frontend run on host (not in containers) for hot reload
+
+### INFRA-3: Dockerfiles (Multi-Stage) [S]
+**As a** developer
+**I want** production-ready Docker images for all projects
+**So that** deployments are reproducible and images are small
+
+**Acceptance Criteria:**
+- Backend: multi-stage (build with Go, run with distroless/alpine), < 50MB
+- Frontend: multi-stage (build with Node, serve with nginx), < 30MB
+- Migration Tool: multi-stage (build with Go, run with distroless/alpine), < 50MB
+- `docker-compose.prod.yml` for production-like local testing
+- All images tagged with git SHA
+
+### INFRA-4: GitHub Actions CI [M]
+**As a** developer
+**I want** CI pipelines that validate all projects on every push
+**So that** broken code doesn't reach main
+
+**Acceptance Criteria:**
+- Separate workflow files: `backend.yml`, `frontend.yml`, `migration-tool.yml`, `release.yml`
+- Path-based triggers (backend workflow only runs on `backend/**` changes)
+- Pipeline order: lint -> test -> build
+- Go module caching, node_modules caching
+- Backend: `golangci-lint`, `go test -race`, `go build`
+- Frontend: `eslint`, `tsc --noEmit`, `vitest`, `vite build`
+- Migration Tool: `golangci-lint`, `go test -race`, `go build`
+- Release workflow: build Docker images, push to registry on tag
+
+### INFRA-5: Dev Workflow [S]
+**As a** developer
+**I want** hot reload and code generation in development
+**So that** I get fast feedback loops
+
+**Acceptance Criteria:**
+- Backend hot reload with `air` (rebuild on Go file changes)
+- Frontend hot reload with Vite HMR
+- `task generate` runs all code generation (OpenAPI client, sqlc, etc.)
+- `task dev` starts docker-compose + backend + frontend with hot reload
+- Pre-commit hooks: lint + format check (optional, via lefthook or similar)
+
+---
+
+## Backend Epics (BE-)
+
+### Epic BE-0: Foundation
+
+#### BE-0.1: Project Scaffolding [S]
+**As a** developer
+**I want** a Go project with module structure and dev tooling
+**So that** I have a working development environment from day one
+
+**Acceptance Criteria:**
+- `backend/cmd/server/main.go` entry point
+- `backend/go.mod` with module path
+- `task backend:run` starts the application
+- `task backend:test` runs tests
+- Hot reload with air
+- Linter configured (golangci-lint)
+
+#### BE-0.2: Configuration System [S]
+**As a** developer
+**I want** a typed configuration loaded from environment variables with validation
+**So that** all settings are centralized, documented, and fail fast on misconfiguration
+
+**Acceptance Criteria:**
+- Struct-based config with env tags
+- Validation on startup (required fields, value ranges)
+- Sensible defaults matching the reference implementation
+- Covers: site info, DB, Redis, SMTP, tracker settings, feature flags
+- No config stored in database (unlike original) - use env vars only
+
+#### BE-0.3: Database Schema & Migrations [M]
+**As a** developer
+**I want** a migration system with the initial schema using PostgreSQL with proper foreign keys, indexes, and constraints
+**So that** the data model is correct, enforced, and versioned
+
+**Acceptance Criteria:**
+- Migration tool integrated (golang-migrate, goose, or atlas)
+- All tables from reference created with:
+  - Proper foreign keys (not implicit like original)
+  - UUID or BIGINT primary keys
+  - `created_at` / `updated_at` timestamps on all tables
+  - ENUM types or check constraints for status fields
+- Junction table `user_invites` replaces space-separated invitees column
+- `password_scheme` column on users table
+- Seed data for: groups, categories, countries, languages, default admin user
+
+#### BE-0.4: Storage Abstraction Layer [M]
+**As a** developer
+**I want** a file storage interface that supports local disk and S3-compatible backends
+**So that** the application can run as multiple instances behind a load balancer
+
+**Acceptance Criteria:**
+- `FileStorage` interface with methods: `Put(ctx, key, reader)`, `Get(ctx, key) reader`, `Delete(ctx, key)`, `Exists(ctx, key) bool`, `URL(ctx, key) string`
+- Local disk implementation (for development)
+- S3-compatible implementation (MinIO, AWS S3, Backblaze B2, etc.)
+- Used for: .torrent files, NFO files, torrent images, database backups
+- Configurable via env: `STORAGE_TYPE=local|s3`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`
+- Bucket/prefix organization: `torrents/{id}.torrent`, `nfo/{id}.nfo`, `images/{id}_{n}.{ext}`
+- No file paths hardcoded anywhere in business logic
+
+#### BE-0.5: Repository Layer [M]
+**As a** developer
+**I want** a repository pattern with interfaces for all data access
+**So that** business logic is decoupled from database implementation
+
+**Acceptance Criteria:**
+- Interface per aggregate (UserRepo, TorrentRepo, PeerRepo, ForumRepo, etc.)
+- PostgreSQL implementations using sqlx or pgx
+- Context-aware (accept `context.Context`)
+- Transaction support (begin/commit/rollback helper)
+- Query builder or raw SQL (no ORM magic)
+
+#### BE-0.6: HTTP Router & Middleware Stack [S]
+**As a** developer
+**I want** an HTTP router with common middleware
+**So that** all endpoints share consistent auth, logging, and error handling
+
+**Acceptance Criteria:**
+- Router: chi, echo, or gin
+- Middleware: request logging, panic recovery, CORS, request ID
+- Rate limiter middleware (per-IP, configurable)
+- Auth middleware that extracts Bearer token, validates session, sets user in context
+- All endpoints return JSON (except announce/scrape which return bencode)
+- Error response helper: `{ "error": { "code": "...", "message": "..." } }`
+- Health check endpoint (`GET /healthz`)
+- OpenAPI/Swagger spec generation (swag or oapi-codegen)
+
+#### BE-0.7: Background Job System [S]
+**As a** developer
+**I want** a background job processor for async tasks
+**So that** request handlers don't block on slow operations
+
+**Acceptance Criteria:**
+- Job queue backed by Redis or Postgres (asynq, river, or simple goroutine pool)
+- Jobs: send email, connectivity check, cleanup, stats recalculation
+- Retry with backoff on failure
+- Logging per job execution
+
+---
+
+### Epic BE-1: Authentication & User Management
+
+#### BE-1.1: User Registration [M]
+**As a** visitor
+**I want** to create an account with username, email, and password
+**So that** I can access the tracker
+
+**Acceptance Criteria:**
+- Username validation: 3-20 chars, alphanumeric + underscore
+- Password: minimum 8 chars, hashed with Argon2id
+- Email: valid format, unique, not in banned domains list
+- First registered user gets Administrator role
+- Email confirmation flow (if enabled): generates token, sends email, confirms on click
+- Admin approval mode (if enabled): account stays pending until admin approves
+- Configurable: open registration, invite-only, or closed
+- On success: auto-login (returns access_token + refresh_token per BE-1.2)
+
+#### BE-1.2: Login & Multi-Device Session Management [M]
+**As a** registered user
+**I want** to log in from multiple devices simultaneously
+**So that** I can use the tracker from my browser, TUI client, phone, and automations at the same time
+
+**Acceptance Criteria:**
+- `POST /api/v1/auth/login` -> returns `{ access_token, refresh_token, expires_at }`
+- Verify password against stored hash (support legacy migration: SHA1, wrapped SHA1, Argon2)
+- On successful legacy verify: re-hash with Argon2 transparently
+- **Multi-device support**:
+  - Each login creates an independent session (NOT one session per user)
+  - Sessions stored in Redis: `session:{token}` -> `{user_id, device_name, ip, created_at, last_active}`
+  - Optional `device_name` parameter on login (e.g. "Firefox", "TUI", "Upload Bot")
+  - `GET /api/v1/auth/sessions` - list all active sessions for current user
+  - `DELETE /api/v1/auth/sessions/{id}` - revoke a specific session (remote logout)
+  - `DELETE /api/v1/auth/sessions` - revoke all sessions except current (panic button)
+- **Token design**:
+  - Access token: opaque, 64-char hex, short-lived (1 hour)
+  - Refresh token: opaque, 64-char hex, long-lived (30 days)
+  - `POST /api/v1/auth/refresh` -> issue new access token using refresh token
+  - Refresh token rotation: old refresh token invalidated on use
+- **API key support** (for automations/bots):
+  - `POST /api/v1/auth/api-keys` - create named API key (no expiry, manually revoked)
+  - API keys are Bearer tokens like access tokens but don't expire
+  - Scoped permissions: read-only, upload, full (user chooses on creation)
+  - `GET /api/v1/auth/api-keys` - list keys (shows name, created, last used, never shows secret)
+  - `DELETE /api/v1/auth/api-keys/{id}` - revoke key
+- Logout: `POST /api/v1/auth/logout` invalidates current session only
+- Ban check: reject login if user disabled or IP banned
+- Rate limit: max 5 failed attempts per 15 minutes per IP
+- No IP binding (sessions work across networks)
+
+#### BE-1.3: Password Recovery [S]
+**As a** user who forgot their password
+**I want** to reset it via email
+**So that** I can regain access
+
+**Acceptance Criteria:**
+- Request reset: enter email, receive link with time-limited token (1 hour)
+- Token: cryptographically random, single-use, stored hashed in DB
+- Reset: validate token, set new password (Argon2), invalidate all existing sessions
+- Rate limit: max 3 reset requests per hour per email
+- Generic response ("if this email exists...") to prevent enumeration
+
+#### BE-1.4: User Profile & Settings [M]
+**As a** logged-in user
+**I want** to view and edit my profile settings
+**So that** I can customize my experience
+
+**Acceptance Criteria:**
+- View profile: username, join date, ratio, uploaded/downloaded, class, avatar, bio
+- Edit: email (triggers re-confirmation), avatar URL, bio, signature, timezone, language, theme
+- Privacy setting: public / limited / private (controls what others see)
+- Passkey management: view current, regenerate (with grace period for old key)
+- Accept PMs toggle
+- Change password (requires current password)
+
+#### BE-1.5: User Roles & Permissions [S]
+**As an** admin
+**I want** a role-based permission system
+**So that** different user classes have different capabilities
+
+**Acceptance Criteria:**
+- Roles stored in DB with granular permissions (same 18 fields as original)
+- Default roles: Member, Power User, VIP, Uploader, Moderator, Super Mod, Admin
+- Middleware helper: `RequirePermission("edit_torrents")`
+- Role checked on every protected action
+- Admin can create/edit/delete roles (except cannot delete role with active users)
+
+#### BE-1.6: IP & Email Bans [S]
+**As an** admin
+**I want** to ban IP ranges and email domains
+**So that** I can block abusive users
+
+**Acceptance Criteria:**
+- IP bans: single IP or CIDR range, IPv4 and IPv6
+- Email bans: full address or domain wildcard
+- Checked on: registration, login
+- Admin CRUD for both ban types
+- Audit log: who banned, when, reason
+
+#### BE-1.7: User Warnings & Auto-Ban [M]
+**As an** admin
+**I want** to warn users for rule violations with automatic escalation
+**So that** moderation is consistent and partially automated
+
+**Acceptance Criteria:**
+- Manual warning: reason, expiry date, type
+- Warning notification: PM sent to user
+- Auto-warning: triggered by cleanup job when ratio < threshold AND downloaded > minimum
+- Auto-removal: when ratio improves above threshold
+- Auto-ban: if ratio not improved within warning period
+- Warning history visible to staff on user profile
+
+#### BE-1.8: Staff Page & Member List [S]
+**As a** user
+**I want** to see the staff team and browse member list
+**So that** I know who to contact and can find other users
+
+**Acceptance Criteria:**
+- Staff page: shows users whose role has staff_page=true, grouped by role
+- Online/offline indicator (configurable threshold, default 5 min)
+- Member list: paginated, searchable by username, filterable by role
+- Respects privacy settings (strong privacy hides from non-staff)
+
+---
+
+### Epic BE-2: Tracker (Announce & Scrape)
+
+#### BE-2.1: HTTP Announce Endpoint [L]
+**As a** BitTorrent client
+**I want** to announce my presence to the tracker and receive a peer list
+**So that** I can participate in the swarm
+
+**Acceptance Criteria:**
+- `GET /announce?passkey=&info_hash=&peer_id=&port=&uploaded=&downloaded=&left=&event=`
+- Passkey authentication: validate against users table
+- Info hash validation: 20-byte binary or 40-char hex
+- Peer ID validation: exactly 20 bytes
+- Port validation: 1-65535, blacklist check (DC++, Kazaa, eMule, Gnutella, WinMX ports)
+- Client agent check against banned agents list
+- Torrent lookup: must exist and not be banned
+- Event handling:
+  - **started/empty**: upsert peer record, adjust seeder/leecher counts
+  - **stopped**: delete peer record, adjust counts
+  - **completed**: increment times_completed, log in completed table
+- Stats delta: calculate upload/download since last announce, update user totals
+- Freeleech: if torrent is freeleech, don't count download against user
+- Peer list: return up to N peers (configurable, default 50) using random offset (NOT ORDER BY RAND)
+- Compact response format (BEP 23): default to compact=1
+- Dict response format: support compact=0 fallback
+- Response: bencoded dict with interval, min_interval, complete, incomplete, peers
+- Error responses: bencoded `failure reason`
+- All DB operations within a transaction
+
+#### BE-2.2: Connection Limits [S]
+**As a** tracker operator
+**I want** to limit concurrent connections per user
+**So that** account sharing is deterred
+
+**Acceptance Criteria:**
+- Max concurrent leeching slots per user (configurable, default 1)
+- Max concurrent seeding slots per user (configurable, default 3)
+- Checked for new peers only (not existing peers re-announcing)
+- Error response with clear message when limit exceeded
+
+#### BE-2.3: Wait Time System [S]
+**As a** tracker operator
+**I want** users with poor ratios to wait before downloading new torrents
+**So that** there's incentive to maintain good ratio
+
+**Acceptance Criteria:**
+- Configurable tier system (ratio threshold, GB threshold, wait hours)
+- Only applies to configurable set of user roles
+- Only applies to leechers on torrents they haven't announced for before
+- Wait time calculated from torrent added time
+- Clear error message with remaining wait time
+- Exempt: seeders, high-ratio users, privileged roles
+
+#### BE-2.4: HTTP Scrape Endpoint [S]
+**As a** BitTorrent client
+**I want** to scrape torrent statistics without announcing
+**So that** I can display swarm info in my client
+
+**Acceptance Criteria:**
+- `GET /scrape?info_hash=` (supports multiple info_hash params)
+- Returns bencoded dict with per-torrent: complete, incomplete, downloaded, name
+- No authentication required (or optional passkey)
+- Rate limited per IP
+
+#### BE-2.5: UDP Tracker Protocol [L]
+**As a** BitTorrent client
+**I want** to announce and scrape over UDP
+**So that** I get lower latency and the tracker handles more connections
+
+**Acceptance Criteria:**
+- Implement BEP 15 (UDP Tracker Protocol)
+- Connection handshake: verify protocol_id, issue connection_id with TTL
+- Announce: same logic as HTTP announce, compact response only
+- Scrape: same logic as HTTP scrape
+- IPv4 and IPv6 support on same or separate ports
+- Connection ID expiry (default 2 minutes per BEP 15)
+- Shared peer/stats logic with HTTP announce (same service layer)
+
+#### BE-2.6: Peer Cleanup Job [S]
+**As a** tracker operator
+**I want** stale peers automatically removed
+**So that** seeder/leecher counts stay accurate
+
+**Acceptance Criteria:**
+- Background job runs every N minutes (configurable, default 10)
+- Delete peers with last_action older than announce_interval * 1.5
+- Recalculate seeder/leecher counts from actual peer records
+- Update torrent visibility: hide torrents with no peers beyond dead threshold
+- Log stats: peers removed, torrents hidden
+
+#### BE-2.7: Cheating Detection [M]
+**As a** tracker operator
+**I want** basic cheating detection
+**So that** users can't fake upload/download stats
+
+**Acceptance Criteria:**
+- Detect impossible upload speed (e.g., > 100 MB/s sustained)
+- Detect upload reported but no peers downloading
+- Detect download reported but left didn't decrease proportionally
+- Flag suspicious announces in a log table (don't auto-ban)
+- Admin view: list flagged users with evidence
+- Configurable thresholds
+
+---
+
+### Epic BE-3: Torrent Management
+
+#### BE-3.1: Upload Torrent [L]
+**As an** uploader
+**I want** to upload a .torrent file with metadata
+**So that** others can download it
+
+**Acceptance Criteria:**
+- Parse .torrent file: extract info_hash, name, size, file list, announce URLs
+- Rewrite announce URL to tracker's own URL (strip external announces for local torrents)
+- Duplicate detection: reject if info_hash already exists
+- Required fields: torrent file, category
+- Optional fields: name (defaults from torrent), description (Markdown), language, images (up to 2), NFO file, anonymous flag
+- Image validation: max size, allowed types (JPEG, PNG, WEBP, GIF), verify with image decoder
+- NFO validation: max 65KB, text file
+- Store .torrent file via `FileStorage` interface (BE-0.4) - works with local disk or S3
+- External torrent support: if announce URL doesn't match tracker, mark as external
+- Permission check: can_upload, optional uploader-only mode (min role)
+
+#### BE-3.2: Download Torrent File [S]
+**As a** user
+**I want** to download the .torrent file with my passkey embedded
+**So that** my client can connect to the tracker authenticated
+
+**Acceptance Criteria:**
+- `GET /download/{id}`
+- Requires authentication
+- Permission check: can_download
+- Read .torrent file, BDecode, replace announce URL with user's passkey URL, BEncode
+- Remove announce-list (multi-tracker) for local torrents
+- External torrents: serve unmodified
+- Increment hit counter
+- Response: `Content-Type: application/x-bittorrent`, `Content-Disposition: attachment`
+- Generate passkey on-the-fly if user doesn't have one
+
+#### BE-3.3: Browse & List Torrents [M]
+**As a** user
+**I want** to browse available torrents with filtering and sorting
+**So that** I can find content to download
+
+**Acceptance Criteria:**
+- `GET /torrents?cat=&sort=&order=&page=`
+- Filters: category, parent category, multiple categories
+- Sorting: name, added, size, seeders, leechers, completed, comments
+- Pagination: configurable page size (default 25)
+- Only show visible=true, banned=false
+- Response includes: name, category, size, seeders, leechers, completed, added, comments count, rating, freeleech flag, uploader (or "Anonymous")
+- Respect user privacy settings for uploader name
+
+#### BE-3.4: Torrent Detail Page [M]
+**As a** user
+**I want** to see full details about a torrent
+**So that** I can decide whether to download it
+
+**Acceptance Criteria:**
+- `GET /torrents/{id}`
+- Full metadata: name, description, category, language, size, info_hash, uploader, dates, all stats
+- File list with sizes
+- Peer list (local torrents): IP hidden, shows uploaded/downloaded/ratio/client/connectable
+- Comments: paginated, with user info
+- Rating: current average and vote count
+- NFO content (if present)
+- Download link
+- Health indicator (based on seeder/leecher ratio)
+- External torrents: show external tracker stats
+- Banned torrents: only visible to staff
+
+#### BE-3.5: Search Torrents [M]
+**As a** user
+**I want** to search torrents by keyword and filters
+**So that** I can find specific content
+
+**Acceptance Criteria:**
+- `GET /torrents/search?q=&cat=&lang=&alive=&freeleech=`
+- Full-text search on torrent name (Postgres `tsvector` or trigram index)
+- All filters from browse endpoint
+- Additional filters: alive only, dead only, freeleech only, local only, external only
+- Paginated results
+- Minimum query length: 2 characters
+
+#### BE-3.6: Edit & Delete Torrent [S]
+**As a** torrent owner or moderator
+**I want** to edit or delete a torrent
+**So that** I can fix mistakes or remove bad content
+
+**Acceptance Criteria:**
+- Edit: name, description, category, language, visible, anonymous, images, NFO
+- Staff-only edits: banned, freeleech
+- Permission: owner OR edit_torrents role
+- Delete: requires reason, removes DB record + files
+- If deleter != owner: send PM to owner with reason
+- All actions logged
+
+#### BE-3.7: Comments & Ratings [M]
+**As a** user
+**I want** to comment on and rate torrents
+**So that** I can share feedback
+
+**Acceptance Criteria:**
+- Add comment: requires login, non-empty body (Markdown)
+- Edit comment: author or moderator
+- Delete comment: moderator only
+- Rating: 1-5 scale, one vote per user per torrent
+- Average rating displayed when >= 2 votes
+- Comments paginated (default 20/page)
+
+#### BE-3.8: Reporting System [S]
+**As a** user
+**I want** to report rule-breaking content
+**So that** moderators can take action
+
+**Acceptance Criteria:**
+- Reportable: torrents, users, comments, forum posts
+- Requires reason
+- One report per user per item (prevent spam)
+- Admin view: list reports, filter by type/status, mark as resolved
+- Resolved reports keep history
+
+#### BE-3.9: Reseed Request [S]
+**As a** user
+**I want** to request a reseed for a dead torrent
+**So that** it becomes downloadable again
+
+**Acceptance Criteria:**
+- Only for local, non-banned torrents with 0 seeders
+- Rate limit: one request per torrent per 24h per user (server-side, NOT cookie)
+- Sends PM to all users who completed the torrent + torrent owner
+- Queued as background job (could be hundreds of PMs)
+
+#### BE-3.10: RSS Feed [S]
+**As a** user
+**I want** an RSS feed of new torrents
+**So that** I can auto-download with my client
+
+**Acceptance Criteria:**
+- `GET /rss?cat=&passkey=`
+- RSS 2.0 or Atom format
+- Filters: category, language
+- Passkey auth for download links
+- Last 50 torrents
+- Each item: title, link (details or download), size, category, seeders/leechers, date
+
+#### BE-3.11: Categories & Languages [S]
+**As an** admin
+**I want** to manage torrent categories and languages
+**So that** content is organized
+
+**Acceptance Criteria:**
+- Categories: hierarchical (parent -> child), with image/icon
+- CRUD for categories (admin only)
+- CRUD for torrent languages (admin only)
+- Reorder support
+- Prevent delete if torrents exist in category (or force reassign)
+
+#### BE-3.12: @Mention Search Endpoint [S]
+**As a** frontend developer
+**I want** a user search endpoint for @mention autocomplete
+**So that** users can be mentioned in comments and forum posts
+
+**Acceptance Criteria:**
+- `GET /api/v1/users/search?q=prefix`
+- Returns matching users (id, username, avatar) limited to 10 results
+- Prefix match on username
+- Requires authentication
+- Used by frontend for typeahead in comment/post editors
+
+---
+
+### Epic BE-4: Invitation System
+
+#### BE-4.1: Send & Redeem Invites [M]
+**As a** user with available invites
+**I want** to invite someone by email
+**So that** they can join the tracker
+
+**Acceptance Criteria:**
+- Requires invites > 0 and total users < max
+- Validate email: format, not banned, not already registered
+- Create invite record in `user_invites` table (not a dummy user like original)
+- Store: inviter_id, email, token (random), created_at, expires_at, status
+- Send email with signup link containing token
+- Signup with invite: token validates, email pre-filled, account confirmed immediately
+- Decrement inviter's invite count on send
+- Expire unused invites after configurable period (default 7 days)
+
+#### BE-4.2: Auto-Invite Distribution [S]
+**As a** tracker operator
+**I want** invites distributed automatically based on user activity
+**So that** active users can grow the community
+
+**Acceptance Criteria:**
+- Background job: runs on configurable interval
+- Criteria: downloaded GB range, ratio threshold
+- Max invites per role (configurable)
+- Don't exceed per-role cap (check current count before adding)
+- Log distributions
+
+---
+
+### Epic BE-5: Forum
+
+#### BE-5.1: Forum Structure & Browsing [M]
+**As a** user
+**I want** to browse forum categories and topics
+**So that** I can participate in discussions
+
+**Acceptance Criteria:**
+- Forum categories -> Forums -> Topics -> Posts hierarchy
+- Forum index: list all forums with topic count, post count, last post info
+- Forum view: list topics (paginated, 20/page), sticky first, then by last post
+- Topic view: list posts (paginated, 20/page), with user info per post
+- Read tracking: track last read post per topic per user
+- Unread indicators on forums and topics
+- Permission: minclassread per forum, guest_read flag
+- View count per topic (increment on view)
+- "Mark all read" bulk action
+
+#### BE-5.2: Create Topics & Threaded Replies [M]
+**As a** user
+**I want** to create topics and reply to specific posts
+**So that** conversations have clear context and threading
+
+**Acceptance Criteria:**
+- Create topic: subject (max 200 chars) + body (Markdown)
+- **Reply to topic** (flat): adds post at the end of the thread
+- **Reply to specific post** (threaded): adds post with `reply_to_post_id` reference
+  - Response includes quoted snippet of parent post (auto-generated)
+  - API returns `reply_to` field so frontend can render threading or flat view
+  - Does NOT force tree-view - frontend decides how to display (flat with quote, indented, etc.)
+- Permission: minclasswrite per forum
+- Updates topic's lastpost reference
+- Forum-banned users cannot post
+- **@mention support**: `@username` in post body
+  - Auto-linked to user profile in rendered output
+  - Triggers notification (see BE-5.6)
+
+#### BE-5.3: Edit & Delete Posts [S]
+**As a** post author or moderator
+**I want** to edit or delete posts
+**So that** content can be corrected or removed
+
+**Acceptance Criteria:**
+- Edit: author or edit_forum permission, tracks editedby and editedat
+- Edit history: store previous version (at least last revision, for mod review)
+- Delete post: delete_forum permission, cannot delete if only post in topic
+- Delete topic: delete_forum permission, deletes all posts and read tracking
+- Soft delete option: post body replaced with "[deleted]" but record preserved (for threading integrity)
+
+#### BE-5.4: Moderation Tools [S]
+**As a** moderator
+**I want** to lock, sticky, move, and rename topics
+**So that** I can keep the forum organized
+
+**Acceptance Criteria:**
+- Lock/unlock: prevents new replies
+- Sticky/unsticky: pins to top of forum
+- Move: change topic's forum (validates destination permissions)
+- Rename: change topic subject
+- All require edit_forum or delete_forum permission
+- Merge topics: combine two topics into one (advanced, optional)
+
+#### BE-5.5: Forum Search [S]
+**As a** user
+**I want** to search forum posts
+**So that** I can find past discussions
+
+**Acceptance Criteria:**
+- Full-text search on post body AND topic subject (Postgres tsvector)
+- Results: post snippet with keyword highlighting, topic title, forum name, author, date
+- Paginated (50 results per page)
+- Respects forum read permissions
+- Filter by: forum, author, date range
+
+#### BE-5.6: Notification Infrastructure [M]
+**As a** developer
+**I want** a unified notification system with event bus and delivery engine
+**So that** all notification triggers share common infrastructure
+
+**Acceptance Criteria:**
+- `notifications` table: id, user_id, type, data (JSONB), read, created_at
+- Event bus: publish/subscribe pattern for notification triggers
+- Delivery engine: processes events, creates notification records, dispatches to channels
+- `GET /api/v1/notifications` - list user's notifications (paginated)
+- `PATCH /api/v1/notifications/{id}` - mark read
+- `PATCH /api/v1/notifications/read-all` - mark all read
+- Unread count endpoint or response header
+- **Notification types** (extensible):
+  - `forum_reply` - someone replied to your post
+  - `forum_mention` - someone @mentioned you in a forum post
+  - `forum_topic_reply` - new post in a subscribed topic
+  - `chat_mention` - someone @mentioned you in chat
+  - `pm_received` - new private message
+  - `torrent_comment` - someone commented on your torrent
+  - `system` - system notifications (warnings, ratio alerts, etc.)
+
+#### BE-5.7: Forum Notification Triggers [S]
+**As a** user
+**I want** to be notified when someone replies to my post or mentions me
+**So that** I don't miss relevant discussions
+
+**Acceptance Criteria:**
+- Trigger on: reply to my post (reply_to_post_id points to my post)
+- Trigger on: @mention in any forum post
+- Trigger on: new post in a topic I'm subscribed to
+- Auto-subscribe on: topic creation, posting in topic (configurable per user)
+- Uses notification infrastructure from BE-5.6
+
+#### BE-5.8: Subscription Management API [S]
+**As a** user
+**I want** to subscribe/unsubscribe to topics and forums
+**So that** I control which discussions I follow
+
+**Acceptance Criteria:**
+- `POST /api/v1/forum/topics/{id}/subscribe` - watch a topic
+- `DELETE /api/v1/forum/topics/{id}/subscribe` - unwatch
+- Auto-subscribe on: topic creation, posting in topic (configurable per user)
+- Mute: override subscription for specific noisy topics
+- **User preferences** (in user_settings):
+  - Per-type toggle: enable/disable each notification type
+  - Delivery method per type: in-app only, in-app + email, off
+
+#### BE-5.9: Notification Delivery [M]
+**As a** user
+**I want** notifications delivered via multiple channels
+**So that** I receive them however I prefer
+
+**Acceptance Criteria:**
+- In-app: stored in notifications table, returned via API
+- Email digest: configurable (immediate, daily summary, off)
+- WebSocket push: if user is connected, push notification events in real-time
+- Batching: group multiple notifications of same type (e.g., "5 new replies in topic X")
+- Email sent as background job (via BE-0.7)
+
+---
+
+### Epic BE-6: Real-Time Chat (Shoutbox Replacement)
+
+#### BE-6.1: WebSocket Chat [M]
+**As a** user
+**I want** a real-time chat on the homepage
+**So that** I can communicate with other users instantly
+
+**Acceptance Criteria:**
+- WebSocket endpoint: `ws:///ws/chat`
+- Authentication: validate Bearer token (access token or API key) on connect handshake
+- Send message: broadcast to all connected users
+- Receive message: real-time push (no polling)
+- Message format: `{ id, user: {id, username, role}, message, timestamp }`
+- Duplicate prevention: reject identical message from same user within 10 seconds
+- Persist messages to DB (last N messages for history)
+- On connect: send last 50 messages as backfill
+- Markdown formatting support
+- **@mention support**: `@username` in message body
+  - Triggers notification via BE-5.6 notification system (type: `chat_mention`)
+  - If mentioned user is connected: highlighted message in their chat stream
+  - If mentioned user is offline: in-app notification + optional email
+- **Scalability**: if running multiple instances, use Redis pub/sub to broadcast messages across instances
+
+#### BE-6.2: Chat Moderation [S]
+**As a** moderator
+**I want** to delete chat messages
+**So that** I can remove inappropriate content
+
+**Acceptance Criteria:**
+- Delete by message ID: author or edit_users permission
+- Broadcast deletion to all connected clients (message disappears in real-time)
+- Logged with moderator info
+
+#### BE-6.3: Chat History [S]
+**As a** user
+**I want** to view older chat messages
+**So that** I can catch up on conversations I missed
+
+**Acceptance Criteria:**
+- `GET /chat/history?page=&per_page=`
+- Paginated (100 per page)
+- Requires login
+
+---
+
+### Epic BE-7: Private Messaging
+
+#### BE-7.1: Send & Receive Messages [M]
+**As a** user
+**I want** to send private messages to other users
+**So that** I can communicate privately
+
+**Acceptance Criteria:**
+- Compose: select recipient, subject, body (Markdown)
+- Recipient validation: exists, enabled, confirmed, accepts PMs (or sender is staff)
+- Inbox: received messages, paginated, sortable by date/sender/subject
+- Outbox: sent messages (if save copy enabled)
+- Read/unread tracking
+- Mark as read: on view or bulk action
+- Delete: soft delete per side (sender/receiver independent)
+- Unread count in navigation/header
+
+#### BE-7.2: Drafts & Templates [S]
+**As a** user
+**I want** to save message drafts and templates
+**So that** I can compose messages later or reuse common messages
+
+**Acceptance Criteria:**
+- Save draft: stores incomplete message for later editing
+- Save template: stores reusable message pattern
+- Load template into compose form
+- List/delete drafts and templates
+
+#### BE-7.3: PM Notifications [S]
+**As a** user
+**I want** to be notified of new messages
+**So that** I don't miss important communication
+
+**Acceptance Criteria:**
+- Uses unified notification system from BE-5.6 (type: `pm_received`)
+- Email notification (if user opted in) - sent as background job
+- Unread badge count (API returns count, frontend displays)
+- WebSocket push: if user is connected, push notification in real-time
+- System messages: sent by "System" user for automated notifications (warnings, reseed requests, etc.)
+
+---
+
+### Epic BE-8: Admin Panel
+
+#### BE-8.1: Admin Dashboard & Site Settings [M]
+**As an** admin
+**I want** a control panel to manage site settings
+**So that** I can configure the tracker
+
+**Acceptance Criteria:**
+- Requires control_panel permission
+- Dashboard: user count, torrent count, peer count, traffic stats
+- Site settings: all configuration values (site name, URL, feature flags, limits, etc.)
+- Settings stored in DB (overrides env vars for runtime-configurable values)
+
+#### BE-8.2: User Management [M]
+**As an** admin
+**I want** to search, view, edit, and moderate users
+**So that** I can manage the community
+
+**Acceptance Criteria:**
+- Search: by username, email, IP, role, status
+- View: full profile with all fields, stats, invite history, warning history, mod notes
+- Edit: role, title, uploaded/downloaded, avatar, signature, enabled, passkey reset
+- Promote/demote (cannot promote above own level)
+- Delete account with reason (logged)
+- Warning management (add/remove/view)
+- Mod notes (staff-only field)
+
+#### BE-8.3: Torrent & Content Moderation [S]
+**As an** admin
+**I want** to manage torrents and content
+**So that** I can maintain site quality
+
+**Acceptance Criteria:**
+- Search torrents by name, info_hash
+- Ban/unban torrents
+- Toggle freeleech per torrent
+- View/manage all reports (filter by type, status)
+- Bulk actions: ban multiple, delete multiple
+- View all freeleech torrents, all banned torrents
+
+#### BE-8.4: News Management [S]
+**As an** admin
+**I want** to post and manage site news
+**So that** I can communicate with users
+
+**Acceptance Criteria:**
+- CRUD for news articles (Markdown)
+- News displayed on homepage
+- Comments on news (same system as torrent comments)
+- Delete news also deletes associated comments
+
+#### BE-8.5: Forum Administration [S]
+**As an** admin
+**I want** to manage forum structure
+**So that** the forum stays organized
+
+**Acceptance Criteria:**
+- CRUD for forum categories
+- CRUD for forums (name, description, read/write permissions, guest access)
+- Reorder forums and categories
+- Forum-ban individual users
+
+#### BE-8.6: Logs & Monitoring [S]
+**As an** admin
+**I want** to view system logs and activity
+**So that** I can audit actions and troubleshoot issues
+
+**Acceptance Criteria:**
+- Activity log: all admin actions, searchable, paginated
+- Current peers: list all active peers with stats
+- Online users: who's currently active
+- SQL/application error log (or integrate with external logging)
+
+#### BE-8.7: Database Backup [S]
+**As an** admin
+**I want** to create and download database backups
+**So that** I have disaster recovery capability
+
+**Acceptance Criteria:**
+- Trigger backup via admin panel
+- Creates pg_dump compressed file
+- Download backup file
+- List/delete old backups
+- Optional: scheduled backups via cron job
+
+---
+
+### Epic BE-9: Cleanup & Maintenance Jobs
+
+#### BE-9.1: Scheduled Cleanup Job [M]
+**As a** tracker operator
+**I want** automated maintenance tasks
+**So that** the system stays healthy without manual intervention
+
+**Acceptance Criteria:**
+- Runs on configurable interval (default 10 minutes)
+- Tasks:
+  - Remove stale peers (last_action > announce_interval * 1.5)
+  - Recalculate torrent seeder/leecher counts from peers table
+  - Hide dead torrents (no peers > configurable threshold)
+  - Delete expired pending registrations
+  - Remove expired invite tokens
+  - Prune old log entries (> configurable retention)
+  - Deactivate expired warnings
+- Each task independently toggleable
+- Execution logged with stats (rows affected)
+
+#### BE-9.2: Ratio Warning Automation [S]
+**As a** tracker operator
+**I want** automatic ratio warnings and bans
+**So that** ratio enforcement is consistent
+
+**Acceptance Criteria:**
+- Configurable: min ratio, min downloaded GB, warning period
+- Auto-warn: users below ratio with enough download to judge
+- Auto-remove: warnings where ratio improved
+- Auto-ban: users who didn't improve within warning period
+- PM sent for each action (via background job)
+
+---
+
+### Epic BE-10: Protocol Support
+
+#### BE-10.1: BEncode Library [S]
+**As a** developer
+**I want** a bencode encoder/decoder for Go structs
+**So that** tracker endpoints speak the BitTorrent protocol
+
+**Acceptance Criteria:**
+- BEncode library: encode/decode Go structs to/from bencode
+- Used by: announce, scrape, torrent file parsing, torrent file rewriting
+- Support: integers, strings, lists, dicts
+- Dict keys sorted alphabetically per spec
+- Handle binary data (info_hash, peer_id) correctly
+- Well-tested with real-world .torrent files
+
+> **Note on API design**: This project is API-first by design. ALL features are JSON REST
+> endpoints under `/api/v1/...`. The only non-JSON endpoints are `/announce` and `/scrape`
+> (bencode) and `/ws/chat` (WebSocket). Every story implicitly exposes its functionality
+> as JSON API endpoints. The OpenAPI spec is auto-generated from route definitions (BE-0.6).
+> This means any client (web SPA, TUI, mobile browser, automation scripts, Upload-Assistant
+> integrations) can consume the full API with Bearer token auth (BE-1.2).
+
+---
+
+## Frontend Epics (FE-)
+
+### Epic FE-0: Frontend Foundation [L]
+
+#### FE-0.1: React + Vite + TypeScript Setup [S]
+**As a** frontend developer
+**I want** a modern React project with TypeScript and fast dev tooling
+**So that** I can build the UI efficiently
+
+**Acceptance Criteria:**
+- `frontend/` directory with Vite + React + TypeScript
+- ESLint + Prettier configured
+- Path aliases (`@/components`, `@/features`, etc.)
+- `task frontend:dev` starts dev server with HMR
+- `task frontend:build` produces production bundle
+- `task frontend:test` runs vitest
+
+#### FE-0.2: Theme System [M]
+**As a** user
+**I want** to switch between light and dark themes
+**So that** I can use the site comfortably in any lighting
+
+**Acceptance Criteria:**
+- CSS custom properties for all theme tokens (colors, spacing, typography)
+- `ThemeProvider` React context
+- Default theme (light) and dark theme
+- Theme preference persisted in localStorage and synced to user settings API
+- `prefers-color-scheme` media query respected as default
+- Theme tokens documented for future theme creation
+
+#### FE-0.3: Routing + Layout [M]
+**As a** user
+**I want** consistent navigation and page layout
+**So that** I can move around the site easily
+
+**Acceptance Criteria:**
+- React Router with route configuration
+- Layout components: header (nav, user menu, notifications), footer, sidebar
+- Responsive breakpoints (mobile, tablet, desktop)
+- Protected route wrapper (redirects to login if unauthenticated)
+- Admin route wrapper (redirects if not admin)
+- Loading states and error boundaries per route
+
+#### FE-0.4: API Client Generation [S]
+**As a** frontend developer
+**I want** a type-safe API client generated from the OpenAPI spec
+**So that** I never hand-write API calls or guess response types
+
+**Acceptance Criteria:**
+- Auto-generate TypeScript API client from backend's OpenAPI spec
+- `task generate:api-client` regenerates on spec changes
+- Axios or fetch-based, with interceptors for auth token injection and refresh
+- All endpoints fully typed (request params, body, response)
+
+#### FE-0.5: Auth State Management [M]
+**As a** user
+**I want** to log in, stay logged in, and be redirected appropriately
+**So that** authentication is seamless
+
+**Acceptance Criteria:**
+- Auth context with: user, isAuthenticated, login(), logout(), isLoading
+- Token storage in memory (access token) + httpOnly cookie or localStorage (refresh token)
+- Automatic token refresh on 401 response
+- Login page with form validation
+- Redirect to intended page after login
+- Logout clears state and redirects to home
+
+#### FE-0.6: Shared Components Library [L]
+**As a** frontend developer
+**I want** reusable UI components
+**So that** pages are consistent and development is faster
+
+**Acceptance Criteria:**
+- `DataTable`: sortable columns, pagination, row selection, loading state
+- `Pagination`: page numbers, prev/next, configurable page size
+- `Form` components: Input, Select, Textarea, Checkbox, Radio, with validation integration
+- `Modal`: accessible dialog with overlay, close on escape/outside click
+- `Toast` notifications: success, error, info, auto-dismiss
+- `BBCode/Markdown Editor`: toolbar with common formatting, preview toggle
+- `Avatar`: user avatar with fallback to initials
+- `Badge`: role badges, status indicators
+- All components theme-aware (use CSS custom properties)
+
+---
+
+### Epic FE-1: Public Pages [L]
+
+#### FE-1.1: Home/Dashboard [M]
+**As a** user
+**I want** a homepage with site activity at a glance
+**So that** I can see what's new
+
+**Acceptance Criteria:**
+- News feed (latest news articles)
+- Latest torrents list
+- Site stats summary (users, torrents, peers, traffic)
+- Shoutbox widget (embedded chat from FE-4.1)
+- Responsive layout
+
+#### FE-1.2: Login, Signup, Password Recovery Pages [M]
+**As a** visitor
+**I want** to create an account, log in, or recover my password
+**So that** I can access the tracker
+
+**Acceptance Criteria:**
+- Login form with username/email + password
+- Signup form with all required fields, client-side validation
+- CAPTCHA support (optional, configurable)
+- Email verification flow page
+- Password recovery: enter email, confirmation message, reset form
+- Error handling with clear user messages
+
+#### FE-1.3: Torrent Browse + Search [L]
+**As a** user
+**I want** to browse and search torrents with filters
+**So that** I can find content to download
+
+**Acceptance Criteria:**
+- Category filter (hierarchical, collapsible)
+- Sort by: name, date, size, seeders, leechers, completed
+- Pagination with configurable page size
+- Health indicators: green (well-seeded), yellow (few seeders), red (dead)
+- Freeleech badge
+- Search bar with instant filter
+- URL-persisted filters (shareable search URLs)
+
+#### FE-1.4: Torrent Detail Page [L]
+**As a** user
+**I want** to see everything about a torrent
+**So that** I can decide whether to download
+
+**Acceptance Criteria:**
+- Description (rendered Markdown)
+- File list (collapsible tree for multi-file torrents)
+- Peer list with stats (seeders/leechers, upload speed, client)
+- Comments section with pagination and reply
+- Rating widget (1-5 stars, click to rate)
+- Download button (generates .torrent with passkey)
+- NFO viewer (if available)
+- Report button
+- Reseed request button (if dead)
+- Edit button (if owner or moderator)
+
+#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S]
+**As a** user
+**I want** quick-access filtered views
+**So that** I can find torrents matching specific criteria
+
+**Acceptance Criteria:**
+- Today's torrents: uploaded in last 24h
+- Need seed: torrents with 0 seeders
+- Completed: user's download history
+- Reuses torrent list component with pre-set filters
+
+#### FE-1.6: RSS Feed Builder Page [S]
+**As a** user
+**I want** to configure a personal RSS feed
+**So that** I can auto-download torrents matching my preferences
+
+**Acceptance Criteria:**
+- Category multi-select
+- Language filter
+- Shows preview of matching torrents
+- Generates RSS URL with passkey (copy to clipboard)
+- Warning about sharing passkey
+
+---
+
+### Epic FE-2: User Pages [L]
+
+#### FE-2.1: User Control Panel [M]
+**As a** user
+**I want** to manage my profile and settings
+**So that** I can customize my experience
+
+**Acceptance Criteria:**
+- Profile edit: avatar upload, bio, signature (Markdown editor)
+- Settings: theme, timezone, privacy level, notification preferences
+- Password change (requires current password)
+- Email change (triggers re-verification)
+- Active sessions list with revoke button
+- API keys management (create, list, revoke)
+
+#### FE-2.2: User Profile Page [M]
+**As a** user
+**I want** to view other users' profiles
+**So that** I can see their stats and activity
+
+**Acceptance Criteria:**
+- Public info: username, join date, role, avatar, bio
+- Stats: uploaded, downloaded, ratio, seeding/leeching count
+- Recent uploads (if not anonymous)
+- Respects privacy settings
+- Staff view: additional info (IP, email, warnings, mod notes)
+- Send PM button, report button
+
+#### FE-2.3: Torrent Upload Page [M]
+**As an** uploader
+**I want** to upload a torrent with metadata
+**So that** it's available for download
+
+**Acceptance Criteria:**
+- .torrent file drag-and-drop or file picker
+- Auto-fill name from torrent file
+- Category select (hierarchical)
+- Language select
+- Description editor (Markdown with preview)
+- Image upload (up to 2)
+- NFO file upload
+- Anonymous upload checkbox
+- Client-side validation before submit
+
+#### FE-2.4: Torrent Edit Page [S]
+**As a** torrent owner or moderator
+**I want** to edit a torrent's metadata
+**So that** I can fix mistakes
+
+**Acceptance Criteria:**
+- Same form as upload but pre-filled
+- Staff-only fields: banned, freeleech
+- Save and cancel buttons
+- Shows audit info (who last edited, when)
+
+#### FE-2.5: Private Messages [M]
+**As a** user
+**I want** to send and receive private messages
+**So that** I can communicate with others privately
+
+**Acceptance Criteria:**
+- Inbox with unread indicators, pagination, sorting
+- Outbox (sent messages)
+- Compose form with user search/autocomplete for recipient
+- Message view with reply button
+- Delete (per-side)
+- Drafts list
+- Templates list (load into compose)
+
+#### FE-2.6: Invite System Page [S]
+**As a** user
+**I want** to manage my invites
+**So that** I can invite friends to the tracker
+
+**Acceptance Criteria:**
+- Available invite count
+- Send invite form (email)
+- Invite history (sent invites with status: pending, accepted, expired)
+- Invite tree (who invited whom, if enabled)
+
+#### FE-2.7: Member List + Staff Page [S]
+**As a** user
+**I want** to browse members and see staff
+**So that** I can find users and know who to contact
+
+**Acceptance Criteria:**
+- Member list: paginated, searchable by username, filterable by role
+- Staff page: grouped by role, online/offline indicator
+- Click through to user profile
+
+#### FE-2.8: Report Dialog [S]
+**As a** user
+**I want** to report content easily
+**So that** moderators can handle rule violations
+
+**Acceptance Criteria:**
+- Reusable modal component (used for torrents, comments, users, forum posts)
+- Reason text field (required)
+- Confirmation on submit
+- Rate limit feedback if too many reports
+
+#### FE-2.9: NFO Viewer [S]
+**As a** user
+**I want** to view NFO files properly
+**So that** I can read release information
+
+**Acceptance Criteria:**
+- Monospace font rendering
+- ANSI art support (CP437 character set)
+- Contained within a scrollable, fixed-width container
+- Optional raw text download
+
+---
+
+### Epic FE-3: Forum [L]
+
+#### FE-3.1: Forum Index [M]
+**As a** user
+**I want** to browse forum categories and forums
+**So that** I can find discussions
+
+**Acceptance Criteria:**
+- Categories with collapsible forum lists
+- Per-forum: topic count, post count, last post info
+- Unread indicators (bold for forums with new posts)
+- "Mark all read" button
+- Responsive layout
+
+#### FE-3.2: Topic List [M]
+**As a** user
+**I want** to browse topics in a forum
+**So that** I can find interesting discussions
+
+**Acceptance Criteria:**
+- Sticky topics pinned to top
+- Status icons: locked, sticky, hot (many replies)
+- Sorting: last post, creation date, replies
+- Pagination
+- Unread indicator per topic
+- New topic button
+
+#### FE-3.3: Topic View [L]
+**As a** user
+**I want** to read and participate in a topic
+**So that** I can discuss with other users
+
+**Acceptance Criteria:**
+- Posts displayed with user info sidebar (avatar, role, join date, post count)
+- Quoting: click "quote" to insert quoted text into reply editor
+- Reply editor: Markdown/BBCode with toolbar and preview
+- @mention autocomplete in editor
+- Pagination for long topics
+- Reply-to threading: visual indication of which post is being replied to
+- Edit/delete buttons (for own posts or moderators)
+- Subscribe/unsubscribe toggle
+
+#### FE-3.4: Forum Search [S]
+**As a** user
+**I want** to search forum content
+**So that** I can find past discussions
+
+**Acceptance Criteria:**
+- Search by keyword
+- Filter by forum, author, date range
+- Results show post snippet with highlighted keywords
+- Click through to post in topic
+
+#### FE-3.5: Forum Moderation Tools [M]
+**As a** moderator
+**I want** to manage topics and posts
+**So that** the forum stays organized
+
+**Acceptance Criteria:**
+- Lock/unlock topic
+- Sticky/unsticky topic
+- Move topic to different forum
+- Delete topic (with confirmation)
+- Delete individual posts
+- Merge topics (select target topic)
+- All actions available inline (not separate admin page)
+
+---
+
+### Epic FE-4: Real-Time Features [M]
+
+#### FE-4.1: WebSocket Chat/Shoutbox [M]
+**As a** user
+**I want** a real-time chat widget
+**So that** I can communicate with other users instantly
+
+**Acceptance Criteria:**
+- WebSocket connection with auto-reconnect
+- Message list with auto-scroll
+- Send message input with Enter to send
+- Markdown rendering in messages
+- @mention autocomplete
+- User role badges next to names
+- Moderator: delete message button
+- Embeddable as widget (homepage) or full page
+- Connection status indicator
+
+#### FE-4.2: Notification System [M]
+**As a** user
+**I want** to receive real-time notifications
+**So that** I know when something relevant happens
+
+**Acceptance Criteria:**
+- Bell icon in header with unread count badge
+- Dropdown list of recent notifications
+- Click notification to navigate to source (topic, PM, torrent)
+- Mark as read on click or bulk "mark all read"
+- Real-time push via WebSocket (new notifications appear without refresh)
+- Notification preferences page (per-type toggles)
+
+#### FE-4.3: Online Users Indicator [S]
+**As a** user
+**I want** to see who's online
+**So that** I know if the community is active
+
+**Acceptance Criteria:**
+- Online users count in footer or sidebar
+- Optional: list of online usernames (respects privacy settings)
+- Updates periodically (polling or WebSocket)
+
+---
+
+### Epic FE-5: Admin Panel [L]
+
+#### FE-5.1: Admin Dashboard [M]
+**As an** admin
+**I want** an overview of site health and activity
+**So that** I can quickly assess the system
+
+**Acceptance Criteria:**
+- Stats cards: total users, torrents, peers, traffic (24h)
+- Recent activity feed (registrations, uploads, reports)
+- Quick action buttons (create news, manage reports)
+- System health indicators (DB connection, Redis, storage)
+
+#### FE-5.2: User Management [L]
+**As an** admin
+**I want** to search, view, and moderate users
+**So that** I can manage the community
+
+**Acceptance Criteria:**
+- Search/filter: username, email, IP, role, status, ratio range
+- User detail view: all profile data, stats, invite history, warnings, mod notes
+- Edit user: role, title, stats override, avatar, enabled/disabled
+- Actions: warn, ban, promote/demote, reset passkey, delete
+- Mod notes: add/view staff-only notes
+- Bulk actions: select multiple users for group changes
+
+#### FE-5.3: Content Moderation [M]
+**As an** admin
+**I want** to manage torrents and review reports
+**So that** site content stays clean
+
+**Acceptance Criteria:**
+- Reports queue with filter by type (torrent/comment/user/forum) and status
+- Report detail: reported content, reporter, reason, actions taken
+- Resolve report with action (dismiss, warn, ban, delete content)
+- Torrent moderation: search, ban/unban, toggle freeleech
+- Bulk torrent actions
+
+#### FE-5.4: News Management [S]
+**As an** admin
+**I want** to create and manage site news
+**So that** I can communicate with users
+
+**Acceptance Criteria:**
+- News list with edit/delete buttons
+- Create/edit form with Markdown editor and preview
+- Publish/unpublish toggle
+
+#### FE-5.5: Category & Language Management [S]
+**As an** admin
+**I want** to manage torrent categories and languages
+**So that** content organization evolves with the community
+
+**Acceptance Criteria:**
+- Category list with drag-to-reorder
+- Create/edit category: name, parent, image/icon
+- Language list with CRUD
+- Warning before deleting category with existing torrents
+
+#### FE-5.6: Site Settings Editor [M]
+**As an** admin
+**I want** to configure site settings from the admin panel
+**So that** I don't need to edit environment variables for runtime settings
+
+**Acceptance Criteria:**
+- Settings grouped by category (general, tracker, registration, etc.)
+- Form inputs appropriate to setting type (text, number, boolean, select)
+- Save with validation
+- Indication of which settings require restart vs. take effect immediately
+
+#### FE-5.7: Logs Viewer [S]
+**As an** admin
+**I want** to browse system and audit logs
+**So that** I can troubleshoot issues and review actions
+
+**Acceptance Criteria:**
+- Filterable by: action type, user, date range
+- Paginated results
+- Log detail view
+- Export/download option
+
+#### FE-5.8: IP/Email Bans Management [S]
+**As an** admin
+**I want** to manage IP and email bans
+**So that** I can block abusive users
+
+**Acceptance Criteria:**
+- Ban list with search and filter
+- Add ban: IP (single or CIDR), email (address or domain wildcard)
+- Remove ban
+- Shows who created the ban and when
+
+#### FE-5.9: Cheat Detection Dashboard [M]
+**As an** admin
+**I want** to review flagged users and ratio anomalies
+**So that** I can investigate potential cheating
+
+**Acceptance Criteria:**
+- Flagged users list with evidence summary
+- Click through to user detail with suspicious announce logs
+- Actions: dismiss flag, warn user, ban user
+- Ratio anomaly charts (upload/download over time)
+
+---
+
+### Epic FE-6: Static/Info Pages [S]
+
+#### FE-6.1: FAQ Page [S]
+**As a** user
+**I want** to read frequently asked questions
+**So that** I can find answers without asking staff
+
+**Acceptance Criteria:**
+- Static content page with collapsible Q&A sections
+- Content stored as a React component or Markdown file (not in DB)
+
+#### FE-6.2: Rules Page [S]
+**As a** user
+**I want** to read the site rules
+**So that** I know what's expected
+
+**Acceptance Criteria:**
+- Static content page
+- Numbered rules with sections
+- Content stored as a React component or Markdown file (not in DB)
+
+#### FE-6.3: BBCode/Markdown Reference [S]
+**As a** user
+**I want** a formatting reference
+**So that** I can format my posts and descriptions correctly
+
+**Acceptance Criteria:**
+- Side-by-side: syntax example and rendered output
+- Covers all supported tags/syntax
+- Linkable from editor toolbars
+
+---
+
+### Epic FE-7: Theme Management [M]
+
+#### FE-7.1: Theme Switching UI [S]
+**As a** user
+**I want** to switch themes from my settings
+**So that** I can use the look I prefer
+
+**Acceptance Criteria:**
+- Theme selector in user settings (dropdown or preview cards)
+- Instant preview on selection
+- Saved to user settings API + localStorage
+
+#### FE-7.2: Admin Theme Configuration [S]
+**As an** admin
+**I want** to configure available themes and the default
+**So that** I control the site's appearance options
+
+**Acceptance Criteria:**
+- Set default theme for new users
+- Enable/disable specific themes
+- Theme list in admin settings
+
+#### FE-7.3: Additional Theme (Retro/Classic Tracker) [M]
+**As a** user
+**I want** a classic tracker theme
+**So that** I get the nostalgic look of traditional torrent sites
+
+**Acceptance Criteria:**
+- Theme using CSS custom properties (no structural changes)
+- Dark background, monospace elements, compact layout
+- Inspired by classic private tracker aesthetics
+- All components properly styled (no broken layouts)
+
+---
+
+## Migration Tool Epics (MT-)
+
+### Epic MT-0: Foundation [M]
+
+#### MT-0.1: CLI Scaffolding [S]
+**As a** site operator
+**I want** a well-structured CLI tool
+**So that** I can run migration commands easily
+
+**Acceptance Criteria:**
+- `migration-tool/cmd/migrate/main.go` entry point
+- CLI framework (Cobra or similar) with subcommands: `discover`, `validate`, `run`, `verify`, `rollback`
+- Config loading: source DB, target DB, file paths, options
+- Structured logging with configurable verbosity
+- Progress display (percentage, rows/sec, ETA)
+
+#### MT-0.2: Source DB Connector (MySQL/TorrentTrader) [M]
+**As a** site operator
+**I want** the tool to connect to my TorrentTrader MySQL database
+**So that** it can read the old data
+
+**Acceptance Criteria:**
+- MySQL connection with configurable DSN
+- Schema discovery: `SHOW CREATE TABLE` for all tables
+- Compare against known TorrentTrader 3.0 baseline schema
+- Report differences: extra columns, missing tables, type mismatches
+- Generate YAML mapping file with:
+  - Every old column mapped to new column (or `SKIP` or `DERIVE`)
+  - Type transformation notes (e.g. `ENUM('yes','no') -> boolean`)
+  - Comments explaining each mapping decision
+  - `CUSTOM` placeholders for mod-added columns
+- Mapping file is human-editable and version-controllable
+
+#### MT-0.3: Target DB Connector (PostgreSQL) [S]
+**As a** site operator
+**I want** the tool to write to the new PostgreSQL database
+**So that** data lands in the correct schema
+
+**Acceptance Criteria:**
+- PostgreSQL connection with configurable DSN
+- Batch insert support (configurable batch size)
+- Transaction management (per-table or per-batch)
+- Schema validation: verify target tables exist with expected columns
+- Mapping validator: check all source->target mappings are valid before running
+
+---
+
+### Epic MT-1: Data Transformers [L]
+
+#### MT-1.1: User Migration [M]
+**As a** site operator
+**I want** to migrate all user accounts preserving auth capability
+**So that** users can log in to the new system without resetting passwords
+
+**Acceptance Criteria:**
+- Migrates `users` table to new split structure:
+  - `users` (auth): id, username, email, password_hash, password_scheme, is_enabled, is_confirmed
+  - `user_profiles` (display): avatar, bio, signature, title, country, gender, age
+  - `user_settings` (prefs): theme, language, timezone, privacy, accept_pms, notifications
+  - `user_stats` (tracker): uploaded, downloaded (preserved exactly)
+- Password migration:
+  - Copy old hash as-is
+  - Set `password_scheme = 'legacy_sha1'` (or legacy_md5/legacy_hmac based on config)
+  - Optionally wrap: `argon2(old_hash)` with scheme `'wrapped_sha1'`
+  - User flag `--wrap-passwords` to choose strategy
+- Passkey preservation: copy passkeys exactly (critical for active swarms)
+- Role mapping: old class IDs -> new role IDs (configurable in mapping)
+- Invited-by relationships: `users.invited_by` -> `user_invites` junction table
+- Invitees parsing: split space-separated `users.invitees` into `user_invites` rows
+- Mod notes: `users.modcomment` -> `user_mod_notes` table
+- Warnings: migrate with status and expiry
+- Stats: `users.uploaded` and `users.downloaded` preserved byte-exact
+
+#### MT-1.2: Torrent & File Migration [M]
+**As a** site operator
+**I want** to migrate all torrents with their metadata and files
+**So that** all content is preserved in the new system
+
+**Acceptance Criteria:**
+- Migrates `torrents` table with all metadata
+- Info hash preserved exactly (byte-for-byte, non-negotiable)
+- Migrates `files` table (file list per torrent)
+- Migrates `announce` table (tracker URLs per torrent)
+- Migrates `categories` and `torrentlang` (with ID remapping if needed)
+- Copies physical files via FileStorage interface:
+  - `.torrent` files: old `{torrent_dir}/{id}.torrent` -> new storage key
+  - NFO files: old `{nfo_dir}/{id}.nfo` -> new storage key
+  - Images: old `{torrent_dir}/images/*` -> new storage key
+  - `--source-path` flag to specify old file directory
+  - `--storage-target` flag: `local` or `s3`
+- Boolean conversions: banned, visible, external, freeleech, anon, nfo
+- Denormalized counters (seeders, leechers, etc.) recalculated from migrated peers
+- Ratings and comments migrated with user FK mapping
+
+#### MT-1.3: Forum Migration [M]
+**As a** site operator
+**I want** to migrate forum content
+**So that** community history is preserved
+
+**Acceptance Criteria:**
+- Forum structure: `forumcats` -> `forum_forums` -> `forum_topics` -> `forum_posts`
+- Preserve: post content, timestamps, edit history, topic metadata (locked, sticky, moved)
+- Read tracking: `forum_readposts` migrated (or reset - user choice via flag)
+- Shoutbox messages: migrate to new chat history table
+- Content conversion: BBCode -> Markdown (via MT-1.5)
+
+#### MT-1.4: Social Data Migration [M]
+**As a** site operator
+**I want** to migrate PMs, comments, ratings, and reports
+**So that** all community interactions are preserved
+
+**Acceptance Criteria:**
+- Private messages: all messages with sender/receiver/content/dates
+- Location mapping: old ENUM('in','out','both','draft','template') -> new model
+- Comments: all torrent and news comments with user mapping
+- Ratings: all torrent ratings
+- Reports: preserve with status
+- IP bans: `bans` table with range support
+- Email bans: `email_bans` table
+- News articles with comments
+- Site log: last N entries (configurable, default last 1000)
+
+#### MT-1.5: BBCode to Markdown Converter [M]
+**As a** site operator
+**I want** all BBCode content converted to Markdown
+**So that** the new system uses a single content format
+
+**Acceptance Criteria:**
+- Converts: `[b]`, `[i]`, `[u]`, `[url]`, `[img]`, `[quote]`, `[code]`, `[*]` (lists)
+- Handles nested tags correctly
+- Preserves content that's already plain text
+- `--convert-bbcode` flag (default true)
+- `--preserve-bbcode` flag to keep raw BBCode (if building a BBCode renderer)
+- Handles malformed BBCode gracefully (pass through rather than corrupt)
+
+#### MT-1.6: Tracker Data Migration (Peers & Completed) [S]
+**As a** site operator
+**I want** to migrate active peers and completion history
+**So that** swarms stay alive during the transition
+
+**Acceptance Criteria:**
+- **Peers migration** (critical for swarm continuity):
+  - Migrate all current peer records from `peers` table
+  - Map: torrent ID, user ID, peer_id, ip, port, uploaded, downloaded, to_go, seeder, last_action, connectable, client
+  - Set `last_action` to migration time (so cleanup doesn't immediately purge them)
+  - Recalculate seeder/leecher counts from migrated peer data
+  - Passkey preserved per peer (must match user's passkey)
+- **Completed table**: migrate all completion records (userid, torrentid, date)
+- Post-migration: run peer cleanup job to remove any stale entries
+- This is time-critical: should be one of the last steps before cutover
+
+---
+
+### Epic MT-2: Verification & Cutover [M]
+
+#### MT-2.1: Verification Suite [M]
+**As a** site operator
+**I want** to verify the migration was successful
+**So that** I'm confident no data was lost or corrupted
+
+**Acceptance Criteria:**
+- `tt-migrate verify` post-migration checks:
+  - Row counts match (old vs new, accounting for expected skips)
+  - User count: old confirmed+enabled vs new
+  - Torrent count: exact match
+  - Info hash spot-check: random sample of 100 torrents, verify hashes match
+  - File existence check: verify .torrent and NFO files exist in new storage
+  - Passkey spot-check: random sample of 50 users, verify passkeys match
+  - Peer count: should roughly match (minus stale peers)
+  - Forum post count: exact match
+  - PM count: exact match
+- Referential integrity check: all FKs valid
+- Content spot-check: random sample of posts, verify BBCode->Markdown conversion
+
+#### MT-2.2: Resumable Migration [M]
+**As a** site operator
+**I want** the migration to resume from where it left off on failure
+**So that** I don't have to start over if something goes wrong
+
+**Acceptance Criteria:**
+- Checkpoint after each entity type (users, torrents, forums, etc.)
+- On resume: skip completed entity types, continue from last checkpoint
+- Idempotent operations: re-running on same data doesn't create duplicates
+- `--force` flag to restart from scratch
+- Progress saved to checkpoint file (JSON)
+
+#### MT-2.3: Cutover Playbook & Dry-Run Mode [S]
+**As a** site operator
+**I want** a dry-run mode and documented cutover procedure
+**So that** I can practice and execute the migration safely
+
+**Acceptance Criteria:**
+- `tt-migrate run --dry-run` mode:
+  - Reads all old data, transforms, validates
+  - Reports per-table: total rows, valid, skipped (with reasons), warnings
+  - Does NOT write to new database
+  - Shows sample transformations (first 5 rows per table)
+- `tt-migrate rollback` - drop all data in new DB (for re-running)
+- Cutover playbook documentation covering:
+  1. Pre-migration: run `discover`, edit mapping, run `validate`
+  2. Test migration: `run --dry-run` on production DB copy
+  3. Full test: `run` against staging, verify, test manually
+  4. Cutover window plan (announce, read-only, migrate, verify, DNS switch, monitor)
+  5. Rollback plan: revert DNS, old site still has all data
+- Passkey continuity: old announce URLs keep working
+- Existing .torrent files in clients: new tracker must accept old announce path
+
+---
+
+## Dependency Graph
+
+```
+INFRA-1 ──┬── BE-0 ──┬── BE-1 ──┬── BE-4
+           │          │          ├── BE-7
+           │          │          └── FE-2 (needs auth API)
+           │          ├── BE-2 (independent of BE-1)
+           │          ├── BE-3 ──── FE-1.3, FE-1.4
+           │          ├── BE-5 ──┬── BE-6
+           │          │          └── FE-3 (needs forum API)
+           │          ├── BE-8 ──── FE-5 (needs admin API)
+           │          └── BE-10 (independent, needed by BE-2)
+           │
+           ├── FE-0 ──┬── FE-1 (needs FE-0 components)
+           │          ├── FE-4 (needs FE-0 + WebSocket)
+           │          ├── FE-6 (independent static pages)
+           │          └── FE-7 (extends FE-0.2 theme system)
+           │
+           └── MT-0 ──── MT-1 ──── MT-2
+
+BE-5.6 (notification infra) ── BE-5.7, BE-5.8, BE-5.9, BE-6.1, BE-7.3
+BE-9 runs independently after BE-0
+```
+
+---
+
+## Suggested Implementation Order
+
+```
+Phase 1 — Foundation
+  INFRA-1, INFRA-2, INFRA-3       Monorepo, Docker Compose, Dockerfiles
+  BE-0.1 through BE-0.7           Backend foundation
+  BE-10.1                         BEncode library
+  FE-0.1 through FE-0.4           Frontend foundation (setup, themes, routing, API client)
+  MT-0.1                          Migration CLI scaffold
+
+  Milestone: All three projects buildable and testable.
+  Backend serves /healthz. Frontend renders hello world with theme toggle.
+
+Phase 2 — Core Features
+  INFRA-4, INFRA-5                CI + dev workflow
+  BE-1.1, BE-1.2, BE-1.5         Register, login, roles
+  BE-2.1, BE-2.4, BE-2.6         HTTP announce, scrape, peer cleanup
+  BE-3.1, BE-3.2, BE-3.3         Upload, download, browse
+  BE-9.1                          Cleanup job
+  FE-0.5, FE-0.6                 Auth state, shared components
+  FE-1.1, FE-1.2, FE-1.3        Home, login/signup, browse
+  MT-0.2, MT-0.3                 Source + target DB connectors
+
+  Milestone: Functional private tracker. Users register, upload,
+  browse, and download. Clients announce/scrape. Frontend shows
+  torrents and handles auth.
+
+Phase 3 — Feature Parity + Community
+  BE-1.3, BE-1.4                 Password recovery, profile
+  BE-2.2, BE-2.3                 Connection limits, wait times
+  BE-3.4 through BE-3.8          Detail, search, edit, comments, reports
+  BE-3.12                        @mention search endpoint
+  BE-4.1, BE-4.2                 Invitations
+  BE-5.1 through BE-5.9          Forum + notification system
+  BE-6.1, BE-6.2                 WebSocket chat
+  BE-7.1, BE-7.3                 PMs + notifications
+  FE-1.4, FE-1.5, FE-1.6        Torrent detail, filtered views, RSS builder
+  FE-2.1 through FE-2.9          All user pages
+  FE-3.1 through FE-3.5          Forum frontend
+  FE-4.1, FE-4.2, FE-4.3        Real-time features
+  MT-1.1 through MT-1.6          All data transformers
+
+  Milestone: Full community platform. Forum, chat, PMs, invites,
+  notifications. Frontend covers all user flows.
+
+Phase 4 — Admin & Migration
+  BE-1.6, BE-1.7, BE-1.8         IP bans, warnings, staff page
+  BE-2.5, BE-2.7                 UDP tracker, cheating detection
+  BE-6.3                         Chat history
+  BE-7.2                         PM drafts/templates
+  BE-8.1 through BE-8.7          Full admin panel
+  BE-9.2                         Ratio warning automation
+  FE-5.1 through FE-5.9          Admin frontend
+  MT-2.1, MT-2.2, MT-2.3         Verification + cutover
+
+  Milestone: Production-ready. Admin panel complete. Migration tool
+  tested and verified. Ready for cutover from TorrentTrader.
+
+Phase 5 — Polish
+  BE-3.9, BE-3.10, BE-3.11       Reseed, RSS, categories management
+  FE-6.1, FE-6.2, FE-6.3        Static pages (FAQ, rules, reference)
+  FE-7.1, FE-7.2, FE-7.3        Theme management + additional theme
+
+  Milestone: Fully polished. All features complete.
+```
