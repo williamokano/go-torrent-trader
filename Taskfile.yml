@@ -24,9 +24,35 @@ tasks:
     deps: [backend:lint, frontend:lint]
 
   dev:
-    desc: Start development environment
+    desc: Start development environment (infra + backend + frontend)
     cmds:
       - echo "TODO:// Start docker-compose + hot reload for backend (air) + frontend (vite)"
+
+  tools:
+    desc: Install development tools (golangci-lint, air)
+    cmds:
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.1.6
+      - go install github.com/air-verse/air@latest
+
+  dev:up:
+    desc: Start infrastructure services (postgres, redis, minio, mailpit)
+    cmds:
+      - docker compose up -d
+
+  dev:down:
+    desc: Stop infrastructure services
+    cmds:
+      - docker compose down
+
+  dev:logs:
+    desc: Tail infrastructure service logs
+    cmds:
+      - docker compose logs -f
+
+  dev:reset:
+    desc: Stop infrastructure services and remove all volumes (fresh start)
+    cmds:
+      - docker compose down -v
 
   generate:
     desc: Run all code generation (sqlc, OpenAPI client, etc.)
@@ -55,7 +81,13 @@ tasks:
     desc: Lint backend code
     dir: '{{.BACKEND_DIR}}'
     cmds:
-      - go vet ./...
+      - golangci-lint run
+
+  backend:dev:
+    desc: Start backend with hot reload
+    dir: '{{.BACKEND_DIR}}'
+    cmds:
+      - air
 
   backend:run:
     desc: Run the backend server
@@ -80,7 +112,7 @@ tasks:
     desc: Lint frontend code
     dir: '{{.FRONTEND_DIR}}'
     cmds:
-      - npx tsc --noEmit
+      - npm run lint
 
   frontend:dev:
     desc: Start frontend dev server

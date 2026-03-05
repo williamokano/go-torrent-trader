@@ -37,7 +37,7 @@
 - `README.md` with quickstart instructions
 - `.env.example` with all required config vars (placeholder values only)
 
-### INFRA-2: Docker Compose Dev Environment [S]
+### INFRA-2: Docker Compose Dev Environment [S] [DONE]
 **As a** developer
 **I want** a local dev environment with all dependencies
 **So that** I can develop without installing services manually
@@ -95,7 +95,7 @@
 
 ### Epic BE-0: Foundation
 
-#### BE-0.1: Project Scaffolding [S]
+#### BE-0.1: Project Scaffolding [S] [DONE]
 **As a** developer
 **I want** a Go project with module structure and dev tooling
 **So that** I have a working development environment from day one
@@ -989,7 +989,7 @@
 
 ### Epic FE-0: Frontend Foundation [L]
 
-#### FE-0.1: React + Vite + TypeScript Setup [S]
+#### FE-0.1: React + Vite + TypeScript Setup [S] [DONE]
 **As a** frontend developer
 **I want** a modern React project with TypeScript and fast dev tooling
 **So that** I can build the UI efficiently
