@@ -963,18 +963,12 @@
 
 ### Epic BE-10: Protocol Support
 
-#### BE-10.1: BEncode Library [S] [DONE]
+#### BE-10.1: BEncode Library [S] [DONE — replaced with github.com/zeebo/bencode]
 **As a** developer
-**I want** a bencode encoder/decoder for Go structs
+**I want** bencode encoding/decoding for Go structs
 **So that** tracker endpoints speak the BitTorrent protocol
 
-**Acceptance Criteria:**
-- BEncode library: encode/decode Go structs to/from bencode
-- Used by: announce, scrape, torrent file parsing, torrent file rewriting
-- Support: integers, strings, lists, dicts
-- Dict keys sorted alphabetically per spec
-- Handle binary data (info_hash, peer_id) correctly
-- Well-tested with real-world .torrent files
+**Resolution:** Using `github.com/zeebo/bencode` instead of a custom implementation. Building a bencode library is out of scope — well-tested libraries exist.
 
 > **Note on API design**: This project is API-first by design. ALL features are JSON REST
 > endpoints under `/api/v1/...`. The only non-JSON endpoints are `/announce` and `/scrape`
