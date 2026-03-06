@@ -1,7 +1,10 @@
 name: Release
+# Disabled until a container registry is configured.
+# To re-enable, uncomment the tag trigger below.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch: {}
+  # push:
+  #   tags: ['v*']
 
 permissions:
   contents: read
