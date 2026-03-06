@@ -50,7 +50,7 @@
 - `task dev:up` and `task dev:down` tasks
 - Backend and frontend run on host (not in containers) for hot reload
 
-### INFRA-3: Dockerfiles (Multi-Stage) [S]
+### INFRA-3: Dockerfiles (Multi-Stage) [S] [DONE]
 **As a** developer
 **I want** production-ready Docker images for all projects
 **So that** deployments are reproducible and images are small
@@ -62,7 +62,7 @@
 - `docker-compose.prod.yml` for production-like local testing
 - All images tagged with git SHA
 
-### INFRA-4: GitHub Actions CI [M]
+### INFRA-4: GitHub Actions CI [M] [DONE]
 **As a** developer
 **I want** CI pipelines that validate all projects on every push
 **So that** broken code doesn't reach main
@@ -77,7 +77,7 @@
 - Migration Tool: `golangci-lint`, `go test -race`, `go build`
 - Release workflow: build Docker images, push to registry on tag
 
-### INFRA-5: Dev Workflow [S]
+### INFRA-5: Dev Workflow [S] [DONE]
 **As a** developer
 **I want** hot reload and code generation in development
 **So that** I get fast feedback loops
@@ -1002,7 +1002,7 @@
 - `task frontend:build` produces production bundle
 - `task frontend:test` runs vitest
 
-#### FE-0.2: Theme System [M]
+#### FE-0.2: Theme System [M] [DONE]
 **As a** user
 **I want** to switch between light and dark themes
 **So that** I can use the site comfortably in any lighting

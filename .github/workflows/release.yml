@@ -1,0 +1,25 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [backend, frontend, migration-tool]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.project }}
+          push: false
+          tags: torrenttrader-${{ matrix.project }}:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

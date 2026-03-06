@@ -1,0 +1,6 @@
+.git
+tmp/
+*_test.go
+.air.toml
+.golangci.yml
+server

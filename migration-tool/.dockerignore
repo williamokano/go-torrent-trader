@@ -1,0 +1,4 @@
+.git
+tmp/
+*_test.go
+migrate

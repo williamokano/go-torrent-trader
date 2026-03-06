@@ -12,6 +12,7 @@ vendor/
 node_modules/
 dist/
 .vite/
+*.tsbuildinfo
 
 # IDE
 .idea/

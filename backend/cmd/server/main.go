@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 )
 
 func newMux() *http.ServeMux {
@@ -24,23 +27,25 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func run() int {
-	port := os.Getenv("SERVER_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("failed to load configuration", "error", err)
+		return 1
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    addr,
 		Handler: newMux(),
 	}
 
-	slog.Info("server starting", "port", port)
+	slog.Info("server starting", "addr", addr)
 
 	errCh := make(chan error, 1)
 	go func() {

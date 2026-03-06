@@ -1,5 +1,7 @@
 version: '3'
 
+output: prefixed
+
 vars:
   BACKEND_DIR: backend
   FRONTEND_DIR: frontend
@@ -24,9 +26,26 @@ tasks:
     deps: [backend:lint, frontend:lint]
 
   dev:
-    desc: Start development environment (infra + backend + frontend)
+    desc: Start full development environment
+    deps: [dev:up]
     cmds:
-      - echo "TODO:// Start docker-compose + hot reload for backend (air) + frontend (vite)"
+      - task: dev:services
+
+  dev:services:
+    desc: Start backend and frontend dev servers
+    deps: [backend:dev, frontend:dev]
+
+  dev:backend:
+    desc: Start infra + backend only
+    deps: [dev:up]
+    cmds:
+      - task: backend:dev
+
+  dev:frontend:
+    desc: Start infra + frontend only
+    deps: [dev:up]
+    cmds:
+      - task: frontend:dev
 
   tools:
     desc: Install development tools (golangci-lint, air)
@@ -57,12 +76,14 @@ tasks:
   generate:
     desc: Run all code generation (sqlc, OpenAPI client, etc.)
     cmds:
-      - echo "TODO:// Run code generation steps"
+      - echo "No generators configured yet. Add generate:sqlc, generate:api-client, etc."
 
   docker:build:
     desc: Build all Docker images
     cmds:
-      - echo "TODO:// Build Docker images for all projects"
+      - docker build -t torrenttrader-backend ./backend
+      - docker build -t torrenttrader-frontend ./frontend
+      - docker build -t torrenttrader-migrate ./migration-tool
 
   # Backend tasks
   backend:build:
