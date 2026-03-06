@@ -86,6 +86,12 @@ export function TorrentEditPage() {
         return;
       }
 
+      // Redirect if not owner and not admin
+      if (user && t.uploader_id !== user.id && !user.isAdmin) {
+        navigate(`/torrent/${id}`, { replace: true });
+        return;
+      }
+
       setTorrent(t);
       setName(t.name ?? "");
       setDescription(t.description ?? "");
