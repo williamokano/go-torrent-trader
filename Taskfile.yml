@@ -109,6 +109,7 @@ tasks:
   backend:dev:
     desc: Start backend with hot reload
     dir: '{{.BACKEND_DIR}}'
+    ignore_error: true
     cmds:
       - air
 
@@ -140,6 +141,7 @@ tasks:
   frontend:dev:
     desc: Start frontend dev server
     dir: '{{.FRONTEND_DIR}}'
+    ignore_error: true
     cmds:
       - npm run dev
 
