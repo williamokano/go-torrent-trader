@@ -103,8 +103,9 @@ func (m *mockTorrentRepo) Update(_ context.Context, torrent *model.Torrent) erro
 	return errors.New("not found")
 }
 
-func (m *mockTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error { return nil }
+func (m *mockTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error  { return nil }
 func (m *mockTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error { return nil }
+func (m *mockTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error  { return nil }
 
 // --- mock storage ---
 

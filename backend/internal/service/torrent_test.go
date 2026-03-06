@@ -151,8 +151,9 @@ func (m *memTorrentRepo) Update(_ context.Context, torrent *model.Torrent) error
 	return errors.New("not found")
 }
 
-func (m *memTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error { return nil }
+func (m *memTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error  { return nil }
 func (m *memTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error { return nil }
+func (m *memTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error  { return nil }
 
 // --- mock user repo ---
 
@@ -200,8 +201,9 @@ func (m *memUserRepo) Count(_ context.Context) (int64, error) {
 	return int64(len(m.users)), nil
 }
 
-func (m *memUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
-func (m *memUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
+func (m *memUserRepo) Create(_ context.Context, _ *model.User) error                   { return nil }
+func (m *memUserRepo) Update(_ context.Context, _ *model.User) error                   { return nil }
+func (m *memUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error { return nil }
 
 // --- helpers ---
 

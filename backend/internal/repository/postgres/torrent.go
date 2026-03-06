@@ -198,6 +198,22 @@ func (r *TorrentRepo) IncrementSeeders(ctx context.Context, id int64, delta int)
 	return nil
 }
 
+func (r *TorrentRepo) IncrementTimesCompleted(ctx context.Context, id int64) error {
+	query := `UPDATE torrents SET times_completed = times_completed + 1, updated_at = NOW() WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("incrementing times_completed: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *TorrentRepo) IncrementLeechers(ctx context.Context, id int64, delta int) error {
 	query := `UPDATE torrents SET leechers = GREATEST(0, leechers + $1), updated_at = NOW() WHERE id = $2`
 	result, err := r.db.ExecContext(ctx, query, delta, id)
