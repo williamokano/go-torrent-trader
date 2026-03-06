@@ -151,6 +151,18 @@ func (m *memTorrentRepo) Update(_ context.Context, torrent *model.Torrent) error
 	return errors.New("not found")
 }
 
+func (m *memTorrentRepo) Delete(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, t := range m.torrents {
+		if t.ID == id {
+			m.torrents = append(m.torrents[:i], m.torrents[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func (m *memTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error  { return nil }
 func (m *memTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error { return nil }
 func (m *memTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error  { return nil }
@@ -514,6 +526,218 @@ func TestTorrentService_DownloadTorrent_NotFound(t *testing.T) {
 	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	_, _, err := svc.DownloadTorrent(context.Background(), 999, 1)
+	if !errors.Is(err, ErrTorrentNotFound) {
+		t.Errorf("expected ErrTorrentNotFound, got %v", err)
+	}
+}
+
+// --- EditTorrent tests ---
+
+func setupEditDeleteService() (*TorrentService, *memTorrentRepo, *memStorage) {
+	repo := newMemTorrentRepo()
+	userRepo := newMemUserRepo()
+	store := newMemStorage()
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	return svc, repo, store
+}
+
+func TestTorrentService_EditTorrent_AsOwner(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("edit-owner-test")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	newName := "edited-name"
+	newDesc := "edited description"
+	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 42, 2, EditTorrentRequest{
+		Name:        &newName,
+		Description: &newDesc,
+	})
+	if err != nil {
+		t.Fatalf("edit failed: %v", err)
+	}
+	if result.Name != "edited-name" {
+		t.Errorf("expected name edited-name, got %s", result.Name)
+	}
+	if result.Description == nil || *result.Description != "edited description" {
+		t.Error("expected description to be updated")
+	}
+}
+
+func TestTorrentService_EditTorrent_AsAdmin(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("edit-admin-test")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	newName := "admin-edited"
+	banned := true
+	free := true
+	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 99, 1, EditTorrentRequest{
+		Name:   &newName,
+		Banned: &banned,
+		Free:   &free,
+	})
+	if err != nil {
+		t.Fatalf("edit failed: %v", err)
+	}
+	if result.Name != "admin-edited" {
+		t.Errorf("expected name admin-edited, got %s", result.Name)
+	}
+	if !result.Banned {
+		t.Error("expected banned to be true")
+	}
+	if !result.Free {
+		t.Error("expected free to be true")
+	}
+}
+
+func TestTorrentService_EditTorrent_Forbidden(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("edit-forbidden-test")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	newName := "hacker-edit"
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 99, 2, EditTorrentRequest{
+		Name: &newName,
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Errorf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestTorrentService_EditTorrent_StaffFieldsForbidden(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("edit-staff-forbidden")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	banned := true
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, 2, EditTorrentRequest{
+		Banned: &banned,
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Errorf("expected ErrForbidden for staff fields, got %v", err)
+	}
+}
+
+func TestTorrentService_EditTorrent_EmptyName(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("edit-empty-name")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	emptyName := "   "
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, 2, EditTorrentRequest{
+		Name: &emptyName,
+	})
+	if !errors.Is(err, ErrInvalidTorrent) {
+		t.Errorf("expected ErrInvalidTorrent for empty name, got %v", err)
+	}
+}
+
+func TestTorrentService_EditTorrent_NotFound(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	newName := "ghost"
+	_, err := svc.EditTorrent(context.Background(), 999, 1, 1, EditTorrentRequest{
+		Name: &newName,
+	})
+	if !errors.Is(err, ErrTorrentNotFound) {
+		t.Errorf("expected ErrTorrentNotFound, got %v", err)
+	}
+}
+
+// --- DeleteTorrent tests ---
+
+func TestTorrentService_DeleteTorrent_AsOwner(t *testing.T) {
+	svc, _, store := setupEditDeleteService()
+
+	data := buildTorrentFile("delete-owner-test")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	// Verify file exists in storage
+	exists, _ := store.Exists(context.Background(), "torrents/1.torrent")
+	if !exists {
+		t.Fatal("expected torrent file to exist before delete")
+	}
+
+	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 42, 2)
+	if err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+
+	// Verify torrent is gone from repo
+	_, err = svc.GetByID(context.Background(), uploaded.ID)
+	if !errors.Is(err, ErrTorrentNotFound) {
+		t.Errorf("expected torrent to be deleted, got %v", err)
+	}
+
+	// Verify file is gone from storage
+	exists, _ = store.Exists(context.Background(), "torrents/1.torrent")
+	if exists {
+		t.Error("expected torrent file to be deleted from storage")
+	}
+}
+
+func TestTorrentService_DeleteTorrent_AsAdmin(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("delete-admin-test")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 99, 1)
+	if err != nil {
+		t.Fatalf("delete as admin failed: %v", err)
+	}
+
+	_, err = svc.GetByID(context.Background(), uploaded.ID)
+	if !errors.Is(err, ErrTorrentNotFound) {
+		t.Errorf("expected torrent to be deleted")
+	}
+}
+
+func TestTorrentService_DeleteTorrent_Forbidden(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	data := buildTorrentFile("delete-forbidden-test")
+	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 99, 2)
+	if !errors.Is(err, ErrForbidden) {
+		t.Errorf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestTorrentService_DeleteTorrent_NotFound(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	err := svc.DeleteTorrent(context.Background(), 999, 1, 1)
 	if !errors.Is(err, ErrTorrentNotFound) {
 		t.Errorf("expected ErrTorrentNotFound, got %v", err)
 	}

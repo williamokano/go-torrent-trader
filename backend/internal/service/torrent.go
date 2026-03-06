@@ -21,6 +21,7 @@ var (
 	ErrDuplicateTorrent = errors.New("torrent with this info_hash already exists")
 	ErrTorrentNotFound  = errors.New("torrent not found")
 	ErrInvalidTorrent   = errors.New("invalid torrent file")
+	ErrForbidden        = errors.New("forbidden")
 )
 
 // torrentMeta represents the top-level structure of a .torrent file.
@@ -58,6 +59,17 @@ type UploadTorrentRequest struct {
 	Description string
 	CategoryID  int64
 	Anonymous   bool
+}
+
+// EditTorrentRequest holds the input for editing a torrent.
+type EditTorrentRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	CategoryID  *int64  `json:"category_id"`
+	Anonymous   *bool   `json:"anonymous"`
+	// Staff-only fields (admin group_id=1)
+	Banned *bool `json:"banned"`
+	Free   *bool `json:"free"`
 }
 
 // TorrentService handles torrent business logic.
@@ -248,6 +260,90 @@ func (s *TorrentService) DownloadTorrent(ctx context.Context, torrentID, userID 
 
 	filename := torrent.Name + ".torrent"
 	return rewritten, filename, nil
+}
+
+// EditTorrent updates a torrent's metadata. Only the owner or an admin (groupID=1) may edit.
+// Staff-only fields (banned, free) are rejected if the caller is not an admin.
+func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID, groupID int64, req EditTorrentRequest) (*model.Torrent, error) {
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+
+	isAdmin := groupID == 1
+	isOwner := torrent.UploaderID == userID
+
+	if !isOwner && !isAdmin {
+		return nil, ErrForbidden
+	}
+
+	// Reject staff-only fields from non-admins
+	if !isAdmin {
+		if req.Banned != nil || req.Free != nil {
+			return nil, ErrForbidden
+		}
+	}
+
+	// Apply changes
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%w: name cannot be empty", ErrInvalidTorrent)
+		}
+		torrent.Name = name
+	}
+	if req.Description != nil {
+		torrent.Description = req.Description
+	}
+	if req.CategoryID != nil {
+		if *req.CategoryID <= 0 {
+			return nil, fmt.Errorf("%w: invalid category_id", ErrInvalidTorrent)
+		}
+		torrent.CategoryID = *req.CategoryID
+	}
+	if req.Anonymous != nil {
+		torrent.Anonymous = *req.Anonymous
+	}
+	if req.Banned != nil {
+		torrent.Banned = *req.Banned
+	}
+	if req.Free != nil {
+		torrent.Free = *req.Free
+	}
+
+	if err := s.torrents.Update(ctx, torrent); err != nil {
+		return nil, fmt.Errorf("update torrent: %w", err)
+	}
+
+	return torrent, nil
+}
+
+// DeleteTorrent removes a torrent and its stored file. Only the owner or an admin (groupID=1) may delete.
+func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID, groupID int64) error {
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return ErrTorrentNotFound
+	}
+
+	isAdmin := groupID == 1
+	isOwner := torrent.UploaderID == userID
+
+	if !isOwner && !isAdmin {
+		return ErrForbidden
+	}
+
+	// Delete from storage first (best effort — log and continue if file missing)
+	storageKey := fmt.Sprintf("torrents/%d.torrent", torrentID)
+	if err := s.storage.Delete(ctx, storageKey); err != nil {
+		slog.Error("failed to delete torrent file from storage", "torrent_id", torrentID, "error", err)
+	}
+
+	// Delete from DB
+	if err := s.torrents.Delete(ctx, torrentID); err != nil {
+		return fmt.Errorf("delete torrent: %w", err)
+	}
+
+	return nil
 }
 
 // rewriteAnnounce decodes the torrent, sets the announce URL, and re-encodes.

@@ -126,6 +126,7 @@ func (m *trackerMockTorrentRepo) List(_ context.Context, _ repository.ListTorren
 
 func (m *trackerMockTorrentRepo) Create(_ context.Context, _ *model.Torrent) error { return nil }
 func (m *trackerMockTorrentRepo) Update(_ context.Context, _ *model.Torrent) error { return nil }
+func (m *trackerMockTorrentRepo) Delete(_ context.Context, _ int64) error          { return nil }
 
 func (m *trackerMockTorrentRepo) IncrementSeeders(_ context.Context, id int64, delta int) error {
 	m.mu.Lock()

@@ -651,6 +651,114 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+    put:
+      operationId: editTorrent
+      summary: Edit torrent metadata
+      description: |
+        Update torrent fields. Only the torrent owner or an admin (group_id=1) may edit.
+        Staff-only fields (banned, free) are rejected for non-admin users.
+      tags: [torrents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditTorrentRequest'
+      responses:
+        '200':
+          description: Updated torrent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  torrent:
+                    $ref: '#/components/schemas/Torrent'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden — not owner or admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Torrent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      operationId: deleteTorrent
+      summary: Delete a torrent
+      description: |
+        Delete a torrent and its stored .torrent file.
+        Only the torrent owner or an admin (group_id=1) may delete.
+        A reason is required.
+      tags: [torrents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteTorrentRequest'
+      responses:
+        '204':
+          description: Torrent deleted successfully
+        '400':
+          description: Invalid request or missing reason
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden — not owner or admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Torrent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/torrents/{id}/download:
     get:
       operationId: downloadTorrent
@@ -985,6 +1093,37 @@ components:
         message:
           type: string
           example: Operation completed successfully
+
+    EditTorrentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: New torrent name (must not be empty if provided)
+        description:
+          type: string
+          description: New torrent description
+        category_id:
+          type: integer
+          format: int64
+          description: New category ID
+        anonymous:
+          type: boolean
+          description: Whether the upload is anonymous
+        banned:
+          type: boolean
+          description: Staff-only — ban/unban the torrent
+        free:
+          type: boolean
+          description: Staff-only — enable/disable freeleech
+
+    DeleteTorrentRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: Reason for deleting the torrent
 
     ErrorResponse:
       type: object

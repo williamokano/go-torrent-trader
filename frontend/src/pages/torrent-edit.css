@@ -1,0 +1,116 @@
+.torrent-edit-page {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-xl) var(--space-md);
+}
+
+.torrent-edit-card {
+  width: 100%;
+  max-width: 560px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+}
+
+.torrent-edit-card__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.torrent-edit-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.torrent-edit-card__actions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.torrent-edit-card__submit {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.torrent-edit-card__submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.torrent-edit-card__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.torrent-edit-card__cancel {
+  padding: var(--space-sm) var(--space-md);
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.torrent-edit-card__cancel:hover {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.torrent-edit-card__admin-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.torrent-edit-card__admin-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.torrent-edit-card__loading,
+.torrent-edit-card__error {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--color-text-muted);
+}
+
+.torrent-edit-card__error {
+  color: var(--color-error);
+}
+
+@media (max-width: 480px) {
+  .torrent-edit-card {
+    padding: var(--space-lg) var(--space-md);
+  }
+
+  .torrent-edit-card__actions {
+    flex-direction: column-reverse;
+  }
+}

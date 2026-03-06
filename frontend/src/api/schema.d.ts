@@ -287,9 +287,20 @@ export interface paths {
         };
         /** Get torrent details */
         get: operations["getTorrent"];
-        put?: never;
+        /**
+         * Edit torrent metadata
+         * @description Update torrent fields. Only the torrent owner or an admin (group_id=1) may edit.
+         *     Staff-only fields (banned, free) are rejected for non-admin users.
+         */
+        put: operations["editTorrent"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete a torrent
+         * @description Delete a torrent and its stored .torrent file.
+         *     Only the torrent owner or an admin (group_id=1) may delete.
+         *     A reason is required.
+         */
+        delete: operations["deleteTorrent"];
         options?: never;
         head?: never;
         patch?: never;
@@ -504,6 +515,27 @@ export interface components {
         MessageResponse: {
             /** @example Operation completed successfully */
             message?: string;
+        };
+        EditTorrentRequest: {
+            /** @description New torrent name (must not be empty if provided) */
+            name?: string;
+            /** @description New torrent description */
+            description?: string;
+            /**
+             * Format: int64
+             * @description New category ID
+             */
+            category_id?: number;
+            /** @description Whether the upload is anonymous */
+            anonymous?: boolean;
+            /** @description Staff-only — ban/unban the torrent */
+            banned?: boolean;
+            /** @description Staff-only — enable/disable freeleech */
+            free?: boolean;
+        };
+        DeleteTorrentRequest: {
+            /** @description Reason for deleting the torrent */
+            reason: string;
         };
         ErrorResponse: {
             error?: {
@@ -1273,6 +1305,130 @@ export interface operations {
             };
             /** @description Not authenticated */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Torrent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    editTorrent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditTorrentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated torrent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        torrent?: components["schemas"]["Torrent"];
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden — not owner or admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Torrent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteTorrent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteTorrentRequest"];
+            };
+        };
+        responses: {
+            /** @description Torrent deleted successfully */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request or missing reason */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden — not owner or admin */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

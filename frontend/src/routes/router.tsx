@@ -5,6 +5,7 @@ import { HomePage } from "@/pages/HomePage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { UploadPage } from "@/pages/UploadPage";
 import { TorrentDetailPage } from "@/pages/TorrentDetailPage";
+import { TorrentEditPage } from "@/pages/TorrentEditPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SignupPage } from "@/pages/SignupPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
@@ -48,6 +49,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <TorrentDetailPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "torrent/:id/edit",
+        element: (
+          <ProtectedRoute>
+            <TorrentEditPage />
           </ProtectedRoute>
         ),
       },

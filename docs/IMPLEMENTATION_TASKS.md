@@ -517,7 +517,7 @@
 - Paginated results
 - Minimum query length: 2 characters
 
-#### BE-3.6: Edit & Delete Torrent [S]
+#### BE-3.6: Edit & Delete Torrent [S] [DONE]
 **As a** torrent owner or moderator
 **I want** to edit or delete a torrent
 **So that** I can fix mistakes or remove bad content
@@ -1240,7 +1240,7 @@
 - Anonymous upload checkbox
 - Client-side validation before submit
 
-#### FE-2.4: Torrent Edit Page [S]
+#### FE-2.4: Torrent Edit Page [S] [DONE]
 **As a** torrent owner or moderator
 **I want** to edit a torrent's metadata
 **So that** I can fix mistakes

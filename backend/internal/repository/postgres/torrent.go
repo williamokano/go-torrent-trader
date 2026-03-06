@@ -187,6 +187,22 @@ func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error 
 	).Scan(&torrent.UpdatedAt)
 }
 
+func (r *TorrentRepo) Delete(ctx context.Context, id int64) error {
+	query := `DELETE FROM torrents WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("deleting torrent: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *TorrentRepo) IncrementSeeders(ctx context.Context, id int64, delta int) error {
 	query := `UPDATE torrents SET seeders = GREATEST(0, seeders + $1), updated_at = NOW() WHERE id = $2`
 	result, err := r.db.ExecContext(ctx, query, delta, id)

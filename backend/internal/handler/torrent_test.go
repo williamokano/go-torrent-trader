@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/zeebo/bencode"
 
@@ -97,6 +98,18 @@ func (m *mockTorrentRepo) Update(_ context.Context, torrent *model.Torrent) erro
 	for i, t := range m.torrents {
 		if t.ID == torrent.ID {
 			m.torrents[i] = torrent
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+func (m *mockTorrentRepo) Delete(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, t := range m.torrents {
+		if t.ID == id {
+			m.torrents = append(m.torrents[:i], m.torrents[i+1:]...)
 			return nil
 		}
 	}
@@ -421,6 +434,324 @@ func TestHandleDownload_NotFound(t *testing.T) {
 	token := registerAndGetToken(t, router)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents/999/download", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+// createSessionWithGroup creates a session directly in the session store with the given groupID.
+func createSessionWithGroup(sessions *service.SessionStore, userID, groupID int64) string {
+	token := fmt.Sprintf("test-token-%d-%d-%d", userID, groupID, nextTestUserID())
+	sessions.Create(&service.Session{
+		UserID:           userID,
+		GroupID:          groupID,
+		AccessToken:      token,
+		RefreshToken:     "refresh-" + token,
+		ExpiresAt:        time.Now().Add(time.Hour),
+		RefreshExpiresAt: time.Now().Add(24 * time.Hour),
+	})
+	return token
+}
+
+// --- Edit handler tests ---
+
+func TestHandleEdit_AsOwner(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	// Create a regular user (groupID=5) and upload a torrent
+	ownerToken := createSessionWithGroup(sessions, 100, 5)
+	torrentData := buildTorrentFileBytes("edit-handler-owner")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	// Edit as owner
+	editBody, _ := json.Marshal(map[string]interface{}{
+		"name":        "owner-edited",
+		"description": "new desc",
+	})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(editBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	edited := resp["torrent"].(map[string]interface{})
+	if edited["name"] != "owner-edited" {
+		t.Errorf("expected name owner-edited, got %v", edited["name"])
+	}
+}
+
+func TestHandleEdit_AsAdmin(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 200, 5)
+	torrentData := buildTorrentFileBytes("edit-handler-admin")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	// Edit as admin (different user, groupID=1)
+	adminToken := createSessionWithGroup(sessions, 201, 1)
+	editBody, _ := json.Marshal(map[string]interface{}{
+		"name":   "admin-edited",
+		"banned": true,
+		"free":   true,
+	})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(editBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleEdit_Forbidden(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 300, 5)
+	torrentData := buildTorrentFileBytes("edit-handler-forbidden")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	// Edit as another non-admin user
+	otherToken := createSessionWithGroup(sessions, 301, 5)
+	editBody, _ := json.Marshal(map[string]interface{}{
+		"name": "hacked",
+	})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(editBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+otherToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleEdit_StaffFieldsForbidden(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 400, 5)
+	torrentData := buildTorrentFileBytes("edit-handler-staff")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	// Owner tries to set staff-only field
+	editBody, _ := json.Marshal(map[string]interface{}{
+		"banned": true,
+	})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(editBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleEdit_NotFound(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+	token := createSessionWithGroup(sessions, 500, 5)
+
+	editBody, _ := json.Marshal(map[string]interface{}{"name": "ghost"})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/torrents/999", bytes.NewReader(editBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+// --- Delete handler tests ---
+
+func TestHandleDelete_AsOwner(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 600, 5)
+	torrentData := buildTorrentFileBytes("delete-handler-owner")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	deleteBody, _ := json.Marshal(map[string]string{"reason": "bad content"})
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(deleteBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify torrent is gone
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/torrents/%d", id), nil)
+	getReq.Header.Set("Authorization", "Bearer "+ownerToken)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", getRec.Code)
+	}
+}
+
+func TestHandleDelete_AsAdmin(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 700, 5)
+	torrentData := buildTorrentFileBytes("delete-handler-admin")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	adminToken := createSessionWithGroup(sessions, 701, 1)
+	deleteBody, _ := json.Marshal(map[string]string{"reason": "admin cleanup"})
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(deleteBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDelete_Forbidden(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 800, 5)
+	torrentData := buildTorrentFileBytes("delete-handler-forbidden")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	otherToken := createSessionWithGroup(sessions, 801, 5)
+	deleteBody, _ := json.Marshal(map[string]string{"reason": "trying to delete"})
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(deleteBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+otherToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDelete_MissingReason(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 900, 5)
+	torrentData := buildTorrentFileBytes("delete-handler-noreason")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	deleteBody, _ := json.Marshal(map[string]string{"reason": ""})
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/torrents/%d", id), bytes.NewReader(deleteBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDelete_NotFound(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+	token := createSessionWithGroup(sessions, 1000, 5)
+
+	deleteBody, _ := json.Marshal(map[string]string{"reason": "cleanup"})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/torrents/999", bytes.NewReader(deleteBody))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

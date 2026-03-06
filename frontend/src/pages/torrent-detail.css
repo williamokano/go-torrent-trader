@@ -167,6 +167,111 @@
   cursor: not-allowed;
 }
 
+/* Actions row */
+.torrent-detail__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.torrent-detail__action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.torrent-detail__edit-btn {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.torrent-detail__edit-btn:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.torrent-detail__delete-btn {
+  background-color: transparent;
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.torrent-detail__delete-btn:hover {
+  background-color: var(--color-error);
+  color: #fff;
+}
+
+/* Delete modal */
+.torrent-detail__delete-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.torrent-detail__delete-warning {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.torrent-detail__delete-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+}
+
+.torrent-detail__delete-modal-cancel {
+  padding: var(--space-sm) var(--space-md);
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.torrent-detail__delete-modal-cancel:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.torrent-detail__delete-modal-confirm {
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-error);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.torrent-detail__delete-modal-confirm:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.torrent-detail__delete-modal-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Responsive */
 @media (max-width: 767px) {
   .torrent-detail__stats {

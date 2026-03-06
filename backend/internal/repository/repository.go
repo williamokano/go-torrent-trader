@@ -26,6 +26,7 @@ type TorrentRepository interface {
 	List(ctx context.Context, opts ListTorrentsOptions) ([]model.Torrent, int64, error)
 	Create(ctx context.Context, torrent *model.Torrent) error
 	Update(ctx context.Context, torrent *model.Torrent) error
+	Delete(ctx context.Context, id int64) error
 	IncrementSeeders(ctx context.Context, id int64, delta int) error
 	IncrementLeechers(ctx context.Context, id int64, delta int) error
 	IncrementTimesCompleted(ctx context.Context, id int64) error
