@@ -60,6 +60,12 @@ func (r *UserRepo) GetByPasskey(ctx context.Context, passkey string) (*model.Use
 	return scanUser(r.db.QueryRowContext(ctx, query, passkey))
 }
 
+func (r *UserRepo) Count(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
+}
+
 func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	query := `INSERT INTO users (
 		username, email, password_hash, password_scheme, passkey,

@@ -192,7 +192,7 @@
 
 ### Epic BE-1: Authentication & User Management
 
-#### BE-1.1: User Registration [M]
+#### BE-1.1: User Registration [M] [DONE]
 **As a** visitor
 **I want** to create an account with username, email, and password
 **So that** I can access the tracker
@@ -207,7 +207,7 @@
 - Configurable: open registration, invite-only, or closed
 - On success: auto-login (returns access_token + refresh_token per BE-1.2)
 
-#### BE-1.2: Login & Multi-Device Session Management [M]
+#### BE-1.2: Login & Multi-Device Session Management [M] [DONE — core auth, sessions/API keys deferred]
 **As a** registered user
 **I want** to log in from multiple devices simultaneously
 **So that** I can use the tracker from my browser, TUI client, phone, and automations at the same time
@@ -264,7 +264,7 @@
 - Accept PMs toggle
 - Change password (requires current password)
 
-#### BE-1.5: User Roles & Permissions [S]
+#### BE-1.5: User Roles & Permissions [S] [DONE — RequireAuth + RequireAdmin middleware]
 **As an** admin
 **I want** a role-based permission system
 **So that** different user classes have different capabilities
@@ -1078,7 +1078,7 @@
 - Shoutbox widget (embedded chat from FE-4.1)
 - Responsive layout
 
-#### FE-1.2: Login, Signup, Password Recovery Pages [M]
+#### FE-1.2: Login, Signup, Password Recovery Pages [M] [DONE — login + signup, recovery deferred]
 **As a** visitor
 **I want** to create an account, log in, or recover my password
 **So that** I can access the tracker

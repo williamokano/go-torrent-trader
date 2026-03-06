@@ -30,7 +30,7 @@ func run() int {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: handler.NewRouter(),
+		Handler: handler.NewRouter(nil),
 	}
 
 	slog.Info("server starting", "addr", addr)

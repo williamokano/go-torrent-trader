@@ -13,6 +13,7 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	GetByPasskey(ctx context.Context, passkey string) (*model.User, error)
+	Count(ctx context.Context) (int64, error)
 	Create(ctx context.Context, user *model.User) error
 	Update(ctx context.Context, user *model.User) error
 }

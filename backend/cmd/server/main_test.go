@@ -10,7 +10,7 @@ import (
 )
 
 func TestHealthzReturns200WithStatusOK(t *testing.T) {
-	router := handler.NewRouter()
+	router := handler.NewRouter(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestHealthzReturns200WithStatusOK(t *testing.T) {
 }
 
 func TestHealthzRejectsNonGET(t *testing.T) {
-	router := handler.NewRouter()
+	router := handler.NewRouter(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
 	rec := httptest.NewRecorder()
