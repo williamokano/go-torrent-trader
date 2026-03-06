@@ -1,16 +1,34 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, test, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { beforeEach, test, expect } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "@/features/auth";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
+import { clearTokens } from "@/features/auth/token";
 
-afterEach(cleanup);
+beforeEach(() => {
+  clearTokens();
+  localStorage.clear();
+});
 
-describe("ProtectedRoute", () => {
-  test("renders children", () => {
-    render(
-      <ProtectedRoute>
-        <div>Protected content</div>
-      </ProtectedRoute>,
-    );
-    expect(screen.getByText("Protected content")).toBeInTheDocument();
-  });
+test("ProtectedRoute redirects to login when not authenticated", () => {
+  render(
+    <AuthProvider>
+      <MemoryRouter initialEntries={["/protected"]}>
+        <Routes>
+          <Route
+            path="/protected"
+            element={
+              <ProtectedRoute>
+                <p>Protected content</p>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/login" element={<p>Login page</p>} />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+
+  expect(screen.queryByText("Protected content")).not.toBeInTheDocument();
+  screen.getByText("Login page");
 });
