@@ -108,7 +108,7 @@
 - Hot reload with air
 - Linter configured (golangci-lint)
 
-#### BE-0.2: Configuration System [S]
+#### BE-0.2: Configuration System [S] [DONE]
 **As a** developer
 **I want** a typed configuration loaded from environment variables with validation
 **So that** all settings are centralized, documented, and fail fast on misconfiguration
@@ -1033,7 +1033,7 @@
 - Axios or fetch-based, with interceptors for auth token injection and refresh
 - All endpoints fully typed (request params, body, response)
 
-#### FE-0.5: Auth State Management [M]
+#### FE-0.5: Auth State Management [M] [DONE]
 **As a** user
 **I want** to log in, stay logged in, and be redirected appropriately
 **So that** authentication is seamless
@@ -1046,7 +1046,7 @@
 - Redirect to intended page after login
 - Logout clears state and redirects to home
 
-#### FE-0.6: Shared Components Library [L]
+#### FE-0.6: Shared Components Library [L] [DONE — scoped: Form, Toast, Modal]
 **As a** frontend developer
 **I want** reusable UI components
 **So that** pages are consistent and development is faster

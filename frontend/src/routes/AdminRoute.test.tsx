@@ -1,12 +1,34 @@
 import { render, screen } from "@testing-library/react";
-import { test } from "vitest";
+import { beforeEach, test, expect } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "@/features/auth";
 import { AdminRoute } from "@/routes/AdminRoute";
+import { clearTokens } from "@/features/auth/token";
 
-test("renders children", () => {
+beforeEach(() => {
+  clearTokens();
+  localStorage.clear();
+});
+
+test("AdminRoute redirects to login when not authenticated", () => {
   render(
-    <AdminRoute>
-      <p>Admin content</p>
-    </AdminRoute>,
+    <AuthProvider>
+      <MemoryRouter initialEntries={["/admin"]}>
+        <Routes>
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <p>Admin content</p>
+              </AdminRoute>
+            }
+          />
+          <Route path="/login" element={<p>Login page</p>} />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>,
   );
-  screen.getByText("Admin content");
+
+  expect(screen.queryByText("Admin content")).not.toBeInTheDocument();
+  screen.getByText("Login page");
 });
