@@ -81,16 +81,18 @@ type AuthService struct {
 	users          repository.UserRepository
 	sessions       *SessionStore
 	passwordResets *PasswordResetStore
+	email          EmailSender
 	siteBaseURL    string
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(users repository.UserRepository, sessions *SessionStore) *AuthService {
+func NewAuthService(users repository.UserRepository, sessions *SessionStore, email EmailSender, siteBaseURL string) *AuthService {
 	return &AuthService{
 		users:          users,
 		sessions:       sessions,
 		passwordResets: NewPasswordResetStore(),
-		siteBaseURL:    "http://localhost:8080",
+		email:          email,
+		siteBaseURL:    siteBaseURL,
 	}
 }
 
@@ -99,7 +101,7 @@ func (s *AuthService) SetPasswordResetStore(store *PasswordResetStore) {
 	s.passwordResets = store
 }
 
-// SetSiteBaseURL sets the site base URL used in password reset links.
+// SetSiteBaseURL sets the site base URL used in password reset links (useful for testing).
 func (s *AuthService) SetSiteBaseURL(url string) {
 	s.siteBaseURL = url
 }
@@ -308,6 +310,20 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req ForgotPasswordRequ
 		"user_id", user.ID,
 		"reset_url", resetURL,
 	)
+
+	htmlBody := fmt.Sprintf(
+		`<h2>Password Reset</h2>
+<p>You requested a password reset for your account.</p>
+<p><a href="%s">Click here to reset your password</a></p>
+<p>This link expires in 1 hour.</p>
+<p>If you didn't request this, ignore this email.</p>`,
+		resetURL,
+	)
+
+	if err := s.email.Send(ctx, req.Email, "Password Reset — TorrentTrader", htmlBody); err != nil {
+		slog.Error("failed to send password reset email", "user_id", user.ID, "error", err)
+		// Don't reveal email issues to caller
+	}
 
 	return nil
 }

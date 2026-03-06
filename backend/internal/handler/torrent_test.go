@@ -180,7 +180,7 @@ func setupTorrentRouter() (http.Handler, *service.SessionStore) {
 	torrentRepo := newMockTorrentRepo()
 	store := newMockStorage()
 	sessions := service.NewSessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions)
+	authSvc := service.NewAuthService(userRepo, sessions, &service.NoopSender{}, "http://localhost:8080")
 	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	router := handler.NewRouter(&handler.Deps{

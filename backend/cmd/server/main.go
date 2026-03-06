@@ -55,7 +55,8 @@ func run() int {
 	torrentRepo := postgres.NewTorrentRepo(db)
 	peerRepo := postgres.NewPeerRepo(db)
 	sessionStore := service.NewSessionStore()
-	authService := service.NewAuthService(userRepo, sessionStore)
+	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
+	authService := service.NewAuthService(userRepo, sessionStore, emailSender, cfg.Site.BaseURL)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
 	// File storage

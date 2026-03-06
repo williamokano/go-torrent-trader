@@ -71,7 +71,7 @@ func TestIntegrationServerStartsWithDB(t *testing.T) {
 
 	userRepo := postgres.NewUserRepo(db)
 	sessionStore := service.NewSessionStore()
-	authService := service.NewAuthService(userRepo, sessionStore)
+	authService := service.NewAuthService(userRepo, sessionStore, &service.NoopSender{}, "http://localhost:8080")
 
 	deps := &handler.Deps{
 		AuthService:  authService,
