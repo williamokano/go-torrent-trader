@@ -90,6 +90,19 @@ func (m *mockUserRepo) Update(_ context.Context, user *model.User) error {
 	return errors.New("not found")
 }
 
+func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta, downloadedDelta int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.Uploaded += uploadedDelta
+			u.Downloaded += downloadedDelta
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func setupRouter() (*handler.AuthHandler, *service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := service.NewSessionStore()

@@ -10,8 +10,9 @@ import (
 
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
-	AuthService  *service.AuthService
-	SessionStore *service.SessionStore
+	AuthService    *service.AuthService
+	SessionStore   *service.SessionStore
+	TrackerService *service.TrackerService
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -27,6 +28,14 @@ func NewRouter(deps *Deps) chi.Router {
 
 	// Health check
 	r.Get("/healthz", HandleHealthz)
+
+	// Tracker endpoints (public, no auth required — use passkey in URL)
+	if deps != nil && deps.TrackerService != nil {
+		announceHandler := NewAnnounceHandler(deps.TrackerService)
+		scrapeHandler := NewScrapeHandler(deps.TrackerService)
+		r.Get("/announce", announceHandler.HandleAnnounce)
+		r.Get("/scrape", scrapeHandler.HandleScrape)
+	}
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
