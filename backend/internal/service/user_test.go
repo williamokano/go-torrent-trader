@@ -63,12 +63,9 @@ func TestGetProfile_OwnerView(t *testing.T) {
 	if op.Email != "owner@example.com" {
 		t.Errorf("expected email owner@example.com, got %s", op.Email)
 	}
-	// Passkey should be masked
-	if len(op.Passkey) == 0 {
-		t.Error("expected non-empty masked passkey")
-	}
-	if op.Passkey == *user.Passkey {
-		t.Error("passkey should be masked, not raw")
+	// Owner should see full passkey
+	if op.Passkey != *user.Passkey {
+		t.Errorf("expected full passkey %q, got %q", *user.Passkey, op.Passkey)
 	}
 }
 
@@ -398,25 +395,13 @@ func TestCalculateRatio(t *testing.T) {
 	}
 }
 
-func TestMaskPasskey(t *testing.T) {
-	tests := []struct {
-		name     string
-		passkey  *string
-		expected string
-	}{
-		{"nil", nil, ""},
-		{"short", strPtr("abc"), ""},
-		{"exact 8", strPtr("12345678"), "12345678"},
-		{"32 chars", strPtr("abcdefghijklmnopqrstuvwxyz012345"), "abcd************************2345"},
+func TestDerefString(t *testing.T) {
+	if got := derefString(nil); got != "" {
+		t.Errorf("expected empty for nil, got %q", got)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := maskPasskey(tt.passkey)
-			if got != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, got)
-			}
-		})
+	s := "hello"
+	if got := derefString(&s); got != "hello" {
+		t.Errorf("expected %q, got %q", "hello", got)
 	}
 }
 

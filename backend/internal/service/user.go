@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"strings"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -198,7 +197,7 @@ func buildOwnerProfile(u *model.User, pub PublicProfile) *OwnerProfile {
 	op := &OwnerProfile{
 		PublicProfile: pub,
 		Email:         u.Email,
-		Passkey:       maskPasskey(u.Passkey),
+		Passkey:       derefString(u.Passkey),
 		Invites:       u.Invites,
 		Warned:        u.Warned,
 	}
@@ -221,12 +220,11 @@ func calculateRatio(uploaded, downloaded int64) float64 {
 	return float64(uploaded) / float64(downloaded)
 }
 
-func maskPasskey(passkey *string) string {
-	if passkey == nil || len(*passkey) < 8 {
+func derefString(s *string) string {
+	if s == nil {
 		return ""
 	}
-	pk := *passkey
-	return pk[:4] + strings.Repeat("*", len(pk)-8) + pk[len(pk)-4:]
+	return *s
 }
 
 func validateProfileUpdate(req UpdateProfileRequest) error {
