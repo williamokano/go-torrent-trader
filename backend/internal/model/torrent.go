@@ -11,6 +11,7 @@ type Torrent struct {
 	Description    *string
 	Nfo            *string
 	CategoryID     int64
+	CategoryName   string
 	UploaderID     int64
 	Anonymous      bool
 	Seeders        int

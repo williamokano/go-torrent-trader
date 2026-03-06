@@ -16,6 +16,11 @@ vi.mock("@/features/auth/token", () => ({
   getAccessToken: () => "fake-token",
 }));
 
+const FAKE_CATEGORIES = [
+  { id: 1, name: "Movies", parent_id: null, sort_order: 1 },
+  { id: 2, name: "TV", parent_id: null, sort_order: 2 },
+];
+
 const FAKE_TORRENTS = [
   {
     id: 1,
@@ -23,6 +28,7 @@ const FAKE_TORRENTS = [
     info_hash: "abc123",
     size: 4_800_000_000,
     category_id: 1,
+    category_name: "Movies",
     uploader_id: 1,
     anonymous: false,
     seeders: 42,
@@ -39,6 +45,7 @@ const FAKE_TORRENTS = [
     info_hash: "def456",
     size: 850_000_000,
     category_id: 1,
+    category_name: "Movies",
     uploader_id: 2,
     anonymous: false,
     seeders: 28,
@@ -55,9 +62,17 @@ afterEach(cleanup);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGET.mockResolvedValue({
-    data: { torrents: FAKE_TORRENTS, total: 2, page: 1, per_page: 5 },
-    error: undefined,
+  mockGET.mockImplementation((url: string) => {
+    if (url === "/api/v1/categories") {
+      return Promise.resolve({
+        data: { categories: FAKE_CATEGORIES },
+        error: undefined,
+      });
+    }
+    return Promise.resolve({
+      data: { torrents: FAKE_TORRENTS, total: 2, page: 1, per_page: 5 },
+      error: undefined,
+    });
   });
 });
 
@@ -76,7 +91,15 @@ describe("BrowsePage", () => {
   });
 
   test("shows loading state initially", () => {
-    mockGET.mockReturnValue(new Promise(() => {})); // never resolves
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/categories") {
+        return Promise.resolve({
+          data: { categories: FAKE_CATEGORIES },
+          error: undefined,
+        });
+      }
+      return new Promise(() => {}); // never resolves for torrents
+    });
     renderBrowsePage();
     expect(screen.getByText("Loading torrents...")).toBeInTheDocument();
   });
@@ -107,9 +130,17 @@ describe("BrowsePage", () => {
   });
 
   test("shows empty state when no torrents", async () => {
-    mockGET.mockResolvedValue({
-      data: { torrents: [], total: 0, page: 1, per_page: 5 },
-      error: undefined,
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/categories") {
+        return Promise.resolve({
+          data: { categories: FAKE_CATEGORIES },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({
+        data: { torrents: [], total: 0, page: 1, per_page: 5 },
+        error: undefined,
+      });
     });
     renderBrowsePage();
     await waitFor(() => {
@@ -118,9 +149,17 @@ describe("BrowsePage", () => {
   });
 
   test("shows error state on API failure", async () => {
-    mockGET.mockResolvedValue({
-      data: undefined,
-      error: { error: { message: "Server error" } },
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/categories") {
+        return Promise.resolve({
+          data: { categories: FAKE_CATEGORIES },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({
+        data: undefined,
+        error: { error: { message: "Server error" } },
+      });
     });
     renderBrowsePage();
     await waitFor(() => {

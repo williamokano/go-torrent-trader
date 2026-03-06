@@ -190,6 +190,7 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		"info_hash":       hex.EncodeToString(t.InfoHash),
 		"size":            t.Size,
 		"category_id":     t.CategoryID,
+		"category_name":   t.CategoryName,
 		"uploader_id":     t.UploaderID,
 		"anonymous":       t.Anonymous,
 		"seeders":         t.Seeders,

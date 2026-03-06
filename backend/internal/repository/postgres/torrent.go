@@ -10,9 +10,10 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
-const torrentColumns = `id, name, info_hash, size, description, nfo, category_id,
-	uploader_id, anonymous, seeders, leechers, times_completed, comments_count,
-	visible, banned, free, silver, file_count, created_at, updated_at`
+const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo, t.category_id,
+	c.name AS category_name,
+	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
+	t.visible, t.banned, t.free, t.silver, t.file_count, t.created_at, t.updated_at`
 
 // TorrentRepo implements repository.TorrentRepository using PostgreSQL.
 type TorrentRepo struct {
@@ -28,7 +29,8 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 	var t model.Torrent
 	err := row.Scan(
 		&t.ID, &t.Name, &t.InfoHash, &t.Size, &t.Description, &t.Nfo,
-		&t.CategoryID, &t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
+		&t.CategoryID, &t.CategoryName,
+		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
 		&t.Free, &t.Silver, &t.FileCount, &t.CreatedAt, &t.UpdatedAt,
 	)
@@ -39,22 +41,22 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 }
 
 func (r *TorrentRepo) GetByID(ctx context.Context, id int64) (*model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents WHERE id = $1", torrentColumns)
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.id = $1", torrentColumns)
 	return scanTorrent(r.db.QueryRowContext(ctx, query, id))
 }
 
 func (r *TorrentRepo) GetByInfoHash(ctx context.Context, infoHash []byte) (*model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents WHERE info_hash = $1", torrentColumns)
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.info_hash = $1", torrentColumns)
 	return scanTorrent(r.db.QueryRowContext(ctx, query, infoHash))
 }
 
 // allowedSortColumns restricts the columns that can be used for ORDER BY.
 var allowedSortColumns = map[string]string{
-	"name":       "name",
-	"created_at": "created_at",
-	"size":       "size",
-	"seeders":    "seeders",
-	"leechers":   "leechers",
+	"name":       "t.name",
+	"created_at": "t.created_at",
+	"size":       "t.size",
+	"seeders":    "t.seeders",
+	"leechers":   "t.leechers",
 }
 
 func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
@@ -70,17 +72,17 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	}
 
 	// Default: only show visible, non-banned torrents.
-	conditions = append(conditions, "visible = true", "banned = false")
+	conditions = append(conditions, "t.visible = true", "t.banned = false")
 
 	if opts.CategoryID != nil {
-		conditions = append(conditions, fmt.Sprintf("category_id = %s", nextArg()))
+		conditions = append(conditions, fmt.Sprintf("t.category_id = %s", nextArg()))
 		args = append(args, *opts.CategoryID)
 	}
 
 	if opts.Search != "" {
-		// Escape LIKE metacharacters in user input.
-		escaped := strings.NewReplacer("%", `\%`, "_", `\_`).Replace(opts.Search)
-		conditions = append(conditions, fmt.Sprintf("name ILIKE %s", nextArg()))
+		// Escape LIKE metacharacters in user input (backslash first, then wildcards).
+		escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(opts.Search)
+		conditions = append(conditions, fmt.Sprintf("t.name ILIKE %s", nextArg()))
 		args = append(args, "%"+escaped+"%")
 	}
 
@@ -90,14 +92,14 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	}
 
 	// Count total matching rows.
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM torrents %s", where)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM torrents t %s", where)
 	var total int64
 	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("counting torrents: %w", err)
 	}
 
 	// Determine sort column and order (safe against SQL injection).
-	sortCol := "created_at"
+	sortCol := "t.created_at"
 	if col, ok := allowedSortColumns[opts.SortBy]; ok {
 		sortCol = col
 	}
@@ -116,10 +118,13 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	if perPage < 1 {
 		perPage = 25
 	}
+	if perPage > 100 {
+		perPage = 100
+	}
 	offset := (page - 1) * perPage
 
 	selectQuery := fmt.Sprintf(
-		"SELECT %s FROM torrents %s ORDER BY %s %s LIMIT %s OFFSET %s",
+		"SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id %s ORDER BY %s %s LIMIT %s OFFSET %s",
 		torrentColumns, where, sortCol, sortOrder, nextArg(), nextArg(),
 	)
 	args = append(args, perPage, offset)

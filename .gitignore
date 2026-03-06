@@ -39,3 +39,4 @@ tmp/
 # Coverage
 coverage/
 *.coverprofile
+backend/uploads/
