@@ -1,10 +1,65 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { afterEach, describe, test, expect } from "vitest";
+import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { BrowsePage } from "@/pages/BrowsePage";
 
+const mockGET = vi.fn();
+
+vi.mock("@/api", () => ({
+  api: {
+    GET: (...args: unknown[]) => mockGET(...args),
+  },
+}));
+
+vi.mock("@/features/auth/token", () => ({
+  getAccessToken: () => "fake-token",
+}));
+
+const FAKE_TORRENTS = [
+  {
+    id: 1,
+    name: "Ubuntu 24.04 LTS Desktop",
+    info_hash: "abc123",
+    size: 4_800_000_000,
+    category_id: 1,
+    uploader_id: 1,
+    anonymous: false,
+    seeders: 42,
+    leechers: 5,
+    times_completed: 318,
+    comments_count: 0,
+    file_count: 1,
+    created_at: "2026-03-05T14:30:00Z",
+    updated_at: "2026-03-05T14:30:00Z",
+  },
+  {
+    id: 2,
+    name: "Arch Linux 2026.03.01",
+    info_hash: "def456",
+    size: 850_000_000,
+    category_id: 1,
+    uploader_id: 2,
+    anonymous: false,
+    seeders: 28,
+    leechers: 3,
+    times_completed: 156,
+    comments_count: 0,
+    file_count: 1,
+    created_at: "2026-03-04T10:15:00Z",
+    updated_at: "2026-03-04T10:15:00Z",
+  },
+];
+
 afterEach(cleanup);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGET.mockResolvedValue({
+    data: { torrents: FAKE_TORRENTS, total: 2, page: 1, per_page: 5 },
+    error: undefined,
+  });
+});
 
 function renderBrowsePage(initialEntries = ["/browse"]) {
   return render(
@@ -20,9 +75,17 @@ describe("BrowsePage", () => {
     expect(screen.getByText("Browse Torrents")).toBeInTheDocument();
   });
 
-  test("renders torrent table with data", () => {
+  test("shows loading state initially", () => {
+    mockGET.mockReturnValue(new Promise(() => {})); // never resolves
     renderBrowsePage();
-    expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
+    expect(screen.getByText("Loading torrents...")).toBeInTheDocument();
+  });
+
+  test("renders torrent table after loading", async () => {
+    renderBrowsePage();
+    await waitFor(() => {
+      expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
+    });
     expect(screen.getByText("Arch Linux 2026.03.01")).toBeInTheDocument();
   });
 
@@ -43,37 +106,96 @@ describe("BrowsePage", () => {
     expect(screen.getByLabelText("Sort by")).toBeInTheDocument();
   });
 
-  test("renders pagination", () => {
+  test("shows empty state when no torrents", async () => {
+    mockGET.mockResolvedValue({
+      data: { torrents: [], total: 0, page: 1, per_page: 5 },
+      error: undefined,
+    });
     renderBrowsePage();
-    expect(screen.getByLabelText("Pagination")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("No torrents found.")).toBeInTheDocument();
+    });
   });
 
-  test("renders freeleech badges", () => {
+  test("shows error state on API failure", async () => {
+    mockGET.mockResolvedValue({
+      data: undefined,
+      error: { error: { message: "Server error" } },
+    });
     renderBrowsePage();
-    const badges = screen.getAllByText("FREE");
-    expect(badges.length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByText("Server error")).toBeInTheDocument();
+    });
   });
 
-  test("filters by search query", async () => {
-    renderBrowsePage();
-    const user = userEvent.setup();
-    const searchInput = screen.getByPlaceholderText("Search torrents...");
-    await user.type(searchInput, "Ubuntu");
-    expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
-    expect(screen.queryByText("Arch Linux 2026.03.01")).not.toBeInTheDocument();
+  test("passes search query to API", async () => {
+    renderBrowsePage(["/browse?q=ubuntu"]);
+    await waitFor(() => {
+      expect(mockGET).toHaveBeenCalledWith(
+        "/api/v1/torrents",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            query: expect.objectContaining({ search: "ubuntu" }),
+          }),
+        }),
+      );
+    });
   });
 
-  test("shows empty state when no results", async () => {
-    renderBrowsePage();
-    const user = userEvent.setup();
-    const searchInput = screen.getByPlaceholderText("Search torrents...");
-    await user.type(searchInput, "nonexistent torrent xyz");
-    expect(screen.getByText("No torrents found.")).toBeInTheDocument();
+  test("passes category filter to API", async () => {
+    renderBrowsePage(["/browse?cat=2"]);
+    await waitFor(() => {
+      expect(mockGET).toHaveBeenCalledWith(
+        "/api/v1/torrents",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            query: expect.objectContaining({ cat: 2 }),
+          }),
+        }),
+      );
+    });
   });
 
-  test("renders health indicators", () => {
+  test("renders health indicators after loading", async () => {
     renderBrowsePage();
+    await waitFor(() => {
+      expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
+    });
     const healthDots = document.querySelectorAll(".browse__health");
     expect(healthDots.length).toBeGreaterThan(0);
+  });
+
+  test("passes authorization header", async () => {
+    renderBrowsePage();
+    await waitFor(() => {
+      expect(mockGET).toHaveBeenCalledWith(
+        "/api/v1/torrents",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer fake-token" },
+        }),
+      );
+    });
+  });
+
+  test("search input triggers re-fetch with new query", async () => {
+    renderBrowsePage();
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText("Search torrents...");
+    await user.type(searchInput, "a");
+
+    await waitFor(() => {
+      expect(mockGET).toHaveBeenLastCalledWith(
+        "/api/v1/torrents",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            query: expect.objectContaining({ search: "a" }),
+          }),
+        }),
+      );
+    });
   });
 });

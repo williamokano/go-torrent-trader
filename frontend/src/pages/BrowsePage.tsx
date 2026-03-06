@@ -1,23 +1,13 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { api } from "@/api";
+import { getAccessToken } from "@/features/auth/token";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { formatBytes, timeAgo } from "@/utils/format";
+import type { Torrent } from "@/types/torrent";
 import "./browse.css";
-
-interface TorrentListItem {
-  id: number;
-  name: string;
-  category_id: number;
-  size: number;
-  seeders: number;
-  leechers: number;
-  times_completed: number;
-  created_at: string;
-  free: boolean;
-  uploader: string;
-}
 
 const CATEGORIES = [
   { value: "", label: "All Categories" },
@@ -34,153 +24,6 @@ const SORT_OPTIONS = [
   { value: "size", label: "Size" },
   { value: "seeders", label: "Seeders" },
   { value: "leechers", label: "Leechers" },
-];
-
-const MOCK_TORRENTS: TorrentListItem[] = [
-  {
-    id: 1,
-    name: "Ubuntu 24.04 LTS Desktop",
-    category_id: 1,
-    size: 4_800_000_000,
-    seeders: 42,
-    leechers: 5,
-    times_completed: 318,
-    created_at: "2026-03-05T14:30:00Z",
-    free: true,
-    uploader: "admin",
-  },
-  {
-    id: 2,
-    name: "Arch Linux 2026.03.01",
-    category_id: 1,
-    size: 850_000_000,
-    seeders: 28,
-    leechers: 3,
-    times_completed: 156,
-    created_at: "2026-03-04T10:15:00Z",
-    free: false,
-    uploader: "linuxfan",
-  },
-  {
-    id: 3,
-    name: "Blender 4.2 Source Code",
-    category_id: 2,
-    size: 320_000_000,
-    seeders: 12,
-    leechers: 1,
-    times_completed: 87,
-    created_at: "2026-03-03T18:45:00Z",
-    free: false,
-    uploader: "opensrc",
-  },
-  {
-    id: 4,
-    name: "Creative Commons Music Pack Vol. 12",
-    category_id: 3,
-    size: 1_200_000_000,
-    seeders: 8,
-    leechers: 2,
-    times_completed: 64,
-    created_at: "2026-03-02T09:00:00Z",
-    free: true,
-    uploader: "musicbot",
-  },
-  {
-    id: 5,
-    name: "Fedora 41 Server",
-    category_id: 1,
-    size: 2_100_000_000,
-    seeders: 0,
-    leechers: 4,
-    times_completed: 201,
-    created_at: "2026-03-01T22:30:00Z",
-    free: false,
-    uploader: "fedorauser",
-  },
-  {
-    id: 6,
-    name: "Debian 13 Netinst",
-    category_id: 1,
-    size: 400_000_000,
-    seeders: 3,
-    leechers: 0,
-    times_completed: 112,
-    created_at: "2026-02-28T16:00:00Z",
-    free: false,
-    uploader: "debfan",
-  },
-  {
-    id: 7,
-    name: "GIMP 3.0 Portable",
-    category_id: 2,
-    size: 180_000_000,
-    seeders: 15,
-    leechers: 2,
-    times_completed: 95,
-    created_at: "2026-02-27T11:20:00Z",
-    free: false,
-    uploader: "opensrc",
-  },
-  {
-    id: 8,
-    name: "Public Domain E-Book Collection 2026",
-    category_id: 4,
-    size: 2_500_000_000,
-    seeders: 6,
-    leechers: 1,
-    times_completed: 43,
-    created_at: "2026-02-26T08:00:00Z",
-    free: true,
-    uploader: "bookworm",
-  },
-  {
-    id: 9,
-    name: "openSUSE Tumbleweed DVD",
-    category_id: 1,
-    size: 4_200_000_000,
-    seeders: 1,
-    leechers: 6,
-    times_completed: 78,
-    created_at: "2026-02-25T20:00:00Z",
-    free: false,
-    uploader: "susefan",
-  },
-  {
-    id: 10,
-    name: "LibreOffice 25.2 Source",
-    category_id: 2,
-    size: 750_000_000,
-    seeders: 0,
-    leechers: 0,
-    times_completed: 33,
-    created_at: "2026-02-24T14:00:00Z",
-    free: false,
-    uploader: "officefan",
-  },
-  {
-    id: 11,
-    name: "CC Licensed Ambient Sounds",
-    category_id: 3,
-    size: 600_000_000,
-    seeders: 22,
-    leechers: 1,
-    times_completed: 55,
-    created_at: "2026-02-23T12:00:00Z",
-    free: false,
-    uploader: "musicbot",
-  },
-  {
-    id: 12,
-    name: "Kali Linux 2026.1",
-    category_id: 1,
-    size: 3_800_000_000,
-    seeders: 35,
-    leechers: 8,
-    times_completed: 267,
-    created_at: "2026-02-22T19:00:00Z",
-    free: false,
-    uploader: "secadmin",
-  },
 ];
 
 const PER_PAGE = 5;
@@ -201,6 +44,57 @@ export function BrowsePage() {
   const sortBy = (searchParams.get("sort") as SortField) || "created_at";
   const sortDir = searchParams.get("dir") === "asc" ? "asc" : "desc";
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
+
+  const [torrents, setTorrents] = useState<Torrent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchTorrents() {
+      setLoading(true);
+      setError(null);
+
+      const token = getAccessToken();
+      const { data, error: apiError } = await api.GET("/api/v1/torrents", {
+        params: {
+          query: {
+            search: query || undefined,
+            cat: category ? Number(category) : undefined,
+            sort: sortBy,
+            order: sortDir,
+            page,
+            per_page: PER_PAGE,
+          },
+        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (cancelled) return;
+
+      if (apiError) {
+        const msg =
+          (apiError as { error?: { message?: string } }).error?.message ??
+          "Failed to load torrents";
+        setError(msg);
+        setLoading(false);
+        return;
+      }
+
+      setTorrents(data?.torrents ?? []);
+      setTotal(data?.total ?? 0);
+      setLoading(false);
+    }
+
+    fetchTorrents();
+    return () => {
+      cancelled = true;
+    };
+  }, [query, category, sortBy, sortDir, page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -233,42 +127,6 @@ export function BrowsePage() {
       });
     },
     [setSearchParams],
-  );
-
-  const filtered = useMemo(() => {
-    let result = MOCK_TORRENTS;
-
-    if (query) {
-      const q = query.toLowerCase();
-      result = result.filter((t) => t.name.toLowerCase().includes(q));
-    }
-
-    if (category) {
-      const catId = Number(category);
-      result = result.filter((t) => t.category_id === catId);
-    }
-
-    result = [...result].sort((a, b) => {
-      const aVal = a[sortBy];
-      const bVal = b[sortBy];
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        return sortDir === "asc"
-          ? aVal.localeCompare(bVal)
-          : bVal.localeCompare(aVal);
-      }
-      return sortDir === "asc"
-        ? (aVal as number) - (bVal as number)
-        : (bVal as number) - (aVal as number);
-    });
-
-    return result;
-  }, [query, category, sortBy, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
-  const currentPage = Math.min(page, totalPages);
-  const paginated = filtered.slice(
-    (currentPage - 1) * PER_PAGE,
-    currentPage * PER_PAGE,
   );
 
   const sortIndicator = (field: SortField) => {
@@ -308,7 +166,11 @@ export function BrowsePage() {
         </div>
       </div>
 
-      {paginated.length === 0 ? (
+      {loading ? (
+        <div className="browse__loading">Loading torrents...</div>
+      ) : error ? (
+        <div className="browse__error">{error}</div>
+      ) : torrents.length === 0 ? (
         <div className="browse__empty">No torrents found.</div>
       ) : (
         <table className="browse__table">
@@ -333,11 +195,11 @@ export function BrowsePage() {
             </tr>
           </thead>
           <tbody>
-            {paginated.map((t) => (
+            {torrents.map((t) => (
               <tr key={t.id}>
                 <td>
                   <span
-                    className={`browse__health ${healthClass(t.seeders)}`}
+                    className={`browse__health ${healthClass(t.seeders ?? 0)}`}
                   />
                   <Link
                     className="browse__torrent-name"
@@ -345,27 +207,28 @@ export function BrowsePage() {
                   >
                     {t.name}
                   </Link>
-                  {t.free && <span className="browse__free-badge">FREE</span>}
                 </td>
                 <td>
                   {CATEGORIES.find((c) => c.value === String(t.category_id))
                     ?.label ?? "Unknown"}
                 </td>
-                <td>{formatBytes(t.size)}</td>
-                <td>{t.seeders}</td>
-                <td>{t.leechers}</td>
-                <td>{timeAgo(t.created_at)}</td>
+                <td>{formatBytes(t.size ?? 0)}</td>
+                <td>{t.seeders ?? 0}</td>
+                <td>{t.leechers ?? 0}</td>
+                <td>{timeAgo(t.created_at ?? "")}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={(p) => setParam("page", String(p))}
-      />
+      {!loading && !error && totalPages > 1 && (
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          onPageChange={(p) => setParam("page", String(p))}
+        />
+      )}
     </div>
   );
 }
