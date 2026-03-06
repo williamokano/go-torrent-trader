@@ -43,6 +43,7 @@ func (r *fakeTorrentRepo) List(context.Context, repository.ListTorrentsOptions) 
 
 func (r *fakeTorrentRepo) Create(context.Context, *model.Torrent) error { return nil }
 func (r *fakeTorrentRepo) Update(context.Context, *model.Torrent) error { return nil }
+func (r *fakeTorrentRepo) Delete(context.Context, int64) error          { return nil }
 func (r *fakeTorrentRepo) IncrementSeeders(context.Context, int64, int) error {
 	return nil
 }

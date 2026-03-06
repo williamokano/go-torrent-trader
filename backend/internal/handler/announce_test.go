@@ -76,6 +76,7 @@ func (r *announceTorrentRepo) List(context.Context, repository.ListTorrentsOptio
 }
 func (r *announceTorrentRepo) Create(context.Context, *model.Torrent) error         { return nil }
 func (r *announceTorrentRepo) Update(context.Context, *model.Torrent) error         { return nil }
+func (r *announceTorrentRepo) Delete(context.Context, int64) error                  { return nil }
 func (r *announceTorrentRepo) IncrementSeeders(context.Context, int64, int) error   { return nil }
 func (r *announceTorrentRepo) IncrementLeechers(context.Context, int64, int) error  { return nil }
 func (r *announceTorrentRepo) IncrementTimesCompleted(context.Context, int64) error { return nil }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -170,6 +171,73 @@ func (h *TorrentHandler) HandleDownload(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write(data)
 }
 
+// HandleEdit handles PUT /api/v1/torrents/{id}.
+func (h *TorrentHandler) HandleEdit(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	groupID, _ := middleware.GroupIDFromContext(r.Context())
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	var req service.EditTorrentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	torrent, err := h.torrentSvc.EditTorrent(r.Context(), id, userID, groupID, req)
+	if err != nil {
+		handleTorrentError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"torrent": torrentResponse(torrent),
+	})
+}
+
+// HandleDelete handles DELETE /api/v1/torrents/{id}.
+func (h *TorrentHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	groupID, _ := middleware.GroupIDFromContext(r.Context())
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	if body.Reason == "" {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "reason is required")
+		return
+	}
+
+	if err := h.torrentSvc.DeleteTorrent(r.Context(), id, userID, groupID); err != nil {
+		handleTorrentError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleTorrentError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTorrent):
@@ -178,6 +246,8 @@ func handleTorrentError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusConflict, "duplicate_torrent", "a torrent with this info_hash already exists")
 	case errors.Is(err, service.ErrTorrentNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "torrent not found")
+	case errors.Is(err, service.ErrForbidden):
+		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have permission to perform this action")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}

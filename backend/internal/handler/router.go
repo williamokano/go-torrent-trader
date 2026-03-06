@@ -90,6 +90,8 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Post("/", torrents.HandleUpload)
 					r.Get("/", torrents.HandleList)
 					r.Get("/{id}", torrents.HandleGetByID)
+					r.Put("/{id}", torrents.HandleEdit)
+					r.Delete("/{id}", torrents.HandleDelete)
 					r.Get("/{id}/download", torrents.HandleDownload)
 				})
 			}

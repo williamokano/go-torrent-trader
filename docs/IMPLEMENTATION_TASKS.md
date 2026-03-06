@@ -239,6 +239,22 @@
 - Rate limit: max 5 failed attempts per 15 minutes per IP
 - No IP binding (sessions work across networks)
 
+#### BE-1.2.2: Persistent Session Store (Redis) [M]
+**As a** site operator
+**I want** sessions to survive backend restarts
+**So that** users don't get logged out when the server is updated
+
+**Acceptance Criteria:**
+- Define a `SessionStore` interface abstracting session CRUD (Get, GetByRefresh, Create, Delete, DeleteByUserID, DeleteByUserIDExcept)
+- Implement Redis-backed session store using the existing Redis config (REDIS_URL)
+- Migrate from current in-memory map to the Redis implementation
+- Sessions persist across backend restarts
+- Configurable token TTLs via env vars: `ACCESS_TOKEN_TTL` (default 1h), `REFRESH_TOKEN_TTL` (default 30d)
+- Keep the in-memory implementation available (for testing or simple deployments without Redis)
+- Factory function selects implementation based on config (e.g., `SESSION_STORE=memory|redis`, default redis)
+
+> **Note:** Current in-memory session store loses all sessions on backend restart. This is the root cause of users being logged out during development and deployments.
+
 #### BE-1.2.1: Email Confirmation Flow [M]
 **As a** site operator
 **I want** new users to confirm their email address before accessing the tracker
@@ -517,7 +533,7 @@
 - Paginated results
 - Minimum query length: 2 characters
 
-#### BE-3.6: Edit & Delete Torrent [S]
+#### BE-3.6: Edit & Delete Torrent [S] [DONE]
 **As a** torrent owner or moderator
 **I want** to edit or delete a torrent
 **So that** I can fix mistakes or remove bad content
@@ -1240,7 +1256,7 @@
 - Anonymous upload checkbox
 - Client-side validation before submit
 
-#### FE-2.4: Torrent Edit Page [S]
+#### FE-2.4: Torrent Edit Page [S] [DONE]
 **As a** torrent owner or moderator
 **I want** to edit a torrent's metadata
 **So that** I can fix mistakes

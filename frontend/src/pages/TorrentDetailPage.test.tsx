@@ -1,7 +1,16 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { TorrentDetailPage } from "@/pages/TorrentDetailPage";
+import { ToastProvider } from "@/components/toast";
+import { AuthContext } from "@/features/auth/AuthContextDef";
+import type { AuthContextValue, User } from "@/features/auth/AuthContextDef";
 
 const mockGET = vi.fn();
 
@@ -19,6 +28,16 @@ vi.mock("@/config", () => ({
   getConfig: () => ({ API_URL: "http://localhost:8080", SITE_NAME: "Test" }),
 }));
 
+const mockNavigate = vi.fn();
+
+vi.mock("react-router-dom", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router-dom")>(
+      "react-router-dom",
+    );
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
 const FAKE_TORRENT = {
   id: 1,
   name: "Ubuntu 24.04 LTS Desktop",
@@ -27,7 +46,7 @@ const FAKE_TORRENT = {
   description: "The latest Ubuntu release.",
   category_id: 1,
   category_name: "Linux ISOs",
-  uploader_id: 1,
+  uploader_id: 5,
   anonymous: false,
   seeders: 42,
   leechers: 5,
@@ -37,6 +56,42 @@ const FAKE_TORRENT = {
   created_at: "2026-03-05T14:30:00Z",
   updated_at: "2026-03-05T14:30:00Z",
 };
+
+function makeUser(overrides: Partial<User> = {}): User {
+  return {
+    id: 5,
+    username: "testuser",
+    email: "test@example.com",
+    group_id: 1,
+    avatar: "",
+    title: "",
+    info: "",
+    uploaded: 0,
+    downloaded: 0,
+    ratio: 0,
+    passkey: "",
+    invites: 0,
+    warned: false,
+    donor: false,
+    enabled: true,
+    created_at: "",
+    last_login: "",
+    isAdmin: false,
+    ...overrides,
+  };
+}
+
+function makeAuthContext(user: User | null = makeUser()): AuthContextValue {
+  return {
+    user,
+    isAuthenticated: !!user,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    register: vi.fn(),
+    refreshUser: vi.fn(),
+  };
+}
 
 afterEach(cleanup);
 
@@ -48,13 +103,20 @@ beforeEach(() => {
   });
 });
 
-function renderDetailPage(id = "1") {
+function renderDetailPage(
+  id = "1",
+  authContext: AuthContextValue = makeAuthContext(),
+) {
   return render(
-    <MemoryRouter initialEntries={[`/torrent/${id}`]}>
-      <Routes>
-        <Route path="/torrent/:id" element={<TorrentDetailPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <AuthContext.Provider value={authContext}>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[`/torrent/${id}`]}>
+          <Routes>
+            <Route path="/torrent/:id" element={<TorrentDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
+    </AuthContext.Provider>,
   );
 }
 
@@ -184,6 +246,144 @@ describe("TorrentDetailPage", () => {
           headers: { Authorization: "Bearer fake-token" },
         }),
       );
+    });
+  });
+
+  // Edit/Delete button tests
+
+  test("shows edit and delete buttons for torrent owner", async () => {
+    renderDetailPage();
+    await waitFor(() => {
+      expect(screen.getByText("Edit")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  test("shows edit and delete buttons for admin", async () => {
+    const adminContext = makeAuthContext(makeUser({ id: 999, isAdmin: true }));
+    renderDetailPage("1", adminContext);
+    await waitFor(() => {
+      expect(screen.getByText("Edit")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  test("hides edit and delete buttons for non-owner non-admin", async () => {
+    const otherUserContext = makeAuthContext(
+      makeUser({ id: 999, isAdmin: false }),
+    );
+    renderDetailPage("1", otherUserContext);
+    await waitFor(() => {
+      expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Delete" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("edit button links to edit page", async () => {
+    renderDetailPage();
+    await waitFor(() => {
+      expect(screen.getByText("Edit")).toBeInTheDocument();
+    });
+    const editLink = screen.getByText("Edit").closest("a");
+    expect(editLink).toHaveAttribute("href", "/torrent/1/edit");
+  });
+
+  test("delete button opens confirmation modal", async () => {
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Delete" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete Torrent")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/Are you sure you want to delete this torrent/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Reason for deletion")).toBeInTheDocument();
+  });
+
+  test("delete calls API and redirects on success", async () => {
+    const mockFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Delete" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete Torrent")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Reason for deletion"), {
+      target: { value: "Duplicate upload" },
+    });
+
+    // Click the modal's delete/confirm button
+    const confirmButtons = screen.getAllByRole("button", { name: "Delete" });
+    const modalConfirmBtn = confirmButtons.find((btn) =>
+      btn.classList.contains("torrent-detail__delete-modal-confirm"),
+    );
+    fireEvent.click(modalConfirmBtn!);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8080/api/v1/torrents/1");
+    expect(options?.method).toBe("DELETE");
+    expect(JSON.parse(options?.body as string)).toEqual({
+      reason: "Duplicate upload",
+    });
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/browse");
+    });
+  });
+
+  test("delete shows error toast on API failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { message: "Permission denied" } }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Delete" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete Torrent")).toBeInTheDocument();
+    });
+
+    const confirmButtons = screen.getAllByRole("button", { name: "Delete" });
+    const modalConfirmBtn = confirmButtons.find((btn) =>
+      btn.classList.contains("torrent-detail__delete-modal-confirm"),
+    );
+    fireEvent.click(modalConfirmBtn!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Permission denied")).toBeInTheDocument();
     });
   });
 });

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/api";
+import { Textarea } from "@/components/form";
+import { Modal } from "@/components/modal/Modal";
+import { useToast } from "@/components/toast";
+import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
@@ -21,11 +25,17 @@ function healthLabel(seeders: number): string {
 
 export function TorrentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { user } = useAuth();
 
   const [torrent, setTorrent] = useState<Torrent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +112,51 @@ export function TorrentDetailPage() {
     }
   }
 
+  const canManage =
+    user && torrent && (user.isAdmin || torrent.uploader_id === user.id);
+
+  async function handleDelete() {
+    if (!id || isDeleting) return;
+
+    setIsDeleting(true);
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("You must be logged in");
+        return;
+      }
+
+      const response = await fetch(
+        `${getConfig().API_URL}/api/v1/torrents/${encodeURIComponent(id)}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reason: deleteReason }),
+        },
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const message =
+          data?.error?.message ?? `Delete failed (${response.status})`;
+        throw new Error(message);
+      }
+
+      toast.success("Torrent deleted");
+      navigate("/browse");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Delete failed. Please try again.",
+      );
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+    }
+  }
+
   if (loading) {
     return <div className="torrent-detail__loading">Loading torrent...</div>;
   }
@@ -159,13 +214,32 @@ export function TorrentDetailPage() {
         </div>
       </div>
 
-      <button
-        className="torrent-detail__download"
-        onClick={handleDownload}
-        disabled={downloading}
-      >
-        {downloading ? "Downloading..." : "Download .torrent"}
-      </button>
+      <div className="torrent-detail__actions">
+        <button
+          className="torrent-detail__download"
+          onClick={handleDownload}
+          disabled={downloading}
+        >
+          {downloading ? "Downloading..." : "Download .torrent"}
+        </button>
+
+        {canManage && (
+          <>
+            <Link
+              to={`/torrent/${id}/edit`}
+              className="torrent-detail__action-btn torrent-detail__edit-btn"
+            >
+              Edit
+            </Link>
+            <button
+              className="torrent-detail__action-btn torrent-detail__delete-btn"
+              onClick={() => setShowDeleteModal(true)}
+            >
+              Delete
+            </button>
+          </>
+        )}
+      </div>
 
       <div className="torrent-detail__info">
         <div className="torrent-detail__info-row">
@@ -196,6 +270,41 @@ export function TorrentDetailPage() {
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        title="Delete Torrent"
+      >
+        <div className="torrent-detail__delete-modal">
+          <p className="torrent-detail__delete-warning">
+            Are you sure you want to delete this torrent? This action cannot be
+            undone.
+          </p>
+          <Textarea
+            label="Reason for deletion"
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            rows={3}
+            placeholder="Provide a reason..."
+          />
+          <div className="torrent-detail__delete-modal-actions">
+            <button
+              className="torrent-detail__delete-modal-cancel"
+              onClick={() => setShowDeleteModal(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="torrent-detail__delete-modal-confirm"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
