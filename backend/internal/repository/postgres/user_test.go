@@ -10,9 +10,14 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
-func TestNewUserRepo_ReturnsInterface(t *testing.T) {
-	// Verify the constructor returns a value that satisfies the interface.
-	var _ repository.UserRepository = NewUserRepo(&sql.DB{})
+// Compile-time interface conformance check.
+var _ repository.UserRepository = (*UserRepo)(nil)
+
+func TestNewUserRepo_ReturnsNonNil(t *testing.T) {
+	repo := NewUserRepo(&sql.DB{})
+	if repo == nil {
+		t.Fatal("expected non-nil repo")
+	}
 }
 
 func TestUserRepo_Integration(t *testing.T) {

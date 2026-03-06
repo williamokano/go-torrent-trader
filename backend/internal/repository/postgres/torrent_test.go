@@ -10,8 +10,13 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
-func TestNewTorrentRepo_ReturnsInterface(t *testing.T) {
-	var _ repository.TorrentRepository = NewTorrentRepo(&sql.DB{})
+var _ repository.TorrentRepository = (*TorrentRepo)(nil)
+
+func TestNewTorrentRepo_ReturnsNonNil(t *testing.T) {
+	repo := NewTorrentRepo(&sql.DB{})
+	if repo == nil {
+		t.Fatal("expected non-nil repo")
+	}
 }
 
 func TestTorrentRepo_Integration(t *testing.T) {

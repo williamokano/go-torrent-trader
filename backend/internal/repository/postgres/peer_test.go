@@ -10,8 +10,13 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
-func TestNewPeerRepo_ReturnsInterface(t *testing.T) {
-	var _ repository.PeerRepository = NewPeerRepo(&sql.DB{})
+var _ repository.PeerRepository = (*PeerRepo)(nil)
+
+func TestNewPeerRepo_ReturnsNonNil(t *testing.T) {
+	repo := NewPeerRepo(&sql.DB{})
+	if repo == nil {
+		t.Fatal("expected non-nil repo")
+	}
 }
 
 func TestPeerRepo_Integration(t *testing.T) {
