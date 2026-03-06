@@ -93,7 +93,42 @@ function makeAuthContext(user: User | null = makeUser()): AuthContextValue {
   };
 }
 
-afterEach(cleanup);
+// Default fetch responses for sub-components (RatingWidget, CommentsSection)
+const EMPTY_COMMENTS = JSON.stringify({
+  comments: [],
+  total: 0,
+  page: 1,
+  per_page: 10,
+});
+const EMPTY_RATING = JSON.stringify({ average: 0, count: 0 });
+
+function stubSubComponentFetches() {
+  vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    if (url.includes("/rating")) {
+      return Promise.resolve(
+        new Response(EMPTY_RATING, {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    if (url.includes("/comments")) {
+      return Promise.resolve(
+        new Response(EMPTY_COMMENTS, {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return Promise.resolve(new Response(null, { status: 200 }));
+  });
+}
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -101,6 +136,7 @@ beforeEach(() => {
     data: { torrent: FAKE_TORRENT },
     error: undefined,
   });
+  stubSubComponentFetches();
 });
 
 function renderDetailPage(
@@ -311,9 +347,28 @@ describe("TorrentDetailPage", () => {
   });
 
   test("delete calls API and redirects on success", async () => {
-    const mockFetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const deleteCalls: [RequestInfo | URL, RequestInit | undefined][] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/rating")) {
+        return Promise.resolve(
+          new Response(EMPTY_RATING, {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (url.includes("/comments")) {
+        return Promise.resolve(
+          new Response(EMPTY_COMMENTS, {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      deleteCalls.push([input, init]);
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
 
     renderDetailPage();
     await waitFor(() => {
@@ -340,10 +395,10 @@ describe("TorrentDetailPage", () => {
     fireEvent.click(modalConfirmBtn!);
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(deleteCalls).toHaveLength(1);
     });
 
-    const [url, options] = mockFetch.mock.calls[0];
+    const [url, options] = deleteCalls[0];
     expect(url).toBe("http://localhost:8080/api/v1/torrents/1");
     expect(options?.method).toBe("DELETE");
     expect(JSON.parse(options?.body as string)).toEqual({
@@ -464,12 +519,31 @@ describe("TorrentDetailPage", () => {
   });
 
   test("delete shows error toast on API failure", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ error: { message: "Permission denied" } }),
-        { status: 403, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/rating")) {
+        return Promise.resolve(
+          new Response(EMPTY_RATING, {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (url.includes("/comments")) {
+        return Promise.resolve(
+          new Response(EMPTY_COMMENTS, {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { message: "Permission denied" } }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    });
 
     renderDetailPage();
     await waitFor(() => {

@@ -96,6 +96,10 @@ func run() int {
 	reportRepo := postgres.NewReportRepo(db)
 	reportService := service.NewReportService(reportRepo)
 
+	commentRepo := postgres.NewCommentRepo(db)
+	ratingRepo := postgres.NewRatingRepo(db)
+	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo)
+
 	deps := &handler.Deps{
 		DB:             db,
 		AuthService:    authService,
@@ -104,6 +108,7 @@ func run() int {
 		TorrentService: torrentService,
 		TrackerService: trackerService,
 		ReportService:  reportService,
+		CommentService: commentService,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

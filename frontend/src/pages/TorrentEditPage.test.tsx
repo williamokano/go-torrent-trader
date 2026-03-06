@@ -178,16 +178,14 @@ describe("TorrentEditPage", () => {
   });
 
   test("submits updated data and navigates on success", async () => {
-    const mockFetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            torrent: { ...FAKE_TORRENT, name: "Updated Name" },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          torrent: { ...FAKE_TORRENT, name: "Updated Name" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     renderEditPage();
 

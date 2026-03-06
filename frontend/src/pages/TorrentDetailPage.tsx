@@ -4,6 +4,8 @@ import { api } from "@/api";
 import { Textarea } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
 import { ReportModal } from "@/components/ReportModal";
+import { CommentsSection } from "@/components/CommentsSection";
+import { RatingWidget } from "@/components/RatingWidget";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
@@ -307,6 +309,10 @@ export function TorrentDetailPage() {
           </div>
         </div>
       )}
+
+      <RatingWidget torrentId={id!} />
+
+      <CommentsSection torrentId={id!} />
 
       <Modal
         isOpen={showDeleteModal}
