@@ -7,21 +7,48 @@ import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import "./home.css";
 
-// TODO: Replace with a real stats endpoint when available (e.g. GET /api/v1/stats)
-const MOCK_STATS = {
-  users: 1_247,
-  torrents: 8_432,
-  peers: 3_891,
-  traffic: 142_000_000_000_000,
-};
+interface SiteStats {
+  users: number;
+  torrents: number;
+  peers: number;
+}
 
 export function HomePage() {
   const { user, isAuthenticated } = useAuth();
 
+  const [stats, setStats] = useState<SiteStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [latestTorrents, setLatestTorrents] = useState<Torrent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch site stats (public endpoint)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchStats() {
+      setStatsLoading(true);
+      const { data, error: apiError } = await api.GET("/api/v1/stats");
+
+      if (cancelled) return;
+
+      if (apiError) {
+        // Stats are non-critical; silently fall back to null
+        setStatsLoading(false);
+        return;
+      }
+
+      setStats((data?.stats as SiteStats) ?? null);
+      setStatsLoading(false);
+    }
+
+    fetchStats();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch latest torrents
   useEffect(() => {
     let cancelled = false;
 
@@ -79,32 +106,30 @@ export function HomePage() {
       </section>
 
       <section aria-label="Site statistics">
-        <div className="home__stats">
-          <div className="home__stat-card">
-            <div className="home__stat-value">
-              {formatNumber(MOCK_STATS.users)}
+        {statsLoading ? (
+          <div className="home__loading">Loading stats...</div>
+        ) : stats ? (
+          <div className="home__stats">
+            <div className="home__stat-card">
+              <div className="home__stat-value">
+                {formatNumber(stats.users)}
+              </div>
+              <div className="home__stat-label">Users</div>
             </div>
-            <div className="home__stat-label">Users</div>
-          </div>
-          <div className="home__stat-card">
-            <div className="home__stat-value">
-              {formatNumber(MOCK_STATS.torrents)}
+            <div className="home__stat-card">
+              <div className="home__stat-value">
+                {formatNumber(stats.torrents)}
+              </div>
+              <div className="home__stat-label">Torrents</div>
             </div>
-            <div className="home__stat-label">Torrents</div>
-          </div>
-          <div className="home__stat-card">
-            <div className="home__stat-value">
-              {formatNumber(MOCK_STATS.peers)}
+            <div className="home__stat-card">
+              <div className="home__stat-value">
+                {formatNumber(stats.peers)}
+              </div>
+              <div className="home__stat-label">Peers</div>
             </div>
-            <div className="home__stat-label">Peers</div>
           </div>
-          <div className="home__stat-card">
-            <div className="home__stat-value">
-              {formatBytes(MOCK_STATS.traffic, 1)}
-            </div>
-            <div className="home__stat-label">Traffic</div>
-          </div>
-        </div>
+        ) : null}
       </section>
 
       <section aria-label="Latest torrents">

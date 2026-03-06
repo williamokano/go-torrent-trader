@@ -69,6 +69,7 @@ func run() int {
 	torrentService := service.NewTorrentService(torrentRepo, userRepo, fileStore, announceURL)
 
 	deps := &handler.Deps{
+		DB:             db,
 		AuthService:    authService,
 		SessionStore:   sessionStore,
 		TorrentService: torrentService,

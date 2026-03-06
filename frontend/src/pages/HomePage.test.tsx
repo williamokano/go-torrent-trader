@@ -26,6 +26,12 @@ vi.mock("@/features/auth/token", () => ({
   getAccessToken: () => "fake-token",
 }));
 
+const FAKE_STATS = {
+  users: 100,
+  torrents: 500,
+  peers: 73,
+};
+
 const FAKE_TORRENTS = [
   {
     id: 1,
@@ -49,9 +55,20 @@ afterEach(cleanup);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGET.mockResolvedValue({
-    data: { torrents: FAKE_TORRENTS, total: 1, page: 1, per_page: 5 },
-    error: undefined,
+  mockGET.mockImplementation((url: string) => {
+    if (url === "/api/v1/stats") {
+      return Promise.resolve({
+        data: { stats: FAKE_STATS },
+        error: undefined,
+      });
+    }
+    if (url === "/api/v1/torrents") {
+      return Promise.resolve({
+        data: { torrents: FAKE_TORRENTS, total: 1, page: 1, per_page: 5 },
+        error: undefined,
+      });
+    }
+    return Promise.resolve({ data: undefined, error: undefined });
   });
 });
 
@@ -76,13 +93,60 @@ describe("HomePage", () => {
     ).toBeInTheDocument();
   });
 
-  test("renders stats section", () => {
+  test("renders stats section with real data", async () => {
     renderHomePage();
-    expect(screen.getByLabelText("Site statistics")).toBeInTheDocument();
-    expect(screen.getByText("Users")).toBeInTheDocument();
-    expect(screen.getByText("Torrents")).toBeInTheDocument();
-    expect(screen.getByText("Peers")).toBeInTheDocument();
-    expect(screen.getByText("Traffic")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Site statistics")).toBeInTheDocument();
+      expect(screen.getByText("Users")).toBeInTheDocument();
+      expect(screen.getByText("Torrents")).toBeInTheDocument();
+      expect(screen.getByText("Peers")).toBeInTheDocument();
+      expect(screen.getByText("100")).toBeInTheDocument();
+      expect(screen.getByText("500")).toBeInTheDocument();
+      expect(screen.getByText("73")).toBeInTheDocument();
+    });
+  });
+
+  test("shows loading state for stats", () => {
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/stats") {
+        return new Promise(() => {}); // never resolves
+      }
+      return Promise.resolve({
+        data: { torrents: [], total: 0, page: 1, per_page: 5 },
+        error: undefined,
+      });
+    });
+    renderHomePage();
+    expect(screen.getByText("Loading stats...")).toBeInTheDocument();
+  });
+
+  test("hides stats section on API failure", async () => {
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/stats") {
+        return Promise.resolve({
+          data: undefined,
+          error: { error: { message: "DB down" } },
+        });
+      }
+      return Promise.resolve({
+        data: { torrents: FAKE_TORRENTS, total: 1, page: 1, per_page: 5 },
+        error: undefined,
+      });
+    });
+    renderHomePage();
+    await waitFor(() => {
+      // Stats labels should not be rendered when stats is null
+      expect(screen.queryByText("Loading stats...")).not.toBeInTheDocument();
+    });
+    // The section element exists but has no stat cards
+    expect(screen.queryByText("Users")).not.toBeInTheDocument();
+  });
+
+  test("fetches stats from /api/v1/stats", async () => {
+    renderHomePage();
+    await waitFor(() => {
+      expect(mockGET).toHaveBeenCalledWith("/api/v1/stats");
+    });
   });
 
   test("renders latest torrents section title", () => {
@@ -90,8 +154,16 @@ describe("HomePage", () => {
     expect(screen.getByText("Latest Torrents")).toBeInTheDocument();
   });
 
-  test("shows loading state initially", () => {
-    mockGET.mockReturnValue(new Promise(() => {}));
+  test("shows loading state initially for torrents", () => {
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/stats") {
+        return Promise.resolve({
+          data: { stats: FAKE_STATS },
+          error: undefined,
+        });
+      }
+      return new Promise(() => {}); // never resolves
+    });
     renderHomePage();
     expect(screen.getByText("Loading...")).toBeInTheDocument();
   });
@@ -104,9 +176,17 @@ describe("HomePage", () => {
   });
 
   test("shows empty state when no torrents", async () => {
-    mockGET.mockResolvedValue({
-      data: { torrents: [], total: 0, page: 1, per_page: 5 },
-      error: undefined,
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/stats") {
+        return Promise.resolve({
+          data: { stats: FAKE_STATS },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({
+        data: { torrents: [], total: 0, page: 1, per_page: 5 },
+        error: undefined,
+      });
     });
     renderHomePage();
     await waitFor(() => {
@@ -114,10 +194,18 @@ describe("HomePage", () => {
     });
   });
 
-  test("shows error state on API failure", async () => {
-    mockGET.mockResolvedValue({
-      data: undefined,
-      error: { error: { message: "Network error" } },
+  test("shows error state on torrents API failure", async () => {
+    mockGET.mockImplementation((url: string) => {
+      if (url === "/api/v1/stats") {
+        return Promise.resolve({
+          data: { stats: FAKE_STATS },
+          error: undefined,
+        });
+      }
+      return Promise.resolve({
+        data: undefined,
+        error: { error: { message: "Network error" } },
+      });
     });
     renderHomePage();
     await waitFor(() => {
@@ -143,7 +231,7 @@ describe("HomePage", () => {
     });
   });
 
-  test("passes authorization header", async () => {
+  test("passes authorization header for torrents", async () => {
     renderHomePage();
     await waitFor(() => {
       expect(mockGET).toHaveBeenCalledWith(

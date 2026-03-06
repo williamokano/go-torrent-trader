@@ -24,6 +24,28 @@ paths:
                     type: string
                     example: ok
 
+  /api/v1/stats:
+    get:
+      operationId: getStats
+      summary: Get site-wide statistics
+      tags: [system]
+      responses:
+        '200':
+          description: Site statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stats:
+                    $ref: '#/components/schemas/SiteStats'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/auth/register:
     post:
       operationId: authRegister
@@ -550,6 +572,22 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    SiteStats:
+      type: object
+      properties:
+        users:
+          type: integer
+          format: int64
+          description: Number of enabled users
+        torrents:
+          type: integer
+          format: int64
+          description: Number of visible, non-banned torrents
+        peers:
+          type: integer
+          format: int64
+          description: Number of active peers
 
     ErrorResponse:
       type: object

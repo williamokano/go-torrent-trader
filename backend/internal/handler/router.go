@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"database/sql"
+
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
@@ -10,6 +12,7 @@ import (
 
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
+	DB             *sql.DB
 	AuthService    *service.AuthService
 	SessionStore   *service.SessionStore
 	TorrentService *service.TorrentService
@@ -40,6 +43,11 @@ func NewRouter(deps *Deps) chi.Router {
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// Public stats endpoint
+		if deps != nil && deps.DB != nil {
+			r.Get("/stats", HandleStats(deps.DB))
+		}
+
 		if deps != nil && deps.AuthService != nil {
 			auth := NewAuthHandler(deps.AuthService)
 			validator := NewSessionValidatorAdapter(deps.SessionStore)
