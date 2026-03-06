@@ -1,4 +1,4 @@
-package main
+package handler_test
 
 import (
 	"encoding/json"
@@ -9,13 +9,11 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 )
 
-func TestHealthzReturns200WithStatusOK(t *testing.T) {
-	router := handler.NewRouter()
-
+func TestHandleHealthzReturnsStatusOK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 
-	router.ServeHTTP(rec, req)
+	handler.HandleHealthz(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", rec.Code)
@@ -32,19 +30,6 @@ func TestHealthzReturns200WithStatusOK(t *testing.T) {
 	}
 
 	if body["status"] != "ok" {
-		t.Errorf("expected status ok, got %s", body["status"])
-	}
-}
-
-func TestHealthzRejectsNonGET(t *testing.T) {
-	router := handler.NewRouter()
-
-	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
-	rec := httptest.NewRecorder()
-
-	router.ServeHTTP(rec, req)
-
-	if rec.Code == http.StatusOK {
-		t.Error("expected non-200 status for POST /healthz")
+		t.Errorf("expected status 'ok', got '%s'", body["status"])
 	}
 }

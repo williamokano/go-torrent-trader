@@ -1,13 +1,30 @@
-import { render, screen } from "@testing-library/react";
-import { test } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, test } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@/themes";
-import App from "@/App";
+import { RootLayout } from "@/layouts/RootLayout";
+import { HomePage } from "@/pages/HomePage";
 
-test("renders welcome message", () => {
+afterEach(cleanup);
+
+test("renders app with routing", () => {
   render(
     <ThemeProvider>
-      <App />
+      <MemoryRouter initialEntries={["/"]}>
+        <RootLayout />
+      </MemoryRouter>
     </ThemeProvider>,
   );
-  screen.getByText("Welcome to TorrentTrader 3.0");
+  screen.getByText("TorrentTrader");
+});
+
+test("renders home page content at root route", () => {
+  render(
+    <ThemeProvider>
+      <MemoryRouter initialEntries={["/"]}>
+        <HomePage />
+      </MemoryRouter>
+    </ThemeProvider>,
+  );
+  screen.getByText("Welcome to TorrentTrader");
 });

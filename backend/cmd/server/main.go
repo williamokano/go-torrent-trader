@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,21 +11,8 @@ import (
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
+	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 )
-
-func newMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", handleHealthz)
-	return mux
-}
-
-func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		slog.Error("failed to encode healthz response", "error", err)
-	}
-}
 
 func run() int {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -44,7 +30,7 @@ func run() int {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: newMux(),
+		Handler: handler.NewRouter(),
 	}
 
 	slog.Info("server starting", "addr", addr)

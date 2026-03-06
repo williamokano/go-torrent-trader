@@ -1,0 +1,101 @@
+import { useState } from "react";
+import { Outlet, NavLink } from "react-router-dom";
+import { useTheme } from "@/themes";
+import "./RootLayout.css";
+
+export function RootLayout() {
+  const { theme, toggleTheme } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <div className="root-layout">
+      <header className="header">
+        <NavLink to="/" className="header__brand">
+          TorrentTrader
+        </NavLink>
+
+        <button
+          className="header__hamburger"
+          onClick={() => setMenuOpen((prev) => !prev)}
+          aria-label="Toggle menu"
+        >
+          {menuOpen ? "\u2715" : "\u2630"}
+        </button>
+
+        <nav
+          className={`header__nav${menuOpen ? " header__nav--open" : ""}`}
+          role="navigation"
+        >
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Home
+          </NavLink>
+          <NavLink
+            to="/browse"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Browse
+          </NavLink>
+          <NavLink
+            to="/forums"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Forums
+          </NavLink>
+          <NavLink
+            to="/upload"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Upload
+          </NavLink>
+        </nav>
+
+        <div className="header__actions">
+          <button className="header__theme-btn" onClick={toggleTheme}>
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
+          <span className="header__user-placeholder">Guest</span>
+        </div>
+      </header>
+
+      <main className="main">
+        <Outlet />
+      </main>
+
+      <footer className="footer">
+        <p className="footer__stats">
+          Torrents: -- | Peers: -- | Seeders: -- | Leechers: --
+        </p>
+        <div className="footer__links">
+          <a href="#" className="footer__link">
+            About
+          </a>
+          <a href="#" className="footer__link">
+            Rules
+          </a>
+          <a href="#" className="footer__link">
+            FAQ
+          </a>
+          <a href="#" className="footer__link">
+            Contact
+          </a>
+        </div>
+      </footer>
+    </div>
+  );
+}

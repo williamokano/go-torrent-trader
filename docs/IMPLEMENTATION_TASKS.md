@@ -120,7 +120,7 @@
 - Covers: site info, DB, Redis, SMTP, tracker settings, feature flags
 - No config stored in database (unlike original) - use env vars only
 
-#### BE-0.3: Database Schema & Migrations [M]
+#### BE-0.3: Database Schema & Migrations [M] [DONE]
 **As a** developer
 **I want** a migration system with the initial schema using PostgreSQL with proper foreign keys, indexes, and constraints
 **So that** the data model is correct, enforced, and versioned
@@ -136,7 +136,7 @@
 - `password_scheme` column on users table
 - Seed data for: groups, categories, countries, languages, default admin user
 
-#### BE-0.4: Storage Abstraction Layer [M]
+#### BE-0.4: Storage Abstraction Layer [M] [DONE]
 **As a** developer
 **I want** a file storage interface that supports local disk and S3-compatible backends
 **So that** the application can run as multiple instances behind a load balancer
@@ -162,7 +162,7 @@
 - Transaction support (begin/commit/rollback helper)
 - Query builder or raw SQL (no ORM magic)
 
-#### BE-0.6: HTTP Router & Middleware Stack [S]
+#### BE-0.6: HTTP Router & Middleware Stack [S] [DONE]
 **As a** developer
 **I want** an HTTP router with common middleware
 **So that** all endpoints share consistent auth, logging, and error handling
@@ -963,7 +963,7 @@
 
 ### Epic BE-10: Protocol Support
 
-#### BE-10.1: BEncode Library [S]
+#### BE-10.1: BEncode Library [S] [DONE]
 **As a** developer
 **I want** a bencode encoder/decoder for Go structs
 **So that** tracker endpoints speak the BitTorrent protocol
@@ -1015,7 +1015,7 @@
 - `prefers-color-scheme` media query respected as default
 - Theme tokens documented for future theme creation
 
-#### FE-0.3: Routing + Layout [M]
+#### FE-0.3: Routing + Layout [M] [DONE]
 **As a** user
 **I want** consistent navigation and page layout
 **So that** I can move around the site easily
@@ -1556,7 +1556,7 @@
 
 ### Epic MT-0: Foundation [M]
 
-#### MT-0.1: CLI Scaffolding [S]
+#### MT-0.1: CLI Scaffolding [S] [DONE]
 **As a** site operator
 **I want** a well-structured CLI tool
 **So that** I can run migration commands easily
