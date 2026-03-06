@@ -335,7 +335,7 @@
 
 ### Epic BE-2: Tracker (Announce & Scrape)
 
-#### BE-2.1: HTTP Announce Endpoint [L]
+#### BE-2.1: HTTP Announce Endpoint [L] [DONE]
 **As a** BitTorrent client
 **I want** to announce my presence to the tracker and receive a peer list
 **So that** I can participate in the swarm
@@ -385,7 +385,7 @@
 - Clear error message with remaining wait time
 - Exempt: seeders, high-ratio users, privileged roles
 
-#### BE-2.4: HTTP Scrape Endpoint [S]
+#### BE-2.4: HTTP Scrape Endpoint [S] [DONE]
 **As a** BitTorrent client
 **I want** to scrape torrent statistics without announcing
 **So that** I can display swarm info in my client
@@ -410,7 +410,7 @@
 - Connection ID expiry (default 2 minutes per BEP 15)
 - Shared peer/stats logic with HTTP announce (same service layer)
 
-#### BE-2.6: Peer Cleanup Job [S]
+#### BE-2.6: Peer Cleanup Job [S] [DONE]
 **As a** tracker operator
 **I want** stale peers automatically removed
 **So that** seeder/leecher counts stay accurate
@@ -439,7 +439,7 @@
 
 ### Epic BE-3: Torrent Management
 
-#### BE-3.1: Upload Torrent [L]
+#### BE-3.1: Upload Torrent [L] [DONE]
 **As an** uploader
 **I want** to upload a .torrent file with metadata
 **So that** others can download it
@@ -456,7 +456,7 @@
 - External torrent support: if announce URL doesn't match tracker, mark as external
 - Permission check: can_upload, optional uploader-only mode (min role)
 
-#### BE-3.2: Download Torrent File [S]
+#### BE-3.2: Download Torrent File [S] [DONE]
 **As a** user
 **I want** to download the .torrent file with my passkey embedded
 **So that** my client can connect to the tracker authenticated
@@ -472,7 +472,7 @@
 - Response: `Content-Type: application/x-bittorrent`, `Content-Disposition: attachment`
 - Generate passkey on-the-fly if user doesn't have one
 
-#### BE-3.3: Browse & List Torrents [M]
+#### BE-3.3: Browse & List Torrents [M] [DONE]
 **As a** user
 **I want** to browse available torrents with filtering and sorting
 **So that** I can find content to download
@@ -1115,7 +1115,7 @@
 
 ### Epic FE-1: Public Pages [L]
 
-#### FE-1.1: Home/Dashboard [M]
+#### FE-1.1: Home/Dashboard [M] [DONE]
 **As a** user
 **I want** a homepage with site activity at a glance
 **So that** I can see what's new
@@ -1140,7 +1140,7 @@
 - Password recovery: enter email, confirmation message, reset form
 - Error handling with clear user messages
 
-#### FE-1.3: Torrent Browse + Search [L]
+#### FE-1.3: Torrent Browse + Search [L] [DONE]
 **As a** user
 **I want** to browse and search torrents with filters
 **So that** I can find content to download
@@ -1154,7 +1154,7 @@
 - Search bar with instant filter
 - URL-persisted filters (shareable search URLs)
 
-#### FE-1.4: Torrent Detail Page [L]
+#### FE-1.4: Torrent Detail Page [L] [DONE — detail page + download button]
 **As a** user
 **I want** to see everything about a torrent
 **So that** I can decide whether to download
