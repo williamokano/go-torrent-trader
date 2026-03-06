@@ -1,27 +1,37 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { api } from "@/api";
 import { Input, Select, Textarea, Checkbox } from "@/components/form";
 import { useToast } from "@/components/toast";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import "./upload.css";
 
-const CATEGORIES = [
-  { value: "", label: "Select a category" },
-  { value: "1", label: "Movies" },
-  { value: "2", label: "TV" },
-  { value: "3", label: "Music" },
-  { value: "4", label: "Games" },
-  { value: "5", label: "Software" },
-  { value: "6", label: "Anime" },
-  { value: "7", label: "Books" },
-  { value: "8", label: "Other" },
-];
-
 export function UploadPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [categoryOptions, setCategoryOptions] = useState<
+    { value: string; label: string }[]
+  >([{ value: "", label: "Select a category" }]);
+
+  useEffect(() => {
+    async function fetchCategories() {
+      const { data } = await api.GET("/api/v1/categories");
+      if (data?.categories) {
+        const opts = [
+          { value: "", label: "Select a category" },
+          ...data.categories.map((c) => ({
+            value: String(c.id ?? ""),
+            label: c.name ?? "Unknown",
+          })),
+        ];
+        setCategoryOptions(opts);
+      }
+    }
+    fetchCategories();
+  }, []);
 
   const [torrentFile, setTorrentFile] = useState<File | null>(null);
   const [categoryId, setCategoryId] = useState("");
@@ -188,7 +198,7 @@ export function UploadPage() {
 
           <Select
             label="Category"
-            options={CATEGORIES}
+            options={categoryOptions}
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
           />

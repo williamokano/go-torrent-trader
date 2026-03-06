@@ -9,18 +9,6 @@ import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import "./browse.css";
 
-const CATEGORIES = [
-  { value: "", label: "All Categories" },
-  { value: "1", label: "Movies" },
-  { value: "2", label: "TV" },
-  { value: "3", label: "Music" },
-  { value: "4", label: "Games" },
-  { value: "5", label: "Software" },
-  { value: "6", label: "Anime" },
-  { value: "7", label: "Books" },
-  { value: "8", label: "Other" },
-];
-
 const SORT_OPTIONS = [
   { value: "created_at", label: "Date" },
   { value: "name", label: "Name" },
@@ -52,6 +40,26 @@ export function BrowsePage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<
+    { value: string; label: string }[]
+  >([{ value: "", label: "All Categories" }]);
+
+  useEffect(() => {
+    async function fetchCategories() {
+      const { data } = await api.GET("/api/v1/categories");
+      if (data?.categories) {
+        const opts = [
+          { value: "", label: "All Categories" },
+          ...data.categories.map((c) => ({
+            value: String(c.id ?? ""),
+            label: c.name ?? "Unknown",
+          })),
+        ];
+        setCategoryOptions(opts);
+      }
+    }
+    fetchCategories();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +161,7 @@ export function BrowsePage() {
           <div className="browse__filter">
             <Select
               label="Category"
-              options={CATEGORIES}
+              options={categoryOptions}
               value={category}
               onChange={(e) => setParam("cat", e.target.value)}
             />
@@ -211,10 +219,7 @@ export function BrowsePage() {
                     {t.name}
                   </Link>
                 </td>
-                <td>
-                  {CATEGORIES.find((c) => c.value === String(t.category_id))
-                    ?.label ?? "Unknown"}
-                </td>
+                <td>{t.category_name ?? "Unknown"}</td>
                 <td>{formatBytes(t.size ?? 0)}</td>
                 <td>{t.seeders ?? 0}</td>
                 <td>{t.leechers ?? 0}</td>

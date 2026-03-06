@@ -11,6 +11,25 @@ import { UploadPage } from "@/pages/UploadPage";
 import { ToastProvider } from "@/components/toast";
 import { clearTokens } from "@/features/auth/token";
 
+const mockGET = vi.fn();
+
+vi.mock("@/api", () => ({
+  api: {
+    GET: (...args: unknown[]) => mockGET(...args),
+  },
+}));
+
+const FAKE_CATEGORIES = [
+  { id: 1, name: "Movies", parent_id: null, sort_order: 1 },
+  { id: 2, name: "TV", parent_id: null, sort_order: 2 },
+  { id: 3, name: "Music", parent_id: null, sort_order: 3 },
+  { id: 4, name: "Games", parent_id: null, sort_order: 4 },
+  { id: 5, name: "Software", parent_id: null, sort_order: 5 },
+  { id: 6, name: "Anime", parent_id: null, sort_order: 6 },
+  { id: 7, name: "Books", parent_id: null, sort_order: 7 },
+  { id: 8, name: "Other", parent_id: null, sort_order: 8 },
+];
+
 const mockNavigate = vi.fn();
 
 vi.mock("react-router-dom", async () => {
@@ -39,6 +58,10 @@ beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  mockGET.mockResolvedValue({
+    data: { categories: FAKE_CATEGORIES },
+    error: undefined,
+  });
 });
 
 function renderUploadPage() {
@@ -70,21 +93,23 @@ describe("UploadPage", () => {
     expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
   });
 
-  test("renders all category options", () => {
+  test("renders all category options", async () => {
     renderUploadPage();
-    const select = screen.getByLabelText("Category") as HTMLSelectElement;
-    const options = Array.from(select.options).map((o) => o.text);
-    expect(options).toEqual([
-      "Select a category",
-      "Movies",
-      "TV",
-      "Music",
-      "Games",
-      "Software",
-      "Anime",
-      "Books",
-      "Other",
-    ]);
+    await waitFor(() => {
+      const select = screen.getByLabelText("Category") as HTMLSelectElement;
+      const options = Array.from(select.options).map((o) => o.text);
+      expect(options).toEqual([
+        "Select a category",
+        "Movies",
+        "TV",
+        "Music",
+        "Games",
+        "Software",
+        "Anime",
+        "Books",
+        "Other",
+      ]);
+    });
   });
 
   test("shows file name after selecting a .torrent file", () => {
@@ -151,16 +176,20 @@ describe("UploadPage", () => {
   });
 
   test("submits form data and navigates on success", async () => {
-    const mockFetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ torrent: { id: 42 } }), {
-          status: 201,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ torrent: { id: 42 } }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
 
     renderUploadPage();
+
+    // Wait for categories to load
+    await waitFor(() => {
+      const select = screen.getByLabelText("Category") as HTMLSelectElement;
+      expect(select.options.length).toBeGreaterThan(1);
+    });
 
     // Fill in the form
     const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
@@ -200,6 +229,12 @@ describe("UploadPage", () => {
 
     renderUploadPage();
 
+    // Wait for categories to load
+    await waitFor(() => {
+      const select = screen.getByLabelText("Category") as HTMLSelectElement;
+      expect(select.options.length).toBeGreaterThan(1);
+    });
+
     const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
     fireEvent.change(fileInput, {
       target: { files: [createTorrentFile()] },
@@ -224,6 +259,12 @@ describe("UploadPage", () => {
     );
 
     renderUploadPage();
+
+    // Wait for categories to load
+    await waitFor(() => {
+      const select = screen.getByLabelText("Category") as HTMLSelectElement;
+      expect(select.options.length).toBeGreaterThan(1);
+    });
 
     const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
     fireEvent.change(fileInput, {
@@ -262,6 +303,12 @@ describe("UploadPage", () => {
     );
 
     renderUploadPage();
+
+    // Wait for categories to load
+    await waitFor(() => {
+      const select = screen.getByLabelText("Category") as HTMLSelectElement;
+      expect(select.options.length).toBeGreaterThan(1);
+    });
 
     const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
     fireEvent.change(fileInput, {

@@ -26,6 +26,7 @@ const FAKE_TORRENT = {
   size: 4_800_000_000,
   description: "The latest Ubuntu release.",
   category_id: 1,
+  category_name: "Linux ISOs",
   uploader_id: 1,
   anonymous: false,
   seeders: 42,

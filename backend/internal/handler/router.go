@@ -43,9 +43,10 @@ func NewRouter(deps *Deps) chi.Router {
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public stats endpoint
+		// Public endpoints
 		if deps != nil && deps.DB != nil {
 			r.Get("/stats", HandleStats(deps.DB))
+			r.Get("/categories", HandleCategories(deps.DB))
 		}
 
 		if deps != nil && deps.AuthService != nil {

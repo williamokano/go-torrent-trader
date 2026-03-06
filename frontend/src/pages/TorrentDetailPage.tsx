@@ -7,14 +7,6 @@ import type { Torrent } from "@/types/torrent";
 import { getConfig } from "@/config";
 import "./torrent-detail.css";
 
-const CATEGORIES: Record<number, string> = {
-  1: "Linux ISOs",
-  2: "Software",
-  3: "Music",
-  4: "E-Books",
-  5: "Other",
-};
-
 function healthClass(seeders: number): string {
   if (seeders > 5) return "torrent-detail__health--good";
   if (seeders >= 1) return "torrent-detail__health--warning";
@@ -136,7 +128,7 @@ export function TorrentDetailPage() {
           {torrent.name}
         </h1>
         <span className="torrent-detail__category">
-          {CATEGORIES[torrent.category_id ?? 0] ?? "Unknown"}
+          {torrent.category_name ?? "Unknown"}
         </span>
       </div>
 
