@@ -2,6 +2,8 @@ version: '3'
 
 output: prefixed
 
+dotenv: ['.env']
+
 vars:
   BACKEND_DIR: backend
   FRONTEND_DIR: frontend
@@ -50,7 +52,7 @@ tasks:
   tools:
     desc: Install development tools (golangci-lint, air)
     cmds:
-      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.1.6
+      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
       - go install github.com/air-verse/air@latest
 
   dev:up:
@@ -107,6 +109,7 @@ tasks:
   backend:dev:
     desc: Start backend with hot reload
     dir: '{{.BACKEND_DIR}}'
+    ignore_error: true
     cmds:
       - air
 
@@ -138,6 +141,7 @@ tasks:
   frontend:dev:
     desc: Start frontend dev server
     dir: '{{.FRONTEND_DIR}}'
+    ignore_error: true
     cmds:
       - npm run dev
 

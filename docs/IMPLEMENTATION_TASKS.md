@@ -120,7 +120,7 @@
 - Covers: site info, DB, Redis, SMTP, tracker settings, feature flags
 - No config stored in database (unlike original) - use env vars only
 
-#### BE-0.3: Database Schema & Migrations [M]
+#### BE-0.3: Database Schema & Migrations [M] [DONE]
 **As a** developer
 **I want** a migration system with the initial schema using PostgreSQL with proper foreign keys, indexes, and constraints
 **So that** the data model is correct, enforced, and versioned
@@ -136,7 +136,7 @@
 - `password_scheme` column on users table
 - Seed data for: groups, categories, countries, languages, default admin user
 
-#### BE-0.4: Storage Abstraction Layer [M]
+#### BE-0.4: Storage Abstraction Layer [M] [DONE]
 **As a** developer
 **I want** a file storage interface that supports local disk and S3-compatible backends
 **So that** the application can run as multiple instances behind a load balancer
@@ -162,7 +162,7 @@
 - Transaction support (begin/commit/rollback helper)
 - Query builder or raw SQL (no ORM magic)
 
-#### BE-0.6: HTTP Router & Middleware Stack [S]
+#### BE-0.6: HTTP Router & Middleware Stack [S] [DONE]
 **As a** developer
 **I want** an HTTP router with common middleware
 **So that** all endpoints share consistent auth, logging, and error handling
@@ -170,7 +170,7 @@
 **Acceptance Criteria:**
 - Router: chi, echo, or gin
 - Middleware: request logging, panic recovery, CORS, request ID
-- Rate limiter middleware (per-IP, configurable)
+- Rate limiter middleware (per-IP, configurable) — **use a library** (e.g., `tollbooth`, `ulule/limiter`), do NOT implement from scratch
 - Auth middleware that extracts Bearer token, validates session, sets user in context
 - All endpoints return JSON (except announce/scrape which return bencode)
 - Error response helper: `{ "error": { "code": "...", "message": "..." } }`
@@ -183,7 +183,7 @@
 **So that** request handlers don't block on slow operations
 
 **Acceptance Criteria:**
-- Job queue backed by Redis or Postgres (asynq, river, or simple goroutine pool)
+- Job queue backed by Redis or Postgres — **use `asynq` or `river`**, do NOT build a custom queue
 - Jobs: send email, connectivity check, cleanup, stats recalculation
 - Retry with backoff on failure
 - Logging per job execution
@@ -199,7 +199,7 @@
 
 **Acceptance Criteria:**
 - Username validation: 3-20 chars, alphanumeric + underscore
-- Password: minimum 8 chars, hashed with Argon2id
+- Password: minimum 8 chars, hashed with Argon2id — use `golang.org/x/crypto/argon2`, do NOT implement custom hashing
 - Email: valid format, unique, not in banned domains list
 - First registered user gets Administrator role
 - Email confirmation flow (if enabled): generates token, sends email, confirms on click
@@ -963,18 +963,12 @@
 
 ### Epic BE-10: Protocol Support
 
-#### BE-10.1: BEncode Library [S]
+#### BE-10.1: BEncode Library [S] [DONE — replaced with github.com/zeebo/bencode]
 **As a** developer
-**I want** a bencode encoder/decoder for Go structs
+**I want** bencode encoding/decoding for Go structs
 **So that** tracker endpoints speak the BitTorrent protocol
 
-**Acceptance Criteria:**
-- BEncode library: encode/decode Go structs to/from bencode
-- Used by: announce, scrape, torrent file parsing, torrent file rewriting
-- Support: integers, strings, lists, dicts
-- Dict keys sorted alphabetically per spec
-- Handle binary data (info_hash, peer_id) correctly
-- Well-tested with real-world .torrent files
+**Resolution:** Using `github.com/zeebo/bencode` instead of a custom implementation. Building a bencode library is out of scope — well-tested libraries exist.
 
 > **Note on API design**: This project is API-first by design. ALL features are JSON REST
 > endpoints under `/api/v1/...`. The only non-JSON endpoints are `/announce` and `/scrape`
@@ -1015,7 +1009,7 @@
 - `prefers-color-scheme` media query respected as default
 - Theme tokens documented for future theme creation
 
-#### FE-0.3: Routing + Layout [M]
+#### FE-0.3: Routing + Layout [M] [DONE]
 **As a** user
 **I want** consistent navigation and page layout
 **So that** I can move around the site easily
@@ -1063,7 +1057,7 @@
 - `Form` components: Input, Select, Textarea, Checkbox, Radio, with validation integration
 - `Modal`: accessible dialog with overlay, close on escape/outside click
 - `Toast` notifications: success, error, info, auto-dismiss
-- `BBCode/Markdown Editor`: toolbar with common formatting, preview toggle
+- `BBCode/Markdown Editor`: toolbar with common formatting, preview toggle — **use a library** (e.g., `react-markdown`, `@uiw/react-markdown-editor`), do NOT build from scratch
 - `Avatar`: user avatar with fallback to initials
 - `Badge`: role badges, status indicators
 - All components theme-aware (use CSS custom properties)
@@ -1556,7 +1550,7 @@
 
 ### Epic MT-0: Foundation [M]
 
-#### MT-0.1: CLI Scaffolding [S]
+#### MT-0.1: CLI Scaffolding [S] [DONE]
 **As a** site operator
 **I want** a well-structured CLI tool
 **So that** I can run migration commands easily

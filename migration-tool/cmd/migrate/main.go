@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -11,11 +10,15 @@ var rootCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "TorrentTrader legacy database migration tool",
 	Long:  "Migrates data from a legacy TorrentTrader 3.x MySQL database to the new PostgreSQL schema.",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("torrenttrader migration tool")
-		fmt.Println("use --help to see available commands")
-		return nil
-	},
+}
+
+func init() {
+	rootCmd.PersistentFlags().String("source", "", "Source MySQL DSN (required)")
+	rootCmd.PersistentFlags().String("target", "", "Target PostgreSQL DSN (required)")
+	rootCmd.PersistentFlags().String("log-level", "info", "Log level (debug, info, warn, error)")
+	rootCmd.PersistentFlags().Bool("dry-run", false, "Preview changes without writing")
+
+	rootCmd.AddCommand(discoverCmd, validateCmd, runCmd, verifyCmd, rollbackCmd)
 }
 
 func run() int {
