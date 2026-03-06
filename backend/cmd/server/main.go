@@ -15,6 +15,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
+	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
 )
 
 func run() int {
@@ -57,9 +58,21 @@ func run() int {
 	authService := service.NewAuthService(userRepo, sessionStore)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
+	// File storage
+	fileStore, err := storage.New(cfg.Storage)
+	if err != nil {
+		slog.Error("failed to initialize file storage", "error", err)
+		return 1
+	}
+
+	announceURL := fmt.Sprintf("%s/announce", cfg.Site.BaseURL)
+	torrentService := service.NewTorrentService(torrentRepo, userRepo, fileStore, announceURL)
+
 	deps := &handler.Deps{
+		DB:             db,
 		AuthService:    authService,
 		SessionStore:   sessionStore,
+		TorrentService: torrentService,
 		TrackerService: trackerService,
 	}
 

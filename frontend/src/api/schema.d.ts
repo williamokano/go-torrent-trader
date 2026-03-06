@@ -21,6 +21,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/stats": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get site-wide statistics */
+    get: operations["getStats"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/auth/register": {
     parameters: {
       query?: never;
@@ -106,6 +123,58 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/torrents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Browse and search torrents */
+    get: operations["listTorrents"];
+    put?: never;
+    /** Upload a new torrent */
+    post: operations["uploadTorrent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get torrent details */
+    get: operations["getTorrent"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}/download": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Download .torrent file with personalized announce URL */
+    get: operations["downloadTorrent"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -162,6 +231,53 @@ export interface components {
       /** Format: date-time */
       created_at?: string;
     };
+    Torrent: {
+      /** Format: int64 */
+      id?: number;
+      name?: string;
+      /**
+       * @description Hex-encoded SHA1 info hash
+       * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+       */
+      info_hash?: string;
+      /**
+       * Format: int64
+       * @description Total size in bytes
+       */
+      size?: number;
+      description?: string;
+      /** Format: int64 */
+      category_id?: number;
+      /** Format: int64 */
+      uploader_id?: number;
+      anonymous?: boolean;
+      seeders?: number;
+      leechers?: number;
+      times_completed?: number;
+      comments_count?: number;
+      file_count?: number;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    SiteStats: {
+      /**
+       * Format: int64
+       * @description Number of enabled users
+       */
+      users?: number;
+      /**
+       * Format: int64
+       * @description Number of visible, non-banned torrents
+       */
+      torrents?: number;
+      /**
+       * Format: int64
+       * @description Number of active peers
+       */
+      peers?: number;
+    };
     ErrorResponse: {
       error?: {
         code?: string;
@@ -196,6 +312,37 @@ export interface operations {
             /** @example ok */
             status?: string;
           };
+        };
+      };
+    };
+  };
+  getStats: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Site statistics */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            stats?: components["schemas"]["SiteStats"];
+          };
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
         };
       };
     };
@@ -249,6 +396,15 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
   };
   authLogin: {
@@ -284,6 +440,15 @@ export interface operations {
       };
       /** @description Invalid credentials */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
         headers: {
           [name: string]: unknown;
         };
@@ -386,6 +551,254 @@ export interface operations {
       };
       /** @description Not authenticated */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listTorrents: {
+    parameters: {
+      query?: {
+        /** @description Search term for torrent name */
+        search?: string;
+        /** @description Filter by category ID */
+        cat?: number;
+        /** @description Sort field */
+        sort?: "name" | "created_at" | "size" | "seeders" | "leechers";
+        /** @description Sort order */
+        order?: "asc" | "desc";
+        /** @description Page number */
+        page?: number;
+        /** @description Items per page */
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated list of torrents */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrents?: components["schemas"]["Torrent"][];
+            /** Format: int64 */
+            total?: number;
+            page?: number;
+            per_page?: number;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  uploadTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /**
+           * Format: binary
+           * @description The .torrent file to upload
+           */
+          torrent_file: string;
+          /**
+           * Format: int64
+           * @description Category ID for the torrent
+           */
+          category_id: number;
+          /** @description Display name (defaults to name from .torrent file) */
+          name?: string;
+          /** @description Torrent description */
+          description?: string;
+          /**
+           * @description Whether to hide the uploader's identity
+           * @default false
+           */
+          anonymous?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description Torrent uploaded successfully */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrent?: components["schemas"]["Torrent"];
+          };
+        };
+      };
+      /** @description Invalid torrent file or missing fields */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Duplicate torrent (info_hash already exists) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Torrent details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrent?: components["schemas"]["Torrent"];
+          };
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  downloadTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The .torrent file */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/x-bittorrent": string;
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

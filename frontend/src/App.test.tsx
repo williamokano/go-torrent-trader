@@ -37,9 +37,11 @@ test("renders app with routing", () => {
 test("renders home page content at root route", () => {
   render(
     <ThemeProvider>
-      <MemoryRouter initialEntries={["/"]}>
-        <HomePage />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/"]}>
+          <HomePage />
+        </MemoryRouter>
+      </AuthProvider>
     </ThemeProvider>,
   );
   screen.getByText("Welcome to TorrentTrader");

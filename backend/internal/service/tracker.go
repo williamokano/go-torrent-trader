@@ -16,10 +16,9 @@ import (
 )
 
 var (
-	ErrInvalidPasskey  = errors.New("invalid passkey")
-	ErrTorrentNotFound = errors.New("torrent not found")
-	ErrTorrentBanned   = errors.New("torrent is banned")
-	ErrUserDisabled    = errors.New("user account is disabled")
+	ErrInvalidPasskey = errors.New("invalid passkey")
+	ErrTorrentBanned  = errors.New("torrent is banned")
+	ErrUserDisabled   = errors.New("user account is disabled")
 )
 
 const (

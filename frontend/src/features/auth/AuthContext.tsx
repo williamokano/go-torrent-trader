@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clearTokens,
   getAccessToken,
   getRefreshToken,
+  isAccessTokenValid,
   setAccessToken,
   setRefreshToken,
+  setTokenExpiry,
 } from "./token";
 import { AuthContext } from "./AuthContextDef";
 import type { User, RegisterData, AuthContextValue } from "./AuthContextDef";
@@ -45,18 +47,59 @@ function getErrorMessage(error: unknown): string {
   return "An unexpected error occurred";
 }
 
+function storeTokens(tokens: {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+}) {
+  setAccessToken(tokens.access_token ?? null);
+  setRefreshToken(tokens.refresh_token ?? null);
+  if (tokens.expires_in) {
+    setTokenExpiry(tokens.expires_in);
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(() => !!getRefreshToken());
+  const [isLoading, setIsLoading] = useState(
+    () => !!getAccessToken() || !!getRefreshToken(),
+  );
+  const restoringRef = useRef(false);
 
   const isAuthenticated = user !== null;
 
+  // Restore session on mount
   useEffect(() => {
-    let cancelled = false;
+    // Prevent double-run in React StrictMode
+    if (restoringRef.current) return;
+    restoringRef.current = true;
 
-    async function tryRefresh() {
+    async function restoreSession() {
+      // Case 1: Access token is still valid — just fetch user profile
+      if (isAccessTokenValid()) {
+        try {
+          const meRes = await api.GET("/api/v1/auth/me", {
+            headers: { Authorization: `Bearer ${getAccessToken()}` },
+          });
+          if (meRes.data?.user) {
+            setUser(
+              mapUser(meRes.data.user as Record<string, unknown>) ?? null,
+            );
+          } else {
+            clearTokens();
+          }
+        } catch {
+          clearTokens();
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // Case 2: Access token expired but refresh token exists — refresh
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
+        clearTokens();
         setIsLoading(false);
         return;
       }
@@ -68,38 +111,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error || !data?.tokens) {
           clearTokens();
+          setIsLoading(false);
           return;
         }
 
-        if (!cancelled) {
-          setAccessToken(data.tokens.access_token ?? null);
-          setRefreshToken(data.tokens.refresh_token ?? null);
+        storeTokens(data.tokens);
 
-          const meRes = await api.GET("/api/v1/auth/me", {
-            headers: {
-              Authorization: `Bearer ${data.tokens.access_token}`,
-            },
-          });
+        const meRes = await api.GET("/api/v1/auth/me", {
+          headers: { Authorization: `Bearer ${data.tokens.access_token}` },
+        });
 
-          if (!cancelled && meRes.data?.user) {
-            setUser(
-              mapUser(meRes.data.user as Record<string, unknown>) ?? null,
-            );
-          }
+        if (meRes.data?.user) {
+          setUser(
+            mapUser(meRes.data.user as Record<string, unknown>) ?? null,
+          );
+        } else {
+          clearTokens();
         }
       } catch {
         clearTokens();
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     }
 
-    tryRefresh();
-    return () => {
-      cancelled = true;
-    };
+    restoreSession();
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
@@ -115,8 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid response from server");
     }
 
-    setAccessToken(data.tokens.access_token ?? null);
-    setRefreshToken(data.tokens.refresh_token ?? null);
+    storeTokens(data.tokens);
     setUser(mapUser(data.user as Record<string, unknown>) ?? null);
   }, []);
 
@@ -151,8 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid response from server");
     }
 
-    setAccessToken(resData.tokens.access_token ?? null);
-    setRefreshToken(resData.tokens.refresh_token ?? null);
+    storeTokens(resData.tokens);
     setUser(mapUser(resData.user as Record<string, unknown>) ?? null);
   }, []);
 

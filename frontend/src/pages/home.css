@@ -1,0 +1,123 @@
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.home__welcome {
+  text-align: center;
+  padding: var(--space-xl) var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+}
+
+.home__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+}
+
+.home__subtitle {
+  color: var(--color-text-secondary);
+  font-size: var(--text-lg);
+}
+
+.home__user-greeting {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Stats */
+.home__stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-md);
+}
+
+.home__stat-card {
+  padding: var(--space-lg);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.home__stat-value {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.home__stat-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* Latest torrents */
+.home__section-title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+}
+
+.home__latest-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.home__latest-table th,
+.home__latest-table td {
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.home__latest-table th {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-secondary);
+}
+
+.home__latest-table tr:hover td {
+  background-color: var(--color-bg-secondary);
+}
+
+.home__torrent-link {
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.home__torrent-link:hover {
+  color: var(--color-accent);
+}
+
+.home__free-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.125rem 0.375rem;
+  background-color: var(--color-success);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  margin-left: var(--space-xs);
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .home__stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .home__latest-table {
+    font-size: 0.8rem;
+  }
+
+  .home__latest-table th:nth-child(n + 4),
+  .home__latest-table td:nth-child(n + 4) {
+    display: none;
+  }
+}
