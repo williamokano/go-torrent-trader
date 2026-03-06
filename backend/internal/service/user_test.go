@@ -428,7 +428,3 @@ func TestDeleteByUserIDExcept(t *testing.T) {
 		t.Error("user 2 session should not be affected")
 	}
 }
-
-func strPtr(s string) *string {
-	return &s
-}
