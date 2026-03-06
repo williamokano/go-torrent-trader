@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Outlet, NavLink } from "react-router-dom";
 import { useTheme } from "@/themes";
+import { useAuth } from "@/features/auth";
 import "./RootLayout.css";
 
 export function RootLayout() {
   const { theme, toggleTheme } = useTheme();
+  const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -69,7 +71,23 @@ export function RootLayout() {
           <button className="header__theme-btn" onClick={toggleTheme}>
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <span className="header__user-placeholder">Guest</span>
+          {isAuthenticated ? (
+            <>
+              <span className="header__username">{user?.username}</span>
+              <button className="header__theme-btn" onClick={logout}>
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <NavLink to="/login" className="header__nav-link">
+                Login
+              </NavLink>
+              <NavLink to="/signup" className="header__nav-link">
+                Sign Up
+              </NavLink>
+            </>
+          )}
         </div>
       </header>
 

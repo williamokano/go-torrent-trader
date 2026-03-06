@@ -1,57 +1,56 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   clearTokens,
+  getAccessToken,
   getRefreshToken,
   setAccessToken,
   setRefreshToken,
 } from "./token";
 import { AuthContext } from "./AuthContextDef";
 import type { User, RegisterData, AuthContextValue } from "./AuthContextDef";
+import { api } from "@/api";
 
 export type { User, RegisterData, AuthContextValue };
 
-// Placeholder API calls - will be replaced with real openapi-fetch calls
-// when BE-1.1/1.2 endpoints are built.
+const ADMIN_GROUP_ID = 1;
 
-type AuthTokenResponse = {
-  accessToken: string;
-  refreshToken: string;
-  user: User;
-};
-
-// Placeholder API calls - will be replaced with real openapi-fetch calls
-// when BE-1.1/1.2 endpoints are built.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function apiLogin(_u: string, _p: string): Promise<AuthTokenResponse> {
-  // TODO: Replace with actual API call: api.POST("/auth/login", { body: { username, password } })
-  throw new Error("Auth API not implemented yet");
+function mapUser(
+  profile: Record<string, unknown> | undefined,
+): User | undefined {
+  if (!profile) return undefined;
+  const groupId = profile.group_id as number;
+  return {
+    id: profile.id as number,
+    username: profile.username as string,
+    email: profile.email as string,
+    group_id: groupId,
+    uploaded: profile.uploaded as number,
+    downloaded: profile.downloaded as number,
+    enabled: profile.enabled as boolean,
+    created_at: profile.created_at as string,
+    isAdmin: groupId === ADMIN_GROUP_ID,
+  };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function apiRegister(_data: RegisterData): Promise<AuthTokenResponse> {
-  // TODO: Replace with actual API call: api.POST("/auth/register", { body: data })
-  throw new Error("Auth API not implemented yet");
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function apiRefreshToken(_token: string): Promise<AuthTokenResponse> {
-  // TODO: Replace with actual API call: api.POST("/auth/refresh", { body: { refreshToken } })
-  throw new Error("Auth API not implemented yet");
-}
-
-async function apiLogout(): Promise<void> {
-  // TODO: Replace with actual API call: api.POST("/auth/logout")
-  // For now, just clear local state (no server call needed)
+function getErrorMessage(error: unknown): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    "error" in error &&
+    typeof (error as Record<string, unknown>).error === "object"
+  ) {
+    const inner = (error as { error: { message?: string } }).error;
+    if (inner?.message) return inner.message;
+  }
+  return "An unexpected error occurred";
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  // Only start loading if there's a refresh token to try
   const [isLoading, setIsLoading] = useState(() => !!getRefreshToken());
 
   const isAuthenticated = user !== null;
 
-  // Attempt silent refresh on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -63,14 +62,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const result = await apiRefreshToken(refreshToken);
+        const { data, error } = await api.POST("/api/v1/auth/refresh", {
+          body: { refresh_token: refreshToken },
+        });
+
+        if (error || !data?.tokens) {
+          clearTokens();
+          return;
+        }
+
         if (!cancelled) {
-          setAccessToken(result.accessToken);
-          setRefreshToken(result.refreshToken);
-          setUser(result.user);
+          setAccessToken(data.tokens.access_token ?? null);
+          setRefreshToken(data.tokens.refresh_token ?? null);
+
+          const meRes = await api.GET("/api/v1/auth/me", {
+            headers: {
+              Authorization: `Bearer ${data.tokens.access_token}`,
+            },
+          });
+
+          if (!cancelled && meRes.data?.user) {
+            setUser(
+              mapUser(meRes.data.user as Record<string, unknown>) ?? null,
+            );
+          }
         }
       } catch {
-        // Refresh failed - clear stale tokens
         clearTokens();
       } finally {
         if (!cancelled) {
@@ -86,15 +103,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const result = await apiLogin(username, password);
-    setAccessToken(result.accessToken);
-    setRefreshToken(result.refreshToken);
-    setUser(result.user);
+    const { data, error } = await api.POST("/api/v1/auth/login", {
+      body: { username, password },
+    });
+
+    if (error) {
+      throw new Error(getErrorMessage(error));
+    }
+
+    if (!data?.tokens || !data?.user) {
+      throw new Error("Invalid response from server");
+    }
+
+    setAccessToken(data.tokens.access_token ?? null);
+    setRefreshToken(data.tokens.refresh_token ?? null);
+    setUser(mapUser(data.user as Record<string, unknown>) ?? null);
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      await apiLogout();
+      const token = getAccessToken();
+      if (token) {
+        await api.POST("/api/v1/auth/logout", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
     } finally {
       clearTokens();
       setUser(null);
@@ -102,10 +135,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(async (data: RegisterData) => {
-    const result = await apiRegister(data);
-    setAccessToken(result.accessToken);
-    setRefreshToken(result.refreshToken);
-    setUser(result.user);
+    const { data: resData, error } = await api.POST("/api/v1/auth/register", {
+      body: {
+        username: data.username,
+        email: data.email,
+        password: data.password,
+      },
+    });
+
+    if (error) {
+      throw new Error(getErrorMessage(error));
+    }
+
+    if (!resData?.tokens || !resData?.user) {
+      throw new Error("Invalid response from server");
+    }
+
+    setAccessToken(resData.tokens.access_token ?? null);
+    setRefreshToken(resData.tokens.refresh_token ?? null);
+    setUser(mapUser(resData.user as Record<string, unknown>) ?? null);
   }, []);
 
   const value = useMemo<AuthContextValue>(

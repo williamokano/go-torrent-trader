@@ -4,26 +4,50 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
+	mw "github.com/williamokano/go-torrent-trader/backend/internal/middleware"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
+// Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
+type Deps struct {
+	AuthService  *service.AuthService
+	SessionStore *service.SessionStore
+}
+
 // NewRouter creates and configures the Chi router with middleware and routes.
-func NewRouter() chi.Router {
+func NewRouter(deps *Deps) chi.Router {
 	r := chi.NewRouter()
 
 	// Middleware stack
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(middleware.RequestLogger)
+	r.Use(mw.RequestLogger)
 	r.Use(chimw.Recoverer)
-	r.Use(middleware.CORS)
+	r.Use(mw.CORS)
 
 	// Health check
 	r.Get("/healthz", HandleHealthz)
 
-	// API routes (placeholder group)
+	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Will be populated by feature handlers
+		if deps != nil && deps.AuthService != nil {
+			auth := NewAuthHandler(deps.AuthService)
+			validator := NewSessionValidatorAdapter(deps.SessionStore)
+
+			r.Route("/auth", func(r chi.Router) {
+				// Public auth endpoints
+				r.Post("/register", auth.HandleRegister)
+				r.Post("/login", auth.HandleLogin)
+				r.Post("/refresh", auth.HandleRefresh)
+
+				// Protected auth endpoints
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Post("/logout", auth.HandleLogout)
+					r.Get("/me", auth.HandleMe)
+				})
+			})
+		}
 	})
 
 	return r

@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
+	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 func run() int {
@@ -24,13 +27,45 @@ func run() int {
 		return 1
 	}
 
+	// Connect to PostgreSQL
+	connCfg := database.ConnConfig{
+		MaxOpenConns:    cfg.Database.MaxOpenConns,
+		MaxIdleConns:    cfg.Database.MaxIdleConns,
+		ConnMaxLifetime: cfg.Database.ConnMaxLifetime,
+	}
+	db, err := database.Connect(cfg.Database.URL, connCfg)
+	if err != nil {
+		slog.Error("failed to connect to database", "error", err)
+		return 1
+	}
+	defer func() { _ = db.Close() }()
+
+	slog.Info("connected to database")
+
+	// Run migrations
+	if err := database.RunMigrations(db, "migrations"); err != nil {
+		slog.Error("failed to run migrations", "error", err)
+		return 1
+	}
+	slog.Info("migrations applied")
+
+	// Build dependencies
+	userRepo := postgres.NewUserRepo(db)
+	sessionStore := service.NewSessionStore()
+	authService := service.NewAuthService(userRepo, sessionStore)
+
+	deps := &handler.Deps{
+		AuthService:  authService,
+		SessionStore: sessionStore,
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: handler.NewRouter(),
+		Handler: handler.NewRouter(deps),
 	}
 
 	slog.Info("server starting", "addr", addr)

@@ -4,7 +4,11 @@ export interface User {
   id: number;
   username: string;
   email: string;
-  groupId: number;
+  group_id: number;
+  uploaded: number;
+  downloaded: number;
+  enabled: boolean;
+  created_at: string;
   isAdmin: boolean;
 }
 

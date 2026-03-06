@@ -192,7 +192,7 @@
 
 ### Epic BE-1: Authentication & User Management
 
-#### BE-1.1: User Registration [M]
+#### BE-1.1: User Registration [M] [DONE]
 **As a** visitor
 **I want** to create an account with username, email, and password
 **So that** I can access the tracker
@@ -207,7 +207,7 @@
 - Configurable: open registration, invite-only, or closed
 - On success: auto-login (returns access_token + refresh_token per BE-1.2)
 
-#### BE-1.2: Login & Multi-Device Session Management [M]
+#### BE-1.2: Login & Multi-Device Session Management [M] [DONE — core auth, sessions/API keys deferred]
 **As a** registered user
 **I want** to log in from multiple devices simultaneously
 **So that** I can use the tracker from my browser, TUI client, phone, and automations at the same time
@@ -239,6 +239,25 @@
 - Rate limit: max 5 failed attempts per 15 minutes per IP
 - No IP binding (sessions work across networks)
 
+#### BE-1.2.1: Email Confirmation Flow [M]
+**As a** site operator
+**I want** new users to confirm their email address before accessing the tracker
+**So that** fake/spam accounts are prevented
+
+**Acceptance Criteria:**
+- Configurable via env: `REGISTRATION_EMAIL_CONFIRM=true|false` (default false)
+- On register (when enabled): account created with `enabled=false`, confirmation token generated
+- `POST /api/v1/auth/register` returns 201 but with `"email_confirmation_required": true` instead of tokens
+- Confirmation email sent via SMTP (use background job from BE-0.7) with link containing token
+- `GET /api/v1/auth/confirm-email?token=...` validates token, sets `enabled=true`, redirects to login
+- Token: cryptographically random, single-use, stored hashed in DB, expires in 24 hours
+- Login rejects users with `enabled=false` with clear error message ("Please confirm your email")
+- Resend confirmation: `POST /api/v1/auth/resend-confirmation` (rate limited: 1 per 5 minutes)
+- Frontend: confirmation pending page, resend button, success redirect
+- When `REGISTRATION_EMAIL_CONFIRM=false`, current behavior preserved (auto-login on register)
+
+> **Note:** This was deferred from BE-1.1. Depends on SMTP being wired (Mailpit for dev).
+
 #### BE-1.3: Password Recovery [S]
 **As a** user who forgot their password
 **I want** to reset it via email
@@ -264,7 +283,7 @@
 - Accept PMs toggle
 - Change password (requires current password)
 
-#### BE-1.5: User Roles & Permissions [S]
+#### BE-1.5: User Roles & Permissions [S] [DONE — RequireAuth + RequireAdmin middleware]
 **As an** admin
 **I want** a role-based permission system
 **So that** different user classes have different capabilities
@@ -594,6 +613,10 @@
 **So that** they can join the tracker
 
 **Acceptance Criteria:**
+- Configurable registration mode via env: `REGISTRATION_MODE=open|invite|closed` (default open)
+- When `invite`: registration requires a valid invite token, signup form shows invite code field
+- When `closed`: registration disabled entirely, returns 403
+- When `open`: current behavior (anyone can register)
 - Requires invites > 0 and total users < max
 - Validate email: format, not banned, not already registered
 - Create invite record in `user_invites` table (not a dummy user like original)
@@ -1078,7 +1101,7 @@
 - Shoutbox widget (embedded chat from FE-4.1)
 - Responsive layout
 
-#### FE-1.2: Login, Signup, Password Recovery Pages [M]
+#### FE-1.2: Login, Signup, Password Recovery Pages [M] [DONE — login + signup, recovery deferred]
 **As a** visitor
 **I want** to create an account, log in, or recover my password
 **So that** I can access the tracker

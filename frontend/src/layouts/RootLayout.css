@@ -67,10 +67,11 @@
   background-color: var(--color-bg-tertiary);
 }
 
-.header__user-placeholder {
+.header__username {
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--text-sm);
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .header__hamburger {

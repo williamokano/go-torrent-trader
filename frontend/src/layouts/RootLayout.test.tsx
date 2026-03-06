@@ -1,17 +1,33 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, test, expect } from "vitest";
+import { afterEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@/themes";
+import { AuthProvider } from "@/features/auth";
 import { RootLayout } from "@/layouts/RootLayout";
+
+vi.mock("@/api", () => ({
+  api: {
+    POST: vi.fn().mockResolvedValue({
+      data: null,
+      error: { error: { message: "not implemented" } },
+    }),
+    GET: vi.fn().mockResolvedValue({
+      data: null,
+      error: { error: { message: "not implemented" } },
+    }),
+  },
+}));
 
 afterEach(cleanup);
 
 function renderLayout() {
   return render(
     <ThemeProvider>
-      <MemoryRouter>
-        <RootLayout />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <RootLayout />
+        </MemoryRouter>
+      </AuthProvider>
     </ThemeProvider>,
   );
 }
@@ -45,5 +61,11 @@ describe("RootLayout", () => {
     renderLayout();
     expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("FAQ")).toBeInTheDocument();
+  });
+
+  test("shows Login and Sign Up links when not authenticated", () => {
+    renderLayout();
+    expect(screen.getByText("Login")).toBeInTheDocument();
+    expect(screen.getByText("Sign Up")).toBeInTheDocument();
   });
 });
