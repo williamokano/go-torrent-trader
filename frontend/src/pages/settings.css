@@ -1,0 +1,185 @@
+.settings-page {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.settings-page__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-lg) 0;
+}
+
+/* Sections */
+.settings-section {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  margin-bottom: var(--space-lg);
+}
+
+.settings-section__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-lg) 0;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-section__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-section__submit {
+  align-self: flex-start;
+  padding: var(--space-sm) var(--space-lg);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.settings-section__submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.settings-section__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Passkey section */
+.settings-passkey {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-passkey__current {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.settings-passkey__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-tertiary);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-passkey__toggle {
+  padding: var(--space-xs) var(--space-sm);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.settings-passkey__toggle:hover {
+  background-color: var(--color-bg-tertiary);
+}
+
+.settings-passkey__warning {
+  font-size: var(--text-sm);
+  color: var(--color-warning);
+  margin: 0;
+}
+
+.settings-passkey__regenerate {
+  align-self: flex-start;
+  padding: var(--space-sm) var(--space-lg);
+  background-color: var(--color-error);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.settings-passkey__regenerate:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.settings-passkey__regenerate:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Modal body / footer */
+.settings-modal__body {
+  margin-bottom: var(--space-lg);
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.settings-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.settings-modal__cancel {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+}
+
+.settings-modal__cancel:hover {
+  background-color: var(--color-bg-tertiary);
+}
+
+.settings-modal__confirm {
+  padding: var(--space-sm) var(--space-lg);
+  background-color: var(--color-error);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.settings-modal__confirm:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.settings-modal__confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .settings-section {
+    padding: var(--space-lg) var(--space-md);
+  }
+}

@@ -170,10 +170,90 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get current authenticated user profile */
+        /**
+         * Get current authenticated user's full profile
+         * @description Returns the full owner profile for the authenticated user, including private fields like email, masked passkey, invites, and warned status.
+         */
         get: operations["authMe"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a user's profile
+         * @description Returns a user's public profile. If the authenticated user is viewing their own profile, private fields (email, passkey, invites, warned, last_login) are also included.
+         */
+        get: operations["getUserProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update the current user's profile */
+        put: operations["updateProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change the current user's password
+         * @description Verifies the current password, sets a new one, and invalidates all other sessions (keeps the current session active).
+         */
+        put: operations["changePassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Regenerate the current user's passkey
+         * @description Generates a new 32-character hex passkey. The old passkey is immediately invalidated.
+         */
+        post: operations["regeneratePasskey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -272,6 +352,45 @@ export interface components {
             user?: components["schemas"]["UserProfile"];
             tokens?: components["schemas"]["AuthTokens"];
         };
+        /** @description Profile visible to any authenticated user */
+        PublicProfile: {
+            /** Format: int64 */
+            id?: number;
+            username?: string;
+            /** Format: int64 */
+            group_id?: number;
+            avatar?: string | null;
+            title?: string | null;
+            /** @description User bio */
+            info?: string | null;
+            /** Format: int64 */
+            uploaded?: number;
+            /** Format: int64 */
+            downloaded?: number;
+            /**
+             * Format: double
+             * @description uploaded / downloaded (Infinity if downloaded=0 and uploaded>0, 0 if both zero)
+             */
+            ratio?: number;
+            donor?: boolean;
+            /** Format: date-time */
+            created_at?: string;
+        };
+        /** @description Extended profile visible only to the profile owner */
+        OwnerProfile: components["schemas"]["PublicProfile"] & {
+            /** Format: email */
+            email?: string;
+            /**
+             * @description Masked passkey (first 4 + last 4 chars visible)
+             * @example a1b2************************c5d6
+             */
+            passkey?: string;
+            invites?: number;
+            warned?: boolean;
+            /** Format: date-time */
+            last_login?: string | null;
+        };
+        /** @description Deprecated - use PublicProfile or OwnerProfile instead */
         UserProfile: {
             /** Format: int64 */
             id?: number;
@@ -287,6 +406,24 @@ export interface components {
             enabled?: boolean;
             /** Format: date-time */
             created_at?: string;
+        };
+        UpdateProfileRequest: {
+            /**
+             * Format: uri
+             * @description Avatar URL (must be http or https)
+             * @example https://example.com/avatar.png
+             */
+            avatar?: string;
+            /** @description Custom title */
+            title?: string;
+            /** @description User bio */
+            info?: string;
+        };
+        ChangePasswordRequest: {
+            /** @description The current password for verification */
+            current_password: string;
+            /** @description The new password */
+            new_password: string;
         };
         Torrent: {
             /** Format: int64 */
@@ -734,14 +871,213 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Current user profile */
+            /** @description Current user's full profile */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        user?: components["schemas"]["UserProfile"];
+                        user?: components["schemas"]["OwnerProfile"];
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getUserProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User profile (public or owner view) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user?: components["schemas"]["PublicProfile"] | components["schemas"]["OwnerProfile"];
+                    };
+                };
+            };
+            /** @description Invalid user ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description User not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated user profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user?: components["schemas"]["OwnerProfile"];
+                    };
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Current password incorrect or not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error (new password too short/long) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    regeneratePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description New passkey generated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description The new 32-character hex passkey
+                         * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+                         */
+                        passkey?: string;
                     };
                 };
             };

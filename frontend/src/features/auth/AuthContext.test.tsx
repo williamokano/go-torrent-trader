@@ -170,6 +170,7 @@ describe("AuthProvider", () => {
     expect(result.current.login).toBeTypeOf("function");
     expect(result.current.logout).toBeTypeOf("function");
     expect(result.current.register).toBeTypeOf("function");
+    expect(result.current.refreshUser).toBeTypeOf("function");
   });
 });
 

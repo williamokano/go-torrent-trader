@@ -5,10 +5,19 @@ export interface User {
   username: string;
   email: string;
   group_id: number;
+  avatar: string;
+  title: string;
+  info: string;
   uploaded: number;
   downloaded: number;
+  ratio: number;
+  passkey: string;
+  invites: number;
+  warned: boolean;
+  donor: boolean;
   enabled: boolean;
   created_at: string;
+  last_login: string;
   isAdmin: boolean;
 }
 
@@ -25,6 +34,7 @@ export interface AuthContextValue {
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

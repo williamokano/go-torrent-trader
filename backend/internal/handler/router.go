@@ -15,6 +15,7 @@ type Deps struct {
 	DB             *sql.DB
 	AuthService    *service.AuthService
 	SessionStore   *service.SessionStore
+	UserService    *service.UserService
 	TorrentService *service.TorrentService
 	TrackerService *service.TrackerService
 }
@@ -50,7 +51,7 @@ func NewRouter(deps *Deps) chi.Router {
 		}
 
 		if deps != nil && deps.AuthService != nil {
-			auth := NewAuthHandler(deps.AuthService)
+			auth := NewAuthHandler(deps.AuthService, deps.UserService)
 			validator := NewSessionValidatorAdapter(deps.SessionStore)
 
 			r.Route("/auth", func(r chi.Router) {
@@ -68,6 +69,18 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/me", auth.HandleMe)
 				})
 			})
+
+			// User profile endpoints (all protected)
+			if deps.UserService != nil {
+				users := NewUserHandler(deps.UserService)
+				r.Route("/users", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Get("/{id}", users.HandleGetProfile)
+					r.Put("/me/profile", users.HandleUpdateProfile)
+					r.Put("/me/password", users.HandleChangePassword)
+					r.Post("/me/passkey", users.HandleRegeneratePasskey)
+				})
+			}
 
 			// Torrent endpoints (all protected)
 			if deps.TorrentService != nil {

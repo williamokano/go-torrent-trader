@@ -9,6 +9,8 @@ import { LoginPage } from "@/pages/LoginPage";
 import { SignupPage } from "@/pages/SignupPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
+import { UserProfilePage } from "@/pages/UserProfilePage";
+import { UserSettingsPage } from "@/pages/UserSettingsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -46,6 +48,22 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <TorrentDetailPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "user/:id",
+        element: (
+          <ProtectedRoute>
+            <UserProfilePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "settings",
+        element: (
+          <ProtectedRoute>
+            <UserSettingsPage />
           </ProtectedRoute>
         ),
       },

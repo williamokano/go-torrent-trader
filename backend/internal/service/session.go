@@ -116,6 +116,20 @@ func (s *SessionStore) DeleteByUserID(userID int64) {
 	}
 }
 
+// DeleteByUserIDExcept removes all sessions for a given user ID except the one
+// matching the provided access token. Used when changing password to keep
+// the current session alive.
+func (s *SessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, sess := range s.byAccessToken {
+		if sess.UserID == userID && token != keepAccessToken {
+			delete(s.byRefreshToken, sess.RefreshToken)
+			delete(s.byAccessToken, token)
+		}
+	}
+}
+
 // TouchLastActive updates the session's LastActive timestamp.
 func (s *SessionStore) TouchLastActive(accessToken string) {
 	s.mu.Lock()

@@ -13,12 +13,13 @@ import (
 
 // AuthHandler handles authentication HTTP endpoints.
 type AuthHandler struct {
-	auth *service.AuthService
+	auth  *service.AuthService
+	users *service.UserService
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(auth *service.AuthService) *AuthHandler {
-	return &AuthHandler{auth: auth}
+func NewAuthHandler(auth *service.AuthService, users *service.UserService) *AuthHandler {
+	return &AuthHandler{auth: auth, users: users}
 }
 
 // HandleRegister handles POST /api/v1/auth/register.
@@ -105,6 +106,20 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If UserService is available, return full owner profile
+	if h.users != nil {
+		profile, err := h.users.GetFullProfile(r.Context(), userID)
+		if err != nil {
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to get user")
+			return
+		}
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"user": profile,
+		})
+		return
+	}
+
+	// Fallback to basic user response
 	user, err := h.auth.GetCurrentUser(r.Context(), userID)
 	if err != nil {
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to get user")

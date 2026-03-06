@@ -12,6 +12,21 @@ export function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+export function formatRatio(ratio: number): string {
+  if (!isFinite(ratio)) return "Inf";
+  return ratio.toFixed(2);
+}
+
+export function formatDate(dateString: string): string {
+  if (!dateString) return "N/A";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 export function timeAgo(dateString: string): string {
   const now = Date.now();
   const then = new Date(dateString).getTime();
