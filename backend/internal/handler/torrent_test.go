@@ -188,11 +188,11 @@ func buildTorrentFileBytes(name string) []byte {
 	return data
 }
 
-func setupTorrentRouter() (http.Handler, *service.SessionStore) {
+func setupTorrentRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	torrentRepo := newMockTorrentRepo()
 	store := newMockStorage()
-	sessions := service.NewSessionStore()
+	sessions := service.NewMemorySessionStore()
 	authSvc := service.NewAuthService(userRepo, sessions, &service.NoopSender{}, "http://localhost:8080")
 	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
@@ -444,7 +444,7 @@ func TestHandleDownload_NotFound(t *testing.T) {
 }
 
 // createSessionWithGroup creates a session directly in the session store with the given groupID.
-func createSessionWithGroup(sessions *service.SessionStore, userID, groupID int64) string {
+func createSessionWithGroup(sessions service.SessionStore, userID, groupID int64) string {
 	token := fmt.Sprintf("test-token-%d-%d-%d", userID, groupID, nextTestUserID())
 	sessions.Create(&service.Session{
 		UserID:           userID,

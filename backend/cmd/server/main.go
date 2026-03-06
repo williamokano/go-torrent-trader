@@ -54,9 +54,29 @@ func run() int {
 	userRepo := postgres.NewUserRepo(db)
 	torrentRepo := postgres.NewTorrentRepo(db)
 	peerRepo := postgres.NewPeerRepo(db)
-	sessionStore := service.NewSessionStore()
+
+	sessionStore, err := service.NewSessionStore(service.SessionStoreConfig{
+		Type:            cfg.Session.Store,
+		RedisURL:        cfg.Redis.URL,
+		AccessTokenTTL:  cfg.Session.AccessTokenTTL,
+		RefreshTokenTTL: cfg.Session.RefreshTokenTTL,
+	})
+	if err != nil {
+		slog.Error("failed to initialize session store", "error", err)
+		return 1
+	}
+	// Close the session store on shutdown if it implements io.Closer.
+	if closer, ok := sessionStore.(interface{ Close() error }); ok {
+		defer func() {
+			if err := closer.Close(); err != nil {
+				slog.Error("failed to close session store", "error", err)
+			}
+		}()
+	}
+	slog.Info("session store initialized", "type", cfg.Session.Store)
+
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
-	authService := service.NewAuthService(userRepo, sessionStore, emailSender, cfg.Site.BaseURL)
+	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
 	userService := service.NewUserService(userRepo, sessionStore)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 

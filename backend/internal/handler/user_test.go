@@ -12,9 +12,9 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
-func setupUserRouter() (*service.SessionStore, http.Handler) {
+func setupUserRouter() (service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
-	sessions := service.NewSessionStore()
+	sessions := service.NewMemorySessionStore()
 	authSvc := service.NewAuthService(repo, sessions, &service.NoopSender{}, "http://localhost:8080")
 	userSvc := service.NewUserService(repo, sessions)
 	router := handler.NewRouter(&handler.Deps{

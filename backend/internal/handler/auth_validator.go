@@ -4,11 +4,11 @@ import "github.com/williamokano/go-torrent-trader/backend/internal/service"
 
 // SessionValidatorAdapter bridges the session store with middleware.SessionValidator.
 type SessionValidatorAdapter struct {
-	sessions *service.SessionStore
+	sessions service.SessionStore
 }
 
 // NewSessionValidatorAdapter creates a new adapter.
-func NewSessionValidatorAdapter(sessions *service.SessionStore) *SessionValidatorAdapter {
+func NewSessionValidatorAdapter(sessions service.SessionStore) *SessionValidatorAdapter {
 	return &SessionValidatorAdapter{sessions: sessions}
 }
 

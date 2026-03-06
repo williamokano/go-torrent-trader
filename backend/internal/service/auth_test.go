@@ -100,7 +100,7 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 
 func TestRegister_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	user, tokens, err := svc.Register(context.Background(), RegisterRequest{
@@ -121,14 +121,14 @@ func TestRegister_Success(t *testing.T) {
 	if tokens.AccessToken == "" || tokens.RefreshToken == "" {
 		t.Error("expected non-empty tokens")
 	}
-	if tokens.ExpiresIn != int64(AccessTokenTTL.Seconds()) {
-		t.Errorf("expected expires_in=%d, got %d", int64(AccessTokenTTL.Seconds()), tokens.ExpiresIn)
+	if tokens.ExpiresIn != int64(DefaultAccessTokenTTL.Seconds()) {
+		t.Errorf("expected expires_in=%d, got %d", int64(DefaultAccessTokenTTL.Seconds()), tokens.ExpiresIn)
 	}
 }
 
 func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	user, _, err := svc.Register(context.Background(), RegisterRequest{
@@ -147,7 +147,7 @@ func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 
 func TestRegister_SecondUserGetsDefaultGroup(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	// Register first user
@@ -174,7 +174,7 @@ func TestRegister_SecondUserGetsDefaultGroup(t *testing.T) {
 
 func TestRegister_DuplicateUsername(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -196,7 +196,7 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 
 func TestRegister_DuplicateEmail(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -218,7 +218,7 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 
 func TestRegister_ValidationErrors(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	tests := []struct {
@@ -245,7 +245,7 @@ func TestRegister_ValidationErrors(t *testing.T) {
 
 func TestLogin_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -272,7 +272,7 @@ func TestLogin_Success(t *testing.T) {
 
 func TestLogin_WrongPassword(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -293,7 +293,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 func TestLogin_NonexistentUser(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, _, err := svc.Login(context.Background(), LoginRequest{
@@ -308,7 +308,7 @@ func TestLogin_NonexistentUser(t *testing.T) {
 
 func TestRefresh_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
@@ -339,7 +339,7 @@ func TestRefresh_Success(t *testing.T) {
 
 func TestRefresh_InvalidToken(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, err := svc.Refresh(RefreshRequest{
@@ -353,7 +353,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 
 func TestLogout(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
@@ -371,7 +371,7 @@ func TestLogout(t *testing.T) {
 
 func TestGetCurrentUser(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	registered, _, _ := svc.Register(context.Background(), RegisterRequest{
@@ -391,7 +391,7 @@ func TestGetCurrentUser(t *testing.T) {
 
 func TestForgotPassword_GeneratesToken(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 	store := NewPasswordResetStore()
 	svc.SetPasswordResetStore(store)
@@ -424,7 +424,7 @@ func TestForgotPassword_GeneratesToken(t *testing.T) {
 
 func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 	store := NewPasswordResetStore()
 	svc.SetPasswordResetStore(store)
@@ -444,7 +444,7 @@ func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
 
 func TestForgotPassword_RateLimit(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 	store := NewPasswordResetStore()
 	svc.SetPasswordResetStore(store)
@@ -478,7 +478,7 @@ func TestForgotPassword_RateLimit(t *testing.T) {
 
 func TestResetPassword_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 	store := NewPasswordResetStore()
 	svc.SetPasswordResetStore(store)
@@ -554,7 +554,7 @@ func TestResetPassword_Success(t *testing.T) {
 
 func TestResetPassword_InvalidToken(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
@@ -568,7 +568,7 @@ func TestResetPassword_InvalidToken(t *testing.T) {
 
 func TestResetPassword_ExpiredToken(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 	store := NewPasswordResetStore()
 	svc.SetPasswordResetStore(store)
@@ -600,7 +600,7 @@ func TestResetPassword_ExpiredToken(t *testing.T) {
 
 func TestResetPassword_UsedToken(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 	store := NewPasswordResetStore()
 	svc.SetPasswordResetStore(store)
@@ -632,7 +632,7 @@ func TestResetPassword_UsedToken(t *testing.T) {
 
 func TestResetPassword_WeakPassword(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
@@ -651,7 +651,7 @@ func hashTokenForTest(token string) string {
 
 func TestLogin_DisabledUser(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{

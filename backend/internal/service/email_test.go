@@ -56,7 +56,7 @@ func TestSMTPSender_ConstructsCorrectly(t *testing.T) {
 
 func TestForgotPassword_SendsEmail(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	sender := &NoopSender{}
 	svc := NewAuthService(repo, sessions, sender, "http://localhost:8080")
 
@@ -90,7 +90,7 @@ func TestForgotPassword_SendsEmail(t *testing.T) {
 
 func TestForgotPassword_NoEmailForNonexistentUser(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	sender := &NoopSender{}
 	svc := NewAuthService(repo, sessions, sender, "http://localhost:8080")
 

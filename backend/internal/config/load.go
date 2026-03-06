@@ -23,6 +23,11 @@ func Load() (*Config, error) {
 		Redis: RedisConfig{
 			URL: envOrDefault("REDIS_URL", "redis://localhost:6379/0"),
 		},
+		Session: SessionConfig{
+			Store:           envOrDefault("SESSION_STORE", "redis"),
+			AccessTokenTTL:  1 * time.Hour,
+			RefreshTokenTTL: 30 * 24 * time.Hour, // 720h
+		},
 		SMTP: SMTPConfig{
 			Host: envOrDefault("SMTP_HOST", "localhost"),
 			Port: 1025,
@@ -116,6 +121,20 @@ func Load() (*Config, error) {
 		}
 	}
 
+	if v := os.Getenv("ACCESS_TOKEN_TTL"); v != "" {
+		cfg.Session.AccessTokenTTL, err = time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ACCESS_TOKEN_TTL %q: %w", v, err)
+		}
+	}
+
+	if v := os.Getenv("REFRESH_TOKEN_TTL"); v != "" {
+		cfg.Session.RefreshTokenTTL, err = time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid REFRESH_TOKEN_TTL %q: %w", v, err)
+		}
+	}
+
 	// Required fields.
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	if cfg.Database.URL == "" {
@@ -157,6 +176,19 @@ func Load() (*Config, error) {
 
 	if cfg.Tracker.MaxPeersPerResponse <= 0 {
 		return nil, fmt.Errorf("TRACKER_MAX_PEERS must be greater than 0, got %d", cfg.Tracker.MaxPeersPerResponse)
+	}
+
+	sessionStore := cfg.Session.Store
+	if sessionStore != "memory" && sessionStore != "redis" {
+		return nil, fmt.Errorf("SESSION_STORE must be \"memory\" or \"redis\", got %q", sessionStore)
+	}
+
+	if cfg.Session.AccessTokenTTL <= 0 {
+		return nil, fmt.Errorf("ACCESS_TOKEN_TTL must be greater than 0, got %s", cfg.Session.AccessTokenTTL)
+	}
+
+	if cfg.Session.RefreshTokenTTL <= 0 {
+		return nil, fmt.Errorf("REFRESH_TOKEN_TTL must be greater than 0, got %s", cfg.Session.RefreshTokenTTL)
 	}
 
 	storageType := cfg.Storage.Type
