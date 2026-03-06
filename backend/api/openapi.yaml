@@ -542,7 +542,14 @@ paths:
           in: query
           schema:
             type: string
-          description: Search term for torrent name
+            minLength: 2
+          description: >
+            Search term for torrent name. Minimum 2 characters.
+            Queries with 3+ characters use PostgreSQL full-text search
+            (tsvector/GIN) with relevance ranking. Queries with exactly
+            2 characters fall back to case-insensitive substring matching
+            (ILIKE). When full-text search is active and no explicit sort
+            field is specified, results are ordered by relevance.
         - name: cat
           in: query
           schema:
