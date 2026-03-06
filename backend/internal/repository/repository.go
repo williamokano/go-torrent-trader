@@ -16,6 +16,7 @@ type UserRepository interface {
 	Count(ctx context.Context) (int64, error)
 	Create(ctx context.Context, user *model.User) error
 	Update(ctx context.Context, user *model.User) error
+	IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error
 }
 
 // TorrentRepository defines persistence operations for torrents.
@@ -27,6 +28,7 @@ type TorrentRepository interface {
 	Update(ctx context.Context, torrent *model.Torrent) error
 	IncrementSeeders(ctx context.Context, id int64, delta int) error
 	IncrementLeechers(ctx context.Context, id int64, delta int) error
+	IncrementTimesCompleted(ctx context.Context, id int64) error
 }
 
 // PeerRepository defines persistence operations for peers.

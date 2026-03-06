@@ -102,3 +102,23 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 		user.Warned, user.WarnUntil, user.Donor, user.ID,
 	).Scan(&user.UpdatedAt)
 }
+
+func (r *UserRepo) IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error {
+	query := `UPDATE users SET
+		uploaded = GREATEST(0, uploaded + $1),
+		downloaded = GREATEST(0, downloaded + $2),
+		updated_at = NOW()
+	WHERE id = $3`
+	result, err := r.db.ExecContext(ctx, query, uploadedDelta, downloadedDelta, id)
+	if err != nil {
+		return fmt.Errorf("incrementing user stats: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

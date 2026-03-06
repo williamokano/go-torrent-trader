@@ -51,12 +51,16 @@ func run() int {
 
 	// Build dependencies
 	userRepo := postgres.NewUserRepo(db)
+	torrentRepo := postgres.NewTorrentRepo(db)
+	peerRepo := postgres.NewPeerRepo(db)
 	sessionStore := service.NewSessionStore()
 	authService := service.NewAuthService(userRepo, sessionStore)
+	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
 	deps := &handler.Deps{
-		AuthService:  authService,
-		SessionStore: sessionStore,
+		AuthService:    authService,
+		SessionStore:   sessionStore,
+		TrackerService: trackerService,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
