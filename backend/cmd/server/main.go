@@ -67,7 +67,7 @@ func run() int {
 	}
 
 	torrentService := service.NewTorrentService(torrentRepo, userRepo, fileStore, service.TorrentServiceConfig{
-		AnnounceURL:      fmt.Sprintf("%s/announce", cfg.Site.BaseURL),
+		AnnounceURL:      fmt.Sprintf("%s/announce", cfg.Site.ApiURL),
 		TorrentComment:   cfg.Site.BaseURL,
 		TorrentCreatedBy: cfg.Site.Name,
 	})
