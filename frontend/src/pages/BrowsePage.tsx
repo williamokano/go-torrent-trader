@@ -11,11 +11,14 @@ import "./browse.css";
 
 const CATEGORIES = [
   { value: "", label: "All Categories" },
-  { value: "1", label: "Linux ISOs" },
-  { value: "2", label: "Software" },
+  { value: "1", label: "Movies" },
+  { value: "2", label: "TV" },
   { value: "3", label: "Music" },
-  { value: "4", label: "E-Books" },
-  { value: "5", label: "Other" },
+  { value: "4", label: "Games" },
+  { value: "5", label: "Software" },
+  { value: "6", label: "Anime" },
+  { value: "7", label: "Books" },
+  { value: "8", label: "Other" },
 ];
 
 const SORT_OPTIONS = [
