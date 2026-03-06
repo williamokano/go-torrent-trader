@@ -116,6 +116,40 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleForgotPassword handles POST /api/v1/auth/forgot-password.
+func (h *AuthHandler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req service.ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	// ForgotPassword never returns an error to the client (prevent email enumeration)
+	_ = h.auth.ForgotPassword(r.Context(), req)
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "If this email exists, a reset link has been sent",
+	})
+}
+
+// HandleResetPassword handles POST /api/v1/auth/reset-password.
+func (h *AuthHandler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req service.ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if err := h.auth.ResetPassword(r.Context(), req); err != nil {
+		handleAuthError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Password has been reset",
+	})
+}
+
 func handleAuthError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidCredentials):
@@ -126,6 +160,8 @@ func handleAuthError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusConflict, "email_taken", "email is already taken")
 	case errors.Is(err, service.ErrInvalidToken):
 		ErrorResponse(w, http.StatusUnauthorized, "invalid_token", "invalid or expired token")
+	case errors.Is(err, service.ErrInvalidResetToken):
+		ErrorResponse(w, http.StatusBadRequest, "invalid_token", "invalid or expired reset token")
 	case errors.Is(err, service.ErrValidationFailed):
 		ErrorResponse(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
 	default:

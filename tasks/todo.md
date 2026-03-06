@@ -33,6 +33,19 @@
 **Migration Tool (on feat/phase1-foundation):**
 - MT-0.1: Cobra CLI with 5 subcommands (discover, validate, run, verify, rollback)
 
+**BE-1.3: Password Recovery (on feat/password-recovery):**
+- [x] Migration: `011_create_password_resets.sql`
+- [x] In-memory `PasswordResetStore` with token hash storage
+- [x] `SessionStore.DeleteByUserID` for session invalidation
+- [x] `AuthService.ForgotPassword` — generic response, rate limit (3/hr), SHA-256 token hash, log reset URL
+- [x] `AuthService.ResetPassword` — validate token, update Argon2id password, invalidate sessions
+- [x] Handler endpoints: `POST /forgot-password`, `POST /reset-password`
+- [x] Routes registered as public (no auth required)
+- [x] OpenAPI spec updated with both endpoints + schemas
+- [x] Service tests: token generation, rate limiting, reset success, expired/used/invalid tokens, weak password
+- [x] Handler tests: generic 200 response, invalid body, invalid token
+- [x] All tests pass, go build + go vet clean
+
 ### What's Next
 
 Remaining Phase 1 tasks (dependencies met, ready to build):

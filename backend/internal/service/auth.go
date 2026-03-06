@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,11 +16,13 @@ import (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrUsernameTaken      = errors.New("username already taken")
-	ErrEmailTaken         = errors.New("email already taken")
-	ErrInvalidToken       = errors.New("invalid or expired token")
-	ErrValidationFailed   = errors.New("validation failed")
+	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrUsernameTaken        = errors.New("username already taken")
+	ErrEmailTaken           = errors.New("email already taken")
+	ErrInvalidToken         = errors.New("invalid or expired token")
+	ErrValidationFailed     = errors.New("validation failed")
+	ErrResetRateLimitExceed = errors.New("too many password reset requests")
+	ErrInvalidResetToken    = errors.New("invalid or expired reset token")
 )
 
 var (
@@ -56,18 +60,48 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// ForgotPasswordRequest holds the input for requesting a password reset.
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+// ResetPasswordRequest holds the input for resetting a password.
+type ResetPasswordRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+const (
+	resetTokenRateLimit = 3               // max reset requests per email per hour
+	resetTokenTTL       = 1 * time.Hour   // reset token expiry
+)
+
 // AuthService handles authentication business logic.
 type AuthService struct {
-	users    repository.UserRepository
-	sessions *SessionStore
+	users          repository.UserRepository
+	sessions       *SessionStore
+	passwordResets *PasswordResetStore
+	siteBaseURL    string
 }
 
 // NewAuthService creates a new AuthService.
 func NewAuthService(users repository.UserRepository, sessions *SessionStore) *AuthService {
 	return &AuthService{
-		users:    users,
-		sessions: sessions,
+		users:          users,
+		sessions:       sessions,
+		passwordResets: NewPasswordResetStore(),
+		siteBaseURL:    "http://localhost:8080",
 	}
+}
+
+// SetPasswordResetStore sets the password reset store (useful for testing).
+func (s *AuthService) SetPasswordResetStore(store *PasswordResetStore) {
+	s.passwordResets = store
+}
+
+// SetSiteBaseURL sets the site base URL used in password reset links.
+func (s *AuthService) SetSiteBaseURL(url string) {
+	s.siteBaseURL = url
 }
 
 // Register creates a new user account and returns auth tokens.
@@ -229,6 +263,110 @@ func (s *AuthService) GetCurrentUser(ctx context.Context, userID int64) (*model.
 // Sessions returns the session store (used by the validator adapter).
 func (s *AuthService) Sessions() *SessionStore {
 	return s.sessions
+}
+
+// ForgotPassword initiates a password reset for the given email.
+// Always returns nil to prevent email enumeration — errors are logged, not returned to caller.
+func (s *AuthService) ForgotPassword(ctx context.Context, req ForgotPasswordRequest) error {
+	if req.Email == "" {
+		return nil
+	}
+
+	user, err := s.users.GetByEmail(ctx, req.Email)
+	if err != nil || user == nil {
+		// Don't reveal whether the email exists
+		return nil
+	}
+
+	// Rate limit: max 3 requests per email per hour
+	recentCount := s.passwordResets.CountRecentByUserID(user.ID, 1*time.Hour)
+	if recentCount >= resetTokenRateLimit {
+		// Silently ignore — don't reveal rate limiting to the caller
+		slog.Warn("password reset rate limit exceeded", "user_id", user.ID)
+		return nil
+	}
+
+	rawToken, err := GenerateToken()
+	if err != nil {
+		slog.Error("failed to generate reset token", "error", err)
+		return nil
+	}
+
+	tokenHash := hashToken(rawToken)
+	now := time.Now()
+
+	s.passwordResets.Create(&PasswordReset{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: now.Add(resetTokenTTL),
+		Used:      false,
+		CreatedAt: now,
+	})
+
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.siteBaseURL, rawToken)
+	slog.Info("password reset requested",
+		"user_id", user.ID,
+		"reset_url", resetURL,
+	)
+
+	return nil
+}
+
+// ResetPassword validates a reset token and sets a new password.
+func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
+	if req.Token == "" || req.Password == "" {
+		return ErrInvalidResetToken
+	}
+
+	if len(req.Password) < 8 {
+		return fmt.Errorf("%w: password must be at least 8 characters", ErrValidationFailed)
+	}
+	if len(req.Password) > 1024 {
+		return fmt.Errorf("%w: password must be at most 1024 characters", ErrValidationFailed)
+	}
+
+	tokenHash := hashToken(req.Token)
+	pr := s.passwordResets.GetByTokenHash(tokenHash)
+	if pr == nil {
+		return ErrInvalidResetToken
+	}
+	if pr.Used {
+		return ErrInvalidResetToken
+	}
+	if time.Now().After(pr.ExpiresAt) {
+		return ErrInvalidResetToken
+	}
+
+	user, err := s.users.GetByID(ctx, pr.UserID)
+	if err != nil || user == nil {
+		return ErrInvalidResetToken
+	}
+
+	newHash, err := HashPassword(req.Password)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	user.PasswordHash = newHash
+	user.PasswordScheme = "argon2id"
+	if err := s.users.Update(ctx, user); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	// Mark token as used
+	s.passwordResets.MarkUsed(pr.ID)
+
+	// Invalidate all sessions for this user
+	s.sessions.DeleteByUserID(pr.UserID)
+
+	slog.Info("password reset completed", "user_id", pr.UserID)
+	return nil
+}
+
+// hashToken returns the hex-encoded SHA-256 hash of a token string.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }
 
 func (s *AuthService) createSession(userID, groupID int64, ip string) (*AuthTokens, error) {

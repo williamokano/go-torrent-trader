@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
@@ -386,6 +387,266 @@ func TestGetCurrentUser(t *testing.T) {
 	if user.Username != "meuser" {
 		t.Errorf("expected meuser, got %s", user.Username)
 	}
+}
+
+func TestForgotPassword_GeneratesToken(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+	store := NewPasswordResetStore()
+	svc.SetPasswordResetStore(store)
+
+	// Register a user
+	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "resetuser",
+		Email:    "reset@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	err := svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
+		Email: "reset@example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify a reset token was created
+	if len(store.resets) != 1 {
+		t.Fatalf("expected 1 reset token, got %d", len(store.resets))
+	}
+	if store.resets[0].Used {
+		t.Error("reset token should not be marked as used")
+	}
+	if store.resets[0].TokenHash == "" {
+		t.Error("reset token hash should not be empty")
+	}
+}
+
+func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+	store := NewPasswordResetStore()
+	svc.SetPasswordResetStore(store)
+
+	err := svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
+		Email: "nonexistent@example.com",
+	})
+	if err != nil {
+		t.Fatalf("should not return error for nonexistent email: %v", err)
+	}
+
+	// No token should be created
+	if len(store.resets) != 0 {
+		t.Errorf("expected 0 reset tokens, got %d", len(store.resets))
+	}
+}
+
+func TestForgotPassword_RateLimit(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+	store := NewPasswordResetStore()
+	svc.SetPasswordResetStore(store)
+
+	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "ratelimit",
+		Email:    "ratelimit@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	// Send 3 requests (the limit)
+	for i := 0; i < 3; i++ {
+		_ = svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
+			Email: "ratelimit@example.com",
+		})
+	}
+
+	if len(store.resets) != 3 {
+		t.Fatalf("expected 3 reset tokens, got %d", len(store.resets))
+	}
+
+	// 4th request should be silently ignored
+	_ = svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
+		Email: "ratelimit@example.com",
+	})
+
+	if len(store.resets) != 3 {
+		t.Errorf("expected still 3 reset tokens after rate limit, got %d", len(store.resets))
+	}
+}
+
+func TestResetPassword_Success(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+	store := NewPasswordResetStore()
+	svc.SetPasswordResetStore(store)
+
+	// Register and login to create a session
+	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
+		Username: "resetpw",
+		Email:    "resetpw@example.com",
+		Password: "oldpassword1",
+	}, "127.0.0.1")
+
+	// Verify the session exists
+	if sessions.GetByAccessToken(tokens.AccessToken) == nil {
+		t.Fatal("session should exist before reset")
+	}
+
+	// Request forgot password
+	_ = svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
+		Email: "resetpw@example.com",
+	})
+
+	// Get the raw token by working backwards from the stored hash
+	// We need to capture the token from the service — let's generate one manually
+	rawToken, _ := GenerateToken()
+	tokenHash := hashTokenForTest(rawToken)
+	now := time.Now()
+	// Clear the store and add our known token
+	store.resets = nil
+	store.Create(&PasswordReset{
+		UserID:    1, // first user
+		TokenHash: tokenHash,
+		ExpiresAt: now.Add(1 * time.Hour),
+		Used:      false,
+		CreatedAt: now,
+	})
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
+		Token:    rawToken,
+		Password: "newpassword1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Token should be marked used
+	if !store.resets[0].Used {
+		t.Error("reset token should be marked as used")
+	}
+
+	// Old session should be invalidated
+	if sessions.GetByAccessToken(tokens.AccessToken) != nil {
+		t.Error("old session should be invalidated after password reset")
+	}
+
+	// Should be able to login with new password
+	_, _, err = svc.Login(context.Background(), LoginRequest{
+		Username: "resetpw",
+		Password: "newpassword1",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("should be able to login with new password: %v", err)
+	}
+
+	// Old password should not work
+	_, _, err = svc.Login(context.Background(), LoginRequest{
+		Username: "resetpw",
+		Password: "oldpassword1",
+	}, "127.0.0.1")
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Error("old password should not work after reset")
+	}
+}
+
+func TestResetPassword_InvalidToken(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
+		Token:    "bogustoken",
+		Password: "newpassword1",
+	})
+	if !errors.Is(err, ErrInvalidResetToken) {
+		t.Errorf("expected ErrInvalidResetToken, got %v", err)
+	}
+}
+
+func TestResetPassword_ExpiredToken(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+	store := NewPasswordResetStore()
+	svc.SetPasswordResetStore(store)
+
+	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "expired",
+		Email:    "expired@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	rawToken, _ := GenerateToken()
+	tokenHash := hashTokenForTest(rawToken)
+	store.Create(&PasswordReset{
+		UserID:    1,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(-1 * time.Hour), // expired
+		Used:      false,
+		CreatedAt: time.Now().Add(-2 * time.Hour),
+	})
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
+		Token:    rawToken,
+		Password: "newpassword1",
+	})
+	if !errors.Is(err, ErrInvalidResetToken) {
+		t.Errorf("expected ErrInvalidResetToken for expired token, got %v", err)
+	}
+}
+
+func TestResetPassword_UsedToken(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+	store := NewPasswordResetStore()
+	svc.SetPasswordResetStore(store)
+
+	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "usedtoken",
+		Email:    "usedtoken@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	rawToken, _ := GenerateToken()
+	tokenHash := hashTokenForTest(rawToken)
+	store.Create(&PasswordReset{
+		UserID:    1,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+		Used:      true, // already used
+		CreatedAt: time.Now(),
+	})
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
+		Token:    rawToken,
+		Password: "newpassword1",
+	})
+	if !errors.Is(err, ErrInvalidResetToken) {
+		t.Errorf("expected ErrInvalidResetToken for used token, got %v", err)
+	}
+}
+
+func TestResetPassword_WeakPassword(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := NewSessionStore()
+	svc := NewAuthService(repo, sessions)
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
+		Token:    "sometoken",
+		Password: "short",
+	})
+	if !errors.Is(err, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed for short password, got %v", err)
+	}
+}
+
+// hashTokenForTest wraps the package-private hashToken for test readability.
+func hashTokenForTest(token string) string {
+	return hashToken(token)
 }
 
 func TestLogin_DisabledUser(t *testing.T) {

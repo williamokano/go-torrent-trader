@@ -258,7 +258,7 @@
 
 > **Note:** This was deferred from BE-1.1. Depends on SMTP being wired (Mailpit for dev).
 
-#### BE-1.3: Password Recovery [S]
+#### BE-1.3: Password Recovery [S] [DONE]
 **As a** user who forgot their password
 **I want** to reset it via email
 **So that** I can regain access

@@ -201,6 +201,68 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/auth/forgot-password:
+    post:
+      operationId: authForgotPassword
+      summary: Request a password reset link
+      description: >
+        Sends a password reset link to the given email if it exists.
+        Always returns 200 to prevent email enumeration.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Generic success response (does not reveal if email exists)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/reset-password:
+    post:
+      operationId: authResetPassword
+      summary: Reset password using a reset token
+      description: >
+        Validates the reset token, sets the new password, and invalidates
+        all active sessions for the user.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid or expired reset token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (password too short/long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/auth/me:
     get:
       operationId: authMe
@@ -630,6 +692,37 @@ components:
           type: integer
           format: int64
           description: Number of active peers
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: The raw reset token from the email link
+          example: abc123def456...
+        password:
+          type: string
+          minLength: 8
+          maxLength: 1024
+          description: The new password
+          example: mynewsecurepassword
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Operation completed successfully
 
     ErrorResponse:
       type: object
