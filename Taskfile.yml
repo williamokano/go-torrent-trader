@@ -2,6 +2,8 @@ version: '3'
 
 output: prefixed
 
+dotenv: ['.env']
+
 vars:
   BACKEND_DIR: backend
   FRONTEND_DIR: frontend
