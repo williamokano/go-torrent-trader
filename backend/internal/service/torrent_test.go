@@ -296,7 +296,7 @@ func TestTorrentService_Upload(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	data := buildTorrentFile("upload-test")
 	req := UploadTorrentRequest{
@@ -328,7 +328,7 @@ func TestTorrentService_Upload_CustomName(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	data := buildTorrentFile("original-name")
 	req := UploadTorrentRequest{
@@ -357,7 +357,7 @@ func TestTorrentService_Upload_Duplicate(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	data := buildTorrentFile("dup-test")
 	req := UploadTorrentRequest{CategoryID: 1}
@@ -377,7 +377,7 @@ func TestTorrentService_GetByID(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	data := buildTorrentFile("get-test")
 	uploaded, _ := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 1)
@@ -395,7 +395,7 @@ func TestTorrentService_GetByID_NotFound(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	_, err := svc.GetByID(context.Background(), 999)
 	if !errors.Is(err, ErrTorrentNotFound) {
@@ -407,7 +407,7 @@ func TestTorrentService_List(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	// Upload 3 torrents
 	for i := 0; i < 3; i++ {
@@ -431,7 +431,7 @@ func TestTorrentService_List_Pagination(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	for i := 0; i < 5; i++ {
 		data := buildTorrentFile("page-test-" + string(rune('a'+i)))
@@ -457,7 +457,7 @@ func TestTorrentService_DownloadTorrent(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://tracker.example.com/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://tracker.example.com/announce", TorrentComment: "http://tracker.example.com", TorrentCreatedBy: "TestTracker"})
 
 	passkey := "abc123passkey"
 	userRepo.addUser(&model.User{ID: 1, Passkey: &passkey})
@@ -490,13 +490,28 @@ func TestTorrentService_DownloadTorrent(t *testing.T) {
 	if announce != expected {
 		t.Errorf("expected announce %q, got %q", expected, announce)
 	}
+
+	// Verify comment was rewritten
+	if comment, ok := meta["comment"].(string); !ok || comment != "http://tracker.example.com" {
+		t.Errorf("expected comment %q, got %v", "http://tracker.example.com", meta["comment"])
+	}
+
+	// Verify created by was rewritten
+	if createdBy, ok := meta["created by"].(string); !ok || createdBy != "TestTracker" {
+		t.Errorf("expected created by %q, got %v", "TestTracker", meta["created by"])
+	}
+
+	// Verify announce-list was removed
+	if _, ok := meta["announce-list"]; ok {
+		t.Error("expected announce-list to be removed")
+	}
 }
 
 func TestTorrentService_DownloadTorrent_NotFound(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, "http://localhost/announce")
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	_, _, err := svc.DownloadTorrent(context.Background(), 999, 1)
 	if !errors.Is(err, ErrTorrentNotFound) {

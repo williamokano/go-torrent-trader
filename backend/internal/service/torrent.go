@@ -61,25 +61,36 @@ type UploadTorrentRequest struct {
 }
 
 // TorrentService handles torrent business logic.
+// TorrentServiceConfig holds configurable values for torrent file rewriting.
+type TorrentServiceConfig struct {
+	AnnounceURL      string // base announce URL, e.g. "http://localhost:8080/announce"
+	TorrentComment   string // written to "comment" field in downloaded .torrent (empty = don't rewrite)
+	TorrentCreatedBy string // written to "created by" field in downloaded .torrent (empty = don't rewrite)
+}
+
 type TorrentService struct {
-	torrents    repository.TorrentRepository
-	users       repository.UserRepository
-	storage     storage.FileStorage
-	announceURL string // base announce URL, e.g. "http://localhost:8080/announce"
+	torrents         repository.TorrentRepository
+	users            repository.UserRepository
+	storage          storage.FileStorage
+	announceURL      string
+	torrentComment   string
+	torrentCreatedBy string
 }
 
 // NewTorrentService creates a new TorrentService.
 func NewTorrentService(
 	torrents repository.TorrentRepository,
 	users repository.UserRepository,
-	storage storage.FileStorage,
-	announceURL string,
+	store storage.FileStorage,
+	cfg TorrentServiceConfig,
 ) *TorrentService {
 	return &TorrentService{
-		torrents:    torrents,
-		users:       users,
-		storage:     storage,
-		announceURL: announceURL,
+		torrents:         torrents,
+		users:            users,
+		storage:          store,
+		announceURL:      cfg.AnnounceURL,
+		torrentComment:   cfg.TorrentComment,
+		torrentCreatedBy: cfg.TorrentCreatedBy,
 	}
 }
 
@@ -257,8 +268,23 @@ func (s *TorrentService) rewriteAnnounce(data []byte, passkey *string) ([]byte, 
 	}
 	meta["announce"] = encoded
 
-	// Remove announce-list to avoid tracker confusion
+	// Remove announce-list to avoid multi-tracker leaking
 	delete(meta, "announce-list")
+
+	// Replace comment and created-by with configurable values
+	if s.torrentComment != "" {
+		enc, err := bencode.EncodeBytes(s.torrentComment)
+		if err == nil {
+			meta["comment"] = enc
+		}
+	}
+
+	if s.torrentCreatedBy != "" {
+		enc, err := bencode.EncodeBytes(s.torrentCreatedBy)
+		if err == nil {
+			meta["created by"] = enc
+		}
+	}
 
 	result, err := bencode.EncodeBytes(meta)
 	if err != nil {
