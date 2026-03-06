@@ -100,11 +100,19 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		groupID = adminGroupID
 	}
 
+	// Generate passkey for tracker authentication (32-char hex)
+	passkeyFull, err := GenerateToken()
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate passkey: %w", err)
+	}
+	passkey := passkeyFull[:32]
+
 	user := &model.User{
 		Username:       req.Username,
 		Email:          req.Email,
 		PasswordHash:   hash,
 		PasswordScheme: "argon2id",
+		Passkey:        &passkey,
 		GroupID:        groupID,
 		Enabled:        true,
 		IP:             &ip,
