@@ -1,0 +1,184 @@
+.torrent-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.torrent-detail__loading,
+.torrent-detail__error {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--color-text-muted);
+}
+
+.torrent-detail__error {
+  color: var(--color-error);
+}
+
+/* Header */
+.torrent-detail__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.torrent-detail__name {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.torrent-detail__category {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Stats grid */
+.torrent-detail__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-md);
+}
+
+.torrent-detail__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.torrent-detail__stat-value {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.torrent-detail__stat-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* Health indicator */
+.torrent-detail__health {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  margin-right: var(--space-xs);
+  vertical-align: middle;
+}
+
+.torrent-detail__health--good {
+  background-color: var(--color-success);
+}
+
+.torrent-detail__health--warning {
+  background-color: var(--color-warning);
+}
+
+.torrent-detail__health--dead {
+  background-color: var(--color-error);
+}
+
+/* Info section */
+.torrent-detail__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.torrent-detail__info-row {
+  display: flex;
+  gap: var(--space-md);
+  align-items: baseline;
+}
+
+.torrent-detail__info-label {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  min-width: 120px;
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+}
+
+.torrent-detail__info-value {
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
+.torrent-detail__info-hash {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Description */
+.torrent-detail__description {
+  padding: var(--space-lg);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.torrent-detail__description-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  color: var(--color-text-primary);
+}
+
+.torrent-detail__description-body {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Download button */
+.torrent-detail__download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background-color: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  align-self: flex-start;
+}
+
+.torrent-detail__download:hover {
+  background-color: var(--color-accent-hover);
+}
+
+.torrent-detail__download:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .torrent-detail__stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .torrent-detail__info-row {
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .torrent-detail__info-label {
+    min-width: unset;
+  }
+}

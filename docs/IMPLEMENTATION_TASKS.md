@@ -603,6 +603,32 @@
 - Requires authentication
 - Used by frontend for typeahead in comment/post editors
 
+#### BE-3.13: Rich Torrent Metadata [M] [RESEARCH]
+**As an** uploader
+**I want** to add detailed metadata to my uploads
+**So that** torrents are well-categorized and searchable by specific attributes
+
+**Research + Implementation:**
+- Study the original TorrentTrader 3.x upload form for reference fields
+- Common metadata fields to support:
+  - Year of release
+  - Video codec (H.264, H.265/HEVC, AV1, etc.)
+  - Audio codec (AAC, FLAC, DTS, AC3, etc.)
+  - Resolution/quality (4K/2160p, 1080p, 720p, SD)
+  - Source (Blu-ray, WEB-DL, HDTV, DVD, etc.)
+  - Language (with multi-language support)
+  - Subtitles (embedded, SRT, none)
+  - Runtime (for movies/TV)
+  - Genre tags
+- Decide on storage approach: dedicated columns vs JSONB metadata field vs separate metadata table
+- Consider auto-detection: parse torrent name for quality/codec patterns (e.g., "Movie.2024.1080p.BluRay.x265.DTS" → year=2024, resolution=1080p, source=BluRay, codec=x265, audio=DTS)
+- Category-specific fields: Movies need different metadata than Music or Software
+- Update upload form (FE) with dynamic fields based on selected category
+- Update browse/search to filter by metadata fields
+- Migration: ensure metadata schema is compatible with MT-1.2 torrent migration
+
+> **Note:** This is a research task. Start by documenting what fields the original TorrentTrader supports, then design the schema and UI. Low priority — current basic upload (name, category, description) works for MVP.
+
 ---
 
 ### Epic BE-4: Invitation System
