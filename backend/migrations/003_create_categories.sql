@@ -9,7 +9,7 @@ CREATE TABLE categories (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seed top-level categories.
+-- Seed top-level categories with explicit IDs.
 INSERT INTO categories (id, name, sort_order) VALUES
     (1, 'Movies',   1),
     (2, 'TV',       2),
@@ -20,7 +20,10 @@ INSERT INTO categories (id, name, sort_order) VALUES
     (7, 'Books',    7),
     (8, 'Other',    8);
 
--- Seed subcategories.
+-- Reset sequence past the explicit IDs before inserting subcategories.
+SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
+
+-- Seed subcategories (auto-increment from 9+).
 INSERT INTO categories (name, parent_id, sort_order) VALUES
     ('HD',  1, 1),
     ('SD',  1, 2),
@@ -34,9 +37,6 @@ INSERT INTO categories (name, parent_id, sort_order) VALUES
     ('Windows', 5, 1),
     ('macOS', 5, 2),
     ('Linux', 5, 3);
-
--- Reset the sequence so future inserts continue from the right point.
-SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
 
 -- +goose Down
 DROP TABLE IF EXISTS categories;
