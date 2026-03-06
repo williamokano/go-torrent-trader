@@ -952,7 +952,7 @@
 
 ### Epic BE-9: Cleanup & Maintenance Jobs
 
-#### BE-9.1: Scheduled Cleanup Job [M]
+#### BE-9.1: Scheduled Cleanup Job [M] [DONE]
 **As a** tracker operator
 **I want** automated maintenance tasks
 **So that** the system stays healthy without manual intervention
