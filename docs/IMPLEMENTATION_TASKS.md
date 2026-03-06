@@ -150,7 +150,7 @@
 - Bucket/prefix organization: `torrents/{id}.torrent`, `nfo/{id}.nfo`, `images/{id}_{n}.{ext}`
 - No file paths hardcoded anywhere in business logic
 
-#### BE-0.5: Repository Layer [M]
+#### BE-0.5: Repository Layer [M] [DONE]
 **As a** developer
 **I want** a repository pattern with interfaces for all data access
 **So that** business logic is decoupled from database implementation
@@ -177,7 +177,7 @@
 - Health check endpoint (`GET /healthz`)
 - OpenAPI/Swagger spec generation (swag or oapi-codegen)
 
-#### BE-0.7: Background Job System [S]
+#### BE-0.7: Background Job System [S] [DONE]
 **As a** developer
 **I want** a background job processor for async tasks
 **So that** request handlers don't block on slow operations
@@ -1022,7 +1022,7 @@
 - Admin route wrapper (redirects if not admin)
 - Loading states and error boundaries per route
 
-#### FE-0.4: API Client Generation [S]
+#### FE-0.4: API Client Generation [S] [DONE]
 **As a** frontend developer
 **I want** a type-safe API client generated from the OpenAPI spec
 **So that** I never hand-write API calls or guess response types
