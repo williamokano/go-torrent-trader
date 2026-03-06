@@ -2,10 +2,10 @@ name: Migration Tool CI
 on:
   push:
     branches: [main]
-    paths: ['migration-tool/**']
+    paths: ['migration-tool/**', '.github/workflows/migration-tool.yml']
   pull_request:
     branches: [main]
-    paths: ['migration-tool/**']
+    paths: ['migration-tool/**', '.github/workflows/migration-tool.yml']
 
 permissions:
   contents: read
