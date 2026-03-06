@@ -41,6 +41,15 @@ type PeerRepository interface {
 	DeleteStale(ctx context.Context, before time.Time) (int64, error)
 }
 
+// ReportRepository defines persistence operations for reports.
+type ReportRepository interface {
+	Create(ctx context.Context, report *model.Report) error
+	GetByID(ctx context.Context, id int64) (*model.Report, error)
+	ExistsByReporterAndTorrent(ctx context.Context, reporterID int64, torrentID *int64) (bool, error)
+	List(ctx context.Context, opts ListReportsOptions) ([]model.Report, int64, error)
+	Resolve(ctx context.Context, id, resolvedByUserID int64) error
+}
+
 // ListTorrentsOptions holds filtering and pagination options for listing torrents.
 type ListTorrentsOptions struct {
 	CategoryID *int64
@@ -49,4 +58,11 @@ type ListTorrentsOptions struct {
 	SortOrder  string // asc, desc
 	Page       int
 	PerPage    int
+}
+
+// ListReportsOptions holds filtering and pagination options for listing reports.
+type ListReportsOptions struct {
+	Status  *string // "pending", "resolved", or nil for all
+	Page    int
+	PerPage int
 }

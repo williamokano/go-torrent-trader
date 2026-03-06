@@ -355,6 +355,114 @@ describe("TorrentDetailPage", () => {
     });
   });
 
+  // Report button tests
+
+  test("shows report button for logged-in user", async () => {
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Report" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("hides report button when not logged in", async () => {
+    const anonContext = makeAuthContext(null);
+    renderDetailPage("1", anonContext);
+    await waitFor(() => {
+      expect(screen.getByText("Ubuntu 24.04 LTS Desktop")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Report" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("report button opens report modal", async () => {
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Report" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Report Torrent")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/Please describe why you are reporting/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Reason")).toBeInTheDocument();
+  });
+
+  test("report submits to POST /api/v1/reports", async () => {
+    const mockFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 201 }));
+
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Report" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Report Torrent")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "Fake content" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8080/api/v1/reports");
+    expect(options?.method).toBe("POST");
+    expect(JSON.parse(options?.body as string)).toEqual({
+      torrent_id: 1,
+      reason: "Fake content",
+    });
+  });
+
+  test("report shows error toast on API failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { message: "Already reported" } }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    renderDetailPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Report" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Report Torrent")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "Bad content" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Already reported")).toBeInTheDocument();
+    });
+  });
+
   test("delete shows error toast on API failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(

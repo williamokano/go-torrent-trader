@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/api";
 import { Textarea } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
+import { ReportModal } from "@/components/ReportModal";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
@@ -36,6 +37,7 @@ export function TorrentDetailPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +159,32 @@ export function TorrentDetailPage() {
     }
   }
 
+  async function handleReport(torrentId: number, reason: string) {
+    const token = getAccessToken();
+    if (!token) {
+      toast.error("You must be logged in to report a torrent");
+      throw new Error("You must be logged in to report a torrent");
+    }
+
+    const response = await fetch(`${getConfig().API_URL}/api/v1/reports`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ torrent_id: torrentId, reason }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      const message =
+        data?.error?.message ?? `Report failed (${response.status})`;
+      throw new Error(message);
+    }
+
+    toast.success("Report submitted. Staff will review it.");
+  }
+
   if (loading) {
     return <div className="torrent-detail__loading">Loading torrent...</div>;
   }
@@ -239,6 +267,15 @@ export function TorrentDetailPage() {
             </button>
           </>
         )}
+
+        {user && (
+          <button
+            className="torrent-detail__action-btn torrent-detail__report-btn"
+            onClick={() => setShowReportModal(true)}
+          >
+            Report
+          </button>
+        )}
       </div>
 
       <div className="torrent-detail__info">
@@ -305,6 +342,13 @@ export function TorrentDetailPage() {
           </div>
         </div>
       </Modal>
+
+      <ReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        torrentId={torrent.id!}
+        onSubmit={handleReport}
+      />
     </div>
   );
 }
