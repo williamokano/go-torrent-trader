@@ -10,8 +10,9 @@ import (
 
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
-	AuthService  *service.AuthService
-	SessionStore *service.SessionStore
+	AuthService    *service.AuthService
+	SessionStore   *service.SessionStore
+	TorrentService *service.TorrentService
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -47,6 +48,18 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/me", auth.HandleMe)
 				})
 			})
+
+			// Torrent endpoints (all protected)
+			if deps.TorrentService != nil {
+				torrents := NewTorrentHandler(deps.TorrentService)
+				r.Route("/torrents", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Post("/", torrents.HandleUpload)
+					r.Get("/", torrents.HandleList)
+					r.Get("/{id}", torrents.HandleGetByID)
+					r.Get("/{id}/download", torrents.HandleDownload)
+				})
+			}
 		}
 	})
 

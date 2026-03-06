@@ -1,0 +1,269 @@
+package service
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha1"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+
+	"github.com/zeebo/bencode"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
+	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
+)
+
+var (
+	ErrDuplicateTorrent = errors.New("torrent with this info_hash already exists")
+	ErrTorrentNotFound  = errors.New("torrent not found")
+	ErrInvalidTorrent   = errors.New("invalid torrent file")
+)
+
+// torrentMeta represents the top-level structure of a .torrent file.
+type torrentMeta struct {
+	Announce string          `bencode:"announce"`
+	Info     bencode.RawMessage `bencode:"info"`
+}
+
+// torrentInfo holds the decoded info dictionary fields we need.
+type torrentInfo struct {
+	Name        string           `bencode:"name"`
+	PieceLength int64            `bencode:"piece length"`
+	Pieces      string           `bencode:"pieces"`
+	Length      int64            `bencode:"length"`       // single-file mode
+	Files       []torrentFile    `bencode:"files"`        // multi-file mode
+}
+
+type torrentFile struct {
+	Length int64    `bencode:"length"`
+	Path   []string `bencode:"path"`
+}
+
+// ParsedTorrent holds the extracted metadata from a .torrent file.
+type ParsedTorrent struct {
+	InfoHash  []byte
+	Name      string
+	Size      int64
+	FileCount int
+	RawBytes  []byte // original .torrent file content
+}
+
+// UploadTorrentRequest holds the input for torrent upload.
+type UploadTorrentRequest struct {
+	Name        string
+	Description string
+	CategoryID  int64
+	Anonymous   bool
+}
+
+// TorrentService handles torrent business logic.
+type TorrentService struct {
+	torrents    repository.TorrentRepository
+	users       repository.UserRepository
+	storage     storage.FileStorage
+	announceURL string // base announce URL, e.g. "http://localhost:8080/announce"
+}
+
+// NewTorrentService creates a new TorrentService.
+func NewTorrentService(
+	torrents repository.TorrentRepository,
+	users repository.UserRepository,
+	storage storage.FileStorage,
+	announceURL string,
+) *TorrentService {
+	return &TorrentService{
+		torrents:    torrents,
+		users:       users,
+		storage:     storage,
+		announceURL: announceURL,
+	}
+}
+
+// ParseTorrentFile parses a .torrent file and extracts metadata.
+func ParseTorrentFile(data []byte) (*ParsedTorrent, error) {
+	var meta torrentMeta
+	if err := bencode.DecodeBytes(data, &meta); err != nil {
+		return nil, fmt.Errorf("%w: failed to decode bencode: %v", ErrInvalidTorrent, err)
+	}
+
+	if len(meta.Info) == 0 {
+		return nil, fmt.Errorf("%w: missing info dictionary", ErrInvalidTorrent)
+	}
+
+	// Compute info_hash as SHA1 of the bencoded info dictionary.
+	hash := sha1.Sum(meta.Info)
+
+	var info torrentInfo
+	if err := bencode.DecodeBytes(meta.Info, &info); err != nil {
+		return nil, fmt.Errorf("%w: failed to decode info dictionary: %v", ErrInvalidTorrent, err)
+	}
+
+	if info.Name == "" {
+		return nil, fmt.Errorf("%w: missing name in info dictionary", ErrInvalidTorrent)
+	}
+
+	var totalSize int64
+	fileCount := 1
+	if len(info.Files) > 0 {
+		// Multi-file mode
+		fileCount = len(info.Files)
+		for _, f := range info.Files {
+			totalSize += f.Length
+		}
+	} else {
+		// Single-file mode
+		totalSize = info.Length
+	}
+
+	return &ParsedTorrent{
+		InfoHash:  hash[:],
+		Name:      info.Name,
+		Size:      totalSize,
+		FileCount: fileCount,
+		RawBytes:  data,
+	}, nil
+}
+
+// Upload parses a .torrent file, checks for duplicates, stores it, and creates a DB record.
+func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req UploadTorrentRequest, uploaderID int64) (*model.Torrent, error) {
+	parsed, err := ParseTorrentFile(fileData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Duplicate check
+	existing, err := s.torrents.GetByInfoHash(ctx, parsed.InfoHash)
+	if err == nil && existing != nil {
+		return nil, ErrDuplicateTorrent
+	}
+
+	// Use parsed name if no custom name provided
+	name := req.Name
+	if name == "" {
+		name = parsed.Name
+	}
+
+	torrent := &model.Torrent{
+		Name:       name,
+		InfoHash:   parsed.InfoHash,
+		Size:       parsed.Size,
+		CategoryID: req.CategoryID,
+		UploaderID: uploaderID,
+		Anonymous:  req.Anonymous,
+		Visible:    true,
+		FileCount:  parsed.FileCount,
+	}
+	if req.Description != "" {
+		torrent.Description = &req.Description
+	}
+
+	if err := s.torrents.Create(ctx, torrent); err != nil {
+		// Handle DB unique constraint as duplicate
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
+			return nil, ErrDuplicateTorrent
+		}
+		return nil, fmt.Errorf("create torrent: %w", err)
+	}
+
+	// Store the .torrent file
+	storageKey := fmt.Sprintf("torrents/%d.torrent", torrent.ID)
+	if err := s.storage.Put(ctx, storageKey, bytes.NewReader(parsed.RawBytes)); err != nil {
+		// Best effort: log but don't fail the upload since DB record exists
+		slog.Error("failed to store torrent file", "torrent_id", torrent.ID, "error", err)
+		return nil, fmt.Errorf("store torrent file: %w", err)
+	}
+
+	return torrent, nil
+}
+
+// GetByID returns a torrent by its ID.
+func (s *TorrentService) GetByID(ctx context.Context, id int64) (*model.Torrent, error) {
+	torrent, err := s.torrents.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	return torrent, nil
+}
+
+// List returns a paginated list of torrents.
+func (s *TorrentService) List(ctx context.Context, opts repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	if opts.PerPage <= 0 {
+		opts.PerPage = 25
+	}
+	if opts.PerPage > 100 {
+		opts.PerPage = 100
+	}
+	return s.torrents.List(ctx, opts)
+}
+
+// DownloadTorrent retrieves the .torrent file and rewrites the announce URL with the user's passkey.
+func (s *TorrentService) DownloadTorrent(ctx context.Context, torrentID, userID int64) ([]byte, string, error) {
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, "", ErrTorrentNotFound
+	}
+
+	// Get user's passkey
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, "", fmt.Errorf("get user: %w", err)
+	}
+
+	storageKey := fmt.Sprintf("torrents/%d.torrent", torrentID)
+	rc, err := s.storage.Get(ctx, storageKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("get torrent file: %w", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, "", fmt.Errorf("read torrent file: %w", err)
+	}
+
+	// Rewrite announce URL with user's passkey
+	rewritten, err := s.rewriteAnnounce(data, user.Passkey)
+	if err != nil {
+		return nil, "", fmt.Errorf("rewrite announce: %w", err)
+	}
+
+	filename := torrent.Name + ".torrent"
+	return rewritten, filename, nil
+}
+
+// rewriteAnnounce decodes the torrent, sets the announce URL, and re-encodes.
+func (s *TorrentService) rewriteAnnounce(data []byte, passkey *string) ([]byte, error) {
+	var meta map[string]bencode.RawMessage
+	if err := bencode.DecodeBytes(data, &meta); err != nil {
+		return nil, fmt.Errorf("decode torrent: %w", err)
+	}
+
+	announceURL := s.announceURL
+	if passkey != nil && *passkey != "" {
+		announceURL = fmt.Sprintf("%s?passkey=%s", s.announceURL, *passkey)
+	}
+
+	encoded, err := bencode.EncodeBytes(announceURL)
+	if err != nil {
+		return nil, fmt.Errorf("encode announce URL: %w", err)
+	}
+	meta["announce"] = encoded
+
+	// Remove announce-list to avoid tracker confusion
+	delete(meta, "announce-list")
+
+	result, err := bencode.EncodeBytes(meta)
+	if err != nil {
+		return nil, fmt.Errorf("encode torrent: %w", err)
+	}
+
+	return result, nil
+}
