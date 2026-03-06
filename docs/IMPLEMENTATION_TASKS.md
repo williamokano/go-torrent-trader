@@ -239,7 +239,7 @@
 - Rate limit: max 5 failed attempts per 15 minutes per IP
 - No IP binding (sessions work across networks)
 
-#### BE-1.2.2: Persistent Session Store (Redis) [M]
+#### BE-1.2.2: Persistent Session Store (Redis) [M] [DONE — PR pending merge]
 **As a** site operator
 **I want** sessions to survive backend restarts
 **So that** users don't get logged out when the server is updated
@@ -520,7 +520,7 @@
 - External torrents: show external tracker stats
 - Banned torrents: only visible to staff
 
-#### BE-3.5: Search Torrents [M]
+#### BE-3.5: Search Torrents [M] [DONE — PR pending merge]
 **As a** user
 **I want** to search torrents by keyword and filters
 **So that** I can find specific content
@@ -546,7 +546,7 @@
 - If deleter != owner: send PM to owner with reason
 - All actions logged
 
-#### BE-3.7: Comments & Ratings [M]
+#### BE-3.7: Comments & Ratings [M] [DONE — PR pending merge]
 **As a** user
 **I want** to comment on and rate torrents
 **So that** I can share feedback
@@ -559,7 +559,7 @@
 - Average rating displayed when >= 2 votes
 - Comments paginated (default 20/page)
 
-#### BE-3.8: Reporting System [S]
+#### BE-3.8: Reporting System [S] [DONE — PR pending merge]
 **As a** user
 **I want** to report rule-breaking content
 **So that** moderators can take action
