@@ -39,7 +39,7 @@ func Connect(databaseURL string, cfg ConnConfig) (*sql.DB, error) {
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 

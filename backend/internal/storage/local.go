@@ -37,12 +37,12 @@ func (l *LocalStorage) Put(_ context.Context, key string, reader io.Reader) erro
 	}
 
 	if _, err := io.Copy(f, reader); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("write file %s: %w", key, err)
 	}
 
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("sync file %s: %w", key, err)
 	}
 

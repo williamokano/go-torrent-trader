@@ -73,7 +73,7 @@ func TestS3Integration(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	got, err := io.ReadAll(rc)
-	rc.Close()
+	_ = rc.Close()
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)
 	}
