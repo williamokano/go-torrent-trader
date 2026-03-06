@@ -10,9 +10,11 @@
     "test": "vitest run",
     "lint": "eslint src",
     "format": "prettier --write src",
-    "format:check": "prettier --check src"
+    "format:check": "prettier --check src",
+    "generate:api": "openapi-typescript ../backend/api/openapi.yaml -o src/api/schema.d.ts"
   },
   "dependencies": {
+    "openapi-fetch": "^0.17.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.13.1"
@@ -29,6 +31,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.8.1",
     "typescript": "~5.7.0",
     "typescript-eslint": "^8.56.1",

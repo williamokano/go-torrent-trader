@@ -76,9 +76,15 @@ tasks:
       - docker compose down -v
 
   generate:
-    desc: Run all code generation (sqlc, OpenAPI client, etc.)
+    desc: Run all code generation
     cmds:
-      - echo "No generators configured yet. Add generate:sqlc, generate:api-client, etc."
+      - task: generate:api-client
+
+  generate:api-client:
+    desc: Generate TypeScript API client from OpenAPI spec
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npm run generate:api
 
   docker:build:
     desc: Build all Docker images
