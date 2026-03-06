@@ -63,6 +63,9 @@ export function LoginPage() {
           </button>
         </form>
         <p className="auth-card__footer">
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
+        <p className="auth-card__footer">
           Don&apos;t have an account? <Link to="/signup">Sign up</Link>
         </p>
       </div>

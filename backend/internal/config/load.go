@@ -45,7 +45,8 @@ func Load() (*Config, error) {
 		Site: SiteConfig{
 			Name:        envOrDefault("SITE_NAME", "TorrentTrader"),
 			Description: envOrDefault("SITE_DESCRIPTION", "Private BitTorrent Tracker"),
-			BaseURL:     envOrDefault("SITE_BASE_URL", "http://localhost:8080"),
+			BaseURL:     envOrDefault("SITE_BASE_URL", "http://localhost:5173"),
+			ApiURL:      envOrDefault("API_URL", "http://localhost:8080"),
 		},
 	}
 

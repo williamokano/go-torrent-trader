@@ -106,7 +106,7 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 func setupRouter() (*handler.AuthHandler, *service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := service.NewSessionStore()
-	authSvc := service.NewAuthService(repo, sessions)
+	authSvc := service.NewAuthService(repo, sessions, &service.NoopSender{}, "http://localhost:8080")
 	return handler.NewAuthHandler(authSvc), sessions, handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,
 		SessionStore: sessions,
@@ -349,6 +349,96 @@ func TestHandleMe_Unauthenticated(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestHandleForgotPassword_AlwaysReturns200(t *testing.T) {
+	_, _, router := setupRouter()
+
+	// Register a user first
+	regBody, _ := json.Marshal(map[string]string{
+		"username": "forgotuser",
+		"email":    "forgot@example.com",
+		"password": "password123",
+	})
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(httptest.NewRecorder(), regReq)
+
+	tests := []struct {
+		name  string
+		email string
+	}{
+		{"existing email", "forgot@example.com"},
+		{"nonexistent email", "nonexistent@example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]string{"email": tt.email})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+			}
+
+			var resp map[string]interface{}
+			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+			msg, ok := resp["message"].(string)
+			if !ok || msg != "If this email exists, a reset link has been sent" {
+				t.Errorf("unexpected message: %v", resp["message"])
+			}
+		})
+	}
+}
+
+func TestHandleForgotPassword_InvalidBody(t *testing.T) {
+	_, _, router := setupRouter()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleResetPassword_InvalidBody(t *testing.T) {
+	_, _, router := setupRouter()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleResetPassword_InvalidToken(t *testing.T) {
+	_, _, router := setupRouter()
+
+	body, _ := json.Marshal(map[string]string{
+		"token":    "bogustoken",
+		"password": "newpassword123",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid reset token, got %d; body: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -80,8 +80,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Site.Description != "Private BitTorrent Tracker" {
 		t.Errorf("expected Site.Description Private BitTorrent Tracker, got %s", cfg.Site.Description)
 	}
-	if cfg.Site.BaseURL != "http://localhost:8080" {
-		t.Errorf("expected Site.BaseURL http://localhost:8080, got %s", cfg.Site.BaseURL)
+	if cfg.Site.BaseURL != "http://localhost:5173" {
+		t.Errorf("expected Site.BaseURL http://localhost:5173, got %s", cfg.Site.BaseURL)
+	}
+	if cfg.Site.ApiURL != "http://localhost:8080" {
+		t.Errorf("expected Site.ApiURL http://localhost:8080, got %s", cfg.Site.ApiURL)
 	}
 }
 
@@ -150,6 +153,7 @@ func TestLoadAllEnvVarsSet(t *testing.T) {
 	t.Setenv("SITE_NAME", "MySite")
 	t.Setenv("SITE_DESCRIPTION", "A cool tracker")
 	t.Setenv("SITE_BASE_URL", "https://example.com")
+	t.Setenv("API_URL", "https://api.example.com")
 
 	cfg, err := Load()
 	if err != nil {
@@ -224,6 +228,9 @@ func TestLoadAllEnvVarsSet(t *testing.T) {
 	}
 	if cfg.Site.BaseURL != "https://example.com" {
 		t.Errorf("expected Site.BaseURL https://example.com, got %s", cfg.Site.BaseURL)
+	}
+	if cfg.Site.ApiURL != "https://api.example.com" {
+		t.Errorf("expected Site.ApiURL https://api.example.com, got %s", cfg.Site.ApiURL)
 	}
 }
 

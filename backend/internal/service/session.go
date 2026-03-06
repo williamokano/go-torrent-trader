@@ -104,6 +104,18 @@ func (s *SessionStore) Rotate(oldRefreshToken string, newSession *Session) {
 	s.byRefreshToken[newSession.RefreshToken] = newSession
 }
 
+// DeleteByUserID removes all sessions for a given user ID.
+func (s *SessionStore) DeleteByUserID(userID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, sess := range s.byAccessToken {
+		if sess.UserID == userID {
+			delete(s.byRefreshToken, sess.RefreshToken)
+			delete(s.byAccessToken, token)
+		}
+	}
+}
+
 // TouchLastActive updates the session's LastActive timestamp.
 func (s *SessionStore) TouchLastActive(accessToken string) {
 	s.mu.Lock()

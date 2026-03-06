@@ -7,6 +7,8 @@ import { UploadPage } from "@/pages/UploadPage";
 import { TorrentDetailPage } from "@/pages/TorrentDetailPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SignupPage } from "@/pages/SignupPage";
+import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -49,6 +51,8 @@ export const router = createBrowserRouter([
       },
       { path: "login", element: <LoginPage /> },
       { path: "signup", element: <SignupPage /> },
+      { path: "forgot-password", element: <ForgotPasswordPage /> },
+      { path: "reset-password", element: <ResetPasswordPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

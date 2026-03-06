@@ -58,6 +58,8 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Post("/register", auth.HandleRegister)
 				r.Post("/login", auth.HandleLogin)
 				r.Post("/refresh", auth.HandleRefresh)
+				r.Post("/forgot-password", auth.HandleForgotPassword)
+				r.Post("/reset-password", auth.HandleResetPassword)
 
 				// Protected auth endpoints
 				r.Group(func(r chi.Router) {
