@@ -24,12 +24,21 @@ function mapUser(
   return {
     id: profile.id as number,
     username: profile.username as string,
-    email: profile.email as string,
+    email: (profile.email as string) ?? "",
     group_id: groupId,
-    uploaded: profile.uploaded as number,
-    downloaded: profile.downloaded as number,
-    enabled: profile.enabled as boolean,
-    created_at: profile.created_at as string,
+    avatar: (profile.avatar as string) ?? "",
+    title: (profile.title as string) ?? "",
+    info: (profile.info as string) ?? "",
+    uploaded: (profile.uploaded as number) ?? 0,
+    downloaded: (profile.downloaded as number) ?? 0,
+    ratio: (profile.ratio as number) ?? 0,
+    passkey: (profile.passkey as string) ?? "",
+    invites: (profile.invites as number) ?? 0,
+    warned: (profile.warned as boolean) ?? false,
+    donor: (profile.donor as boolean) ?? false,
+    enabled: (profile.enabled as boolean) ?? true,
+    created_at: (profile.created_at as string) ?? "",
+    last_login: (profile.last_login as string) ?? "",
     isAdmin: groupId === ADMIN_GROUP_ID,
   };
 }
@@ -122,9 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (meRes.data?.user) {
-          setUser(
-            mapUser(meRes.data.user as Record<string, unknown>) ?? null,
-          );
+          setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
         } else {
           clearTokens();
         }
@@ -169,6 +176,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    const meRes = await api.GET("/api/v1/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (meRes.data?.user) {
+      setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
+    }
+  }, []);
+
   const register = useCallback(async (data: RegisterData) => {
     const { data: resData, error } = await api.POST("/api/v1/auth/register", {
       body: {
@@ -198,8 +216,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
       register,
+      refreshUser,
     }),
-    [user, isAuthenticated, isLoading, login, logout, register],
+    [user, isAuthenticated, isLoading, login, logout, register, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

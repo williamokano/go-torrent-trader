@@ -57,6 +57,7 @@ func run() int {
 	sessionStore := service.NewSessionStore()
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 	authService := service.NewAuthService(userRepo, sessionStore, emailSender, cfg.Site.BaseURL)
+	userService := service.NewUserService(userRepo, sessionStore)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
 	// File storage
@@ -76,6 +77,7 @@ func run() int {
 		DB:             db,
 		AuthService:    authService,
 		SessionStore:   sessionStore,
+		UserService:    userService,
 		TorrentService: torrentService,
 		TrackerService: trackerService,
 	}

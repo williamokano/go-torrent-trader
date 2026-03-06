@@ -1,3 +1,22 @@
+# FE-2.1 + FE-2.2: User Profile & Settings Pages
+
+## Plan
+- [x] Add `formatRatio` and `formatDate` utilities to `utils/format.ts`
+- [x] Update `User` type in `AuthContextDef.ts` to include new fields (avatar, title, info, passkey, invites, warned, donor, ratio, last_login)
+- [x] Update `mapUser` in `AuthContext.tsx` to map new fields
+- [x] Add `refreshUser` method to AuthContext for re-fetching /auth/me
+- [x] Create `UserProfilePage.tsx` — fetches GET /api/v1/users/:id, displays profile
+- [x] Create `profile.css` — profile page styles using theme tokens
+- [x] Create `UserSettingsPage.tsx` — sections: Profile, Password, Passkey
+- [x] Create `settings.css` — settings page styles using theme tokens
+- [x] Wire routes in `router.tsx` — /user/:id and /settings (both protected)
+- [x] Update `RootLayout.tsx` header — username links to profile, add Settings link
+- [x] Write `UserProfilePage.test.tsx` (16 tests)
+- [x] Write `UserSettingsPage.test.tsx` (15 tests)
+- [x] Verify: npm run build && npx vitest run && npm run lint && npx prettier --write src -- ALL PASS
+
+---
+
 # Session Resume Document
 
 ## Current State (2026-03-06)
@@ -44,6 +63,19 @@
 - [x] OpenAPI spec updated with both endpoints + schemas
 - [x] Service tests: token generation, rate limiting, reset success, expired/used/invalid tokens, weak password
 - [x] Handler tests: generic 200 response, invalid body, invalid token
+- [x] All tests pass, go build + go vet clean
+
+**BE-1.4: User Profile & Settings (on feat/user-profile):**
+- [x] `SessionStore.DeleteByUserIDExcept` for keeping current session on password change
+- [x] `UserService` with GetProfile, GetFullProfile, UpdateProfile, ChangePassword, RegeneratePasskey
+- [x] `UserHandler` with HandleGetProfile, HandleUpdateProfile, HandleChangePassword, HandleRegeneratePasskey
+- [x] `GET /api/v1/users/{id}` — public profile (owner gets extra fields)
+- [x] `PUT /api/v1/users/me/profile` — update avatar, title, info with validation
+- [x] `PUT /api/v1/users/me/password` — change password, invalidate other sessions
+- [x] `POST /api/v1/users/me/passkey` — regenerate 32-char hex passkey
+- [x] `GET /api/v1/auth/me` updated to return full owner profile
+- [x] UserService wired into Deps + main.go
+- [x] Service + handler tests, OpenAPI spec updated
 - [x] All tests pass, go build + go vet clean
 
 ### What's Next

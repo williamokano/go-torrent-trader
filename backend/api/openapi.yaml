@@ -266,20 +266,191 @@ paths:
   /api/v1/auth/me:
     get:
       operationId: authMe
-      summary: Get current authenticated user profile
+      summary: Get current authenticated user's full profile
+      description: >
+        Returns the full owner profile for the authenticated user, including
+        private fields like email, masked passkey, invites, and warned status.
       tags: [auth]
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Current user profile
+          description: Current user's full profile
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   user:
-                    $ref: '#/components/schemas/UserProfile'
+                    $ref: '#/components/schemas/OwnerProfile'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/{id}:
+    get:
+      operationId: getUserProfile
+      summary: Get a user's profile
+      description: >
+        Returns a user's public profile. If the authenticated user is viewing
+        their own profile, private fields (email, passkey, invites, warned,
+        last_login) are also included.
+      tags: [users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: User profile (public or owner view)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    oneOf:
+                      - $ref: '#/components/schemas/PublicProfile'
+                      - $ref: '#/components/schemas/OwnerProfile'
+        '400':
+          description: Invalid user ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/me/profile:
+    put:
+      operationId: updateProfile
+      summary: Update the current user's profile
+      tags: [users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/OwnerProfile'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/me/password:
+    put:
+      operationId: changePassword
+      summary: Change the current user's password
+      description: >
+        Verifies the current password, sets a new one, and invalidates all
+        other sessions (keeps the current session active).
+      tags: [users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Current password incorrect or not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (new password too short/long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/me/passkey:
+    post:
+      operationId: regeneratePasskey
+      summary: Regenerate the current user's passkey
+      description: >
+        Generates a new 32-character hex passkey. The old passkey is
+        immediately invalidated.
+      tags: [users]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: New passkey generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  passkey:
+                    type: string
+                    description: The new 32-character hex passkey
+                    example: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
         '401':
           description: Not authenticated
           content:
@@ -590,7 +761,68 @@ components:
         tokens:
           $ref: '#/components/schemas/AuthTokens'
 
+    PublicProfile:
+      type: object
+      description: Profile visible to any authenticated user
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        group_id:
+          type: integer
+          format: int64
+        avatar:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        info:
+          type: string
+          nullable: true
+          description: User bio
+        uploaded:
+          type: integer
+          format: int64
+        downloaded:
+          type: integer
+          format: int64
+        ratio:
+          type: number
+          format: double
+          description: "uploaded / downloaded (Infinity if downloaded=0 and uploaded>0, 0 if both zero)"
+        donor:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    OwnerProfile:
+      description: Extended profile visible only to the profile owner
+      allOf:
+        - $ref: '#/components/schemas/PublicProfile'
+        - type: object
+          properties:
+            email:
+              type: string
+              format: email
+            passkey:
+              type: string
+              description: "Masked passkey (first 4 + last 4 chars visible)"
+              example: "a1b2************************c5d6"
+            invites:
+              type: integer
+            warned:
+              type: boolean
+            last_login:
+              type: string
+              format: date-time
+              nullable: true
+
     UserProfile:
+      description: Deprecated - use PublicProfile or OwnerProfile instead
       type: object
       properties:
         id:
@@ -615,6 +847,36 @@ components:
         created_at:
           type: string
           format: date-time
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        avatar:
+          type: string
+          format: uri
+          description: Avatar URL (must be http or https)
+          example: "https://example.com/avatar.png"
+        title:
+          type: string
+          maxLength: 100
+          description: Custom title
+        info:
+          type: string
+          maxLength: 5000
+          description: User bio
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          description: The current password for verification
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 1024
+          description: The new password
 
     Torrent:
       type: object

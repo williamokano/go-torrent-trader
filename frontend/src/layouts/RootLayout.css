@@ -74,6 +74,18 @@
   font-weight: 500;
 }
 
+.header__username-link {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.header__username-link:hover {
+  text-decoration: underline;
+}
+
 .header__hamburger {
   display: none;
   background: none;

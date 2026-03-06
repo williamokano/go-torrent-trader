@@ -270,7 +270,7 @@
 - Rate limit: max 3 reset requests per hour per email
 - Generic response ("if this email exists...") to prevent enumeration
 
-#### BE-1.4: User Profile & Settings [M]
+#### BE-1.4: User Profile & Settings [M] [DONE]
 **As a** logged-in user
 **I want** to view and edit my profile settings
 **So that** I can customize my experience
@@ -1198,7 +1198,7 @@
 
 ### Epic FE-2: User Pages [L]
 
-#### FE-2.1: User Control Panel [M]
+#### FE-2.1: User Control Panel [M] [DONE]
 **As a** user
 **I want** to manage my profile and settings
 **So that** I can customize my experience

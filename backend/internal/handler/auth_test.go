@@ -107,9 +107,11 @@ func setupRouter() (*handler.AuthHandler, *service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := service.NewSessionStore()
 	authSvc := service.NewAuthService(repo, sessions, &service.NoopSender{}, "http://localhost:8080")
-	return handler.NewAuthHandler(authSvc), sessions, handler.NewRouter(&handler.Deps{
+	userSvc := service.NewUserService(repo, sessions)
+	return handler.NewAuthHandler(authSvc, userSvc), sessions, handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,
 		SessionStore: sessions,
+		UserService:  userSvc,
 	})
 }
 

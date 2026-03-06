@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet, NavLink } from "react-router-dom";
+import { Outlet, NavLink, Link } from "react-router-dom";
 import { useTheme } from "@/themes";
 import { useAuth } from "@/features/auth";
 import "./RootLayout.css";
@@ -73,7 +73,17 @@ export function RootLayout() {
           </button>
           {isAuthenticated ? (
             <>
-              <span className="header__username">{user?.username}</span>
+              <Link to={`/user/${user?.id}`} className="header__username-link">
+                {user?.username}
+              </Link>
+              <NavLink
+                to="/settings"
+                className={({ isActive }) =>
+                  `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+                }
+              >
+                Settings
+              </NavLink>
               <button className="header__theme-btn" onClick={logout}>
                 Logout
               </button>
