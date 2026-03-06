@@ -1,0 +1,110 @@
+.upload-page {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-xl) var(--space-md);
+}
+
+.upload-card {
+  width: 100%;
+  max-width: 560px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+}
+
+.upload-card__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.upload-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.upload-card__submit {
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.upload-card__submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.upload-card__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.upload-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl) var(--space-md);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+  text-align: center;
+}
+
+.upload-dropzone:hover,
+.upload-dropzone--active {
+  border-color: var(--color-accent);
+  background-color: var(--color-bg-secondary);
+}
+
+.upload-dropzone--error {
+  border-color: var(--color-error);
+}
+
+.upload-dropzone__label {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.upload-dropzone__hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.upload-dropzone__filename {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+  word-break: break-all;
+}
+
+.upload-dropzone__error {
+  font-size: var(--text-sm);
+  color: var(--color-error);
+}
+
+@media (max-width: 480px) {
+  .upload-card {
+    padding: var(--space-lg) var(--space-md);
+  }
+}
