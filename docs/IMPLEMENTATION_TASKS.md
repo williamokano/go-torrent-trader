@@ -170,7 +170,7 @@
 **Acceptance Criteria:**
 - Router: chi, echo, or gin
 - Middleware: request logging, panic recovery, CORS, request ID
-- Rate limiter middleware (per-IP, configurable)
+- Rate limiter middleware (per-IP, configurable) — **use a library** (e.g., `tollbooth`, `ulule/limiter`), do NOT implement from scratch
 - Auth middleware that extracts Bearer token, validates session, sets user in context
 - All endpoints return JSON (except announce/scrape which return bencode)
 - Error response helper: `{ "error": { "code": "...", "message": "..." } }`
@@ -183,7 +183,7 @@
 **So that** request handlers don't block on slow operations
 
 **Acceptance Criteria:**
-- Job queue backed by Redis or Postgres (asynq, river, or simple goroutine pool)
+- Job queue backed by Redis or Postgres — **use `asynq` or `river`**, do NOT build a custom queue
 - Jobs: send email, connectivity check, cleanup, stats recalculation
 - Retry with backoff on failure
 - Logging per job execution
@@ -199,7 +199,7 @@
 
 **Acceptance Criteria:**
 - Username validation: 3-20 chars, alphanumeric + underscore
-- Password: minimum 8 chars, hashed with Argon2id
+- Password: minimum 8 chars, hashed with Argon2id — use `golang.org/x/crypto/argon2`, do NOT implement custom hashing
 - Email: valid format, unique, not in banned domains list
 - First registered user gets Administrator role
 - Email confirmation flow (if enabled): generates token, sends email, confirms on click
@@ -1057,7 +1057,7 @@
 - `Form` components: Input, Select, Textarea, Checkbox, Radio, with validation integration
 - `Modal`: accessible dialog with overlay, close on escape/outside click
 - `Toast` notifications: success, error, info, auto-dismiss
-- `BBCode/Markdown Editor`: toolbar with common formatting, preview toggle
+- `BBCode/Markdown Editor`: toolbar with common formatting, preview toggle — **use a library** (e.g., `react-markdown`, `@uiw/react-markdown-editor`), do NOT build from scratch
 - `Avatar`: user avatar with fallback to initials
 - `Badge`: role badges, status indicators
 - All components theme-aware (use CSS custom properties)
