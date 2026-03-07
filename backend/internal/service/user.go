@@ -56,11 +56,11 @@ type OwnerProfile struct {
 // UserService handles user profile business logic.
 type UserService struct {
 	users    repository.UserRepository
-	sessions *SessionStore
+	sessions SessionStore
 }
 
 // NewUserService creates a new UserService.
-func NewUserService(users repository.UserRepository, sessions *SessionStore) *UserService {
+func NewUserService(users repository.UserRepository, sessions SessionStore) *UserService {
 	return &UserService{users: users, sessions: sessions}
 }
 

@@ -103,9 +103,9 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 	return errors.New("not found")
 }
 
-func setupRouter() (*handler.AuthHandler, *service.SessionStore, http.Handler) {
+func setupRouter() (*handler.AuthHandler, service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
-	sessions := service.NewSessionStore()
+	sessions := service.NewMemorySessionStore()
 	authSvc := service.NewAuthService(repo, sessions, &service.NoopSender{}, "http://localhost:8080")
 	userSvc := service.NewUserService(repo, sessions)
 	return handler.NewAuthHandler(authSvc, userSvc), sessions, handler.NewRouter(&handler.Deps{

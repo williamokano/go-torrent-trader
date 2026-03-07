@@ -76,23 +76,46 @@ const (
 	resetTokenTTL       = 1 * time.Hour   // reset token expiry
 )
 
+// DefaultAccessTokenTTL is the default access token lifetime.
+const DefaultAccessTokenTTL = 1 * time.Hour
+
+// DefaultRefreshTokenTTL is the default refresh token lifetime.
+const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
+
 // AuthService handles authentication business logic.
 type AuthService struct {
-	users          repository.UserRepository
-	sessions       *SessionStore
-	passwordResets *PasswordResetStore
-	email          EmailSender
-	siteBaseURL    string
+	users           repository.UserRepository
+	sessions        SessionStore
+	passwordResets  *PasswordResetStore
+	email           EmailSender
+	siteBaseURL     string
+	accessTokenTTL  time.Duration
+	refreshTokenTTL time.Duration
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(users repository.UserRepository, sessions *SessionStore, email EmailSender, siteBaseURL string) *AuthService {
+func NewAuthService(users repository.UserRepository, sessions SessionStore, email EmailSender, siteBaseURL string) *AuthService {
 	return &AuthService{
-		users:          users,
-		sessions:       sessions,
-		passwordResets: NewPasswordResetStore(),
-		email:          email,
-		siteBaseURL:    siteBaseURL,
+		users:           users,
+		sessions:        sessions,
+		passwordResets:  NewPasswordResetStore(),
+		email:           email,
+		siteBaseURL:     siteBaseURL,
+		accessTokenTTL:  DefaultAccessTokenTTL,
+		refreshTokenTTL: DefaultRefreshTokenTTL,
+	}
+}
+
+// NewAuthServiceWithTTL creates a new AuthService with custom token TTLs.
+func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration) *AuthService {
+	return &AuthService{
+		users:           users,
+		sessions:        sessions,
+		passwordResets:  NewPasswordResetStore(),
+		email:           email,
+		siteBaseURL:     siteBaseURL,
+		accessTokenTTL:  accessTTL,
+		refreshTokenTTL: refreshTTL,
 	}
 }
 
@@ -235,16 +258,18 @@ func (s *AuthService) Refresh(req RefreshRequest, ip string) (*AuthTokens, error
 		IP:               ip,
 		CreatedAt:        sess.CreatedAt,
 		LastActive:       now,
-		ExpiresAt:        now.Add(AccessTokenTTL),
-		RefreshExpiresAt: now.Add(RefreshTokenTTL),
+		ExpiresAt:        now.Add(s.accessTokenTTL),
+		RefreshExpiresAt: now.Add(s.refreshTokenTTL),
 	}
 
-	s.sessions.Rotate(req.RefreshToken, newSession)
+	if err := s.sessions.Rotate(req.RefreshToken, newSession); err != nil {
+		return nil, fmt.Errorf("rotate session: %w", err)
+	}
 
 	return &AuthTokens{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		ExpiresIn:    int64(AccessTokenTTL.Seconds()),
+		ExpiresIn:    int64(s.accessTokenTTL.Seconds()),
 	}, nil
 }
 
@@ -263,7 +288,7 @@ func (s *AuthService) GetCurrentUser(ctx context.Context, userID int64) (*model.
 }
 
 // Sessions returns the session store (used by the validator adapter).
-func (s *AuthService) Sessions() *SessionStore {
+func (s *AuthService) Sessions() SessionStore {
 	return s.sessions
 }
 
@@ -404,16 +429,18 @@ func (s *AuthService) createSession(userID, groupID int64, ip string) (*AuthToke
 		IP:               ip,
 		CreatedAt:        now,
 		LastActive:       now,
-		ExpiresAt:        now.Add(AccessTokenTTL),
-		RefreshExpiresAt: now.Add(RefreshTokenTTL),
+		ExpiresAt:        now.Add(s.accessTokenTTL),
+		RefreshExpiresAt: now.Add(s.refreshTokenTTL),
 	}
 
-	s.sessions.Create(session)
+	if err := s.sessions.Create(session); err != nil {
+		return nil, fmt.Errorf("store session: %w", err)
+	}
 
 	return &AuthTokens{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		ExpiresIn:    int64(AccessTokenTTL.Seconds()),
+		ExpiresIn:    int64(s.accessTokenTTL.Seconds()),
 	}, nil
 }
 

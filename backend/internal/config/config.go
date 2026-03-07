@@ -7,10 +7,18 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
+	Session  SessionConfig
 	SMTP     SMTPConfig
 	Storage  StorageConfig
 	Tracker  TrackerConfig
 	Site     SiteConfig
+}
+
+// SessionConfig holds session store settings.
+type SessionConfig struct {
+	Store           string        // SESSION_STORE, default "redis" (memory|redis)
+	AccessTokenTTL  time.Duration // ACCESS_TOKEN_TTL, default 1h
+	RefreshTokenTTL time.Duration // REFRESH_TOKEN_TTL, default 720h (30 days)
 }
 
 // ServerConfig holds HTTP server settings.

@@ -14,7 +14,7 @@ import (
 type Deps struct {
 	DB             *sql.DB
 	AuthService    *service.AuthService
-	SessionStore   *service.SessionStore
+	SessionStore   service.SessionStore
 	UserService    *service.UserService
 	TorrentService *service.TorrentService
 	TrackerService *service.TrackerService
