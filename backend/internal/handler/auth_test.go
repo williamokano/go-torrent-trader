@@ -13,6 +13,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
+	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
 
 // mockUserRepo is an in-memory user repository for handler tests.
@@ -105,8 +106,8 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 
 func setupRouter() (*handler.AuthHandler, service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
-	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(repo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
+	sessions := testutil.NewMemorySessionStore()
+	authSvc := service.NewAuthService(repo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
 	userSvc := service.NewUserService(repo, sessions)
 	return handler.NewAuthHandler(authSvc, userSvc), sessions, handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,

@@ -16,6 +16,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
+	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
 
 // --- mock report repo for handler tests ---
@@ -128,8 +129,8 @@ func (m *mockReportRepo) Resolve(_ context.Context, id, resolvedByUserID int64) 
 func setupReportRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	reportRepo := newMockReportRepo()
-	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
+	sessions := testutil.NewMemorySessionStore()
+	authSvc := service.NewAuthService(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
 	reportSvc := service.NewReportService(reportRepo)
 
 	router := handler.NewRouter(&handler.Deps{

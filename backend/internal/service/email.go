@@ -33,20 +33,3 @@ func (s *SMTPSender) Send(_ context.Context, to, subject, htmlBody string) error
 
 	return smtp.SendMail(addr, nil, s.From, []string{to}, []byte(msg))
 }
-
-// NoopSender is a no-op email sender for testing.
-type NoopSender struct {
-	LastTo      string
-	LastSubject string
-	LastBody    string
-	SendCount   int
-}
-
-// Send records the email details without actually sending.
-func (n *NoopSender) Send(_ context.Context, to, subject, body string) error {
-	n.LastTo = to
-	n.LastSubject = subject
-	n.LastBody = body
-	n.SendCount++
-	return nil
-}
