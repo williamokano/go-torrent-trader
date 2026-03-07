@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api";
 import { getAccessToken } from "@/features/auth/token";
@@ -35,6 +35,10 @@ export function BrowsePage() {
   const sortBy = (searchParams.get("sort") as SortField) || "created_at";
   const sortDir = searchParams.get("dir") === "asc" ? "asc" : "desc";
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
+
+  // Debounced search: local input updates immediately, URL param after delay
+  const [searchInput, setSearchInput] = useState(query);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const [torrents, setTorrents] = useState<Torrent[]>([]);
   const [total, setTotal] = useState(0);
@@ -123,6 +127,15 @@ export function BrowsePage() {
     [setSearchParams],
   );
 
+  // Debounce search input → URL param update (400ms delay)
+  useEffect(() => {
+    if (searchInput === query) return;
+    debounceRef.current = setTimeout(() => {
+      setParam("q", searchInput);
+    }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchInput, query, setParam]);
+
   const handleSort = useCallback(
     (field: SortField) => {
       setSearchParams((prev) => {
@@ -154,8 +167,8 @@ export function BrowsePage() {
             <Input
               label="Search"
               placeholder="Search torrents..."
-              value={query}
-              onChange={(e) => setParam("q", e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div className="browse__filter">
