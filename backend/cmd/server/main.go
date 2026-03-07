@@ -73,6 +73,9 @@ func run() int {
 		TorrentCreatedBy: cfg.Site.Name,
 	})
 
+	reportRepo := postgres.NewReportRepo(db)
+	reportService := service.NewReportService(reportRepo)
+
 	deps := &handler.Deps{
 		DB:             db,
 		AuthService:    authService,
@@ -80,6 +83,7 @@ func run() int {
 		UserService:    userService,
 		TorrentService: torrentService,
 		TrackerService: trackerService,
+		ReportService:  reportService,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

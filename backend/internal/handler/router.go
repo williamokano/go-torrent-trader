@@ -18,6 +18,7 @@ type Deps struct {
 	UserService    *service.UserService
 	TorrentService *service.TorrentService
 	TrackerService *service.TrackerService
+	ReportService  *service.ReportService
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -93,6 +94,23 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Put("/{id}", torrents.HandleEdit)
 					r.Delete("/{id}", torrents.HandleDelete)
 					r.Get("/{id}/download", torrents.HandleDownload)
+				})
+			}
+
+			// Report endpoints
+			if deps.ReportService != nil {
+				reports := NewReportHandler(deps.ReportService)
+				r.Route("/reports", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					// Any authenticated user can submit a report
+					r.Post("/", reports.HandleCreate)
+
+					// Admin-only endpoints
+					r.Group(func(r chi.Router) {
+						r.Use(mw.RequireAdmin)
+						r.Get("/", reports.HandleList)
+						r.Put("/{id}/resolve", reports.HandleResolve)
+					})
 				})
 			}
 		}
