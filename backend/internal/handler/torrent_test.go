@@ -446,7 +446,7 @@ func TestHandleDownload_NotFound(t *testing.T) {
 // createSessionWithGroup creates a session directly in the session store with the given groupID.
 func createSessionWithGroup(sessions service.SessionStore, userID, groupID int64) string {
 	token := fmt.Sprintf("test-token-%d-%d-%d", userID, groupID, nextTestUserID())
-	sessions.Create(&service.Session{
+	_ = sessions.Create(&service.Session{
 		UserID:           userID,
 		GroupID:          groupID,
 		AccessToken:      token,
