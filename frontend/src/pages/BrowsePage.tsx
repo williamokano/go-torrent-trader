@@ -127,12 +127,18 @@ export function BrowsePage() {
     [setSearchParams],
   );
 
-  // Debounce search input → URL param update (400ms delay)
+  // Debounce search input → URL param update
   useEffect(() => {
     if (searchInput === query) return;
+    // Clear search: update immediately (no delay)
+    if (!searchInput.trim()) {
+      clearTimeout(debounceRef.current);
+      setParam("q", "");
+      return;
+    }
     debounceRef.current = setTimeout(() => {
       setParam("q", searchInput);
-    }, 400);
+    }, 250);
     return () => clearTimeout(debounceRef.current);
   }, [searchInput, query, setParam]);
 
