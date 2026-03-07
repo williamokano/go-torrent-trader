@@ -58,7 +58,7 @@ func TestForgotPassword_SendsEmail(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	sender := &NoopSender{}
-	svc := NewAuthService(repo, sessions, sender, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), sender, "http://localhost:8080")
 
 	// Register a user
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -92,7 +92,7 @@ func TestForgotPassword_NoEmailForNonexistentUser(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	sender := &NoopSender{}
-	svc := NewAuthService(repo, sessions, sender, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), sender, "http://localhost:8080")
 
 	_ = svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
 		Email: "nobody@example.com",

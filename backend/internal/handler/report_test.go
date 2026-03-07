@@ -129,7 +129,7 @@ func setupReportRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	reportRepo := newMockReportRepo()
 	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions, &service.NoopSender{}, "http://localhost:8080")
+	authSvc := service.NewAuthService(userRepo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
 	reportSvc := service.NewReportService(reportRepo)
 
 	router := handler.NewRouter(&handler.Deps{

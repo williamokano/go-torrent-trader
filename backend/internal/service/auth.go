@@ -93,12 +93,12 @@ type AuthService struct {
 	refreshTokenTTL time.Duration
 }
 
-// NewAuthService creates a new AuthService with a default in-memory password reset store.
-func NewAuthService(users repository.UserRepository, sessions SessionStore, email EmailSender, siteBaseURL string) *AuthService {
+// NewAuthService creates a new AuthService with default token TTLs.
+func NewAuthService(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string) *AuthService {
 	return &AuthService{
 		users:           users,
 		sessions:        sessions,
-		passwordResets:  NewMemoryPasswordResetStore(),
+		passwordResets:  passwordResets,
 		email:           email,
 		siteBaseURL:     siteBaseURL,
 		accessTokenTTL:  DefaultAccessTokenTTL,
