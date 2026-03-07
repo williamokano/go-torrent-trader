@@ -12,7 +12,7 @@ import (
 func TestGetProfile_PublicView(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	// Create a user via auth service to get proper hashing etc.
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
@@ -43,7 +43,7 @@ func TestGetProfile_PublicView(t *testing.T) {
 func TestGetProfile_OwnerView(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -73,7 +73,7 @@ func TestGetProfile_OwnerView(t *testing.T) {
 func TestGetProfile_NotFound(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	_, err := svc.GetProfile(context.Background(), 999, 1)
 	if !errors.Is(err, ErrUserNotFound) {
@@ -84,7 +84,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 func TestGetFullProfile(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -108,7 +108,7 @@ func TestGetFullProfile(t *testing.T) {
 func TestUpdateProfile_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -143,7 +143,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 func TestUpdateProfile_PartialUpdate(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -173,7 +173,7 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 func TestUpdateProfile_InvalidAvatarURL(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -192,7 +192,7 @@ func TestUpdateProfile_InvalidAvatarURL(t *testing.T) {
 func TestUpdateProfile_TitleTooLong(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -211,7 +211,7 @@ func TestUpdateProfile_TitleTooLong(t *testing.T) {
 func TestUpdateProfile_InfoTooLong(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -230,7 +230,7 @@ func TestUpdateProfile_InfoTooLong(t *testing.T) {
 func TestChangePassword_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -285,7 +285,7 @@ func TestChangePassword_Success(t *testing.T) {
 func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -306,7 +306,7 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 func TestChangePassword_WeakNewPassword(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -327,7 +327,7 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 func TestRegeneratePasskey_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -360,7 +360,7 @@ func TestRegeneratePasskey_Success(t *testing.T) {
 func TestRegeneratePasskey_UserNotFound(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewUserService(repo, sessions)
+	svc := NewUserService(repo, sessions, nil)
 
 	_, err := svc.RegeneratePasskey(context.Background(), 999)
 	if !errors.Is(err, ErrUserNotFound) {

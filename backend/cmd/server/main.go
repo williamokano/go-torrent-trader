@@ -82,7 +82,7 @@ func run() int {
 
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo)
-	userService := service.NewUserService(userRepo, sessionStore)
+	userService := service.NewUserService(userRepo, sessionStore, groupRepo)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
 	// File storage
@@ -105,6 +105,8 @@ func run() int {
 	ratingRepo := postgres.NewRatingRepo(db)
 	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo)
 
+	adminService := service.NewAdminService(userRepo, groupRepo)
+
 	deps := &handler.Deps{
 		DB:             db,
 		AuthService:    authService,
@@ -114,6 +116,7 @@ func run() int {
 		TrackerService: trackerService,
 		ReportService:  reportService,
 		CommentService: commentService,
+		AdminService:   adminService,
 	}
 
 	// Start background worker (asynq server + scheduler)

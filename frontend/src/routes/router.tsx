@@ -1,6 +1,8 @@
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import { RootLayout } from "@/layouts/RootLayout";
+import { AdminLayout } from "@/layouts/AdminLayout";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
+import { AdminRoute } from "@/routes/AdminRoute";
 import { HomePage } from "@/pages/HomePage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { UploadPage } from "@/pages/UploadPage";
@@ -12,6 +14,9 @@ import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { UserProfilePage } from "@/pages/UserProfilePage";
 import { UserSettingsPage } from "@/pages/UserSettingsPage";
+import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
+import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
+import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -75,6 +80,20 @@ export const router = createBrowserRouter([
             <UserSettingsPage />
           </ProtectedRoute>
         ),
+      },
+      {
+        path: "admin",
+        element: (
+          <AdminRoute>
+            <AdminLayout />
+          </AdminRoute>
+        ),
+        children: [
+          { index: true, element: <Navigate to="users" replace /> },
+          { path: "users", element: <AdminUsersPage /> },
+          { path: "reports", element: <AdminReportsPage /> },
+          { path: "groups", element: <AdminGroupsPage /> },
+        ],
       },
       { path: "login", element: <LoginPage /> },
       { path: "signup", element: <SignupPage /> },

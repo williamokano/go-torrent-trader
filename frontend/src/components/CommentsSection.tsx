@@ -142,17 +142,14 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
       }
 
       const baseUrl = getConfig().API_URL;
-      const response = await fetch(
-        `${baseUrl}/api/v1/comments/${commentId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ body: trimmed }),
+      const response = await fetch(`${baseUrl}/api/v1/comments/${commentId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({ body: trimmed }),
+      });
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
@@ -184,13 +181,10 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
       }
 
       const baseUrl = getConfig().API_URL;
-      const response = await fetch(
-        `${baseUrl}/api/v1/comments/${commentId}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${baseUrl}/api/v1/comments/${commentId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);

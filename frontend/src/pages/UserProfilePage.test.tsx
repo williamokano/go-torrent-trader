@@ -30,6 +30,7 @@ const mockUser = {
   created_at: "2025-01-01T00:00:00Z",
   last_login: "",
   isAdmin: false,
+  isStaff: false,
 };
 
 vi.mock("@/features/auth", () => ({

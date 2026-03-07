@@ -76,6 +76,16 @@ export function RootLayout() {
               <Link to={`/user/${user?.id}`} className="header__username-link">
                 {user?.username}
               </Link>
+              {user?.isAdmin && (
+                <NavLink
+                  to="/admin"
+                  className={({ isActive }) =>
+                    `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+                  }
+                >
+                  Admin
+                </NavLink>
+              )}
               <NavLink
                 to="/settings"
                 className={({ isActive }) =>

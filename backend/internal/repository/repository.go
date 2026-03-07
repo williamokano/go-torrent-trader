@@ -17,6 +17,18 @@ type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	Update(ctx context.Context, user *model.User) error
 	IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error
+	List(ctx context.Context, opts ListUsersOptions) ([]model.User, int64, error)
+}
+
+// ListUsersOptions holds filtering and pagination options for listing users.
+type ListUsersOptions struct {
+	Search    string
+	GroupID   *int64
+	Enabled   *bool
+	SortBy    string // username, created_at, uploaded, downloaded
+	SortOrder string // asc, desc
+	Page      int
+	PerPage   int
 }
 
 // TorrentRepository defines persistence operations for torrents.
@@ -79,6 +91,7 @@ type ListTorrentsOptions struct {
 // GroupRepository defines persistence operations for groups.
 type GroupRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.Group, error)
+	List(ctx context.Context) ([]model.Group, error)
 }
 
 // ListReportsOptions holds filtering and pagination options for listing reports.

@@ -83,6 +83,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     created_at: "",
     last_login: "",
     isAdmin: false,
+    isStaff: false,
     ...overrides,
   };
 }

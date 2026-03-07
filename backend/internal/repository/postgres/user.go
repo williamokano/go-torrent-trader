@@ -103,6 +103,83 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 	).Scan(&user.UpdatedAt)
 }
 
+func (r *UserRepo) List(ctx context.Context, opts repository.ListUsersOptions) ([]model.User, int64, error) {
+	page := opts.Page
+	if page <= 0 {
+		page = 1
+	}
+	perPage := opts.PerPage
+	if perPage <= 0 {
+		perPage = 25
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	argIdx := 1
+
+	if opts.Search != "" {
+		where += fmt.Sprintf(" AND (username ILIKE '%%' || $%d || '%%' OR email ILIKE '%%' || $%d || '%%')", argIdx, argIdx)
+		args = append(args, opts.Search)
+		argIdx++
+	}
+	if opts.GroupID != nil {
+		where += fmt.Sprintf(" AND group_id = $%d", argIdx)
+		args = append(args, *opts.GroupID)
+		argIdx++
+	}
+	if opts.Enabled != nil {
+		where += fmt.Sprintf(" AND enabled = $%d", argIdx)
+		args = append(args, *opts.Enabled)
+		argIdx++
+	}
+
+	// Count
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users %s", where)
+	var total int64
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count users: %w", err)
+	}
+
+	// Sort
+	sortCol := "created_at"
+	switch opts.SortBy {
+	case "username", "uploaded", "downloaded", "created_at":
+		sortCol = opts.SortBy
+	}
+	sortDir := "DESC"
+	if opts.SortOrder == "asc" {
+		sortDir = "ASC"
+	}
+
+	offset := (page - 1) * perPage
+	query := fmt.Sprintf("SELECT %s FROM users %s ORDER BY %s %s LIMIT $%d OFFSET $%d",
+		userColumns, where, sortCol, sortDir, argIdx, argIdx+1)
+	args = append(args, perPage, offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list users: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var users []model.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, *u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate users: %w", err)
+	}
+
+	return users, total, nil
+}
+
 func (r *UserRepo) IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error {
 	query := `UPDATE users SET
 		uploaded = GREATEST(0, uploaded + $1),
