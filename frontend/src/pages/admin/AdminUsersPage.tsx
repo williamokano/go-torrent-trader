@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
+import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
@@ -52,7 +53,7 @@ export function AdminUsersPage() {
   useEffect(() => {
     async function fetchGroups() {
       const token = getAccessToken();
-      const res = await fetch("/api/v1/admin/groups", {
+      const res = await fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -79,9 +80,12 @@ export function AdminUsersPage() {
     params.set("per_page", String(PER_PAGE));
 
     try {
-      const res = await fetch(`/api/v1/admin/users?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/users?${params}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users ?? []);
@@ -145,14 +149,17 @@ export function AdminUsersPage() {
     data: { group_id?: number; enabled?: boolean; warned?: boolean },
   ) => {
     const token = getAccessToken();
-    const res = await fetch(`/api/v1/admin/users/${userId}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+    const res = await fetch(
+      `${getConfig().API_URL}/api/v1/admin/users/${userId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
       },
-      body: JSON.stringify(data),
-    });
+    );
 
     if (res.ok) {
       toast.success("User updated successfully");

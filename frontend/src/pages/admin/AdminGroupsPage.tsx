@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getAccessToken } from "@/features/auth/token";
+import { getConfig } from "@/config";
 
 interface Group {
   id: number;
@@ -36,7 +37,7 @@ export function AdminGroupsPage() {
     async function fetchGroups() {
       const token = getAccessToken();
       try {
-        const res = await fetch("/api/v1/admin/groups", {
+        const res = await fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {

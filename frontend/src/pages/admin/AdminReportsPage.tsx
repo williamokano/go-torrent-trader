@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
+import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
@@ -43,9 +44,12 @@ export function AdminReportsPage() {
     params.set("per_page", String(PER_PAGE));
 
     try {
-      const res = await fetch(`/api/v1/reports?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/reports?${params}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (res.ok) {
         const data = await res.json();
         setReports(data.reports ?? []);
@@ -81,10 +85,13 @@ export function AdminReportsPage() {
     setResolving(reportId);
     const token = getAccessToken();
     try {
-      const res = await fetch(`/api/v1/reports/${reportId}/resolve`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/reports/${reportId}/resolve`,
+        {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (res.ok) {
         toast.success("Report resolved");
         fetchReports();
