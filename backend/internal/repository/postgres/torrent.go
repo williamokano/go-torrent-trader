@@ -51,6 +51,30 @@ func (r *TorrentRepo) GetByInfoHash(ctx context.Context, infoHash []byte) (*mode
 }
 
 // allowedSortColumns restricts the columns that can be used for ORDER BY.
+// buildPrefixQuery converts user input into a tsquery with prefix matching.
+// "frie beyond" → "frie:* & beyond:*"
+// Special characters are stripped to prevent tsquery syntax errors.
+func buildPrefixQuery(search string) string {
+	words := strings.Fields(search)
+	var parts []string
+	for _, w := range words {
+		// Strip any tsquery operators to prevent injection
+		cleaned := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return -1
+		}, w)
+		if cleaned != "" {
+			parts = append(parts, cleaned+":*")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " & ")
+}
+
 var allowedSortColumns = map[string]string{
 	"name":       "t.name",
 	"created_at": "t.created_at",
@@ -59,7 +83,7 @@ var allowedSortColumns = map[string]string{
 	"leechers":   "t.leechers",
 }
 
-func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
+func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOptions) (_ []model.Torrent, _ int64, err error) {
 	var (
 		conditions []string
 		args       []any
@@ -79,11 +103,31 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		args = append(args, *opts.CategoryID)
 	}
 
-	if opts.Search != "" {
-		// Escape LIKE metacharacters in user input (backslash first, then wildcards).
-		escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(opts.Search)
-		conditions = append(conditions, fmt.Sprintf("t.name ILIKE %s", nextArg()))
-		args = append(args, "%"+escaped+"%")
+	// useFullText tracks whether to apply ts_rank ordering.
+	var useFullText bool
+
+	if len(opts.Search) >= 2 {
+		if len(opts.Search) < 3 {
+			// Short queries (2 chars): fall back to ILIKE since tsvector
+			// requires meaningful lexemes that short strings rarely produce.
+			escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(opts.Search)
+			conditions = append(conditions, fmt.Sprintf("t.name ILIKE %s", nextArg()))
+			args = append(args, "%"+escaped+"%")
+		} else {
+			// 3+ chars: use PostgreSQL full-text search with prefix matching.
+			// Convert "frie beyond" → "frie:* & beyond:*" for prefix search.
+			prefixQuery := buildPrefixQuery(opts.Search)
+			if prefixQuery != "" {
+				conditions = append(conditions, fmt.Sprintf("t.search_vector @@ to_tsquery('english', %s)", nextArg()))
+				args = append(args, prefixQuery)
+				useFullText = true
+			} else {
+				// All special characters — fall back to ILIKE
+				escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(opts.Search)
+				conditions = append(conditions, fmt.Sprintf("t.name ILIKE %s", nextArg()))
+				args = append(args, "%"+escaped+"%")
+			}
+		}
 	}
 
 	where := ""
@@ -94,7 +138,7 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	// Count total matching rows.
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM torrents t %s", where)
 	var total int64
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err = r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("counting torrents: %w", err)
 	}
 
@@ -107,6 +151,14 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	sortOrder := "DESC"
 	if strings.EqualFold(opts.SortOrder, "asc") {
 		sortOrder = "ASC"
+	}
+
+	// When full-text search is active and no explicit sort was requested,
+	// prepend ts_rank so the most relevant results appear first.
+	orderClause := fmt.Sprintf("%s %s", sortCol, sortOrder)
+	if useFullText && opts.SortBy == "" {
+		orderClause = fmt.Sprintf("ts_rank(t.search_vector, to_tsquery('english', %s)) DESC, %s", nextArg(), orderClause)
+		args = append(args, buildPrefixQuery(opts.Search))
 	}
 
 	// Pagination defaults.
@@ -124,8 +176,8 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	offset := (page - 1) * perPage
 
 	selectQuery := fmt.Sprintf(
-		"SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id %s ORDER BY %s %s LIMIT %s OFFSET %s",
-		torrentColumns, where, sortCol, sortOrder, nextArg(), nextArg(),
+		"SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id %s ORDER BY %s LIMIT %s OFFSET %s",
+		torrentColumns, where, orderClause, nextArg(), nextArg(),
 	)
 	args = append(args, perPage, offset)
 
@@ -133,7 +185,11 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying torrents: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("closing torrent rows: %w", cerr)
+		}
+	}()
 
 	var torrents []model.Torrent
 	for rows.Next() {
