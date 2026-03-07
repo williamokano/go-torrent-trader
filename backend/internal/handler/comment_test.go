@@ -16,6 +16,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
+	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
 
 // --- mock comment repo ---
@@ -210,8 +211,8 @@ func (m *mockTorrentRepoForCommentHandler) IncrementTimesCompleted(context.Conte
 func setupCommentRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	torrentRepo := newMockTorrentRepoForCommentHandler()
-	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
+	sessions := testutil.NewMemorySessionStore()
+	authSvc := service.NewAuthService(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
 	commentSvc := service.NewCommentService(newMockCommentRepo(), newMockRatingRepo(), torrentRepo)
 	// TorrentService is needed because comment/rating routes are nested under /torrents
 	torrentSvc := service.NewTorrentService(newMockTorrentRepo(), userRepo, newMockStorage(), service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})

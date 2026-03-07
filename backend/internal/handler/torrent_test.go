@@ -20,6 +20,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
+	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
 
 // --- mock torrent repo ---
@@ -192,8 +193,8 @@ func setupTorrentRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	torrentRepo := newMockTorrentRepo()
 	store := newMockStorage()
-	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
+	sessions := testutil.NewMemorySessionStore()
+	authSvc := service.NewAuthService(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
 	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	router := handler.NewRouter(&handler.Deps{

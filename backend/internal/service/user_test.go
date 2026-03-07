@@ -6,15 +6,16 @@ import (
 	"math"
 	"testing"
 	"time"
+
 )
 
 func TestGetProfile_PublicView(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
 	// Create a user via auth service to get proper hashing etc.
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "profileuser",
 		Email:    "profile@example.com",
@@ -41,10 +42,10 @@ func TestGetProfile_PublicView(t *testing.T) {
 
 func TestGetProfile_OwnerView(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "owneruser",
 		Email:    "owner@example.com",
@@ -71,7 +72,7 @@ func TestGetProfile_OwnerView(t *testing.T) {
 
 func TestGetProfile_NotFound(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
 	_, err := svc.GetProfile(context.Background(), 999, 1)
@@ -82,10 +83,10 @@ func TestGetProfile_NotFound(t *testing.T) {
 
 func TestGetFullProfile(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "fulluser",
 		Email:    "full@example.com",
@@ -106,10 +107,10 @@ func TestGetFullProfile(t *testing.T) {
 
 func TestUpdateProfile_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "updateuser",
 		Email:    "update@example.com",
@@ -141,10 +142,10 @@ func TestUpdateProfile_Success(t *testing.T) {
 
 func TestUpdateProfile_PartialUpdate(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "partial",
 		Email:    "partial@example.com",
@@ -171,10 +172,10 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 
 func TestUpdateProfile_InvalidAvatarURL(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "badavatar",
 		Email:    "badavatar@example.com",
@@ -190,10 +191,10 @@ func TestUpdateProfile_InvalidAvatarURL(t *testing.T) {
 
 func TestUpdateProfile_TitleTooLong(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "longtitle",
 		Email:    "longtitle@example.com",
@@ -209,10 +210,10 @@ func TestUpdateProfile_TitleTooLong(t *testing.T) {
 
 func TestUpdateProfile_InfoTooLong(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "longinfo",
 		Email:    "longinfo@example.com",
@@ -228,10 +229,10 @@ func TestUpdateProfile_InfoTooLong(t *testing.T) {
 
 func TestChangePassword_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "changepw",
 		Email:    "changepw@example.com",
@@ -283,10 +284,10 @@ func TestChangePassword_Success(t *testing.T) {
 
 func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "wrongcurr",
 		Email:    "wrongcurr@example.com",
@@ -304,10 +305,10 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 
 func TestChangePassword_WeakNewPassword(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "weaknew",
 		Email:    "weaknew@example.com",
@@ -325,10 +326,10 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 
 func TestRegeneratePasskey_Success(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
-	authSvc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), &NoopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "passkey",
 		Email:    "passkey@example.com",
@@ -358,7 +359,7 @@ func TestRegeneratePasskey_Success(t *testing.T) {
 
 func TestRegeneratePasskey_UserNotFound(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions)
 
 	_, err := svc.RegeneratePasskey(context.Background(), 999)
@@ -406,7 +407,7 @@ func TestDerefString(t *testing.T) {
 }
 
 func TestDeleteByUserIDExcept(t *testing.T) {
-	sessions := NewMemorySessionStore()
+	sessions := newTestSessionStore()
 
 	future := time.Now().Add(1 * time.Hour)
 

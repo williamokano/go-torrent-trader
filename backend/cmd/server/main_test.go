@@ -11,6 +11,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
+	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
 
 func TestHealthzReturns200WithStatusOK(t *testing.T) {
@@ -70,8 +71,8 @@ func TestIntegrationServerStartsWithDB(t *testing.T) {
 	}
 
 	userRepo := postgres.NewUserRepo(db)
-	sessionStore := service.NewMemorySessionStore()
-	authService := service.NewAuthService(userRepo, sessionStore, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
+	sessionStore := testutil.NewMemorySessionStore()
+	authService := service.NewAuthService(userRepo, sessionStore, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
 
 	deps := &handler.Deps{
 		AuthService:  authService,

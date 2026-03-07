@@ -6,7 +6,7 @@ import (
 )
 
 func TestNoopSender_RecordsCalls(t *testing.T) {
-	sender := &NoopSender{}
+	sender := &noopSender{}
 
 	if sender.SendCount != 0 {
 		t.Fatalf("expected SendCount=0, got %d", sender.SendCount)
@@ -56,9 +56,9 @@ func TestSMTPSender_ConstructsCorrectly(t *testing.T) {
 
 func TestForgotPassword_SendsEmail(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
-	sender := &NoopSender{}
-	svc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), sender, "http://localhost:8080")
+	sessions := newTestSessionStore()
+	sender := &noopSender{}
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080")
 
 	// Register a user
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -90,9 +90,9 @@ func TestForgotPassword_SendsEmail(t *testing.T) {
 
 func TestForgotPassword_NoEmailForNonexistentUser(t *testing.T) {
 	repo := newMockUserRepo()
-	sessions := NewMemorySessionStore()
-	sender := &NoopSender{}
-	svc := NewAuthService(repo, sessions, NewMemoryPasswordResetStore(), sender, "http://localhost:8080")
+	sessions := newTestSessionStore()
+	sender := &noopSender{}
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080")
 
 	_ = svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
 		Email: "nobody@example.com",
