@@ -56,6 +56,7 @@ func run() int {
 	userRepo := postgres.NewUserRepo(db)
 	torrentRepo := postgres.NewTorrentRepo(db)
 	peerRepo := postgres.NewPeerRepo(db)
+	groupRepo := postgres.NewGroupRepo(db)
 
 	sessionStore, err := service.NewSessionStore(service.SessionStoreConfig{
 		Type:            cfg.Session.Store,
@@ -80,7 +81,7 @@ func run() int {
 	passwordResetStore := postgres.NewPasswordResetRepo(db)
 
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
-	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
+	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo)
 	userService := service.NewUserService(userRepo, sessionStore)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 

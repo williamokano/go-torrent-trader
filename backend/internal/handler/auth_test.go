@@ -104,6 +104,23 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 	return errors.New("not found")
 }
 
+// mockGroupRepo returns seeded group data for tests.
+type mockGroupRepo struct{}
+
+func (m *mockGroupRepo) GetByID(_ context.Context, id int64) (*model.Group, error) {
+	groups := map[int64]*model.Group{
+		1: {ID: 1, Name: "Administrator", Slug: "administrator", Level: 100, CanUpload: true, CanDownload: true, CanInvite: true, CanComment: true, CanForum: true, IsAdmin: true, IsImmune: true},
+		2: {ID: 2, Name: "Moderator", Slug: "moderator", Level: 80, CanUpload: true, CanDownload: true, CanInvite: true, CanComment: true, CanForum: true, IsModerator: true, IsImmune: true},
+		5: {ID: 5, Name: "User", Slug: "user", Level: 20, CanUpload: true, CanDownload: true, CanComment: true, CanForum: true},
+		6: {ID: 6, Name: "Validating", Slug: "validating", Level: 10, CanDownload: true},
+	}
+	g, ok := groups[id]
+	if !ok {
+		return nil, errors.New("group not found")
+	}
+	return g, nil
+}
+
 func setupRouter() (*handler.AuthHandler, service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := testutil.NewMemorySessionStore()

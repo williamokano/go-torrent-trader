@@ -178,7 +178,7 @@ func (h *TorrentHandler) HandleEdit(w http.ResponseWriter, r *http.Request) {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
 		return
 	}
-	groupID, _ := middleware.GroupIDFromContext(r.Context())
+	perms := middleware.PermissionsFromContext(r.Context())
 
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -192,7 +192,7 @@ func (h *TorrentHandler) HandleEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	torrent, err := h.torrentSvc.EditTorrent(r.Context(), id, userID, groupID, req)
+	torrent, err := h.torrentSvc.EditTorrent(r.Context(), id, userID, perms, req)
 	if err != nil {
 		handleTorrentError(w, err)
 		return
@@ -210,7 +210,7 @@ func (h *TorrentHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
 		return
 	}
-	groupID, _ := middleware.GroupIDFromContext(r.Context())
+	perms := middleware.PermissionsFromContext(r.Context())
 
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -230,7 +230,7 @@ func (h *TorrentHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.torrentSvc.DeleteTorrent(r.Context(), id, userID, groupID); err != nil {
+	if err := h.torrentSvc.DeleteTorrent(r.Context(), id, userID, perms); err != nil {
 		handleTorrentError(w, err)
 		return
 	}

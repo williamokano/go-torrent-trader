@@ -76,6 +76,11 @@ type ListTorrentsOptions struct {
 	PerPage    int
 }
 
+// GroupRepository defines persistence operations for groups.
+type GroupRepository interface {
+	GetByID(ctx context.Context, id int64) (*model.Group, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

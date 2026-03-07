@@ -89,20 +89,22 @@ func NewRouter(deps *Deps) chi.Router {
 				torrents := NewTorrentHandler(deps.TorrentService)
 				r.Route("/torrents", func(r chi.Router) {
 					r.Use(mw.RequireAuth(validator))
-					r.Post("/", torrents.HandleUpload)
 					r.Get("/", torrents.HandleList)
 					r.Get("/{id}", torrents.HandleGetByID)
 					r.Put("/{id}", torrents.HandleEdit)
 					r.Delete("/{id}", torrents.HandleDelete)
-					r.Get("/{id}/download", torrents.HandleDownload)
+
+					// Capability-gated endpoints
+					r.With(mw.RequireCapability("upload")).Post("/", torrents.HandleUpload)
+					r.With(mw.RequireCapability("download")).Get("/{id}/download", torrents.HandleDownload)
 
 					// Comment and rating endpoints
 					if deps.CommentService != nil {
 						comments := NewCommentHandler(deps.CommentService)
-						r.Post("/{id}/comments", comments.HandleCreateComment)
 						r.Get("/{id}/comments", comments.HandleListComments)
-						r.Post("/{id}/rating", comments.HandleRateTorrent)
 						r.Get("/{id}/rating", comments.HandleGetRating)
+						r.With(mw.RequireCapability("comment")).Post("/{id}/comments", comments.HandleCreateComment)
+						r.With(mw.RequireCapability("comment")).Post("/{id}/rating", comments.HandleRateTorrent)
 					}
 				})
 			}

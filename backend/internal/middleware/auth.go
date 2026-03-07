@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
 type contextKey string
@@ -13,16 +15,17 @@ type contextKey string
 const (
 	UserIDKey      contextKey = "user_id"
 	GroupIDKey     contextKey = "group_id"
+	PermissionsKey contextKey = "permissions"
 	AccessTokenKey contextKey = "access_token"
 )
 
-// SessionValidator validates an access token and returns user ID and group ID.
+// SessionValidator validates an access token and returns user info and permissions.
 type SessionValidator interface {
-	ValidateSession(accessToken string) (userID int64, groupID int64, ok bool)
+	ValidateSession(accessToken string) (userID int64, perms model.Permissions, ok bool)
 }
 
 // RequireAuth is a middleware that extracts the Bearer token from the Authorization
-// header, validates it, and sets the user ID, group ID, and access token in the request context.
+// header, validates it, and sets the user ID, permissions, and access token in the request context.
 func RequireAuth(validator SessionValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,31 +35,73 @@ func RequireAuth(validator SessionValidator) func(http.Handler) http.Handler {
 				return
 			}
 
-			userID, groupID, ok := validator.ValidateSession(token)
+			userID, perms, ok := validator.ValidateSession(token)
 			if !ok {
 				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
 				return
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
-			ctx = context.WithValue(ctx, GroupIDKey, groupID)
+			ctx = context.WithValue(ctx, GroupIDKey, perms.GroupID)
+			ctx = context.WithValue(ctx, PermissionsKey, perms)
 			ctx = context.WithValue(ctx, AccessTokenKey, token)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// RequireAdmin is a middleware that checks the user has the Administrator group (ID=1).
+// RequireAdmin is a middleware that checks the user has admin permissions.
 // Must be used after RequireAuth.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		groupID, ok := r.Context().Value(GroupIDKey).(int64)
-		if !ok || groupID != 1 {
+		perms := PermissionsFromContext(r.Context())
+		if !perms.IsAdmin {
 			writeJSONError(w, http.StatusForbidden, "forbidden", "administrator access required")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequireStaff is a middleware that checks the user is admin or moderator.
+// Must be used after RequireAuth.
+func RequireStaff(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		perms := PermissionsFromContext(r.Context())
+		if !perms.IsStaff() {
+			writeJSONError(w, http.StatusForbidden, "forbidden", "staff access required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireCapability returns a middleware that checks for a specific group capability.
+// Supported capabilities: "upload", "download", "invite", "comment", "forum".
+func RequireCapability(cap string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			perms := PermissionsFromContext(r.Context())
+			allowed := false
+			switch cap {
+			case "upload":
+				allowed = perms.CanUpload
+			case "download":
+				allowed = perms.CanDownload
+			case "invite":
+				allowed = perms.CanInvite
+			case "comment":
+				allowed = perms.CanComment
+			case "forum":
+				allowed = perms.CanForum
+			}
+			if !allowed {
+				writeJSONError(w, http.StatusForbidden, "forbidden", "you do not have the "+cap+" capability")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // UserIDFromContext extracts the user ID from the request context.
@@ -69,6 +114,13 @@ func UserIDFromContext(ctx context.Context) (int64, bool) {
 func GroupIDFromContext(ctx context.Context) (int64, bool) {
 	id, ok := ctx.Value(GroupIDKey).(int64)
 	return id, ok
+}
+
+// PermissionsFromContext extracts the Permissions from the request context.
+// Returns zero-value Permissions if not set (safe: all false).
+func PermissionsFromContext(ctx context.Context) model.Permissions {
+	perms, _ := ctx.Value(PermissionsKey).(model.Permissions)
+	return perms
 }
 
 // AccessTokenFromContext extracts the raw access token from the request context.
