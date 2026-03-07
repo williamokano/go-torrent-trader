@@ -255,6 +255,22 @@
 
 > **Note:** Current in-memory session store loses all sessions on backend restart. This is the root cause of users being logged out during development and deployments.
 
+#### BE-1.2.3: Move Test-Only Implementations Out of Domain Code [S]
+**As a** developer
+**I want** test utilities separated from domain code
+**So that** the service package contains only interfaces and business logic, not test doubles
+
+**Acceptance Criteria:**
+- Create `backend/internal/testutil/` package for shared test helpers
+- Move `MemorySessionStore` from `service/session.go` to `testutil/`
+- Move `MemoryPasswordResetStore` from `service/password_reset_store.go` to `testutil/`
+- Move `NoopSender` from `service/email.go` to `testutil/`
+- Service package only defines interfaces — no concrete test implementations
+- Update all 40+ test files across `service/`, `handler/`, `cmd/server/` to import from `testutil/`
+- All tests still pass
+
+> **Note:** Domain code should never know about testing. All dependencies must be injected. Memory implementations exist purely for test DI and should not live alongside production interfaces.
+
 #### BE-1.2.1: Email Confirmation Flow [M]
 **As a** site operator
 **I want** new users to confirm their email address before accessing the tracker

@@ -15,7 +15,7 @@ import (
 func setupUserRouter() (service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(repo, sessions, &service.NoopSender{}, "http://localhost:8080")
+	authSvc := service.NewAuthService(repo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
 	userSvc := service.NewUserService(repo, sessions)
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,

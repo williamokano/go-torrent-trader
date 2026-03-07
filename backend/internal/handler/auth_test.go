@@ -106,7 +106,7 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 func setupRouter() (*handler.AuthHandler, service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := service.NewMemorySessionStore()
-	authSvc := service.NewAuthService(repo, sessions, &service.NoopSender{}, "http://localhost:8080")
+	authSvc := service.NewAuthService(repo, sessions, service.NewMemoryPasswordResetStore(), &service.NoopSender{}, "http://localhost:8080")
 	userSvc := service.NewUserService(repo, sessions)
 	return handler.NewAuthHandler(authSvc, userSvc), sessions, handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,

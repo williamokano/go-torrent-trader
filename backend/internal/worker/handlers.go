@@ -133,6 +133,17 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task
 			slog.Info("cleanup: expired warnings deactivated", "count", n)
 		}
 
+		// 7. Clean up expired/used password reset tokens (older than 7 days)
+		res, err = deps.DB.ExecContext(ctx, `
+			DELETE FROM password_resets
+			WHERE used = true OR expires_at < NOW() - INTERVAL '7 days'
+		`)
+		if err != nil {
+			slog.Error("cleanup: failed to delete expired password resets", "error", err)
+		} else if n, _ := res.RowsAffected(); n > 0 {
+			slog.Info("cleanup: expired password resets deleted", "count", n)
+		}
+
 		return nil
 	}
 }

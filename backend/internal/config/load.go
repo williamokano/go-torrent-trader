@@ -53,6 +53,9 @@ func Load() (*Config, error) {
 			BaseURL:     envOrDefault("SITE_BASE_URL", "http://localhost:5173"),
 			ApiURL:      envOrDefault("API_URL", "http://localhost:8080"),
 		},
+		Worker: WorkerConfig{
+			EnableScheduler: true,
+		},
 	}
 
 	// Parse integer env vars with defaults.
@@ -132,6 +135,13 @@ func Load() (*Config, error) {
 		cfg.Session.RefreshTokenTTL, err = time.ParseDuration(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid REFRESH_TOKEN_TTL %q: %w", v, err)
+		}
+	}
+
+	if v := os.Getenv("ENABLE_SCHEDULER"); v != "" {
+		cfg.Worker.EnableScheduler, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ENABLE_SCHEDULER %q: %w", v, err)
 		}
 	}
 

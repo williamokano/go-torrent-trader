@@ -15,43 +15,55 @@ type PasswordReset struct {
 	CreatedAt time.Time
 }
 
-// PasswordResetStore provides in-memory storage for password reset tokens.
-type PasswordResetStore struct {
+// PasswordResetStore defines the interface for password reset token persistence.
+type PasswordResetStore interface {
+	Create(pr *PasswordReset) error
+	// ClaimByTokenHash atomically finds an unused, non-expired token by hash,
+	// marks it as used, and returns it. Returns nil, nil if not found/expired/used.
+	// This prevents TOCTOU race conditions on token redemption.
+	ClaimByTokenHash(tokenHash string) (*PasswordReset, error)
+	CountRecentByUserID(userID int64, within time.Duration) (int, error)
+}
+
+// MemoryPasswordResetStore provides in-memory storage for password reset tokens.
+// Suitable for tests; use a database-backed implementation in production.
+type MemoryPasswordResetStore struct {
 	mu     sync.Mutex
 	resets []*PasswordReset
 	nextID int64
 }
 
-// NewPasswordResetStore creates a new in-memory password reset store.
-func NewPasswordResetStore() *PasswordResetStore {
-	return &PasswordResetStore{nextID: 1}
+// NewMemoryPasswordResetStore creates a new in-memory password reset store.
+func NewMemoryPasswordResetStore() *MemoryPasswordResetStore {
+	return &MemoryPasswordResetStore{nextID: 1}
 }
 
 // Create stores a new password reset record.
-func (s *PasswordResetStore) Create(pr *PasswordReset) {
+func (s *MemoryPasswordResetStore) Create(pr *PasswordReset) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pr.ID = s.nextID
 	s.nextID++
 	s.resets = append(s.resets, pr)
-}
-
-// GetByTokenHash retrieves a password reset by its token hash.
-// Returns nil if not found.
-func (s *PasswordResetStore) GetByTokenHash(tokenHash string) *PasswordReset {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, pr := range s.resets {
-		if pr.TokenHash == tokenHash {
-			return pr
-		}
-	}
 	return nil
 }
 
-// CountRecentByUserID counts non-expired, unused reset tokens for a user
-// created within the given duration.
-func (s *PasswordResetStore) CountRecentByUserID(userID int64, within time.Duration) int {
+// ClaimByTokenHash atomically finds and marks a token as used.
+func (s *MemoryPasswordResetStore) ClaimByTokenHash(tokenHash string) (*PasswordReset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for _, pr := range s.resets {
+		if pr.TokenHash == tokenHash && !pr.Used && pr.ExpiresAt.After(now) {
+			pr.Used = true
+			return pr, nil
+		}
+	}
+	return nil, nil
+}
+
+// CountRecentByUserID counts reset tokens for a user created within the given duration.
+func (s *MemoryPasswordResetStore) CountRecentByUserID(userID int64, within time.Duration) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cutoff := time.Now().Add(-within)
@@ -61,17 +73,19 @@ func (s *PasswordResetStore) CountRecentByUserID(userID int64, within time.Durat
 			count++
 		}
 	}
-	return count
+	return count, nil
 }
 
-// MarkUsed marks a password reset record as used.
-func (s *PasswordResetStore) MarkUsed(id int64) {
+// Resets returns the internal slice for test inspection.
+func (s *MemoryPasswordResetStore) Resets() []*PasswordReset {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, pr := range s.resets {
-		if pr.ID == id {
-			pr.Used = true
-			return
-		}
-	}
+	return s.resets
+}
+
+// ClearResets clears all stored resets (for test setup).
+func (s *MemoryPasswordResetStore) ClearResets() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resets = nil
 }

@@ -10,12 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hibiken/asynq"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
+	"github.com/williamokano/go-torrent-trader/backend/internal/worker"
 )
 
 func run() int {
@@ -75,8 +77,10 @@ func run() int {
 	}
 	slog.Info("session store initialized", "type", cfg.Session.Store)
 
+	passwordResetStore := postgres.NewPasswordResetRepo(db)
+
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
-	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
+	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
 	userService := service.NewUserService(userRepo, sessionStore)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
@@ -111,6 +115,51 @@ func run() int {
 		CommentService: commentService,
 	}
 
+	// Start background worker (asynq server + scheduler)
+	workerDeps := &worker.WorkerDeps{
+		PeerRepo:    peerRepo,
+		TorrentRepo: torrentRepo,
+		DB:          db,
+	}
+
+	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)
+	if err != nil {
+		slog.Error("failed to create worker server", "error", err)
+		return 1
+	}
+
+	workerMux := worker.NewMux(workerDeps)
+	go func() {
+		if err := workerSrv.Run(workerMux); err != nil {
+			slog.Error("worker server error", "error", err)
+		}
+	}()
+	slog.Info("worker server started")
+
+	var scheduler *asynq.Scheduler
+	if cfg.Worker.EnableScheduler {
+		scheduler, err = worker.NewScheduler(cfg.Redis.URL)
+		if err != nil {
+			slog.Error("failed to create scheduler", "error", err)
+			return 1
+		}
+
+		if err := worker.RegisterPeriodicTasks(scheduler); err != nil {
+			slog.Error("failed to register periodic tasks", "error", err)
+			return 1
+		}
+
+		go func() {
+			if err := scheduler.Run(); err != nil {
+				slog.Error("scheduler error", "error", err)
+			}
+		}()
+		slog.Info("scheduler started")
+	} else {
+		slog.Info("scheduler disabled via ENABLE_SCHEDULER=false")
+	}
+
+	// Start HTTP server
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -134,12 +183,15 @@ func run() int {
 			return 1
 		}
 	case <-ctx.Done():
-		slog.Info("shutting down server")
+		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("shutdown error", "error", err)
-			return 1
+			slog.Error("http shutdown error", "error", err)
+		}
+		workerSrv.Shutdown()
+		if scheduler != nil {
+			scheduler.Shutdown()
 		}
 	}
 
