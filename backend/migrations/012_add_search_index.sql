@@ -2,13 +2,14 @@
 ALTER TABLE torrents ADD COLUMN IF NOT EXISTS search_vector tsvector;
 CREATE INDEX idx_torrents_search ON torrents USING GIN (search_vector);
 
--- Create trigger to auto-update search_vector on insert/update
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION torrents_search_vector_update() RETURNS trigger AS $$
 BEGIN
   NEW.search_vector := to_tsvector('english', COALESCE(NEW.name, ''));
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 CREATE TRIGGER torrents_search_vector_trigger
   BEFORE INSERT OR UPDATE OF name ON torrents
