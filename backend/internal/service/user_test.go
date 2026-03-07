@@ -411,10 +411,10 @@ func TestDeleteByUserIDExcept(t *testing.T) {
 	future := time.Now().Add(1 * time.Hour)
 
 	// Create two sessions for user 1
-	sessions.Create(&Session{UserID: 1, AccessToken: "keep", RefreshToken: "r1", ExpiresAt: future, RefreshExpiresAt: future})
-	sessions.Create(&Session{UserID: 1, AccessToken: "delete", RefreshToken: "r2", ExpiresAt: future, RefreshExpiresAt: future})
+	_ = sessions.Create(&Session{UserID: 1, AccessToken: "keep", RefreshToken: "r1", ExpiresAt: future, RefreshExpiresAt: future})
+	_ = sessions.Create(&Session{UserID: 1, AccessToken: "delete", RefreshToken: "r2", ExpiresAt: future, RefreshExpiresAt: future})
 	// Create a session for user 2
-	sessions.Create(&Session{UserID: 2, AccessToken: "other", RefreshToken: "r3", ExpiresAt: future, RefreshExpiresAt: future})
+	_ = sessions.Create(&Session{UserID: 2, AccessToken: "other", RefreshToken: "r3", ExpiresAt: future, RefreshExpiresAt: future})
 
 	sessions.DeleteByUserIDExcept(1, "keep")
 
