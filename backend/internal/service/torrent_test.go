@@ -552,7 +552,7 @@ func TestTorrentService_EditTorrent_AsOwner(t *testing.T) {
 
 	newName := "edited-name"
 	newDesc := "edited description"
-	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 42, 2, EditTorrentRequest{
+	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 42, model.Permissions{GroupID: 5}, EditTorrentRequest{
 		Name:        &newName,
 		Description: &newDesc,
 	})
@@ -579,7 +579,7 @@ func TestTorrentService_EditTorrent_AsAdmin(t *testing.T) {
 	newName := "admin-edited"
 	banned := true
 	free := true
-	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 99, 1, EditTorrentRequest{
+	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 99, model.Permissions{GroupID: 1, IsAdmin: true}, EditTorrentRequest{
 		Name:   &newName,
 		Banned: &banned,
 		Free:   &free,
@@ -608,7 +608,7 @@ func TestTorrentService_EditTorrent_Forbidden(t *testing.T) {
 	}
 
 	newName := "hacker-edit"
-	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 99, 2, EditTorrentRequest{
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 99, model.Permissions{GroupID: 5}, EditTorrentRequest{
 		Name: &newName,
 	})
 	if !errors.Is(err, ErrForbidden) {
@@ -626,7 +626,7 @@ func TestTorrentService_EditTorrent_StaffFieldsForbidden(t *testing.T) {
 	}
 
 	banned := true
-	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, 2, EditTorrentRequest{
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, model.Permissions{GroupID: 5}, EditTorrentRequest{
 		Banned: &banned,
 	})
 	if !errors.Is(err, ErrForbidden) {
@@ -644,7 +644,7 @@ func TestTorrentService_EditTorrent_EmptyName(t *testing.T) {
 	}
 
 	emptyName := "   "
-	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, 2, EditTorrentRequest{
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, model.Permissions{GroupID: 5}, EditTorrentRequest{
 		Name: &emptyName,
 	})
 	if !errors.Is(err, ErrInvalidTorrent) {
@@ -656,7 +656,7 @@ func TestTorrentService_EditTorrent_NotFound(t *testing.T) {
 	svc, _, _ := setupEditDeleteService()
 
 	newName := "ghost"
-	_, err := svc.EditTorrent(context.Background(), 999, 1, 1, EditTorrentRequest{
+	_, err := svc.EditTorrent(context.Background(), 999, 1, model.Permissions{GroupID: 1, IsAdmin: true}, EditTorrentRequest{
 		Name: &newName,
 	})
 	if !errors.Is(err, ErrTorrentNotFound) {
@@ -681,7 +681,7 @@ func TestTorrentService_DeleteTorrent_AsOwner(t *testing.T) {
 		t.Fatal("expected torrent file to exist before delete")
 	}
 
-	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 42, 2)
+	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 42, model.Permissions{GroupID: 5})
 	if err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
@@ -708,7 +708,7 @@ func TestTorrentService_DeleteTorrent_AsAdmin(t *testing.T) {
 		t.Fatalf("upload failed: %v", err)
 	}
 
-	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 99, 1)
+	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 99, model.Permissions{GroupID: 1, IsAdmin: true})
 	if err != nil {
 		t.Fatalf("delete as admin failed: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestTorrentService_DeleteTorrent_Forbidden(t *testing.T) {
 		t.Fatalf("upload failed: %v", err)
 	}
 
-	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 99, 2)
+	err = svc.DeleteTorrent(context.Background(), uploaded.ID, 99, model.Permissions{GroupID: 5})
 	if !errors.Is(err, ErrForbidden) {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -737,7 +737,7 @@ func TestTorrentService_DeleteTorrent_Forbidden(t *testing.T) {
 func TestTorrentService_DeleteTorrent_NotFound(t *testing.T) {
 	svc, _, _ := setupEditDeleteService()
 
-	err := svc.DeleteTorrent(context.Background(), 999, 1, 1)
+	err := svc.DeleteTorrent(context.Background(), 999, 1, model.Permissions{GroupID: 1, IsAdmin: true})
 	if !errors.Is(err, ErrTorrentNotFound) {
 		t.Errorf("expected ErrTorrentNotFound, got %v", err)
 	}

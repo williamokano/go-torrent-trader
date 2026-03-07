@@ -83,8 +83,8 @@ func (s *CommentService) ListComments(ctx context.Context, torrentID int64, page
 	return s.comments.ListByTorrent(ctx, torrentID, page, perPage)
 }
 
-// UpdateComment edits an existing comment. Only the author or an admin (groupID=1) may edit.
-func (s *CommentService) UpdateComment(ctx context.Context, commentID, userID, groupID int64, body string) (*model.Comment, error) {
+// UpdateComment edits an existing comment. Only the author or staff may edit.
+func (s *CommentService) UpdateComment(ctx context.Context, commentID, userID int64, perms model.Permissions, body string) (*model.Comment, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return nil, fmt.Errorf("%w: body cannot be empty", ErrInvalidComment)
@@ -98,10 +98,9 @@ func (s *CommentService) UpdateComment(ctx context.Context, commentID, userID, g
 		return nil, ErrCommentNotFound
 	}
 
-	isAdmin := groupID == 1
 	isAuthor := comment.UserID == userID
 
-	if !isAuthor && !isAdmin {
+	if !isAuthor && !perms.IsStaff() {
 		return nil, ErrForbidden
 	}
 
@@ -113,10 +112,9 @@ func (s *CommentService) UpdateComment(ctx context.Context, commentID, userID, g
 	return comment, nil
 }
 
-// DeleteComment removes a comment. Only admins (groupID=1) may delete.
-func (s *CommentService) DeleteComment(ctx context.Context, commentID, groupID int64) error {
-	isAdmin := groupID == 1
-	if !isAdmin {
+// DeleteComment removes a comment. Only staff (admin or moderator) may delete.
+func (s *CommentService) DeleteComment(ctx context.Context, commentID int64, perms model.Permissions) error {
+	if !perms.IsStaff() {
 		return ErrForbidden
 	}
 

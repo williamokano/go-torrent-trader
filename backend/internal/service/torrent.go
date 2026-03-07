@@ -262,23 +262,22 @@ func (s *TorrentService) DownloadTorrent(ctx context.Context, torrentID, userID 
 	return rewritten, filename, nil
 }
 
-// EditTorrent updates a torrent's metadata. Only the owner or an admin (groupID=1) may edit.
+// EditTorrent updates a torrent's metadata. Only the owner or staff may edit.
 // Staff-only fields (banned, free) are rejected if the caller is not an admin.
-func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID, groupID int64, req EditTorrentRequest) (*model.Torrent, error) {
+func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions, req EditTorrentRequest) (*model.Torrent, error) {
 	torrent, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
 		return nil, ErrTorrentNotFound
 	}
 
-	isAdmin := groupID == 1
 	isOwner := torrent.UploaderID == userID
 
-	if !isOwner && !isAdmin {
+	if !isOwner && !perms.IsStaff() {
 		return nil, ErrForbidden
 	}
 
 	// Reject staff-only fields from non-admins
-	if !isAdmin {
+	if !perms.IsAdmin {
 		if req.Banned != nil || req.Free != nil {
 			return nil, ErrForbidden
 		}
@@ -318,17 +317,16 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID, gro
 	return torrent, nil
 }
 
-// DeleteTorrent removes a torrent and its stored file. Only the owner or an admin (groupID=1) may delete.
-func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID, groupID int64) error {
+// DeleteTorrent removes a torrent and its stored file. Only the owner or staff may delete.
+func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions) error {
 	torrent, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
 		return ErrTorrentNotFound
 	}
 
-	isAdmin := groupID == 1
 	isOwner := torrent.UploaderID == userID
 
-	if !isOwner && !isAdmin {
+	if !isOwner && !perms.IsStaff() {
 		return ErrForbidden
 	}
 

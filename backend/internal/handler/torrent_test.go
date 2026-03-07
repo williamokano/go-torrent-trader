@@ -194,7 +194,7 @@ func setupTorrentRouter() (http.Handler, service.SessionStore) {
 	torrentRepo := newMockTorrentRepo()
 	store := newMockStorage()
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{})
 	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
 
 	router := handler.NewRouter(&handler.Deps{
@@ -447,9 +447,21 @@ func TestHandleDownload_NotFound(t *testing.T) {
 // createSessionWithGroup creates a session directly in the session store with the given groupID.
 func createSessionWithGroup(sessions service.SessionStore, userID, groupID int64) string {
 	token := fmt.Sprintf("test-token-%d-%d-%d", userID, groupID, nextTestUserID())
+
+	perms := testutil.UserPermissions()
+	switch groupID {
+	case 1:
+		perms = testutil.AdminPermissions()
+	case 2:
+		perms = testutil.ModeratorPermissions()
+	case 6:
+		perms = testutil.ValidatingPermissions()
+	}
+
 	_ = sessions.Create(&service.Session{
 		UserID:           userID,
 		GroupID:          groupID,
+		Permissions:      perms,
 		AccessToken:      token,
 		RefreshToken:     "refresh-" + token,
 		ExpiresAt:        time.Now().Add(time.Hour),

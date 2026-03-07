@@ -286,7 +286,7 @@ func TestUpdateComment_AsAuthor(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "Original")
 
-	updated, err := svc.UpdateComment(context.Background(), comment.ID, 10, 5, "Edited")
+	updated, err := svc.UpdateComment(context.Background(), comment.ID, 10, model.Permissions{GroupID: 5}, "Edited")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestUpdateComment_AsAdmin(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "Original")
 
-	updated, err := svc.UpdateComment(context.Background(), comment.ID, 99, 1, "Admin edit")
+	updated, err := svc.UpdateComment(context.Background(), comment.ID, 99, model.Permissions{GroupID: 1, IsAdmin: true}, "Admin edit")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestUpdateComment_Forbidden(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "Original")
 
-	_, err := svc.UpdateComment(context.Background(), comment.ID, 99, 5, "Hacked")
+	_, err := svc.UpdateComment(context.Background(), comment.ID, 99, model.Permissions{GroupID: 5}, "Hacked")
 	if !errors.Is(err, service.ErrForbidden) {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -320,7 +320,7 @@ func TestUpdateComment_Forbidden(t *testing.T) {
 
 func TestUpdateComment_NotFound(t *testing.T) {
 	svc := setupCommentService()
-	_, err := svc.UpdateComment(context.Background(), 999, 10, 5, "Ghost")
+	_, err := svc.UpdateComment(context.Background(), 999, 10, model.Permissions{GroupID: 5}, "Ghost")
 	if !errors.Is(err, service.ErrCommentNotFound) {
 		t.Errorf("expected ErrCommentNotFound, got %v", err)
 	}
@@ -330,7 +330,7 @@ func TestUpdateComment_EmptyBody(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "Original")
 
-	_, err := svc.UpdateComment(context.Background(), comment.ID, 10, 5, "")
+	_, err := svc.UpdateComment(context.Background(), comment.ID, 10, model.Permissions{GroupID: 5}, "")
 	if !errors.Is(err, service.ErrInvalidComment) {
 		t.Errorf("expected ErrInvalidComment, got %v", err)
 	}
@@ -340,17 +340,17 @@ func TestDeleteComment_AsAdmin(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "To delete")
 
-	err := svc.DeleteComment(context.Background(), comment.ID, 1)
+	err := svc.DeleteComment(context.Background(), comment.ID, model.Permissions{GroupID: 1, IsAdmin: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestDeleteComment_NotAdmin(t *testing.T) {
+func TestDeleteComment_NotStaff(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "To delete")
 
-	err := svc.DeleteComment(context.Background(), comment.ID, 5)
+	err := svc.DeleteComment(context.Background(), comment.ID, model.Permissions{GroupID: 5})
 	if !errors.Is(err, service.ErrForbidden) {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -358,7 +358,7 @@ func TestDeleteComment_NotAdmin(t *testing.T) {
 
 func TestDeleteComment_NotFound(t *testing.T) {
 	svc := setupCommentService()
-	err := svc.DeleteComment(context.Background(), 999, 1)
+	err := svc.DeleteComment(context.Background(), 999, model.Permissions{GroupID: 1, IsAdmin: true})
 	if !errors.Is(err, service.ErrCommentNotFound) {
 		t.Errorf("expected ErrCommentNotFound, got %v", err)
 	}

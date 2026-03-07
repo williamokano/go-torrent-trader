@@ -85,6 +85,7 @@ const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 // AuthService handles authentication business logic.
 type AuthService struct {
 	users           repository.UserRepository
+	groups          repository.GroupRepository
 	sessions        SessionStore
 	passwordResets  PasswordResetStore
 	email           EmailSender
@@ -94,6 +95,7 @@ type AuthService struct {
 }
 
 // NewAuthService creates a new AuthService with default token TTLs.
+// groups may be nil; if so, sessions will have zero-value Permissions.
 func NewAuthService(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string) *AuthService {
 	return &AuthService{
 		users:           users,
@@ -107,9 +109,11 @@ func NewAuthService(users repository.UserRepository, sessions SessionStore, pass
 }
 
 // NewAuthServiceWithTTL creates a new AuthService with custom token TTLs.
-func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration) *AuthService {
+// groups may be nil; if so, sessions will have zero-value Permissions.
+func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration, groups repository.GroupRepository) *AuthService {
 	return &AuthService{
 		users:           users,
+		groups:          groups,
 		sessions:        sessions,
 		passwordResets:  passwordResets,
 		email:           email,
@@ -192,7 +196,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		return nil, nil, fmt.Errorf("create user: %w", err)
 	}
 
-	tokens, err := s.createSession(user.ID, user.GroupID, ip)
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create session: %w", err)
 	}
@@ -216,7 +220,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 		return nil, nil, ErrInvalidCredentials
 	}
 
-	tokens, err := s.createSession(user.ID, user.GroupID, ip)
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create session: %w", err)
 	}
@@ -252,6 +256,7 @@ func (s *AuthService) Refresh(req RefreshRequest, ip string) (*AuthTokens, error
 	newSession := &Session{
 		UserID:           sess.UserID,
 		GroupID:          sess.GroupID,
+		Permissions:      sess.Permissions,
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
 		DeviceName:       sess.DeviceName,
@@ -414,7 +419,7 @@ func hashToken(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *AuthService) createSession(userID, groupID int64, ip string) (*AuthTokens, error) {
+func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, ip string) (*AuthTokens, error) {
 	accessToken, err := GenerateToken()
 	if err != nil {
 		return nil, err
@@ -424,10 +429,21 @@ func (s *AuthService) createSession(userID, groupID int64, ip string) (*AuthToke
 		return nil, err
 	}
 
+	// Load group permissions into the session
+	var perms model.Permissions
+	if s.groups != nil {
+		group, err := s.groups.GetByID(ctx, groupID)
+		if err != nil {
+			return nil, fmt.Errorf("load group permissions: %w", err)
+		}
+		perms = model.PermissionsFromGroup(group)
+	}
+
 	now := time.Now()
 	session := &Session{
 		UserID:           userID,
 		GroupID:          groupID,
+		Permissions:      perms,
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
 		IP:               ip,

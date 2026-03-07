@@ -130,7 +130,7 @@ func setupReportRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	reportRepo := newMockReportRepo()
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthService(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{})
 	reportSvc := service.NewReportService(reportRepo)
 
 	router := handler.NewRouter(&handler.Deps{

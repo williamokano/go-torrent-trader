@@ -99,7 +99,7 @@ func (h *CommentHandler) HandleEditComment(w http.ResponseWriter, r *http.Reques
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
 		return
 	}
-	groupID, _ := middleware.GroupIDFromContext(r.Context())
+	perms := middleware.PermissionsFromContext(r.Context())
 
 	commentID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || commentID <= 0 {
@@ -115,7 +115,7 @@ func (h *CommentHandler) HandleEditComment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	comment, err := h.commentSvc.UpdateComment(r.Context(), commentID, userID, groupID, body.Body)
+	comment, err := h.commentSvc.UpdateComment(r.Context(), commentID, userID, perms, body.Body)
 	if err != nil {
 		handleCommentError(w, err)
 		return
@@ -128,7 +128,7 @@ func (h *CommentHandler) HandleEditComment(w http.ResponseWriter, r *http.Reques
 
 // HandleDeleteComment handles DELETE /api/v1/comments/{id}.
 func (h *CommentHandler) HandleDeleteComment(w http.ResponseWriter, r *http.Request) {
-	groupID, _ := middleware.GroupIDFromContext(r.Context())
+	perms := middleware.PermissionsFromContext(r.Context())
 
 	commentID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || commentID <= 0 {
@@ -136,7 +136,7 @@ func (h *CommentHandler) HandleDeleteComment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.commentSvc.DeleteComment(r.Context(), commentID, groupID); err != nil {
+	if err := h.commentSvc.DeleteComment(r.Context(), commentID, perms); err != nil {
 		handleCommentError(w, err)
 		return
 	}
