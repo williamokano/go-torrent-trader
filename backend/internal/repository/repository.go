@@ -50,6 +50,22 @@ type ReportRepository interface {
 	Resolve(ctx context.Context, id, resolvedByUserID int64) error
 }
 
+// CommentRepository defines persistence operations for torrent comments.
+type CommentRepository interface {
+	Create(ctx context.Context, comment *model.Comment) error
+	GetByID(ctx context.Context, id int64) (*model.Comment, error)
+	ListByTorrent(ctx context.Context, torrentID int64, page, perPage int) ([]model.Comment, int64, error)
+	Update(ctx context.Context, comment *model.Comment) error
+	Delete(ctx context.Context, id int64) error
+}
+
+// RatingRepository defines persistence operations for torrent ratings.
+type RatingRepository interface {
+	Upsert(ctx context.Context, rating *model.Rating) error
+	GetByTorrentAndUser(ctx context.Context, torrentID, userID int64) (*model.Rating, error)
+	GetStatsByTorrent(ctx context.Context, torrentID int64) (average float64, count int, err error)
+}
+
 // ListTorrentsOptions holds filtering and pagination options for listing torrents.
 type ListTorrentsOptions struct {
 	CategoryID *int64

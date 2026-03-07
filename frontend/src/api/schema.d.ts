@@ -4,1496 +4,1498 @@
  */
 
 export interface paths {
-    "/healthz": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health check */
-        get: operations["getHealth"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+  "/healthz": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get site-wide statistics */
-        get: operations["getStats"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Health check */
+    get: operations["getHealth"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/stats": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/categories": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List all torrent categories */
-        get: operations["getCategories"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get site-wide statistics */
+    get: operations["getStats"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/categories": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register a new user */
-        post: operations["authRegister"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** List all torrent categories */
+    get: operations["getCategories"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/register": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Login with username and password */
-        post: operations["authLogin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /** Register a new user */
+    post: operations["authRegister"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/login": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Refresh access token using refresh token */
-        post: operations["authRefresh"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /** Login with username and password */
+    post: operations["authLogin"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Logout and invalidate current session */
-        post: operations["authLogout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /** Refresh access token using refresh token */
+    post: operations["authRefresh"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/logout": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/forgot-password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Request a password reset link
-         * @description Sends a password reset link to the given email if it exists. Always returns 200 to prevent email enumeration.
-         */
-        post: operations["authForgotPassword"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /** Logout and invalidate current session */
+    post: operations["authLogout"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/forgot-password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/reset-password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reset password using a reset token
-         * @description Validates the reset token, sets the new password, and invalidates all active sessions for the user.
-         */
-        post: operations["authResetPassword"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Request a password reset link
+     * @description Sends a password reset link to the given email if it exists. Always returns 200 to prevent email enumeration.
+     */
+    post: operations["authForgotPassword"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/reset-password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get current authenticated user's full profile
-         * @description Returns the full owner profile for the authenticated user, including private fields like email, masked passkey, invites, and warned status.
-         */
-        get: operations["authMe"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Reset password using a reset token
+     * @description Validates the reset token, sets the new password, and invalidates all active sessions for the user.
+     */
+    post: operations["authResetPassword"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/me": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/users/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a user's profile
-         * @description Returns a user's public profile. If the authenticated user is viewing their own profile, private fields (email, passkey, invites, warned, last_login) are also included.
-         */
-        get: operations["getUserProfile"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get current authenticated user's full profile
+     * @description Returns the full owner profile for the authenticated user, including private fields like email, masked passkey, invites, and warned status.
+     */
+    get: operations["authMe"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/users/me/profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update the current user's profile */
-        put: operations["updateProfile"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get a user's profile
+     * @description Returns a user's public profile. If the authenticated user is viewing their own profile, private fields (email, passkey, invites, warned, last_login) are also included.
+     */
+    get: operations["getUserProfile"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/me/profile": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/users/me/password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Change the current user's password
-         * @description Verifies the current password, sets a new one, and invalidates all other sessions (keeps the current session active).
-         */
-        put: operations["changePassword"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    /** Update the current user's profile */
+    put: operations["updateProfile"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/me/password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/users/me/passkey": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Regenerate the current user's passkey
-         * @description Generates a new 32-character hex passkey. The old passkey is immediately invalidated.
-         */
-        post: operations["regeneratePasskey"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    /**
+     * Change the current user's password
+     * @description Verifies the current password, sets a new one, and invalidates all other sessions (keeps the current session active).
+     */
+    put: operations["changePassword"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/me/passkey": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/torrents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Browse and search torrents */
-        get: operations["listTorrents"];
-        put?: never;
-        /** Upload a new torrent */
-        post: operations["uploadTorrent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Regenerate the current user's passkey
+     * @description Generates a new 32-character hex passkey. The old passkey is immediately invalidated.
+     */
+    post: operations["regeneratePasskey"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/torrents/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get torrent details */
-        get: operations["getTorrent"];
-        /**
-         * Edit torrent metadata
-         * @description Update torrent fields. Only the torrent owner or an admin (group_id=1) may edit.
-         *     Staff-only fields (banned, free) are rejected for non-admin users.
-         */
-        put: operations["editTorrent"];
-        post?: never;
-        /**
-         * Delete a torrent
-         * @description Delete a torrent and its stored .torrent file.
-         *     Only the torrent owner or an admin (group_id=1) may delete.
-         *     A reason is required.
-         */
-        delete: operations["deleteTorrent"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Browse and search torrents */
+    get: operations["listTorrents"];
+    put?: never;
+    /** Upload a new torrent */
+    post: operations["uploadTorrent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/torrents/{id}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download .torrent file with personalized announce URL */
-        get: operations["downloadTorrent"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get torrent details */
+    get: operations["getTorrent"];
+    /**
+     * Edit torrent metadata
+     * @description Update torrent fields. Only the torrent owner or an admin (group_id=1) may edit.
+     *     Staff-only fields (banned, free) are rejected for non-admin users.
+     */
+    put: operations["editTorrent"];
+    post?: never;
+    /**
+     * Delete a torrent
+     * @description Delete a torrent and its stored .torrent file.
+     *     Only the torrent owner or an admin (group_id=1) may delete.
+     *     A reason is required.
+     */
+    delete: operations["deleteTorrent"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}/download": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    /** Download .torrent file with personalized announce URL */
+    get: operations["downloadTorrent"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        RegisterRequest: {
-            /** @example johndoe */
-            username: string;
-            /**
-             * Format: email
-             * @example john@example.com
-             */
-            email: string;
-            /** @example mysecurepassword */
-            password: string;
-        };
-        LoginRequest: {
-            /** @example johndoe */
-            username: string;
-            /** @example mysecurepassword */
-            password: string;
-        };
-        RefreshRequest: {
-            /** @example abc123def456... */
-            refresh_token: string;
-        };
-        AuthTokens: {
-            /** @description 64-character hex token, expires in 1 hour */
-            access_token?: string;
-            /** @description 64-character hex token, expires in 30 days */
-            refresh_token?: string;
-            /**
-             * @description Seconds until access token expires
-             * @example 3600
-             */
-            expires_in?: number;
-        };
-        AuthResponse: {
-            user?: components["schemas"]["UserProfile"];
-            tokens?: components["schemas"]["AuthTokens"];
-        };
-        /** @description Profile visible to any authenticated user */
-        PublicProfile: {
-            /** Format: int64 */
-            id?: number;
-            username?: string;
-            /** Format: int64 */
-            group_id?: number;
-            avatar?: string | null;
-            title?: string | null;
-            /** @description User bio */
-            info?: string | null;
-            /** Format: int64 */
-            uploaded?: number;
-            /** Format: int64 */
-            downloaded?: number;
-            /**
-             * Format: double
-             * @description uploaded / downloaded (Infinity if downloaded=0 and uploaded>0, 0 if both zero)
-             */
-            ratio?: number;
-            donor?: boolean;
-            /** Format: date-time */
-            created_at?: string;
-        };
-        /** @description Extended profile visible only to the profile owner */
-        OwnerProfile: components["schemas"]["PublicProfile"] & {
-            /** Format: email */
-            email?: string;
-            /**
-             * @description Masked passkey (first 4 + last 4 chars visible)
-             * @example a1b2************************c5d6
-             */
-            passkey?: string;
-            invites?: number;
-            warned?: boolean;
-            /** Format: date-time */
-            last_login?: string | null;
-        };
-        /** @description Deprecated - use PublicProfile or OwnerProfile instead */
-        UserProfile: {
-            /** Format: int64 */
-            id?: number;
-            username?: string;
-            /** Format: email */
-            email?: string;
-            /** Format: int64 */
-            group_id?: number;
-            /** Format: int64 */
-            uploaded?: number;
-            /** Format: int64 */
-            downloaded?: number;
-            enabled?: boolean;
-            /** Format: date-time */
-            created_at?: string;
-        };
-        UpdateProfileRequest: {
-            /**
-             * Format: uri
-             * @description Avatar URL (must be http or https)
-             * @example https://example.com/avatar.png
-             */
-            avatar?: string;
-            /** @description Custom title */
-            title?: string;
-            /** @description User bio */
-            info?: string;
-        };
-        ChangePasswordRequest: {
-            /** @description The current password for verification */
-            current_password: string;
-            /** @description The new password */
-            new_password: string;
-        };
-        Torrent: {
-            /** Format: int64 */
-            id?: number;
-            name?: string;
-            /**
-             * @description Hex-encoded SHA1 info hash
-             * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
-             */
-            info_hash?: string;
-            /**
-             * Format: int64
-             * @description Total size in bytes
-             */
-            size?: number;
-            description?: string;
-            /** Format: int64 */
-            category_id?: number;
-            /** @description Name of the category (resolved via JOIN) */
-            category_name?: string;
-            /** Format: int64 */
-            uploader_id?: number;
-            anonymous?: boolean;
-            seeders?: number;
-            leechers?: number;
-            times_completed?: number;
-            comments_count?: number;
-            file_count?: number;
-            /** Format: date-time */
-            created_at?: string;
-            /** Format: date-time */
-            updated_at?: string;
-        };
-        Category: {
-            /** Format: int64 */
-            id?: number;
-            name?: string;
-            /** Format: int64 */
-            parent_id?: number | null;
-            sort_order?: number;
-        };
-        SiteStats: {
-            /**
-             * Format: int64
-             * @description Number of enabled users
-             */
-            users?: number;
-            /**
-             * Format: int64
-             * @description Number of visible, non-banned torrents
-             */
-            torrents?: number;
-            /**
-             * Format: int64
-             * @description Number of active peers
-             */
-            peers?: number;
-        };
-        ForgotPasswordRequest: {
-            /**
-             * Format: email
-             * @example user@example.com
-             */
-            email: string;
-        };
-        ResetPasswordRequest: {
-            /**
-             * @description The raw reset token from the email link
-             * @example abc123def456...
-             */
-            token: string;
-            /**
-             * @description The new password
-             * @example mynewsecurepassword
-             */
-            password: string;
-        };
-        MessageResponse: {
-            /** @example Operation completed successfully */
-            message?: string;
-        };
-        EditTorrentRequest: {
-            /** @description New torrent name (must not be empty if provided) */
-            name?: string;
-            /** @description New torrent description */
-            description?: string;
-            /**
-             * Format: int64
-             * @description New category ID
-             */
-            category_id?: number;
-            /** @description Whether the upload is anonymous */
-            anonymous?: boolean;
-            /** @description Staff-only — ban/unban the torrent */
-            banned?: boolean;
-            /** @description Staff-only — enable/disable freeleech */
-            free?: boolean;
-        };
-        DeleteTorrentRequest: {
-            /** @description Reason for deleting the torrent */
-            reason: string;
-        };
-        ErrorResponse: {
-            error?: {
-                code?: string;
-                message?: string;
-            };
-        };
+  schemas: {
+    RegisterRequest: {
+      /** @example johndoe */
+      username: string;
+      /**
+       * Format: email
+       * @example john@example.com
+       */
+      email: string;
+      /** @example mysecurepassword */
+      password: string;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    LoginRequest: {
+      /** @example johndoe */
+      username: string;
+      /** @example mysecurepassword */
+      password: string;
+    };
+    RefreshRequest: {
+      /** @example abc123def456... */
+      refresh_token: string;
+    };
+    AuthTokens: {
+      /** @description 64-character hex token, expires in 1 hour */
+      access_token?: string;
+      /** @description 64-character hex token, expires in 30 days */
+      refresh_token?: string;
+      /**
+       * @description Seconds until access token expires
+       * @example 3600
+       */
+      expires_in?: number;
+    };
+    AuthResponse: {
+      user?: components["schemas"]["UserProfile"];
+      tokens?: components["schemas"]["AuthTokens"];
+    };
+    /** @description Profile visible to any authenticated user */
+    PublicProfile: {
+      /** Format: int64 */
+      id?: number;
+      username?: string;
+      /** Format: int64 */
+      group_id?: number;
+      avatar?: string | null;
+      title?: string | null;
+      /** @description User bio */
+      info?: string | null;
+      /** Format: int64 */
+      uploaded?: number;
+      /** Format: int64 */
+      downloaded?: number;
+      /**
+       * Format: double
+       * @description uploaded / downloaded (Infinity if downloaded=0 and uploaded>0, 0 if both zero)
+       */
+      ratio?: number;
+      donor?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+    };
+    /** @description Extended profile visible only to the profile owner */
+    OwnerProfile: components["schemas"]["PublicProfile"] & {
+      /** Format: email */
+      email?: string;
+      /**
+       * @description Masked passkey (first 4 + last 4 chars visible)
+       * @example a1b2************************c5d6
+       */
+      passkey?: string;
+      invites?: number;
+      warned?: boolean;
+      /** Format: date-time */
+      last_login?: string | null;
+    };
+    /** @description Deprecated - use PublicProfile or OwnerProfile instead */
+    UserProfile: {
+      /** Format: int64 */
+      id?: number;
+      username?: string;
+      /** Format: email */
+      email?: string;
+      /** Format: int64 */
+      group_id?: number;
+      /** Format: int64 */
+      uploaded?: number;
+      /** Format: int64 */
+      downloaded?: number;
+      enabled?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+    };
+    UpdateProfileRequest: {
+      /**
+       * Format: uri
+       * @description Avatar URL (must be http or https)
+       * @example https://example.com/avatar.png
+       */
+      avatar?: string;
+      /** @description Custom title */
+      title?: string;
+      /** @description User bio */
+      info?: string;
+    };
+    ChangePasswordRequest: {
+      /** @description The current password for verification */
+      current_password: string;
+      /** @description The new password */
+      new_password: string;
+    };
+    Torrent: {
+      /** Format: int64 */
+      id?: number;
+      name?: string;
+      /**
+       * @description Hex-encoded SHA1 info hash
+       * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+       */
+      info_hash?: string;
+      /**
+       * Format: int64
+       * @description Total size in bytes
+       */
+      size?: number;
+      description?: string;
+      /** Format: int64 */
+      category_id?: number;
+      /** @description Name of the category (resolved via JOIN) */
+      category_name?: string;
+      /** Format: int64 */
+      uploader_id?: number;
+      anonymous?: boolean;
+      seeders?: number;
+      leechers?: number;
+      times_completed?: number;
+      comments_count?: number;
+      file_count?: number;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    Category: {
+      /** Format: int64 */
+      id?: number;
+      name?: string;
+      /** Format: int64 */
+      parent_id?: number | null;
+      sort_order?: number;
+    };
+    SiteStats: {
+      /**
+       * Format: int64
+       * @description Number of enabled users
+       */
+      users?: number;
+      /**
+       * Format: int64
+       * @description Number of visible, non-banned torrents
+       */
+      torrents?: number;
+      /**
+       * Format: int64
+       * @description Number of active peers
+       */
+      peers?: number;
+    };
+    ForgotPasswordRequest: {
+      /**
+       * Format: email
+       * @example user@example.com
+       */
+      email: string;
+    };
+    ResetPasswordRequest: {
+      /**
+       * @description The raw reset token from the email link
+       * @example abc123def456...
+       */
+      token: string;
+      /**
+       * @description The new password
+       * @example mynewsecurepassword
+       */
+      password: string;
+    };
+    MessageResponse: {
+      /** @example Operation completed successfully */
+      message?: string;
+    };
+    EditTorrentRequest: {
+      /** @description New torrent name (must not be empty if provided) */
+      name?: string;
+      /** @description New torrent description */
+      description?: string;
+      /**
+       * Format: int64
+       * @description New category ID
+       */
+      category_id?: number;
+      /** @description Whether the upload is anonymous */
+      anonymous?: boolean;
+      /** @description Staff-only — ban/unban the torrent */
+      banned?: boolean;
+      /** @description Staff-only — enable/disable freeleech */
+      free?: boolean;
+    };
+    DeleteTorrentRequest: {
+      /** @description Reason for deleting the torrent */
+      reason: string;
+    };
+    ErrorResponse: {
+      error?: {
+        code?: string;
+        message?: string;
+      };
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    getHealth: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Server is healthy */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @example ok */
-                        status?: string;
-                    };
-                };
-            };
-        };
+  getHealth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    getStats: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Server is healthy */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Site statistics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        stats?: components["schemas"]["SiteStats"];
-                    };
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          "application/json": {
+            /** @example ok */
+            status?: string;
+          };
         };
+      };
     };
-    getCategories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of categories */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        categories?: components["schemas"]["Category"][];
-                    };
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  getStats: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    authRegister: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Site statistics */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
+        content: {
+          "application/json": {
+            stats?: components["schemas"]["SiteStats"];
+          };
         };
-        responses: {
-            /** @description User created and auto-logged in */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthResponse"];
-                };
-            };
-            /** @description Invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Username or email already taken */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
-    authLogin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Login successful */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthResponse"];
-                };
-            };
-            /** @description Invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Invalid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  getCategories: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    authRefresh: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description List of categories */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshRequest"];
-            };
+        content: {
+          "application/json": {
+            categories?: components["schemas"]["Category"][];
+          };
         };
-        responses: {
-            /** @description Tokens refreshed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        tokens?: components["schemas"]["AuthTokens"];
-                    };
-                };
-            };
-            /** @description Invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Invalid or expired refresh token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
-    authLogout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session invalidated */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Missing or invalid authorization header */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  authRegister: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    authForgotPassword: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ForgotPasswordRequest"];
-            };
-        };
-        responses: {
-            /** @description Generic success response (does not reveal if email exists) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponse"];
-                };
-            };
-            /** @description Invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RegisterRequest"];
+      };
     };
-    authResetPassword: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description User created and auto-logged in */
+      201: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResetPasswordRequest"];
-            };
+        content: {
+          "application/json": components["schemas"]["AuthResponse"];
         };
-        responses: {
-            /** @description Password reset successful */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponse"];
-                };
-            };
-            /** @description Invalid or expired reset token */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error (password too short/long) */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+      };
+      /** @description Invalid request body */
+      400: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Username or email already taken */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Validation error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
-    authMe: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current user's full profile */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        user?: components["schemas"]["OwnerProfile"];
-                    };
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  authLogin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    getUserProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description User profile (public or owner view) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        user?: components["schemas"]["PublicProfile"] | components["schemas"]["OwnerProfile"];
-                    };
-                };
-            };
-            /** @description Invalid user ID */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description User not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LoginRequest"];
+      };
     };
-    updateProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Login successful */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateProfileRequest"];
-            };
+        content: {
+          "application/json": components["schemas"]["AuthResponse"];
         };
-        responses: {
-            /** @description Updated user profile */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        user?: components["schemas"]["OwnerProfile"];
-                    };
-                };
-            };
-            /** @description Invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+      };
+      /** @description Invalid request body */
+      400: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Invalid credentials */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
-    changePassword: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangePasswordRequest"];
-            };
-        };
-        responses: {
-            /** @description Password changed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponse"];
-                };
-            };
-            /** @description Invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Current password incorrect or not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error (new password too short/long) */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  authRefresh: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    regeneratePasskey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description New passkey generated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description The new 32-character hex passkey
-                         * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
-                         */
-                        passkey?: string;
-                    };
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RefreshRequest"];
+      };
     };
-    listTorrents: {
-        parameters: {
-            query?: {
-                /** @description Search term for torrent name */
-                search?: string;
-                /** @description Filter by category ID */
-                cat?: number;
-                /** @description Sort field */
-                sort?: "name" | "created_at" | "size" | "seeders" | "leechers";
-                /** @description Sort order */
-                order?: "asc" | "desc";
-                /** @description Page number */
-                page?: number;
-                /** @description Items per page */
-                per_page?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Tokens refreshed */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Paginated list of torrents */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        torrents?: components["schemas"]["Torrent"][];
-                        /** Format: int64 */
-                        total?: number;
-                        page?: number;
-                        per_page?: number;
-                    };
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          "application/json": {
+            tokens?: components["schemas"]["AuthTokens"];
+          };
         };
+      };
+      /** @description Invalid request body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Invalid or expired refresh token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
-    uploadTorrent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    /**
-                     * Format: binary
-                     * @description The .torrent file to upload
-                     */
-                    torrent_file: string;
-                    /**
-                     * Format: int64
-                     * @description Category ID for the torrent
-                     */
-                    category_id: number;
-                    /** @description Display name (defaults to name from .torrent file) */
-                    name?: string;
-                    /** @description Torrent description */
-                    description?: string;
-                    /**
-                     * @description Whether to hide the uploader's identity
-                     * @default false
-                     */
-                    anonymous?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Torrent uploaded successfully */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        torrent?: components["schemas"]["Torrent"];
-                    };
-                };
-            };
-            /** @description Invalid torrent file or missing fields */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Duplicate torrent (info_hash already exists) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  authLogout: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    getTorrent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Session invalidated */
+      204: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Torrent details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        torrent?: components["schemas"]["Torrent"];
-                    };
-                };
-            };
-            /** @description Invalid torrent ID */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Torrent not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content?: never;
+      };
+      /** @description Missing or invalid authorization header */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
-    editTorrent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EditTorrentRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated torrent */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        torrent?: components["schemas"]["Torrent"];
-                    };
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden — not owner or admin */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Torrent not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+  };
+  authForgotPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    deleteTorrent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteTorrentRequest"];
-            };
-        };
-        responses: {
-            /** @description Torrent deleted successfully */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Invalid request or missing reason */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden — not owner or admin */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Torrent not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ForgotPasswordRequest"];
+      };
     };
-    downloadTorrent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Generic success response (does not reveal if email exists) */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description The .torrent file */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/x-bittorrent": string;
-                };
-            };
-            /** @description Invalid torrent ID */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Torrent not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["MessageResponse"];
         };
+      };
+      /** @description Invalid request body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
+  };
+  authResetPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResetPasswordRequest"];
+      };
+    };
+    responses: {
+      /** @description Password reset successful */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageResponse"];
+        };
+      };
+      /** @description Invalid or expired reset token */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Validation error (password too short/long) */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  authMe: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current user's full profile */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            user?: components["schemas"]["OwnerProfile"];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getUserProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description User profile (public or owner view) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            user?:
+              | components["schemas"]["PublicProfile"]
+              | components["schemas"]["OwnerProfile"];
+          };
+        };
+      };
+      /** @description Invalid user ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description User not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  updateProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateProfileRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated user profile */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            user?: components["schemas"]["OwnerProfile"];
+          };
+        };
+      };
+      /** @description Invalid request body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Validation error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  changePassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChangePasswordRequest"];
+      };
+    };
+    responses: {
+      /** @description Password changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageResponse"];
+        };
+      };
+      /** @description Invalid request body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Current password incorrect or not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Validation error (new password too short/long) */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  regeneratePasskey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description New passkey generated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /**
+             * @description The new 32-character hex passkey
+             * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+             */
+            passkey?: string;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listTorrents: {
+    parameters: {
+      query?: {
+        /** @description Search term for torrent name */
+        search?: string;
+        /** @description Filter by category ID */
+        cat?: number;
+        /** @description Sort field */
+        sort?: "name" | "created_at" | "size" | "seeders" | "leechers";
+        /** @description Sort order */
+        order?: "asc" | "desc";
+        /** @description Page number */
+        page?: number;
+        /** @description Items per page */
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated list of torrents */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrents?: components["schemas"]["Torrent"][];
+            /** Format: int64 */
+            total?: number;
+            page?: number;
+            per_page?: number;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  uploadTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /**
+           * Format: binary
+           * @description The .torrent file to upload
+           */
+          torrent_file: string;
+          /**
+           * Format: int64
+           * @description Category ID for the torrent
+           */
+          category_id: number;
+          /** @description Display name (defaults to name from .torrent file) */
+          name?: string;
+          /** @description Torrent description */
+          description?: string;
+          /**
+           * @description Whether to hide the uploader's identity
+           * @default false
+           */
+          anonymous?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description Torrent uploaded successfully */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrent?: components["schemas"]["Torrent"];
+          };
+        };
+      };
+      /** @description Invalid torrent file or missing fields */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Duplicate torrent (info_hash already exists) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Torrent details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrent?: components["schemas"]["Torrent"];
+          };
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  editTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EditTorrentRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated torrent */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrent?: components["schemas"]["Torrent"];
+          };
+        };
+      };
+      /** @description Invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — not owner or admin */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DeleteTorrentRequest"];
+      };
+    };
+    responses: {
+      /** @description Torrent deleted successfully */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid request or missing reason */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — not owner or admin */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  downloadTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The .torrent file */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/x-bittorrent": string;
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
 }
