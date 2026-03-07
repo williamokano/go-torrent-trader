@@ -1,6 +1,16 @@
 # Session Resume Document
 
-## Current State (2026-03-06)
+## Current State (2026-03-07)
+
+### Completed: Multi-instance/K8s readiness fixes (feat/wire-worker)
+- [x] Issue 1: PasswordResetStore extracted to INTERFACE, in-memory renamed to MemoryPasswordResetStore
+- [x] Issue 1: Postgres implementation created at repository/postgres/password_reset.go
+- [x] Issue 1: AuthService updated to use interface; all methods return errors
+- [x] Issue 1: main.go wired to postgres.NewPasswordResetRepo(db)
+- [x] Issue 1: All tests updated to use MemoryPasswordResetStore
+- [x] Issue 2: ENABLE_SCHEDULER config added (default true), scheduler conditionally started
+- [x] Issue 3: asynq.Unique added to cleanup peers (14min) and recalc stats (59min) tasks
+- [x] All tests pass, go vet clean, golangci-lint 0 issues
 
 ### Pending PRs (merge in this order)
 1. `feat/redis-sessions` — BE-1.2.2: SessionStore interface + Redis impl + configurable TTLs
@@ -38,8 +48,11 @@ Phase 3 remaining:
 
 ### Key Architecture Notes
 - SessionStore is an INTERFACE (memory + Redis implementations)
+- PasswordResetStore is an INTERFACE (memory + Postgres implementations)
 - EmailSender is an INTERFACE (SMTP implementation)
 - SITE_BASE_URL = frontend URL, API_URL = backend URL
 - Sessions persist in Redis (survives restarts)
+- Password resets persist in PostgreSQL (survives restarts, multi-instance safe)
 - Full-text search uses PostgreSQL tsvector with GIN index
 - All SQL queries audited — no injection vulnerabilities
+- ENABLE_SCHEDULER=false disables periodic task scheduling (for worker-only pods)

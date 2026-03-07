@@ -393,7 +393,7 @@ func TestForgotPassword_GeneratesToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
-	store := NewPasswordResetStore()
+	store := NewMemoryPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
 	// Register a user
@@ -411,13 +411,14 @@ func TestForgotPassword_GeneratesToken(t *testing.T) {
 	}
 
 	// Verify a reset token was created
-	if len(store.resets) != 1 {
-		t.Fatalf("expected 1 reset token, got %d", len(store.resets))
+	resets := store.Resets()
+	if len(resets) != 1 {
+		t.Fatalf("expected 1 reset token, got %d", len(resets))
 	}
-	if store.resets[0].Used {
+	if resets[0].Used {
 		t.Error("reset token should not be marked as used")
 	}
-	if store.resets[0].TokenHash == "" {
+	if resets[0].TokenHash == "" {
 		t.Error("reset token hash should not be empty")
 	}
 }
@@ -426,7 +427,7 @@ func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
-	store := NewPasswordResetStore()
+	store := NewMemoryPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
 	err := svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
@@ -437,8 +438,9 @@ func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
 	}
 
 	// No token should be created
-	if len(store.resets) != 0 {
-		t.Errorf("expected 0 reset tokens, got %d", len(store.resets))
+	resets := store.Resets()
+	if len(resets) != 0 {
+		t.Errorf("expected 0 reset tokens, got %d", len(resets))
 	}
 }
 
@@ -446,7 +448,7 @@ func TestForgotPassword_RateLimit(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
-	store := NewPasswordResetStore()
+	store := NewMemoryPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -462,8 +464,9 @@ func TestForgotPassword_RateLimit(t *testing.T) {
 		})
 	}
 
-	if len(store.resets) != 3 {
-		t.Fatalf("expected 3 reset tokens, got %d", len(store.resets))
+	resets := store.Resets()
+	if len(resets) != 3 {
+		t.Fatalf("expected 3 reset tokens, got %d", len(resets))
 	}
 
 	// 4th request should be silently ignored
@@ -471,8 +474,9 @@ func TestForgotPassword_RateLimit(t *testing.T) {
 		Email: "ratelimit@example.com",
 	})
 
-	if len(store.resets) != 3 {
-		t.Errorf("expected still 3 reset tokens after rate limit, got %d", len(store.resets))
+	resets = store.Resets()
+	if len(resets) != 3 {
+		t.Errorf("expected still 3 reset tokens after rate limit, got %d", len(resets))
 	}
 }
 
@@ -480,7 +484,7 @@ func TestResetPassword_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
-	store := NewPasswordResetStore()
+	store := NewMemoryPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
 	// Register and login to create a session
@@ -506,8 +510,8 @@ func TestResetPassword_Success(t *testing.T) {
 	tokenHash := hashTokenForTest(rawToken)
 	now := time.Now()
 	// Clear the store and add our known token
-	store.resets = nil
-	store.Create(&PasswordReset{
+	store.ClearResets()
+	_ = store.Create(&PasswordReset{
 		UserID:    1, // first user
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(1 * time.Hour),
@@ -524,7 +528,8 @@ func TestResetPassword_Success(t *testing.T) {
 	}
 
 	// Token should be marked used
-	if !store.resets[0].Used {
+	resets := store.Resets()
+	if !resets[0].Used {
 		t.Error("reset token should be marked as used")
 	}
 
@@ -570,7 +575,7 @@ func TestResetPassword_ExpiredToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
-	store := NewPasswordResetStore()
+	store := NewMemoryPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -581,7 +586,7 @@ func TestResetPassword_ExpiredToken(t *testing.T) {
 
 	rawToken, _ := GenerateToken()
 	tokenHash := hashTokenForTest(rawToken)
-	store.Create(&PasswordReset{
+	_ = store.Create(&PasswordReset{
 		UserID:    1,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(-1 * time.Hour), // expired
@@ -602,7 +607,7 @@ func TestResetPassword_UsedToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := NewMemorySessionStore()
 	svc := NewAuthService(repo, sessions, &NoopSender{}, "http://localhost:8080")
-	store := NewPasswordResetStore()
+	store := NewMemoryPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -613,7 +618,7 @@ func TestResetPassword_UsedToken(t *testing.T) {
 
 	rawToken, _ := GenerateToken()
 	tokenHash := hashTokenForTest(rawToken)
-	store.Create(&PasswordReset{
+	_ = store.Create(&PasswordReset{
 		UserID:    1,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(1 * time.Hour),

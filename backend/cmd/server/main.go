@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hibiken/asynq"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
@@ -76,8 +77,10 @@ func run() int {
 	}
 	slog.Info("session store initialized", "type", cfg.Session.Store)
 
+	passwordResetStore := postgres.NewPasswordResetRepo(db)
+
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
-	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
+	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
 	userService := service.NewUserService(userRepo, sessionStore)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
@@ -133,23 +136,28 @@ func run() int {
 	}()
 	slog.Info("worker server started")
 
-	scheduler, err := worker.NewScheduler(cfg.Redis.URL)
-	if err != nil {
-		slog.Error("failed to create scheduler", "error", err)
-		return 1
-	}
-
-	if err := worker.RegisterPeriodicTasks(scheduler); err != nil {
-		slog.Error("failed to register periodic tasks", "error", err)
-		return 1
-	}
-
-	go func() {
-		if err := scheduler.Run(); err != nil {
-			slog.Error("scheduler error", "error", err)
+	var scheduler *asynq.Scheduler
+	if cfg.Worker.EnableScheduler {
+		scheduler, err = worker.NewScheduler(cfg.Redis.URL)
+		if err != nil {
+			slog.Error("failed to create scheduler", "error", err)
+			return 1
 		}
-	}()
-	slog.Info("scheduler started")
+
+		if err := worker.RegisterPeriodicTasks(scheduler); err != nil {
+			slog.Error("failed to register periodic tasks", "error", err)
+			return 1
+		}
+
+		go func() {
+			if err := scheduler.Run(); err != nil {
+				slog.Error("scheduler error", "error", err)
+			}
+		}()
+		slog.Info("scheduler started")
+	} else {
+		slog.Info("scheduler disabled via ENABLE_SCHEDULER=false")
+	}
 
 	// Start HTTP server
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -182,7 +190,9 @@ func run() int {
 			slog.Error("http shutdown error", "error", err)
 		}
 		workerSrv.Shutdown()
-		scheduler.Shutdown()
+		if scheduler != nil {
+			scheduler.Shutdown()
+		}
 	}
 
 	slog.Info("server stopped")

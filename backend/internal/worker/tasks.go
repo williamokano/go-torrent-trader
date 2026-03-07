@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/hibiken/asynq"
 )
@@ -23,11 +24,13 @@ func NewSendEmailTask(to, subject, body string) (*asynq.Task, error) {
 }
 
 // NewCleanupPeersTask creates a task to clean stale peers.
+// Unique window prevents duplicate enqueues when multiple scheduler instances are running.
 func NewCleanupPeersTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskCleanupPeers, nil, asynq.MaxRetry(1)), nil
+	return asynq.NewTask(TaskCleanupPeers, nil, asynq.MaxRetry(1), asynq.Unique(14*time.Minute)), nil
 }
 
 // NewRecalcStatsTask creates a task to recalculate site statistics.
+// Unique window prevents duplicate enqueues when multiple scheduler instances are running.
 func NewRecalcStatsTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskRecalcStats, nil, asynq.MaxRetry(1)), nil
+	return asynq.NewTask(TaskRecalcStats, nil, asynq.MaxRetry(1), asynq.Unique(59*time.Minute)), nil
 }

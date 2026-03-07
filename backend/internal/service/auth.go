@@ -86,19 +86,19 @@ const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 type AuthService struct {
 	users           repository.UserRepository
 	sessions        SessionStore
-	passwordResets  *PasswordResetStore
+	passwordResets  PasswordResetStore
 	email           EmailSender
 	siteBaseURL     string
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 }
 
-// NewAuthService creates a new AuthService.
+// NewAuthService creates a new AuthService with a default in-memory password reset store.
 func NewAuthService(users repository.UserRepository, sessions SessionStore, email EmailSender, siteBaseURL string) *AuthService {
 	return &AuthService{
 		users:           users,
 		sessions:        sessions,
-		passwordResets:  NewPasswordResetStore(),
+		passwordResets:  NewMemoryPasswordResetStore(),
 		email:           email,
 		siteBaseURL:     siteBaseURL,
 		accessTokenTTL:  DefaultAccessTokenTTL,
@@ -107,11 +107,11 @@ func NewAuthService(users repository.UserRepository, sessions SessionStore, emai
 }
 
 // NewAuthServiceWithTTL creates a new AuthService with custom token TTLs.
-func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration) *AuthService {
+func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration) *AuthService {
 	return &AuthService{
 		users:           users,
 		sessions:        sessions,
-		passwordResets:  NewPasswordResetStore(),
+		passwordResets:  passwordResets,
 		email:           email,
 		siteBaseURL:     siteBaseURL,
 		accessTokenTTL:  accessTTL,
@@ -120,7 +120,7 @@ func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStor
 }
 
 // SetPasswordResetStore sets the password reset store (useful for testing).
-func (s *AuthService) SetPasswordResetStore(store *PasswordResetStore) {
+func (s *AuthService) SetPasswordResetStore(store PasswordResetStore) {
 	s.passwordResets = store
 }
 
@@ -306,7 +306,11 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req ForgotPasswordRequ
 	}
 
 	// Rate limit: max 3 requests per email per hour
-	recentCount := s.passwordResets.CountRecentByUserID(user.ID, 1*time.Hour)
+	recentCount, err := s.passwordResets.CountRecentByUserID(user.ID, 1*time.Hour)
+	if err != nil {
+		slog.Error("failed to count recent resets", "user_id", user.ID, "error", err)
+		return nil
+	}
 	if recentCount >= resetTokenRateLimit {
 		// Silently ignore — don't reveal rate limiting to the caller
 		slog.Warn("password reset rate limit exceeded", "user_id", user.ID)
@@ -322,13 +326,16 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req ForgotPasswordRequ
 	tokenHash := hashToken(rawToken)
 	now := time.Now()
 
-	s.passwordResets.Create(&PasswordReset{
+	if err := s.passwordResets.Create(&PasswordReset{
 		UserID:    user.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: now.Add(resetTokenTTL),
 		Used:      false,
 		CreatedAt: now,
-	})
+	}); err != nil {
+		slog.Error("failed to store password reset token", "user_id", user.ID, "error", err)
+		return nil
+	}
 
 	resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.siteBaseURL, rawToken)
 	slog.Info("password reset requested",
@@ -367,14 +374,14 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 	}
 
 	tokenHash := hashToken(req.Token)
-	pr := s.passwordResets.GetByTokenHash(tokenHash)
+
+	// Atomically claim the token (mark as used) BEFORE changing the password.
+	// This prevents TOCTOU race conditions and ensures a token can only be used once.
+	pr, err := s.passwordResets.ClaimByTokenHash(tokenHash)
+	if err != nil {
+		return fmt.Errorf("claim reset token: %w", err)
+	}
 	if pr == nil {
-		return ErrInvalidResetToken
-	}
-	if pr.Used {
-		return ErrInvalidResetToken
-	}
-	if time.Now().After(pr.ExpiresAt) {
 		return ErrInvalidResetToken
 	}
 
@@ -393,9 +400,6 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("update password: %w", err)
 	}
-
-	// Mark token as used
-	s.passwordResets.MarkUsed(pr.ID)
 
 	// Invalidate all sessions for this user
 	s.sessions.DeleteByUserID(pr.UserID)

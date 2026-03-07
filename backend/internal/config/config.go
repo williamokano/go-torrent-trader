@@ -12,6 +12,12 @@ type Config struct {
 	Storage  StorageConfig
 	Tracker  TrackerConfig
 	Site     SiteConfig
+	Worker   WorkerConfig
+}
+
+// WorkerConfig holds background worker settings.
+type WorkerConfig struct {
+	EnableScheduler bool // ENABLE_SCHEDULER, default true
 }
 
 // SessionConfig holds session store settings.
