@@ -452,9 +452,21 @@ describe("TorrentDetailPage", () => {
   });
 
   test("report submits to POST /api/v1/reports", async () => {
-    const mockFetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(null, { status: 201 }));
+    const reportCalls: { url: string; options: RequestInit }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/api/v1/reports")) {
+        reportCalls.push({ url, options: init as RequestInit });
+        return Promise.resolve(new Response(null, { status: 201 }));
+      }
+      // Sub-component fetches (comments, ratings) — return empty
+      return Promise.resolve(
+        new Response(JSON.stringify({ comments: [], total: 0, average: 0, count: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
 
     renderDetailPage();
     await waitFor(() => {
@@ -475,25 +487,35 @@ describe("TorrentDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(reportCalls).toHaveLength(1);
     });
 
-    const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://localhost:8080/api/v1/reports");
-    expect(options?.method).toBe("POST");
-    expect(JSON.parse(options?.body as string)).toEqual({
+    expect(reportCalls[0].url).toBe("http://localhost:8080/api/v1/reports");
+    expect(reportCalls[0].options?.method).toBe("POST");
+    expect(JSON.parse(reportCalls[0].options?.body as string)).toEqual({
       torrent_id: 1,
       reason: "Fake content",
     });
   });
 
   test("report shows error toast on API failure", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: { message: "Already reported" } }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/api/v1/reports")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { message: "Already reported" } }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ comments: [], total: 0, average: 0, count: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
 
     renderDetailPage();
     await waitFor(() => {

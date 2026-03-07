@@ -224,14 +224,16 @@ describe("CommentsSection", () => {
     });
   });
 
-  test("shows edit and delete buttons for comment author", async () => {
+  test("shows edit button for comment author (no delete — admin only)", async () => {
     renderComments();
     await waitFor(() => {
       expect(screen.getByText("Great torrent!")).toBeInTheDocument();
     });
-    // User id=5 owns comment id=1 (user_id=5)
+    // User id=5 owns comment id=1 (user_id=5) — can edit but not delete
     const editButtons = screen.getAllByRole("button", { name: "Edit" });
     expect(editButtons.length).toBeGreaterThanOrEqual(1);
+    const deleteButtons = screen.queryAllByRole("button", { name: "Delete" });
+    expect(deleteButtons).toHaveLength(0);
   });
 
   test("shows edit and delete buttons for admin on all comments", async () => {
@@ -260,7 +262,7 @@ describe("CommentsSection", () => {
     expect(screen.getByDisplayValue("Great torrent!")).toBeInTheDocument();
   });
 
-  test("delete comment calls API", async () => {
+  test("delete comment calls API (admin)", async () => {
     const mockFetch = vi.spyOn(globalThis, "fetch");
     mockFetch
       .mockResolvedValueOnce(
@@ -277,7 +279,7 @@ describe("CommentsSection", () => {
         ),
       );
 
-    renderComments();
+    renderComments("1", makeAuthContext(makeUser({ id: 999, isAdmin: true })));
     await waitFor(() => {
       expect(screen.getByText("Great torrent!")).toBeInTheDocument();
     });
@@ -287,7 +289,7 @@ describe("CommentsSection", () => {
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost:8080/api/v1/torrents/1/comments/1",
+        "http://localhost:8080/api/v1/comments/1",
         expect.objectContaining({ method: "DELETE" }),
       );
     });
