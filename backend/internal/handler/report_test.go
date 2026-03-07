@@ -125,10 +125,10 @@ func (m *mockReportRepo) Resolve(_ context.Context, id, resolvedByUserID int64) 
 
 // --- test helpers ---
 
-func setupReportRouter() (http.Handler, *service.SessionStore) {
+func setupReportRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	reportRepo := newMockReportRepo()
-	sessions := service.NewSessionStore()
+	sessions := service.NewMemorySessionStore()
 	authSvc := service.NewAuthService(userRepo, sessions, &service.NoopSender{}, "http://localhost:8080")
 	reportSvc := service.NewReportService(reportRepo)
 
