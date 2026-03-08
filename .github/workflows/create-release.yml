@@ -1,0 +1,104 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (semver, e.g. 0.2.0 — no v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid version format '$VERSION'. Must be semver (e.g. 0.2.0)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Check tag does not already exist
+        run: |
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists"
+            exit 1
+          fi
+
+      - name: Generate release notes
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+
+          LOG=$(git log --pretty=format:"- %s (%h)" "${PREVIOUS_TAG}..HEAD")
+
+          if [ -z "$LOG" ]; then
+            echo "::error::No commits found since $PREVIOUS_TAG"
+            exit 1
+          fi
+
+          FEATURES=""
+          FIXES=""
+          OTHERS=""
+
+          while IFS= read -r line; do
+            subject="${line#- }"
+            if echo "$subject" | grep -qiE '^feat(\(|:| )'; then
+              FEATURES="$FEATURES$line"$'\n'
+            elif echo "$subject" | grep -qiE '^fix(\(|:| )'; then
+              FIXES="$FIXES$line"$'\n'
+            else
+              OTHERS="$OTHERS$line"$'\n'
+            fi
+          done <<< "$LOG"
+
+          {
+            echo "## What's Changed"
+            echo ""
+            if [ -n "$FEATURES" ]; then
+              echo "### Features"
+              printf '%s' "$FEATURES"
+              echo ""
+            fi
+            if [ -n "$FIXES" ]; then
+              echo "### Bug Fixes"
+              printf '%s' "$FIXES"
+              echo ""
+            fi
+            if [ -n "$OTHERS" ]; then
+              echo "### Other Changes"
+              printf '%s' "$OTHERS"
+              echo ""
+            fi
+            echo "## Docker Images"
+            echo "- \`torrenttrader-backend:${VERSION}\`"
+            echo "- \`torrenttrader-frontend:${VERSION}\`"
+            echo "- \`torrenttrader-migration-tool:${VERSION}\`"
+            echo ""
+            echo "## Binary Downloads"
+            echo "See assets below for pre-built binaries for Linux, macOS (Apple Silicon), and Windows."
+          } > release-notes.md
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md

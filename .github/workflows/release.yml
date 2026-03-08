@@ -1,15 +1,15 @@
 name: Release
 
 on:
-  workflow_dispatch: {}
   push:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
 
 jobs:
-  build-and-push:
+  build-docker-images:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -32,9 +32,7 @@ jobs:
           images: ${{ secrets.DOCKER_USERNAME }}/torrenttrader-${{ matrix.project }}
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
 
       - uses: docker/build-push-action@v6
         with:
@@ -44,3 +42,130 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  build-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            archive: tar.gz
+          - os: linux
+            arch: arm64
+            archive: tar.gz
+          - os: windows
+            arch: amd64
+            archive: zip
+          - os: darwin
+            arch: arm64
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: |
+            backend/go.sum
+            migration-tool/go.sum
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build backend server
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          SUFFIX=""
+          if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
+          cd backend
+          go build -ldflags="-s -w" -o "../dist/torrenttrader-server${SUFFIX}" ./cmd/server
+
+      - name: Build migration tool
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          SUFFIX=""
+          if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
+          cd migration-tool
+          go build -ldflags="-s -w" -o "../dist/torrenttrader-migrate${SUFFIX}" ./cmd/migrate
+
+      - name: Package archive
+        id: archive
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ARCHIVE_NAME="torrenttrader-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
+
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip "../${ARCHIVE_NAME}.zip" *
+            echo "FILE=${ARCHIVE_NAME}.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar czf "../${ARCHIVE_NAME}.tar.gz" *
+            echo "FILE=${ARCHIVE_NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ steps.archive.outputs.FILE }}
+
+  build-frontend-archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Package frontend archive
+        id: archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE_NAME="torrenttrader-frontend-${VERSION}.tar.gz"
+          tar czf "${ARCHIVE_NAME}" -C frontend dist nginx.conf docker-entrypoint.sh
+          echo "FILE=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-frontend
+          path: ${{ steps.archive.outputs.FILE }}
+
+  upload-release-assets:
+    runs-on: ubuntu-latest
+    needs: [build-binaries, build-frontend-archive]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "${GITHUB_REF_NAME}" --clobber *.tar.gz *.zip
