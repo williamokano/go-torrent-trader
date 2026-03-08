@@ -192,3 +192,9 @@ docker run -p 8080:8080 -e API_URL=https://api.example.com torrenttrader-fronten
 Multi-stage build:
 1. **Builder** — Node 22 Alpine, `npm ci && npm run build`
 2. **Runtime** — nginx-unprivileged Alpine, serves static files, injects runtime config
+
+## Links
+
+- [Source Code](https://github.com/williamokano/go-torrent-trader)
+- [Releases & Changelog](https://github.com/williamokano/go-torrent-trader/releases)
+- [Issues](https://github.com/williamokano/go-torrent-trader/issues)

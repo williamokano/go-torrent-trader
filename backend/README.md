@@ -208,3 +208,9 @@ goose -dir migrations postgres "$DATABASE_URL" status
 ```
 
 24 migrations covering: users, groups, torrents, peers, categories, comments, ratings, reports, forums, messages, chat, invites, bans, activity logs, site settings, password resets, reseed requests, and torrent file lists.
+
+## Links
+
+- [Source Code](https://github.com/williamokano/go-torrent-trader)
+- [Releases & Changelog](https://github.com/williamokano/go-torrent-trader/releases)
+- [Issues](https://github.com/williamokano/go-torrent-trader/issues)

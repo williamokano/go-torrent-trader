@@ -124,3 +124,9 @@ The tool migrates from TorrentTrader 3.x (PHP/MySQL) to the new Go/PostgreSQL pl
 | Invites | invites | invites |
 
 Password hashes are migrated as-is. The backend supports legacy hash verification (SHA1) with transparent re-hashing to Argon2id on next login.
+
+## Links
+
+- [Source Code](https://github.com/williamokano/go-torrent-trader)
+- [Releases & Changelog](https://github.com/williamokano/go-torrent-trader/releases)
+- [Issues](https://github.com/williamokano/go-torrent-trader/issues)

@@ -87,6 +87,9 @@ jobs:
             echo ""
             echo "## Binary Downloads"
             echo "See assets below for pre-built binaries for Linux, macOS (Apple Silicon), and Windows."
+            echo ""
+            echo "---"
+            echo "**Source:** https://github.com/${{ github.repository }}"
           } > release-notes.md
 
       - name: Create and push tag
