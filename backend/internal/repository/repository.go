@@ -173,6 +173,14 @@ type MessageRepository interface {
 	CountUnread(ctx context.Context, userID int64) (int, error)
 }
 
+// ChatMessageRepository defines persistence operations for chat messages.
+type ChatMessageRepository interface {
+	Create(ctx context.Context, msg *model.ChatMessage) error
+	ListRecent(ctx context.Context, limit int) ([]model.ChatMessage, error)
+	ListBefore(ctx context.Context, beforeID int64, limit int) ([]model.ChatMessage, error)
+	Delete(ctx context.Context, id int64) error
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

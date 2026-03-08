@@ -33,6 +33,7 @@ const (
 	IPBanned                Type = "ip_banned"
 	IPUnbanned              Type = "ip_unbanned"
 	MessageSent             Type = "message_sent"
+	ChatMessageDeleted      Type = "chat_message_deleted"
 )
 
 // Event is the base interface for all domain events.
@@ -218,4 +219,9 @@ type MessageSentEvent struct {
 	MessageID  int64  `json:"message_id"`
 	ReceiverID int64  `json:"receiver_id"`
 	Subject    string `json:"subject"`
+}
+
+type ChatMessageDeletedEvent struct {
+	Base
+	MessageID int64 `json:"message_id"`
 }

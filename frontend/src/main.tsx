@@ -4,6 +4,7 @@ import "@/index.css";
 import { ThemeProvider } from "@/themes";
 import { AuthProvider } from "@/features/auth";
 import { ToastProvider } from "@/components/toast";
+import { ChatProvider } from "@/lib/ChatProvider";
 import App from "@/App";
 
 createRoot(document.getElementById("root")!).render(
@@ -11,7 +12,9 @@ createRoot(document.getElementById("root")!).render(
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
-          <App />
+          <ChatProvider>
+            <App />
+          </ChatProvider>
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>

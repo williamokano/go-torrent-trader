@@ -29,6 +29,8 @@ type Deps struct {
 	SiteSettingsService *service.SiteSettingsService
 	BanService          *service.BanService
 	MessageService      *service.MessageService
+	ChatService         *service.ChatService
+	ChatHub             *ChatHub
 	PeerRepo            repository.PeerRepository
 	UserRepo            repository.UserRepository
 	CategoryRepo        repository.CategoryRepository
@@ -43,8 +45,15 @@ func NewRouter(deps *Deps) chi.Router {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(mw.RequestLogger)
-	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS)
+	r.Use(chimw.Recoverer)
+
+	// WebSocket endpoint (auth via query param, not middleware).
+	// The handler unwraps the ResponseWriter to bypass Recoverer's
+	// wrapper that strips http.Hijacker.
+	if deps != nil && deps.ChatHub != nil {
+		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
+	}
 
 	// Health check
 	r.Get("/healthz", HandleHealthz)
@@ -204,6 +213,16 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/unread-count", messages.HandleUnreadCount)
 					r.Get("/{id}", messages.HandleGetMessage)
 					r.Delete("/{id}", messages.HandleDeleteMessage)
+				})
+			}
+
+			// Chat endpoints
+			if deps.ChatService != nil && deps.ChatHub != nil {
+				chat := NewChatHandler(deps.ChatService, deps.ChatHub)
+				r.Route("/chat", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Get("/history", chat.HandleHistory)
+					r.Delete("/{id}", chat.HandleDelete)
 				})
 			}
 

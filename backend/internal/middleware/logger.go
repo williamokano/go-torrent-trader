@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"bufio"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -9,6 +11,8 @@ import (
 )
 
 // statusRecorder wraps http.ResponseWriter to capture the status code.
+// It delegates Hijack and Flush to the underlying writer when available,
+// so it doesn't break WebSocket upgrades or streaming responses.
 type statusRecorder struct {
 	http.ResponseWriter
 	statusCode int
@@ -17,6 +21,19 @@ type statusRecorder struct {
 func (sr *statusRecorder) WriteHeader(code int) {
 	sr.statusCode = code
 	sr.ResponseWriter.WriteHeader(code)
+}
+
+func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := sr.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Unwrap returns the underlying ResponseWriter for middleware that
+// needs to walk the wrapper chain (e.g. gorilla/websocket).
+func (sr *statusRecorder) Unwrap() http.ResponseWriter {
+	return sr.ResponseWriter
 }
 
 // RequestLogger is an slog-based request logging middleware.
