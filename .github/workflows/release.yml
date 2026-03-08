@@ -15,7 +15,6 @@ permissions:
   packages: write
 
 env:
-  # Resolve the tag: from tag push event or manual input
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
@@ -60,18 +59,46 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: linux
+          - project: backend
+            binary: torrenttrader-server
+            source: ./cmd/server
+            os: linux
             arch: amd64
-            archive: tar.gz
-          - os: linux
+          - project: backend
+            binary: torrenttrader-server
+            source: ./cmd/server
+            os: linux
             arch: arm64
-            archive: tar.gz
-          - os: windows
+          - project: backend
+            binary: torrenttrader-server
+            source: ./cmd/server
+            os: windows
             arch: amd64
-            archive: zip
-          - os: darwin
+          - project: backend
+            binary: torrenttrader-server
+            source: ./cmd/server
+            os: darwin
             arch: arm64
-            archive: tar.gz
+          - project: migration-tool
+            binary: torrenttrader-migrate
+            source: ./cmd/migrate
+            os: linux
+            arch: amd64
+          - project: migration-tool
+            binary: torrenttrader-migrate
+            source: ./cmd/migrate
+            os: linux
+            arch: arm64
+          - project: migration-tool
+            binary: torrenttrader-migrate
+            source: ./cmd/migrate
+            os: windows
+            arch: amd64
+          - project: migration-tool
+            binary: torrenttrader-migrate
+            source: ./cmd/migrate
+            os: darwin
+            arch: arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,9 +108,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
-          cache-dependency-path: |
-            backend/go.sum
-            migration-tool/go.sum
+          cache-dependency-path: ${{ matrix.project }}/go.sum
 
       - name: Extract version
         id: version
@@ -91,7 +116,7 @@ jobs:
           TAG="${{ env.RELEASE_TAG }}"
           echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build backend server
+      - name: Build binary
         env:
           CGO_ENABLED: '0'
           GOOS: ${{ matrix.os }}
@@ -99,39 +124,28 @@ jobs:
         run: |
           SUFFIX=""
           if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
-          cd backend
-          go build -ldflags="-s -w" -o "../dist/torrenttrader-server${SUFFIX}" ./cmd/server
-
-      - name: Build migration tool
-        env:
-          CGO_ENABLED: '0'
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-        run: |
-          SUFFIX=""
-          if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
-          cd migration-tool
-          go build -ldflags="-s -w" -o "../dist/torrenttrader-migrate${SUFFIX}" ./cmd/migrate
+          cd ${{ matrix.project }}
+          go build -ldflags="-s -w" -o "../dist/${{ matrix.binary }}${SUFFIX}" ${{ matrix.source }}
 
       - name: Package archive
         id: archive
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          ARCHIVE_NAME="torrenttrader-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
+          ARCHIVE_BASE="${{ matrix.binary }}-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
 
           cd dist
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            zip "../${ARCHIVE_NAME}.zip" *
-            echo "FILE=${ARCHIVE_NAME}.zip" >> "$GITHUB_OUTPUT"
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip "../${ARCHIVE_BASE}.zip" *
+            echo "FILE=${ARCHIVE_BASE}.zip" >> "$GITHUB_OUTPUT"
           else
-            tar czf "../${ARCHIVE_NAME}.tar.gz" *
-            echo "FILE=${ARCHIVE_NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+            tar czf "../${ARCHIVE_BASE}.tar.gz" *
+            echo "FILE=${ARCHIVE_BASE}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: archive-${{ matrix.os }}-${{ matrix.arch }}
+          name: archive-${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ steps.archive.outputs.FILE }}
 
   build-frontend-archive:
@@ -190,4 +204,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ env.RELEASE_TAG }}"
+          ls -la
           gh release upload "${TAG}" --clobber *.tar.gz *.zip || echo "No release found for ${TAG}, skipping asset upload"
