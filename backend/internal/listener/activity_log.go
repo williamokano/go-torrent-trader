@@ -146,10 +146,8 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s unbanned IP range: %s", e.Actor.Username, e.IPRange), e.Actor
 	})
 
-	listen(event.MessageSent, func(evt event.Event) (string, event.Actor) {
-		e := evt.(*event.MessageSentEvent)
-		return fmt.Sprintf("%s sent a message: %s", e.Actor.Username, e.Subject), e.Actor
-	})
+	// Note: MessageSent is intentionally NOT logged to the activity log.
+	// Private messages must not appear in public logs or store content/metadata.
 }
 
 func marshalMetadata(evt event.Event) *string {
