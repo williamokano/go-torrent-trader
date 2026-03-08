@@ -23,6 +23,7 @@ type SendMessageRequest struct {
 	ReceiverID int64  `json:"receiver_id"`
 	Subject    string `json:"subject"`
 	Body       string `json:"body"`
+	ParentID   *int64 `json:"parent_id,omitempty"`
 }
 
 // MessageService handles private message business logic.
@@ -70,6 +71,7 @@ func (s *MessageService) SendMessage(ctx context.Context, senderID int64, req Se
 		ReceiverID: req.ReceiverID,
 		Subject:    subject,
 		Body:       body,
+		ParentID:   req.ParentID,
 	}
 
 	if err := s.messages.Create(ctx, msg); err != nil {

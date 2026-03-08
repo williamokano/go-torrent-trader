@@ -45,8 +45,12 @@ export function MessagesPage() {
   const [composeReceiver, setComposeReceiver] = useState(
     searchParams.get("to") || "",
   );
+  const [composeReceiverId, setComposeReceiverId] = useState<number | null>(
+    null,
+  );
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
+  const [composeParentId, setComposeParentId] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
 
@@ -54,6 +58,7 @@ export function MessagesPage() {
   const urlTo = searchParams.get("to") || "";
   if (tab === "compose" && urlTo && urlTo !== composeReceiver) {
     setComposeReceiver(urlTo);
+    setComposeReceiverId(null); // will be resolved by autocomplete
   }
 
   // Username autocomplete state
@@ -208,24 +213,18 @@ export function MessagesPage() {
     setError(null);
     setSendSuccess(null);
     try {
-      // Resolve username to user ID via the members list
-      const searchRes = await fetch(
-        `${getConfig().API_URL}/api/v1/users?search=${encodeURIComponent(composeReceiver.trim())}&per_page=25`,
-        { headers: authHeaders() },
-      );
-      const searchBody = await searchRes.json();
-      if (!searchRes.ok) {
-        setError("Failed to look up user");
+      if (!composeReceiverId) {
+        setError("Please select a user from the suggestions");
         return;
       }
-      const users = searchBody?.users ?? [];
-      const matchedUser = users.find(
-        (u: { username: string }) =>
-          u.username.toLowerCase() === composeReceiver.trim().toLowerCase(),
-      );
-      if (!matchedUser) {
-        setError("User not found: " + composeReceiver.trim());
-        return;
+
+      const reqBody: Record<string, unknown> = {
+        receiver_id: composeReceiverId,
+        subject: composeSubject.trim(),
+        body: composeBody.trim(),
+      };
+      if (composeParentId) {
+        reqBody.parent_id = composeParentId;
       }
 
       const res = await fetch(`${getConfig().API_URL}/api/v1/messages`, {
@@ -234,11 +233,7 @@ export function MessagesPage() {
           "Content-Type": "application/json",
           ...authHeaders(),
         },
-        body: JSON.stringify({
-          receiver_id: matchedUser.id,
-          subject: composeSubject.trim(),
-          body: composeBody.trim(),
-        }),
+        body: JSON.stringify(reqBody),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -247,8 +242,10 @@ export function MessagesPage() {
       }
       setSendSuccess("Message sent successfully!");
       setComposeReceiver("");
+      setComposeReceiverId(null);
       setComposeSubject("");
       setComposeBody("");
+      setComposeParentId(null);
     } catch {
       setError("Failed to send message");
     } finally {
@@ -258,10 +255,12 @@ export function MessagesPage() {
 
   const handleReply = (msg: Message) => {
     setComposeReceiver(msg.sender_username);
+    setComposeReceiverId(msg.sender_id);
     setComposeSubject(
       msg.subject.startsWith("Re: ") ? msg.subject : `Re: ${msg.subject}`,
     );
     setComposeBody("");
+    setComposeParentId(msg.id);
     setSelectedMessage(null);
     handleTabChange("compose");
   };
@@ -381,6 +380,7 @@ export function MessagesPage() {
                   value={composeReceiver}
                   onChange={(e) => {
                     setComposeReceiver(e.target.value);
+                    setComposeReceiverId(null);
                     searchUsers(e.target.value);
                   }}
                   onFocus={() => {
@@ -402,6 +402,7 @@ export function MessagesPage() {
                           className="messages__autocomplete-item"
                           onClick={() => {
                             setComposeReceiver(u.username);
+                            setComposeReceiverId(u.id);
                             setShowSuggestions(false);
                           }}
                         >

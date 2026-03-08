@@ -35,6 +35,7 @@ func (h *MessageHandler) HandleSendMessage(w http.ResponseWriter, r *http.Reques
 		ReceiverID int64  `json:"receiver_id"`
 		Subject    string `json:"subject"`
 		Body       string `json:"body"`
+		ParentID   *int64 `json:"parent_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
@@ -45,6 +46,7 @@ func (h *MessageHandler) HandleSendMessage(w http.ResponseWriter, r *http.Reques
 		ReceiverID: body.ReceiverID,
 		Subject:    body.Subject,
 		Body:       body.Body,
+		ParentID:   body.ParentID,
 	})
 	if err != nil {
 		handleMessageError(w, err)
@@ -208,7 +210,7 @@ func handleMessageError(w http.ResponseWriter, err error) {
 }
 
 func messageResponse(m *model.Message) map[string]interface{} {
-	return map[string]interface{}{
+	resp := map[string]interface{}{
 		"id":                m.ID,
 		"sender_id":         m.SenderID,
 		"sender_username":   m.SenderUsername,
@@ -219,4 +221,8 @@ func messageResponse(m *model.Message) map[string]interface{} {
 		"is_read":           m.IsRead,
 		"created_at":        m.CreatedAt,
 	}
+	if m.ParentID != nil {
+		resp["parent_id"] = *m.ParentID
+	}
+	return resp
 }

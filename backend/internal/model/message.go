@@ -14,5 +14,6 @@ type Message struct {
 	IsRead           bool
 	SenderDeleted    bool
 	ReceiverDeleted  bool
+	ParentID         *int64
 	CreatedAt        time.Time
 }
