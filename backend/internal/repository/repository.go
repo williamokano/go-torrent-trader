@@ -18,6 +18,7 @@ type UserRepository interface {
 	Update(ctx context.Context, user *model.User) error
 	IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error
 	List(ctx context.Context, opts ListUsersOptions) ([]model.User, int64, error)
+	ListStaff(ctx context.Context) ([]model.User, error)
 }
 
 // ListUsersOptions holds filtering and pagination options for listing users.

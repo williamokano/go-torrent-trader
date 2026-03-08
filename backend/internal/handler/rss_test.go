@@ -44,7 +44,7 @@ func setupRSSRouter() (http.Handler, service.SessionStore, *passkeyAwareMockUser
 	sessions := testutil.NewMemorySessionStore()
 	bus := event.NewInMemoryBus()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
-	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus)
+	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, nil)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:    authSvc,

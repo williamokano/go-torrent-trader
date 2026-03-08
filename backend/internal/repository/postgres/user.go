@@ -180,6 +180,33 @@ func (r *UserRepo) List(ctx context.Context, opts repository.ListUsersOptions) (
 	return users, total, nil
 }
 
+// ListStaff returns users whose group has is_admin=true or is_moderator=true.
+func (r *UserRepo) ListStaff(ctx context.Context) ([]model.User, error) {
+	query := fmt.Sprintf(`SELECT %s FROM users
+		WHERE group_id IN (SELECT id FROM groups WHERE is_admin = true OR is_moderator = true)
+		ORDER BY group_id ASC, username ASC`, userColumns)
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list staff: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var users []model.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan staff user: %w", err)
+		}
+		users = append(users, *u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate staff: %w", err)
+	}
+
+	return users, nil
+}
+
 func (r *UserRepo) IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error {
 	query := `UPDATE users SET
 		uploaded = GREATEST(0, uploaded + $1),

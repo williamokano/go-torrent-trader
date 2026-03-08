@@ -221,6 +221,10 @@ func (m *memUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]
 	return nil, 0, nil
 }
 
+func (m *memUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
+	return nil, nil
+}
+
 // --- mock reseed request repo ---
 
 type memReseedRequestRepo struct {

@@ -66,6 +66,24 @@ export function RootLayout() {
             Upload
           </NavLink>
           <NavLink
+            to="/members"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Members
+          </NavLink>
+          <NavLink
+            to="/staff"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Staff
+          </NavLink>
+          <NavLink
             to="/rss"
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`

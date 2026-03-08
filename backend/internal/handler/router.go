@@ -17,6 +17,7 @@ type Deps struct {
 	AuthService        *service.AuthService
 	SessionStore       service.SessionStore
 	UserService        *service.UserService
+	MemberService      *service.MemberService
 	TorrentService     *service.TorrentService
 	TrackerService     *service.TrackerService
 	ReportService      *service.ReportService
@@ -83,11 +84,19 @@ func NewRouter(deps *Deps) chi.Router {
 				})
 			})
 
-			// User profile endpoints (all protected)
+			// User profile and member list endpoints (all protected)
 			if deps.UserService != nil {
 				users := NewUserHandler(deps.UserService)
 				r.Route("/users", func(r chi.Router) {
 					r.Use(mw.RequireAuth(validator))
+
+					// Member list endpoints (must be before /{id} to avoid Chi matching "staff" as an id)
+					if deps.MemberService != nil {
+						members := NewMemberHandler(deps.MemberService)
+						r.Get("/", members.HandleList)
+						r.Get("/staff", members.HandleStaff)
+					}
+
 					r.Get("/{id}", users.HandleGetProfile)
 					r.Put("/me/profile", users.HandleUpdateProfile)
 					r.Put("/me/password", users.HandleChangePassword)

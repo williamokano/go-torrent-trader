@@ -54,6 +54,9 @@ func (r *announceUserRepo) IncrementStats(context.Context, int64, int64, int64) 
 func (r *announceUserRepo) List(context.Context, repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil
 }
+func (r *announceUserRepo) ListStaff(context.Context) ([]model.User, error) {
+	return nil, nil
+}
 
 type announceTorrentRepo struct {
 	mu       sync.Mutex

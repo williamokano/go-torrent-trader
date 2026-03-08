@@ -85,6 +85,10 @@ func (m *trackerMockUserRepo) List(_ context.Context, _ repository.ListUsersOpti
 	return nil, 0, nil
 }
 
+func (m *trackerMockUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
+	return nil, nil
+}
+
 // --- Mock Torrent Repository ---
 
 type trackerMockTorrentRepo struct {

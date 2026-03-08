@@ -18,6 +18,8 @@ import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { RSSBuilderPage } from "@/pages/RSSBuilderPage";
+import { MembersPage } from "@/pages/MembersPage";
+import { StaffPage } from "@/pages/StaffPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -104,6 +106,22 @@ export const router = createBrowserRouter([
           { path: "reports", element: <AdminReportsPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
         ],
+      },
+      {
+        path: "members",
+        element: (
+          <ProtectedRoute>
+            <MembersPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "staff",
+        element: (
+          <ProtectedRoute>
+            <StaffPage />
+          </ProtectedRoute>
+        ),
       },
       {
         path: "log",
