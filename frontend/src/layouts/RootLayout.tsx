@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/themes";
 import { useAuth } from "@/features/auth";
@@ -16,20 +16,9 @@ function Dropdown({
   onNavigate: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
 
   return (
-    <div className="header__dropdown" ref={ref}>
+    <div className="header__dropdown">
       <button
         className="header__dropdown-toggle"
         onClick={() => setOpen((prev) => !prev)}
@@ -40,9 +29,15 @@ function Dropdown({
         </span>
       </button>
       {open && (
-        <div className="header__dropdown-menu" onClick={onNavigate}>
-          {children}
-        </div>
+        <>
+          <div
+            className="header__dropdown-backdrop"
+            onClick={() => setOpen(false)}
+          />
+          <div className="header__dropdown-menu" onClick={onNavigate}>
+            {children}
+          </div>
+        </>
       )}
     </div>
   );

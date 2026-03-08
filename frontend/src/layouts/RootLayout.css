@@ -96,6 +96,12 @@
   color: var(--color-text-muted);
 }
 
+.header__dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
 .header__dropdown-menu {
   position: absolute;
   top: 100%;
