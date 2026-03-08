@@ -327,7 +327,7 @@
 - Role checked on every protected action
 - Admin can create/edit/delete roles (except cannot delete role with active users)
 
-#### BE-1.6: IP & Email Bans [S]
+#### BE-1.6: IP & Email Bans [S] [DONE]
 **As an** admin
 **I want** to ban IP ranges and email domains
 **So that** I can block abusive users
@@ -352,7 +352,7 @@
 - Auto-ban: if ratio not improved within warning period
 - Warning history visible to staff on user profile
 
-#### BE-1.8: Staff Page & Member List [S]
+#### BE-1.8: Staff Page & Member List [S] [DONE]
 **As a** user
 **I want** to see the staff team and browse member list
 **So that** I know who to contact and can find other users
@@ -587,7 +587,7 @@
 - Admin view: list reports, filter by type/status, mark as resolved
 - Resolved reports keep history
 
-#### BE-3.9: Reseed Request [S]
+#### BE-3.9: Reseed Request [S] [DONE]
 **As a** user
 **I want** to request a reseed for a dead torrent
 **So that** it becomes downloadable again
@@ -598,7 +598,7 @@
 - Sends PM to all users who completed the torrent + torrent owner
 - Queued as background job (could be hundreds of PMs)
 
-#### BE-3.10: RSS Feed [S]
+#### BE-3.10: RSS Feed [S] [DONE]
 **As a** user
 **I want** an RSS feed of new torrents
 **So that** I can auto-download with my client
@@ -611,7 +611,7 @@
 - Last 50 torrents
 - Each item: title, link (details or download), size, category, seeders/leechers, date
 
-#### BE-3.11: Categories & Languages [S]
+#### BE-3.11: Categories & Languages [S] [DONE — categories CRUD + hierarchical dropdowns]
 **As an** admin
 **I want** to manage torrent categories and languages
 **So that** content is organized
@@ -665,7 +665,7 @@
 
 ### Epic BE-4: Invitation System
 
-#### BE-4.1: Send & Redeem Invites [M]
+#### BE-4.1: Send & Redeem Invites [M] [DONE — token-based invites, registration mode, invite tracking]
 **As a** user with available invites
 **I want** to invite someone by email
 **So that** they can join the tracker
@@ -684,7 +684,7 @@
 - Decrement inviter's invite count on send
 - Expire unused invites after configurable period (default 7 days)
 
-#### BE-4.2: Auto-Invite Distribution [S]
+#### BE-4.2: Auto-Invite Distribution [S] [TODO — manual admin grant only for now]
 **As a** tracker operator
 **I want** invites distributed automatically based on user activity
 **So that** active users can grow the community
@@ -1219,7 +1219,7 @@
 - Completed: user's download history
 - Reuses torrent list component with pre-set filters
 
-#### FE-1.6: RSS Feed Builder Page [S]
+#### FE-1.6: RSS Feed Builder Page [S] [DONE]
 **As a** user
 **I want** to configure a personal RSS feed
 **So that** I can auto-download torrents matching my preferences
@@ -1302,7 +1302,7 @@
 - Drafts list
 - Templates list (load into compose)
 
-#### FE-2.6: Invite System Page [S]
+#### FE-2.6: Invite System Page [S] [DONE]
 **As a** user
 **I want** to manage my invites
 **So that** I can invite friends to the tracker
@@ -1313,7 +1313,7 @@
 - Invite history (sent invites with status: pending, accepted, expired)
 - Invite tree (who invited whom, if enabled)
 
-#### FE-2.7: Member List + Staff Page [S]
+#### FE-2.7: Member List + Staff Page [S] [DONE]
 **As a** user
 **I want** to browse members and see staff
 **So that** I can find users and know who to contact
@@ -1527,7 +1527,7 @@
 - Create/edit form with Markdown editor and preview
 - Publish/unpublish toggle
 
-#### FE-5.5: Category & Language Management [S]
+#### FE-5.5: Category & Language Management [S] [DONE — categories CRUD + hierarchical display]
 **As an** admin
 **I want** to manage torrent categories and languages
 **So that** content organization evolves with the community
@@ -1560,7 +1560,7 @@
 - Log detail view
 - Export/download option
 
-#### FE-5.8: IP/Email Bans Management [S]
+#### FE-5.8: IP/Email Bans Management [S] [DONE]
 **As an** admin
 **I want** to manage IP and email bans
 **So that** I can block abusive users
