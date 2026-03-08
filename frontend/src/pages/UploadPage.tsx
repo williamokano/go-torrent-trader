@@ -5,6 +5,7 @@ import { Input, Select, Textarea, Checkbox } from "@/components/form";
 import { useToast } from "@/components/toast";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
+import { buildCategoryOptions } from "@/utils/categories";
 import "./upload.css";
 
 export function UploadPage() {
@@ -20,14 +21,17 @@ export function UploadPage() {
     async function fetchCategories() {
       const { data } = await api.GET("/api/v1/categories");
       if (data?.categories) {
-        const opts = [
-          { value: "", label: "Select a category" },
-          ...data.categories.map((c) => ({
-            value: String(c.id ?? ""),
-            label: c.name ?? "Unknown",
-          })),
-        ];
-        setCategoryOptions(opts);
+        setCategoryOptions(
+          buildCategoryOptions(
+            data.categories as {
+              id: number;
+              name: string;
+              parent_id: number | null;
+              sort_order: number;
+            }[],
+            "Select a category",
+          ),
+        );
       }
     }
     fetchCategories();
