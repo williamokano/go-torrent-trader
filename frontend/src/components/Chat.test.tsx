@@ -1,6 +1,7 @@
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, describe, test, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { ChatProvider } from "@/lib/ChatProvider";
 import { Chat } from "./Chat";
 
 // jsdom doesn't implement scrollIntoView
@@ -69,7 +70,9 @@ afterEach(cleanup);
 function renderChat() {
   return render(
     <MemoryRouter>
-      <Chat />
+      <ChatProvider>
+        <Chat />
+      </ChatProvider>
     </MemoryRouter>,
   );
 }

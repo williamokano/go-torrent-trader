@@ -4,6 +4,7 @@ import { api } from "@/api";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
+import { Shoutbox } from "@/components/Shoutbox";
 import type { Torrent } from "@/types/torrent";
 import "./home.css";
 
@@ -172,6 +173,12 @@ export function HomePage() {
           </table>
         )}
       </section>
+
+      {isAuthenticated && (
+        <section aria-label="Shoutbox">
+          <Shoutbox />
+        </section>
+      )}
     </div>
   );
 }

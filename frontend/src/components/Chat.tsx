@@ -1,13 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/features/auth";
-import { getAccessToken } from "@/features/auth/token";
-import { getConfig } from "@/config";
-import {
-  chatSocket,
-  type ChatMessage,
-  type ChatListener,
-} from "@/lib/ChatSocket";
+import { useChat } from "@/lib/useChat";
 import "./chat.css";
 
 function formatTime(iso: string): string {
@@ -16,11 +10,18 @@ function formatTime(iso: string): string {
 }
 
 export function Chat() {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
+  const {
+    messages,
+    connected,
+    isStaff,
+    mainChatVisible,
+    sendMessage,
+    deleteMessage,
+    loadMore,
+  } = useChat();
   const [collapsed, setCollapsed] = useState(true);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [connected, setConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -29,105 +30,26 @@ export function Chat() {
     });
   }, []);
 
-  // Subscribe to the singleton ChatSocket
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    chatSocket.connect();
-
-    const onEvent: ChatListener = (event) => {
-      switch (event.type) {
-        case "connected":
-          setConnected(true);
-          break;
-        case "disconnected":
-          setConnected(false);
-          break;
-        case "backfill":
-          setMessages(event.messages);
-          setTimeout(scrollToBottom, 50);
-          break;
-        case "message":
-          setMessages((prev) => [...prev, event.message]);
-          setTimeout(scrollToBottom, 50);
-          break;
-        case "delete":
-          setMessages((prev) => prev.filter((m) => m.id !== event.id));
-          break;
-      }
-    };
-
-    chatSocket.addListener(onEvent);
-
-    return () => {
-      chatSocket.removeListener(onEvent);
-      // Don't disconnect here — the singleton stays alive across
-      // React remounts. Only disconnect on logout (below).
-    };
-  }, [isAuthenticated, scrollToBottom]);
-
-  // Disconnect when user logs out
-  useEffect(() => {
-    if (!isAuthenticated) {
-      chatSocket.disconnect();
-    }
-    // No setState here — the listener handles connected state,
-    // and messages will be replaced on next backfill.
-  }, [isAuthenticated]);
-
-  const sendMessage = useCallback(() => {
+  const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-    chatSocket.send(text);
+    sendMessage(text);
     setInput("");
-  }, [input]);
+    setTimeout(scrollToBottom, 50);
+  }, [input, sendMessage, scrollToBottom]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        sendMessage();
+        handleSend();
       }
     },
-    [sendMessage],
+    [handleSend],
   );
 
-  const deleteMessage = useCallback(async (id: number) => {
-    const token = getAccessToken();
-    if (!token) return;
-    try {
-      await fetch(`${getConfig().API_URL}/api/v1/chat/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      // Network error — ignore.
-    }
-  }, []);
-
-  const loadMore = useCallback(async () => {
-    if (messages.length === 0) return;
-    const oldestId = messages[0].id;
-    const token = getAccessToken();
-    if (!token) return;
-    try {
-      const resp = await fetch(
-        `${getConfig().API_URL}/api/v1/chat/history?before_id=${oldestId}&limit=50`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!resp.ok) return;
-      const data = (await resp.json()) as { messages: ChatMessage[] };
-      if (data.messages?.length > 0) {
-        setMessages((prev) => [...data.messages, ...prev]);
-      }
-    } catch {
-      // Network error — ignore.
-    }
-  }, [messages]);
-
-  if (!isAuthenticated) return null;
-
-  const isStaff = user?.isStaff ?? false;
+  // Don't render if not authenticated or if the main page shoutbox is visible
+  if (!isAuthenticated || mainChatVisible) return null;
 
   return (
     <div className={`chat chat--${collapsed ? "collapsed" : "expanded"}`}>
@@ -197,7 +119,7 @@ export function Chat() {
             />
             <button
               className="chat__send-btn"
-              onClick={sendMessage}
+              onClick={handleSend}
               disabled={!connected || !input.trim()}
             >
               Send
