@@ -58,37 +58,37 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.TorrentUploaded, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentUploadedEvent)
-		return fmt.Sprintf("uploaded torrent: %s", e.TorrentName), e.Actor
+		return fmt.Sprintf("%s uploaded torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
 	})
 
 	listen(event.TorrentEdited, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentEditedEvent)
-		return fmt.Sprintf("edited torrent: %s", e.TorrentName), e.Actor
+		return fmt.Sprintf("%s edited torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
 	})
 
 	listen(event.TorrentDeleted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentDeletedEvent)
-		return fmt.Sprintf("deleted torrent: %s", e.TorrentName), e.Actor
+		return fmt.Sprintf("%s deleted torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
 	})
 
 	listen(event.TorrentReported, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentReportedEvent)
-		return fmt.Sprintf("reported torrent #%d", e.TorrentID), e.Actor
+		return fmt.Sprintf("%s reported torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
 	})
 
 	listen(event.ReportResolved, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ReportResolvedEvent)
-		return fmt.Sprintf("resolved report #%d", e.ReportID), e.Actor
+		return fmt.Sprintf("%s resolved report #%d", e.Actor.Username, e.ReportID), e.Actor
 	})
 
 	listen(event.CommentCreated, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.CommentCreatedEvent)
-		return fmt.Sprintf("commented on torrent #%d", e.TorrentID), e.Actor
+		return fmt.Sprintf("%s commented on torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
 	})
 
 	listen(event.CommentDeleted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.CommentDeletedEvent)
-		return fmt.Sprintf("deleted comment on torrent #%d", e.TorrentID), e.Actor
+		return fmt.Sprintf("%s deleted comment on torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
 	})
 }
 

@@ -103,7 +103,7 @@ func TestListener_TorrentUploaded(t *testing.T) {
 	if len(repo.logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(repo.logs))
 	}
-	if repo.logs[0].Message != "uploaded torrent: My.Torrent.2026" {
+	if repo.logs[0].Message != "bob uploaded torrent: My.Torrent.2026" {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
 	if repo.logs[0].Metadata == nil {
@@ -141,7 +141,7 @@ func TestListener_ActorCarriesUsername(t *testing.T) {
 	if len(repo.logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(repo.logs))
 	}
-	if repo.logs[0].Message != "edited torrent: Edited Torrent" {
+	if repo.logs[0].Message != "editor edited torrent: Edited Torrent" {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
 	if repo.logs[0].ActorID != 42 {
