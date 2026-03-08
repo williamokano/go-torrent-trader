@@ -1,0 +1,113 @@
+.rss-builder {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-xl) var(--space-md);
+}
+
+.rss-builder__card {
+  width: 100%;
+  max-width: 600px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+}
+
+.rss-builder__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-sm);
+  text-align: center;
+}
+
+.rss-builder__description {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+
+.rss-builder__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.rss-builder__url-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.rss-builder__url-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.rss-builder__url-wrapper {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.rss-builder__url-input {
+  flex: 1;
+  padding: var(--space-sm);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+.rss-builder__copy-btn {
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.rss-builder__copy-btn:hover {
+  opacity: 0.9;
+}
+
+.rss-builder__copy-btn--copied {
+  background-color: var(--color-success, #22c55e);
+}
+
+.rss-builder__warning {
+  font-size: var(--text-xs);
+  color: var(--color-warning, var(--color-text-secondary));
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+}
+
+.rss-builder__no-passkey {
+  font-size: var(--text-sm);
+  color: var(--color-error);
+  text-align: center;
+  padding: var(--space-md);
+}
+
+@media (max-width: 480px) {
+  .rss-builder__card {
+    padding: var(--space-lg) var(--space-md);
+  }
+
+  .rss-builder__url-wrapper {
+    flex-direction: column;
+  }
+}
