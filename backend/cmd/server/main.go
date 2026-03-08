@@ -133,12 +133,14 @@ func run() int {
 	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
+	memberService := service.NewMemberService(userRepo, groupRepo)
 
 	deps := &handler.Deps{
 		DB:             db,
 		AuthService:    authService,
 		SessionStore:   sessionStore,
 		UserService:    userService,
+		MemberService:  memberService,
 		TorrentService: torrentService,
 		TrackerService: trackerService,
 		ReportService:      reportService,

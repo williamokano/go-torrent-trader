@@ -110,6 +110,18 @@ func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([
 	return result, int64(len(result)), nil
 }
 
+func (m *mockUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// In the real implementation, this filters by group is_admin/is_moderator.
+	// For tests, we return all users (tests control what's seeded).
+	var result []model.User
+	for _, u := range m.users {
+		result = append(result, *u)
+	}
+	return result, nil
+}
+
 func TestRegister_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()

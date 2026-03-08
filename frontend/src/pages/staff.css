@@ -1,0 +1,66 @@
+.staff {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+.staff__title {
+  margin: 0 0 1.5rem;
+  font-size: 1.5rem;
+}
+
+.staff__loading,
+.staff__error,
+.staff__empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--color-text-muted, #888);
+}
+
+.staff__error {
+  color: var(--color-danger, #dc3545);
+}
+
+.staff__group {
+  margin-bottom: 2rem;
+}
+
+.staff__group-name {
+  font-size: 1.15rem;
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--color-border, #333);
+  color: var(--color-text-muted, #aaa);
+}
+
+.staff__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.staff__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+  background: var(--color-surface, #1a1a1a);
+}
+
+.staff__card-username {
+  color: var(--color-link, #58a6ff);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.staff__card-username:hover {
+  text-decoration: underline;
+}
+
+.staff__card-title {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #888);
+}

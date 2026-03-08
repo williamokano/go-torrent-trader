@@ -1,0 +1,85 @@
+.members {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+.members__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.members__title {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.members__search {
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.members__loading,
+.members__error,
+.members__empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--color-text-muted, #888);
+}
+
+.members__error {
+  color: var(--color-danger, #dc3545);
+}
+
+.members__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.members__table th,
+.members__table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.members__table th {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text-muted, #aaa);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.members__username {
+  color: var(--color-link, #58a6ff);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.members__username:hover {
+  text-decoration: underline;
+}
+
+.members__donor-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  background: var(--color-warning, #f0ad4e);
+  color: #000;
+  font-weight: 600;
+}
+
+.members__ratio--good {
+  color: var(--color-success, #28a745);
+}
+
+.members__ratio--bad {
+  color: var(--color-danger, #dc3545);
+}
