@@ -108,6 +108,13 @@ type ListActivityLogsOptions struct {
 	PerPage   int
 }
 
+// ReseedRequestRepository defines persistence operations for reseed requests.
+type ReseedRequestRepository interface {
+	Create(ctx context.Context, req *model.ReseedRequest) error
+	ExistsByTorrentAndUser(ctx context.Context, torrentID, userID int64) (bool, error)
+	CountByTorrent(ctx context.Context, torrentID int64) (int, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

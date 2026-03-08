@@ -224,6 +224,28 @@
   color: #fff;
 }
 
+.torrent-detail__reseed-btn {
+  background-color: transparent;
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.torrent-detail__reseed-btn:hover:not(:disabled) {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+
+.torrent-detail__reseed-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.torrent-detail__reseed-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  align-self: center;
+}
+
 /* Delete modal */
 .torrent-detail__delete-modal {
   display: flex;

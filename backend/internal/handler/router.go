@@ -100,6 +100,10 @@ func NewRouter(deps *Deps) chi.Router {
 					r.With(mw.RequireCapability("upload")).Post("/", torrents.HandleUpload)
 					r.With(mw.RequireCapability("download")).Get("/{id}/download", torrents.HandleDownload)
 
+					// Reseed request endpoints
+					r.Post("/{id}/reseed", torrents.HandleRequestReseed)
+					r.Get("/{id}/reseed", torrents.HandleGetReseedCount)
+
 					// Comment and rating endpoints
 					if deps.CommentService != nil {
 						comments := NewCommentHandler(deps.CommentService)

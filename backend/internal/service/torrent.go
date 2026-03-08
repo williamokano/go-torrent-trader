@@ -19,10 +19,11 @@ import (
 )
 
 var (
-	ErrDuplicateTorrent = errors.New("torrent with this info_hash already exists")
-	ErrTorrentNotFound  = errors.New("torrent not found")
-	ErrInvalidTorrent   = errors.New("invalid torrent file")
-	ErrForbidden        = errors.New("forbidden")
+	ErrDuplicateTorrent      = errors.New("torrent with this info_hash already exists")
+	ErrTorrentNotFound       = errors.New("torrent not found")
+	ErrInvalidTorrent        = errors.New("invalid torrent file")
+	ErrForbidden             = errors.New("forbidden")
+	ErrDuplicateReseedRequest = errors.New("you have already requested a reseed for this torrent")
 )
 
 // torrentMeta represents the top-level structure of a .torrent file.
@@ -89,6 +90,7 @@ type TorrentService struct {
 	torrentComment   string
 	torrentCreatedBy string
 	eventBus         event.Bus
+	reseedRequests   repository.ReseedRequestRepository
 }
 
 // NewTorrentService creates a new TorrentService.
@@ -98,6 +100,7 @@ func NewTorrentService(
 	store storage.FileStorage,
 	cfg TorrentServiceConfig,
 	bus event.Bus,
+	reseedRequests repository.ReseedRequestRepository,
 ) *TorrentService {
 	return &TorrentService{
 		torrents:         torrents,
@@ -107,6 +110,7 @@ func NewTorrentService(
 		torrentComment:   cfg.TorrentComment,
 		torrentCreatedBy: cfg.TorrentCreatedBy,
 		eventBus:         bus,
+		reseedRequests:   reseedRequests,
 	}
 }
 
@@ -372,6 +376,42 @@ func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID in
 	})
 
 	return nil
+}
+
+// RequestReseed creates a reseed request for a torrent.
+func (s *TorrentService) RequestReseed(ctx context.Context, torrentID, userID int64) error {
+	// Validate torrent exists
+	if _, err := s.torrents.GetByID(ctx, torrentID); err != nil {
+		return ErrTorrentNotFound
+	}
+
+	// Check for duplicate request
+	exists, err := s.reseedRequests.ExistsByTorrentAndUser(ctx, torrentID, userID)
+	if err != nil {
+		return fmt.Errorf("check reseed request: %w", err)
+	}
+	if exists {
+		return ErrDuplicateReseedRequest
+	}
+
+	req := &model.ReseedRequest{
+		TorrentID:   torrentID,
+		RequesterID: userID,
+	}
+	if err := s.reseedRequests.Create(ctx, req); err != nil {
+		return fmt.Errorf("create reseed request: %w", err)
+	}
+
+	return nil
+}
+
+// GetReseedCount returns the number of reseed requests for a torrent.
+func (s *TorrentService) GetReseedCount(ctx context.Context, torrentID int64) (int, error) {
+	count, err := s.reseedRequests.CountByTorrent(ctx, torrentID)
+	if err != nil {
+		return 0, fmt.Errorf("count reseed requests: %w", err)
+	}
+	return count, nil
 }
 
 // rewriteAnnounce decodes the torrent, sets the announce URL, and re-encodes.
