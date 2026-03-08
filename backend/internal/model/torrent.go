@@ -32,7 +32,7 @@ type Torrent struct {
 	Free           bool
 	Silver         bool
 	FileCount      int
-	Files          json.RawMessage // JSONB array of TorrentFile
+	Files          *json.RawMessage // JSONB array of TorrentFile, nullable
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

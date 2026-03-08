@@ -203,10 +203,11 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 	}
 
 	// Serialize file list to JSON for storage
-	var filesJSON json.RawMessage
+	var filesJSON *json.RawMessage
 	if len(parsed.Files) > 0 {
 		if data, err := json.Marshal(parsed.Files); err == nil {
-			filesJSON = data
+			raw := json.RawMessage(data)
+			filesJSON = &raw
 		}
 	}
 
