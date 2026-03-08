@@ -365,6 +365,9 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 	if t.Nfo != nil {
 		resp["nfo"] = *t.Nfo
 	}
+	if len(t.Files) > 0 {
+		resp["files"] = json.RawMessage(t.Files)
+	}
 	return resp
 }
 

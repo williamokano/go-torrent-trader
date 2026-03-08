@@ -44,17 +44,7 @@ export function TorrentDetailPage() {
   const [reseedCount, setReseedCount] = useState(0);
   const [reseedRequested, setReseedRequested] = useState(false);
   const [reseedLoading, setReseedLoading] = useState(false);
-  const [peers, setPeers] = useState<
-    Array<{
-      user_id: number;
-      uploaded: number;
-      downloaded: number;
-      left_bytes: number;
-      seeder: boolean;
-      agent: string | null;
-      last_announce: string;
-    }>
-  >([]);
+  const [peerCount, setPeerCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,9 +78,9 @@ export function TorrentDetailPage() {
       }
 
       setTorrent(data?.torrent ?? null);
-      setPeers(
-        ((data as Record<string, unknown>)?.peers as typeof peers) ?? [],
-      );
+      const peersArr =
+        ((data as Record<string, unknown>)?.peers as unknown[]) ?? [];
+      setPeerCount(peersArr.length);
       setLoading(false);
     }
 
@@ -441,39 +431,36 @@ export function TorrentDetailPage() {
         <NfoViewer content={(torrent as unknown as { nfo: string }).nfo} />
       )}
 
-      {peers.length > 0 && (
-        <div className="torrent-detail__peers">
-          <h2 className="torrent-detail__peers-title">Peers</h2>
-          <table className="torrent-detail__peers-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Uploaded</th>
-                <th>Downloaded</th>
-                <th>Left</th>
-                <th>Client</th>
-              </tr>
-            </thead>
-            <tbody>
-              {peers.map((p, i) => (
-                <tr key={i}>
-                  <td>
-                    <span
-                      className={`torrent-detail__peer-type ${p.seeder ? "torrent-detail__peer-type--seed" : "torrent-detail__peer-type--leech"}`}
-                    >
-                      {p.seeder ? "Seed" : "Leech"}
-                    </span>
-                  </td>
-                  <td>{formatBytes(p.uploaded)}</td>
-                  <td>{formatBytes(p.downloaded)}</td>
-                  <td>
-                    {p.left_bytes === 0 ? "-" : formatBytes(p.left_bytes)}
-                  </td>
-                  <td>{p.agent || "Unknown"}</td>
-                </tr>
+      {(() => {
+        const files = (
+          torrent as unknown as {
+            files?: Array<{ path: string; size: number }>;
+          }
+        ).files;
+        return files && files.length > 0 ? (
+          <div className="torrent-detail__files">
+            <h2 className="torrent-detail__files-title">
+              Files ({files.length})
+            </h2>
+            <ul className="torrent-detail__files-list">
+              {files.map((f, i) => (
+                <li key={i} className="torrent-detail__files-item">
+                  <span className="torrent-detail__files-path">{f.path}</span>
+                  <span className="torrent-detail__files-size">
+                    {formatBytes(f.size)}
+                  </span>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          </div>
+        ) : null;
+      })()}
+
+      {peerCount > 0 && (
+        <div className="torrent-detail__peers-link">
+          <Link to={`/torrent/${id}/peers`}>
+            View {peerCount} active {peerCount === 1 ? "peer" : "peers"}
+          </Link>
         </div>
       )}
 

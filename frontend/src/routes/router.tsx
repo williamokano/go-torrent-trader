@@ -27,6 +27,7 @@ import { InvitesPage } from "@/pages/InvitesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
 import { NeedSeedPage } from "@/pages/NeedSeedPage";
+import { TorrentPeersPage } from "@/pages/TorrentPeersPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -96,6 +97,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <TorrentEditPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "torrent/:id/peers",
+        element: (
+          <ProtectedRoute>
+            <TorrentPeersPage />
           </ProtectedRoute>
         ),
       },

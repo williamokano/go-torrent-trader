@@ -567,57 +567,64 @@
   cursor: not-allowed;
 }
 
-/* Peers table */
-.torrent-detail__peers {
+/* File list */
+.torrent-detail__files {
   padding: var(--space-lg);
   background-color: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
 }
 
-.torrent-detail__peers-title {
+.torrent-detail__files-title {
   font-size: var(--text-lg);
   font-weight: 600;
   margin-bottom: var(--space-md);
   color: var(--color-text-primary);
 }
 
-.torrent-detail__peers-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
+.torrent-detail__files-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
-.torrent-detail__peers-table th {
-  text-align: left;
-  padding: var(--space-sm) var(--space-md);
-  color: var(--color-text-muted);
-  font-weight: 600;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.torrent-detail__peers-table td {
-  padding: var(--space-sm) var(--space-md);
-  color: var(--color-text-secondary);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.torrent-detail__peer-type {
-  display: inline-block;
+.torrent-detail__files-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.torrent-detail__files-item:last-child {
+  border-bottom: none;
+}
+
+.torrent-detail__files-path {
+  color: var(--color-text-secondary);
+  word-break: break-all;
+  margin-right: var(--space-md);
+}
+
+.torrent-detail__files-size {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Peers link */
+.torrent-detail__peers-link {
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   font-size: var(--text-sm);
   font-weight: 600;
-}
-
-.torrent-detail__peer-type--seed {
-  background-color: color-mix(in srgb, var(--color-success), transparent 85%);
-  color: var(--color-success);
-}
-
-.torrent-detail__peer-type--leech {
-  background-color: color-mix(in srgb, var(--color-warning), transparent 85%);
-  color: var(--color-warning);
 }
 
 /* Responsive */

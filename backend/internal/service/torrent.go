@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,8 +13,6 @@ import (
 	"strings"
 
 	"github.com/zeebo/bencode"
-
-	"database/sql"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -54,7 +54,8 @@ type ParsedTorrent struct {
 	Name      string
 	Size      int64
 	FileCount int
-	RawBytes  []byte // original .torrent file content
+	Files     []model.TorrentFile // individual files with paths and sizes
+	RawBytes  []byte              // original .torrent file content
 }
 
 // UploadTorrentRequest holds the input for torrent upload.
@@ -154,15 +155,22 @@ func ParseTorrentFile(data []byte) (*ParsedTorrent, error) {
 
 	var totalSize int64
 	fileCount := 1
+	var files []model.TorrentFile
 	if len(info.Files) > 0 {
 		// Multi-file mode
 		fileCount = len(info.Files)
-		for _, f := range info.Files {
+		files = make([]model.TorrentFile, len(info.Files))
+		for i, f := range info.Files {
 			totalSize += f.Length
+			files[i] = model.TorrentFile{
+				Path: strings.Join(f.Path, "/"),
+				Size: f.Length,
+			}
 		}
 	} else {
 		// Single-file mode
 		totalSize = info.Length
+		files = []model.TorrentFile{{Path: info.Name, Size: info.Length}}
 	}
 
 	return &ParsedTorrent{
@@ -170,6 +178,7 @@ func ParseTorrentFile(data []byte) (*ParsedTorrent, error) {
 		Name:      info.Name,
 		Size:      totalSize,
 		FileCount: fileCount,
+		Files:     files,
 		RawBytes:  data,
 	}, nil
 }
@@ -193,6 +202,14 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		name = parsed.Name
 	}
 
+	// Serialize file list to JSON for storage
+	var filesJSON json.RawMessage
+	if len(parsed.Files) > 0 {
+		if data, err := json.Marshal(parsed.Files); err == nil {
+			filesJSON = data
+		}
+	}
+
 	torrent := &model.Torrent{
 		Name:       name,
 		InfoHash:   parsed.InfoHash,
@@ -202,6 +219,7 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		Anonymous:  req.Anonymous,
 		Visible:    true,
 		FileCount:  parsed.FileCount,
+		Files:      filesJSON,
 	}
 	if req.Description != "" {
 		torrent.Description = &req.Description
@@ -216,10 +234,10 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 			createQuery := `INSERT INTO torrents (
 				name, info_hash, size, description, nfo, category_id, uploader_id,
 				anonymous, seeders, leechers, times_completed, comments_count,
-				visible, banned, free, silver, file_count
+				visible, banned, free, silver, file_count, files
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				$11, $12, $13, $14, $15, $16, $17
+				$11, $12, $13, $14, $15, $16, $17, $18
 			) RETURNING id, created_at, updated_at`
 
 			if err := tx.QueryRowContext(ctx, createQuery,
@@ -227,6 +245,7 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 				torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 				torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 				torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
+				torrent.Files,
 			).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt); err != nil {
 				errMsg := err.Error()
 				if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
