@@ -11,6 +11,7 @@ import (
 // and validates required fields. It returns an error if validation fails.
 func Load() (*Config, error) {
 	cfg := &Config{
+		LogLevel: envOrDefault("LOG_LEVEL", "info"),
 		Server: ServerConfig{
 			Host: envOrDefault("SERVER_HOST", "0.0.0.0"),
 			Port: 8080,

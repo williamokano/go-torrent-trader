@@ -33,7 +33,7 @@ func RequestLogger(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		reqID := chimw.GetReqID(r.Context())
-		slog.Info("request completed",
+		slog.Debug("request completed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.statusCode,

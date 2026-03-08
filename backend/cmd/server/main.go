@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -22,15 +23,29 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/worker"
 )
 
-func run() int {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
 
+func run() int {
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load configuration", "error", err)
 		return 1
 	}
+
+	logLevel := parseLogLevel(cfg.LogLevel)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	slog.SetDefault(logger)
 
 	// Connect to PostgreSQL
 	connCfg := database.ConnConfig{

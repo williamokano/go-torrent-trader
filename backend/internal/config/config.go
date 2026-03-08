@@ -4,6 +4,7 @@ import "time"
 
 // Config holds all application configuration.
 type Config struct {
+	LogLevel string // LOG_LEVEL, default "info" (debug|info|warn|error)
 	Server   ServerConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
