@@ -117,6 +117,9 @@ func (r *mockChatUserRepo) List(context.Context, repository.ListUsersOptions) ([
 func (r *mockChatUserRepo) ListStaff(context.Context) ([]model.User, error) {
 	return nil, nil
 }
+func (r *mockChatUserRepo) UpdateLastAccess(context.Context, int64) error {
+	return nil
+}
 
 func TestChatService_SendMessage(t *testing.T) {
 	bus := event.NewInMemoryBus()
