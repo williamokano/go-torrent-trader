@@ -11,6 +11,7 @@ import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
+import { NfoViewer } from "@/components/NfoViewer";
 import { getConfig } from "@/config";
 import "./torrent-detail.css";
 
@@ -43,6 +44,7 @@ export function TorrentDetailPage() {
   const [reseedCount, setReseedCount] = useState(0);
   const [reseedRequested, setReseedRequested] = useState(false);
   const [reseedLoading, setReseedLoading] = useState(false);
+  const [peerCount, setPeerCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +78,9 @@ export function TorrentDetailPage() {
       }
 
       setTorrent(data?.torrent ?? null);
+      const peersArr =
+        ((data as Record<string, unknown>)?.peers as unknown[]) ?? [];
+      setPeerCount(peersArr.length);
       setLoading(false);
     }
 
@@ -286,7 +291,31 @@ export function TorrentDetailPage() {
           {torrent.name}
         </h1>
         <span className="torrent-detail__category">
-          {torrent.category_name ?? "Unknown"}
+          {(() => {
+            const path = (
+              torrent as unknown as {
+                category_path?: Array<{ id: number; name: string }>;
+              }
+            ).category_path;
+            if (path && path.length > 0) {
+              return path.map((cat, i) => (
+                <span key={cat.id}>
+                  {i > 0 && (
+                    <span className="torrent-detail__category-sep">
+                      {" > "}
+                    </span>
+                  )}
+                  <Link
+                    to={`/browse?cat=${cat.id}`}
+                    className="torrent-detail__category-link"
+                  >
+                    {cat.name}
+                  </Link>
+                </span>
+              ));
+            }
+            return torrent.category_name ?? "Unknown";
+          })()}
         </span>
       </div>
 
@@ -393,6 +422,24 @@ export function TorrentDetailPage() {
             {torrent.created_at ? timeAgo(torrent.created_at) : "Unknown"}
           </span>
         </div>
+        <div className="torrent-detail__info-row">
+          <span className="torrent-detail__info-label">Uploader</span>
+          <span className="torrent-detail__info-value">
+            {torrent.anonymous ? (
+              "Anonymous"
+            ) : (torrent as unknown as { uploader_name?: string })
+                .uploader_name ? (
+              <Link to={`/user/${torrent.uploader_id}`}>
+                {
+                  (torrent as unknown as { uploader_name: string })
+                    .uploader_name
+                }
+              </Link>
+            ) : (
+              "Unknown"
+            )}
+          </span>
+        </div>
       </div>
 
       {torrent.description && (
@@ -403,6 +450,43 @@ export function TorrentDetailPage() {
           </div>
         </div>
       )}
+
+      {(torrent as unknown as { nfo?: string }).nfo && (
+        <NfoViewer content={(torrent as unknown as { nfo: string }).nfo} />
+      )}
+
+      {(() => {
+        const files = (
+          torrent as unknown as {
+            files?: Array<{ path: string; size: number }>;
+          }
+        ).files;
+        return files && files.length > 0 ? (
+          <div className="torrent-detail__files">
+            <h2 className="torrent-detail__files-title">
+              Files ({files.length})
+            </h2>
+            <ul className="torrent-detail__files-list">
+              {files.map((f, i) => (
+                <li key={i} className="torrent-detail__files-item">
+                  <span className="torrent-detail__files-path">{f.path}</span>
+                  <span className="torrent-detail__files-size">
+                    {formatBytes(f.size)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null;
+      })()}
+
+      <div className="torrent-detail__peers-link">
+        <Link to={`/torrent/${id}/peers`}>
+          {peerCount > 0
+            ? `View ${peerCount} active ${peerCount === 1 ? "peer" : "peers"}`
+            : "View peers"}
+        </Link>
+      </div>
 
       <RatingWidget torrentId={id!} />
 

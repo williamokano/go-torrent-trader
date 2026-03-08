@@ -157,6 +157,64 @@
   margin: 0;
 }
 
+/* Group badge variant */
+.profile-badge--group {
+  background-color: var(--color-accent);
+}
+
+/* Recent uploads section */
+.profile-uploads {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  margin-top: var(--space-lg);
+}
+
+.profile-uploads__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-md) 0;
+}
+
+.profile-uploads__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.profile-uploads__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.profile-uploads__item:last-child {
+  border-bottom: none;
+}
+
+.profile-uploads__link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+
+.profile-uploads__link:hover {
+  text-decoration: underline;
+}
+
+.profile-uploads__date {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
 @media (max-width: 480px) {
   .profile-header {
     flex-direction: column;

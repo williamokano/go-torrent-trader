@@ -206,6 +206,9 @@ func (m *mockTorrentRepoForCommentHandler) IncrementLeechers(context.Context, in
 func (m *mockTorrentRepoForCommentHandler) IncrementTimesCompleted(context.Context, int64) error {
 	return nil
 }
+func (m *mockTorrentRepoForCommentHandler) ListByUploader(context.Context, int64, int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 // --- helpers ---
 

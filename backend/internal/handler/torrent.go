@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -21,12 +23,15 @@ const maxTorrentFileSize = 10 << 20 // 10 MB
 
 // TorrentHandler handles torrent HTTP endpoints.
 type TorrentHandler struct {
-	torrentSvc *service.TorrentService
+	torrentSvc   *service.TorrentService
+	peerRepo     repository.PeerRepository
+	userRepo     repository.UserRepository
+	categoryRepo repository.CategoryRepository
 }
 
 // NewTorrentHandler creates a new TorrentHandler.
-func NewTorrentHandler(torrentSvc *service.TorrentService) *TorrentHandler {
-	return &TorrentHandler{torrentSvc: torrentSvc}
+func NewTorrentHandler(torrentSvc *service.TorrentService, peerRepo repository.PeerRepository, userRepo repository.UserRepository, categoryRepo repository.CategoryRepository) *TorrentHandler {
+	return &TorrentHandler{torrentSvc: torrentSvc, peerRepo: peerRepo, userRepo: userRepo, categoryRepo: categoryRepo}
 }
 
 // HandleUpload handles POST /api/v1/torrents.
@@ -68,6 +73,7 @@ func (h *TorrentHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	req := service.UploadTorrentRequest{
 		Name:        r.FormValue("name"),
 		Description: r.FormValue("description"),
+		Nfo:         r.FormValue("nfo"),
 		CategoryID:  categoryID,
 		Anonymous:   anonymous,
 	}
@@ -106,6 +112,24 @@ func (h *TorrentHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		opts.PerPage, _ = strconv.Atoi(ppStr)
 	}
 
+	if afterStr := r.URL.Query().Get("created_after"); afterStr != "" {
+		if t, err := time.Parse(time.RFC3339, afterStr); err == nil {
+			opts.CreatedAfter = &t
+		}
+	}
+
+	if maxSeedersStr := r.URL.Query().Get("max_seeders"); maxSeedersStr != "" {
+		if n, err := strconv.Atoi(maxSeedersStr); err == nil {
+			opts.MaxSeeders = &n
+		}
+	}
+
+	if uploaderStr := r.URL.Query().Get("uploader_id"); uploaderStr != "" {
+		if uid, err := strconv.ParseInt(uploaderStr, 10, 64); err == nil && uid > 0 {
+			opts.UploaderID = &uid
+		}
+	}
+
 	torrents, total, err := h.torrentSvc.List(r.Context(), opts)
 	if err != nil {
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list torrents")
@@ -139,9 +163,35 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"torrent": torrentResponse(torrent),
-	})
+	tResp := torrentResponse(torrent)
+
+	// Enrich with uploader info (unless anonymous)
+	if !torrent.Anonymous && h.userRepo != nil {
+		if uploader, err := h.userRepo.GetByID(r.Context(), torrent.UploaderID); err == nil {
+			tResp["uploader_name"] = uploader.Username
+		}
+	}
+
+	// Build category breadcrumb chain
+	if h.categoryRepo != nil {
+		tResp["category_path"] = h.buildCategoryPath(r.Context(), torrent.CategoryID)
+	}
+
+	resp := map[string]interface{}{
+		"torrent": tResp,
+	}
+
+	if h.peerRepo != nil {
+		if peers, err := h.peerRepo.ListByTorrent(r.Context(), id, 50); err == nil {
+			peerItems := make([]map[string]interface{}, len(peers))
+			for i := range peers {
+				peerItems[i] = peerResponse(&peers[i])
+			}
+			resp["peers"] = peerItems
+		}
+	}
+
+	JSON(w, http.StatusOK, resp)
 }
 
 // HandleDownload handles GET /api/v1/torrents/{id}/download.
@@ -319,5 +369,54 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 	if t.Description != nil {
 		resp["description"] = *t.Description
 	}
+	if t.Nfo != nil {
+		resp["nfo"] = *t.Nfo
+	}
+	if t.Files != nil && len(*t.Files) > 0 {
+		resp["files"] = json.RawMessage(*t.Files)
+	}
 	return resp
+}
+
+// buildCategoryPath walks up the parent chain and returns the full breadcrumb
+// from root to leaf, e.g. [{"id":1,"name":"Software"},{"id":5,"name":"Windows"}]
+func (h *TorrentHandler) buildCategoryPath(ctx context.Context, categoryID int64) []map[string]interface{} {
+	var chain []map[string]interface{}
+	seen := make(map[int64]bool) // guard against cycles
+	currentID := categoryID
+
+	for !seen[currentID] {
+		seen[currentID] = true
+
+		cat, err := h.categoryRepo.GetByID(ctx, currentID)
+		if err != nil {
+			break
+		}
+		chain = append(chain, map[string]interface{}{
+			"id":   cat.ID,
+			"name": cat.Name,
+		})
+		if cat.ParentID == nil {
+			break
+		}
+		currentID = *cat.ParentID
+	}
+
+	// Reverse so root is first
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain
+}
+
+func peerResponse(p *model.Peer) map[string]interface{} {
+	return map[string]interface{}{
+		"user_id":       p.UserID,
+		"uploaded":      p.Uploaded,
+		"downloaded":    p.Downloaded,
+		"left_bytes":    p.LeftBytes,
+		"seeder":        p.Seeder,
+		"agent":         p.Agent,
+		"last_announce": p.LastAnnounce,
+	}
 }

@@ -7,6 +7,7 @@ import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import type { Torrent } from "@/types/torrent";
+import { buildCategoryOptions } from "@/utils/categories";
 import "./torrent-edit.css";
 
 export function TorrentEditPage() {
@@ -27,6 +28,7 @@ export function TorrentEditPage() {
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [anonymous, setAnonymous] = useState(false);
+  const [nfo, setNfo] = useState("");
   const [banned, setBanned] = useState(false);
   const [free, setFree] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,14 +37,17 @@ export function TorrentEditPage() {
     async function fetchCategories() {
       const { data } = await api.GET("/api/v1/categories");
       if (data?.categories) {
-        const opts = [
-          { value: "", label: "Select a category" },
-          ...data.categories.map((c) => ({
-            value: String(c.id ?? ""),
-            label: c.name ?? "Unknown",
-          })),
-        ];
-        setCategoryOptions(opts);
+        setCategoryOptions(
+          buildCategoryOptions(
+            data.categories as {
+              id: number;
+              name: string;
+              parent_id: number | null;
+              sort_order: number;
+            }[],
+            "Select a category",
+          ),
+        );
       }
     }
     fetchCategories();
@@ -95,6 +100,7 @@ export function TorrentEditPage() {
       setTorrent(t);
       setName(t.name ?? "");
       setDescription(t.description ?? "");
+      setNfo(((t as Record<string, unknown>).nfo as string) ?? "");
       setCategoryId(String(t.category_id ?? ""));
       setAnonymous(t.anonymous ?? false);
       setLoading(false);
@@ -130,6 +136,7 @@ export function TorrentEditPage() {
       const body: Record<string, unknown> = {
         name: name.trim(),
         description: description.trim(),
+        nfo: nfo.trim(),
         category_id: Number(categoryId),
         anonymous,
       };
@@ -210,6 +217,14 @@ export function TorrentEditPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={5}
+          />
+
+          <Textarea
+            label="NFO"
+            value={nfo}
+            onChange={(e) => setNfo(e.target.value)}
+            rows={6}
+            placeholder="Paste NFO content (optional)"
           />
 
           <Select

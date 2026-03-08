@@ -1,13 +1,74 @@
-import { useState } from "react";
-import { Outlet, NavLink, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/themes";
 import { useAuth } from "@/features/auth";
+import { getConfig } from "@/config";
+import { formatNumber } from "@/utils/format";
 import "./RootLayout.css";
+
+function Dropdown({
+  label,
+  children,
+  onNavigate,
+}: {
+  label: string;
+  children: React.ReactNode;
+  onNavigate: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="header__dropdown">
+      <button
+        className="header__dropdown-toggle"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        {label}{" "}
+        <span className="header__dropdown-arrow">
+          {open ? "\u25B4" : "\u25BE"}
+        </span>
+      </button>
+      {open && (
+        <>
+          <div
+            className="header__dropdown-backdrop"
+            onClick={() => setOpen(false)}
+          />
+          <div className="header__dropdown-menu" onClick={onNavigate}>
+            {children}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function RootLayout() {
   const { theme, toggleTheme } = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+  const closeMenu = () => setMenuOpen(false);
+
+  const [siteStats, setSiteStats] = useState<{
+    users: number;
+    torrents: number;
+    peers: number;
+    seeders: number;
+    leechers: number;
+  } | null>(null);
+
+  useEffect(() => {
+    function fetchStats() {
+      fetch(`${getConfig().API_URL}/api/v1/stats`)
+        .then((r) => r.json())
+        .then((d) => setSiteStats(d?.stats ?? null))
+        .catch(() => {});
+    }
+    fetchStats();
+    const interval = setInterval(fetchStats, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="root-layout">
@@ -34,79 +95,97 @@ export function RootLayout() {
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`
             }
-            onClick={() => setMenuOpen(false)}
+            onClick={closeMenu}
           >
             Home
           </NavLink>
-          <NavLink
-            to="/browse"
-            className={({ isActive }) =>
-              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-            }
-            onClick={() => setMenuOpen(false)}
+
+          <Dropdown
+            key={`torrents-${location.key}`}
+            label="Torrents"
+            onNavigate={closeMenu}
           >
-            Browse
-          </NavLink>
+            <NavLink
+              to="/browse"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Browse
+            </NavLink>
+            <NavLink
+              to="/upload"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Upload
+            </NavLink>
+            <NavLink
+              to="/today"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Today
+            </NavLink>
+            <NavLink
+              to="/needseed"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Need Seed
+            </NavLink>
+            <NavLink
+              to="/rss"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              RSS
+            </NavLink>
+          </Dropdown>
+
           <NavLink
             to="/forums"
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`
             }
-            onClick={() => setMenuOpen(false)}
+            onClick={closeMenu}
           >
             Forums
           </NavLink>
-          <NavLink
-            to="/upload"
-            className={({ isActive }) =>
-              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-            }
-            onClick={() => setMenuOpen(false)}
+
+          <Dropdown
+            key={`community-${location.key}`}
+            label="Community"
+            onNavigate={closeMenu}
           >
-            Upload
-          </NavLink>
-          <NavLink
-            to="/members"
-            className={({ isActive }) =>
-              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-            }
-            onClick={() => setMenuOpen(false)}
-          >
-            Members
-          </NavLink>
-          <NavLink
-            to="/staff"
-            className={({ isActive }) =>
-              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-            }
-            onClick={() => setMenuOpen(false)}
-          >
-            Staff
-          </NavLink>
-          <NavLink
-            to="/invites"
-            className={({ isActive }) =>
-              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-            }
-            onClick={() => setMenuOpen(false)}
-          >
-            Invites
-          </NavLink>
-          <NavLink
-            to="/rss"
-            className={({ isActive }) =>
-              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-            }
-            onClick={() => setMenuOpen(false)}
-          >
-            RSS
-          </NavLink>
+            <NavLink
+              to="/members"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Members
+            </NavLink>
+            <NavLink
+              to="/staff"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Staff
+            </NavLink>
+            <NavLink
+              to="/invites"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Invites
+            </NavLink>
+          </Dropdown>
+
           <NavLink
             to="/log"
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`
             }
-            onClick={() => setMenuOpen(false)}
+            onClick={closeMenu}
           >
             Log
           </NavLink>
@@ -162,7 +241,11 @@ export function RootLayout() {
 
       <footer className="footer">
         <p className="footer__stats">
-          Torrents: -- | Peers: -- | Seeders: -- | Leechers: --
+          Users: {siteStats ? formatNumber(siteStats.users) : "--"} | Torrents:{" "}
+          {siteStats ? formatNumber(siteStats.torrents) : "--"} | Peers:{" "}
+          {siteStats ? formatNumber(siteStats.peers) : "--"} | Seeders:{" "}
+          {siteStats ? formatNumber(siteStats.seeders) : "--"} | Leechers:{" "}
+          {siteStats ? formatNumber(siteStats.leechers) : "--"}
         </p>
         <div className="footer__links">
           <a href="#" className="footer__link">

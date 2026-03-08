@@ -28,21 +28,32 @@ type ChangePasswordRequest struct {
 	NewPassword     string `json:"new_password"`
 }
 
+// RecentUpload is a summary of a recently uploaded torrent.
+type RecentUpload struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+}
+
 // PublicProfile is the profile data visible to any authenticated user.
 type PublicProfile struct {
-	ID              int64   `json:"id"`
-	Username        string  `json:"username"`
-	GroupID         int64   `json:"group_id"`
-	Avatar          *string `json:"avatar"`
-	Title           *string `json:"title"`
-	Info            *string `json:"info"`
-	Uploaded        int64   `json:"uploaded"`
-	Downloaded      int64   `json:"downloaded"`
-	Ratio           float64 `json:"ratio"`
-	Donor           bool    `json:"donor"`
-	CreatedAt       string  `json:"created_at"`
-	InvitedByID     *int64  `json:"invited_by_id,omitempty"`
-	InvitedByName   *string `json:"invited_by_name,omitempty"`
+	ID              int64          `json:"id"`
+	Username        string         `json:"username"`
+	GroupID         int64          `json:"group_id"`
+	GroupName       string         `json:"group_name"`
+	Avatar          *string        `json:"avatar"`
+	Title           *string        `json:"title"`
+	Info            *string        `json:"info"`
+	Uploaded        int64          `json:"uploaded"`
+	Downloaded      int64          `json:"downloaded"`
+	Ratio           float64        `json:"ratio"`
+	SeedingCount    int            `json:"seeding_count"`
+	LeechingCount   int            `json:"leeching_count"`
+	Donor           bool           `json:"donor"`
+	CreatedAt       string         `json:"created_at"`
+	InvitedByID     *int64         `json:"invited_by_id,omitempty"`
+	InvitedByName   *string        `json:"invited_by_name,omitempty"`
+	RecentUploads   []RecentUpload `json:"recent_uploads"`
 }
 
 // OwnerProfile extends PublicProfile with fields only visible to the profile owner.
@@ -61,11 +72,13 @@ type UserService struct {
 	users    repository.UserRepository
 	sessions SessionStore
 	groups   repository.GroupRepository
+	peers    repository.PeerRepository
+	torrents repository.TorrentRepository
 }
 
 // NewUserService creates a new UserService.
-func NewUserService(users repository.UserRepository, sessions SessionStore, groups repository.GroupRepository) *UserService {
-	return &UserService{users: users, sessions: sessions, groups: groups}
+func NewUserService(users repository.UserRepository, sessions SessionStore, groups repository.GroupRepository, peers repository.PeerRepository, torrents repository.TorrentRepository) *UserService {
+	return &UserService{users: users, sessions: sessions, groups: groups, peers: peers, torrents: torrents}
 }
 
 // GetProfile returns a user's profile. If viewerID matches the profile user ID,
@@ -211,6 +224,35 @@ func (s *UserService) buildPublicProfile(ctx context.Context, u *model.User) Pub
 			pub.InvitedByName = &inviter.Username
 		}
 	}
+
+	if s.groups != nil {
+		if group, err := s.groups.GetByID(ctx, u.GroupID); err == nil {
+			pub.GroupName = group.Name
+		}
+	}
+
+	if s.peers != nil {
+		seeding, leeching, err := s.peers.CountByUser(ctx, u.ID)
+		if err == nil {
+			pub.SeedingCount = seeding
+			pub.LeechingCount = leeching
+		}
+	}
+
+	if s.torrents != nil {
+		if uploads, err := s.torrents.ListByUploader(ctx, u.ID, 5); err == nil {
+			recentUploads := make([]RecentUpload, len(uploads))
+			for i, t := range uploads {
+				recentUploads[i] = RecentUpload{
+					ID:        t.ID,
+					Name:      t.Name,
+					CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				}
+			}
+			pub.RecentUploads = recentUploads
+		}
+	}
+
 	return pub
 }
 

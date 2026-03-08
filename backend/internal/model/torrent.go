@@ -1,6 +1,15 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
+
+// TorrentFile represents a single file inside a torrent.
+type TorrentFile struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
 
 // Torrent represents a torrent file registered in the tracker.
 type Torrent struct {
@@ -23,6 +32,7 @@ type Torrent struct {
 	Free           bool
 	Silver         bool
 	FileCount      int
+	Files          *json.RawMessage // JSONB array of TorrentFile, nullable
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

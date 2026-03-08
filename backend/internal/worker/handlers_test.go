@@ -34,6 +34,9 @@ func (m *mockPeerRepo) Upsert(_ context.Context, _ *model.Peer) error { return n
 func (m *mockPeerRepo) Delete(_ context.Context, _, _ int64, _ []byte) error {
 	return nil
 }
+func (m *mockPeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) {
+	return 0, 0, nil
+}
 func (m *mockPeerRepo) DeleteStale(_ context.Context, before time.Time) (int64, error) {
 	m.deleteStaleCall = &before
 	return m.deleteStaleCount, m.deleteStaleErr
@@ -60,6 +63,9 @@ func (m *mockTorrentRepo) Delete(_ context.Context, _ int64) error              
 func (m *mockTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error      { return nil }
 func (m *mockTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error      { return nil }
 func (m *mockTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error { return nil }
+func (m *mockTorrentRepo) ListByUploader(_ context.Context, _ int64, _ int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 var _ repository.TorrentRepository = (*mockTorrentRepo)(nil)
 

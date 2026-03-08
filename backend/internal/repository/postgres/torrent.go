@@ -13,7 +13,7 @@ import (
 const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo, t.category_id,
 	c.name AS category_name,
 	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
-	t.visible, t.banned, t.free, t.silver, t.file_count, t.created_at, t.updated_at`
+	t.visible, t.banned, t.free, t.silver, t.file_count, t.files, t.created_at, t.updated_at`
 
 // TorrentRepo implements repository.TorrentRepository using PostgreSQL.
 type TorrentRepo struct {
@@ -37,7 +37,7 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 		&t.CategoryID, &t.CategoryName,
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
-		&t.Free, &t.Silver, &t.FileCount, &t.CreatedAt, &t.UpdatedAt,
+		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -106,6 +106,21 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	if opts.CategoryID != nil {
 		conditions = append(conditions, fmt.Sprintf("t.category_id = %s", nextArg()))
 		args = append(args, *opts.CategoryID)
+	}
+
+	if opts.CreatedAfter != nil {
+		conditions = append(conditions, fmt.Sprintf("t.created_at >= %s", nextArg()))
+		args = append(args, *opts.CreatedAfter)
+	}
+
+	if opts.MaxSeeders != nil {
+		conditions = append(conditions, fmt.Sprintf("t.seeders <= %s", nextArg()))
+		args = append(args, *opts.MaxSeeders)
+	}
+
+	if opts.UploaderID != nil {
+		conditions = append(conditions, fmt.Sprintf("t.uploader_id = %s", nextArg()))
+		args = append(args, *opts.UploaderID)
 	}
 
 	// useFullText tracks whether to apply ts_rank ordering.
@@ -215,10 +230,10 @@ func (r *TorrentRepo) Create(ctx context.Context, torrent *model.Torrent) error 
 	query := `INSERT INTO torrents (
 		name, info_hash, size, description, nfo, category_id, uploader_id,
 		anonymous, seeders, leechers, times_completed, comments_count,
-		visible, banned, free, silver, file_count
+		visible, banned, free, silver, file_count, files
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-		$11, $12, $13, $14, $15, $16, $17
+		$11, $12, $13, $14, $15, $16, $17, $18
 	) RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -226,6 +241,7 @@ func (r *TorrentRepo) Create(ctx context.Context, torrent *model.Torrent) error 
 		torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 		torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
+		torrent.Files,
 	).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt)
 }
 
@@ -235,8 +251,8 @@ func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error 
 		category_id = $6, uploader_id = $7, anonymous = $8, seeders = $9,
 		leechers = $10, times_completed = $11, comments_count = $12,
 		visible = $13, banned = $14, free = $15, silver = $16,
-		file_count = $17, updated_at = NOW()
-	WHERE id = $18
+		file_count = $17, files = $18, updated_at = NOW()
+	WHERE id = $19
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -244,7 +260,7 @@ func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error 
 		torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 		torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver,
-		torrent.FileCount, torrent.ID,
+		torrent.FileCount, torrent.Files, torrent.ID,
 	).Scan(&torrent.UpdatedAt)
 }
 
@@ -310,4 +326,26 @@ func (r *TorrentRepo) IncrementLeechers(ctx context.Context, id int64, delta int
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (r *TorrentRepo) ListByUploader(ctx context.Context, uploaderID int64, limit int) ([]model.Torrent, error) {
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.uploader_id = $1 AND t.visible = true AND t.banned = false ORDER BY t.created_at DESC LIMIT $2", torrentColumns)
+	rows, err := r.db.QueryContext(ctx, query, uploaderID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing torrents by uploader: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var torrents []model.Torrent
+	for rows.Next() {
+		t, err := scanTorrent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning torrent: %w", err)
+		}
+		torrents = append(torrents, *t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating torrents: %w", err)
+	}
+	return torrents, nil
 }

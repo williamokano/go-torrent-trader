@@ -14,3 +14,12 @@ body {
     background-color 0.2s,
     color 0.2s;
 }
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}

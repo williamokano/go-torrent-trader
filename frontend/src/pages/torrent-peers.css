@@ -1,0 +1,99 @@
+.torrent-peers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.torrent-peers__loading,
+.torrent-peers__error,
+.torrent-peers__empty {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--color-text-muted);
+}
+
+.torrent-peers__error {
+  color: var(--color-error);
+}
+
+.torrent-peers__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.torrent-peers__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.torrent-peers__summary {
+  display: flex;
+  gap: var(--space-lg);
+}
+
+.torrent-peers__count {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.torrent-peers__count--seed {
+  background-color: color-mix(in srgb, var(--color-success), transparent 85%);
+  color: var(--color-success);
+}
+
+.torrent-peers__count--leech {
+  background-color: color-mix(in srgb, var(--color-warning), transparent 85%);
+  color: var(--color-warning);
+}
+
+.torrent-peers__table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.torrent-peers__table th {
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg-secondary);
+}
+
+.torrent-peers__table td {
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.torrent-peers__table tr:last-child td {
+  border-bottom: none;
+}
+
+.torrent-peers__type {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.torrent-peers__type--seed {
+  background-color: color-mix(in srgb, var(--color-success), transparent 85%);
+  color: var(--color-success);
+}
+
+.torrent-peers__type--leech {
+  background-color: color-mix(in srgb, var(--color-warning), transparent 85%);
+  color: var(--color-warning);
+}

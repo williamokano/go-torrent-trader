@@ -518,7 +518,7 @@
 - Response includes: name, category, size, seeders, leechers, completed, added, comments count, rating, freeleech flag, uploader (or "Anonymous")
 - Respect user privacy settings for uploader name
 
-#### BE-3.4: Torrent Detail Page [M]
+#### BE-3.4: Torrent Detail Page [M] [DONE — NFO + peer list in detail response, browse filters for date/seeders/uploader]
 **As a** user
 **I want** to see full details about a torrent
 **So that** I can decide whether to download it
@@ -1045,6 +1045,41 @@
 - Auto-ban: users who didn't improve within warning period
 - PM sent for each action (via background job)
 
+#### BE-9.3: Cache Site Stats Query [S]
+**As a** tracker operator
+**I want** the site stats query to be cached
+**So that** the footer polling from every client doesn't hammer the database
+
+**Acceptance Criteria:**
+- Stats endpoint (`/api/v1/stats`) returns cached results
+- Cache backend abstracted via interface (Redis or in-memory)
+- Short TTL (15-30 seconds) — stats are near-real-time, not stale
+- Cache populated on first request or by scheduler
+- Fallback to direct query if cache unavailable
+
+#### BE-9.4: Real-Time Stats via SSE or WebSocket [M]
+**As a** user
+**I want** the site stats in the footer to update in real time
+**So that** I see live tracker activity without page refreshes
+
+**Acceptance Criteria:**
+- Stats pushed to clients via SSE or WebSocket (piggyback on chat connection when BE-6.1 lands)
+- Broadcast triggered on peer announce, torrent upload, user registration
+- Eliminates client-side polling entirely
+- Graceful fallback: if WebSocket disconnects, resume polling
+
+#### BE-9.5: Backfill Torrent File Lists [S]
+**As a** tracker operator
+**I want** existing torrents to have their file lists populated
+**So that** torrents uploaded before migration 023 show file details
+
+**Acceptance Criteria:**
+- One-time CLI command or background job
+- Reads stored `.torrent` files from S3/storage
+- Parses file list and updates `files` JSONB column
+- Skips torrents that already have files populated
+- Reports progress and errors
+
 ---
 
 ### Epic BE-10: Protocol Support
@@ -1208,7 +1243,7 @@
 - Reseed request button (if dead)
 - Edit button (if owner or moderator)
 
-#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S]
+#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S] [PARTIAL — Today's + Need Seed done; Completed (user download history) deferred to PM system]
 **As a** user
 **I want** quick-access filtered views
 **So that** I can find torrents matching specific criteria
@@ -1248,7 +1283,7 @@
 - Active sessions list with revoke button
 - API keys management (create, list, revoke)
 
-#### FE-2.2: User Profile Page [M]
+#### FE-2.2: User Profile Page [M] [DONE — group name, seeding/leeching counts, recent uploads, invited-by link]
 **As a** user
 **I want** to view other users' profiles
 **So that** I can see their stats and activity
@@ -1334,7 +1369,7 @@
 - Confirmation on submit
 - Rate limit feedback if too many reports
 
-#### FE-2.9: NFO Viewer [S]
+#### FE-2.9: NFO Viewer [S] [DONE — monospace pre-formatted viewer on torrent detail page]
 **As a** user
 **I want** to view NFO files properly
 **So that** I can read release information

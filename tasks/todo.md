@@ -40,6 +40,11 @@
 ### Future: UX Bugs
 - [ ] FE-BUG-1: Invites page doesn't reflect updated invite count after admin edit — the auth context caches user data (including `invites` count) and only refreshes on login or manual page reload. When admin grants invites via the admin panel, the inviter's session still has the old count. Need to either poll `/auth/me` periodically, invalidate on navigation, or use a WebSocket push to refresh user data when it changes server-side.
 
+### Future: Footer Stats Performance & Real-Time
+- [ ] BE-STATS-1: Cache stats query — the footer polls `/api/v1/stats` every 60s from every connected client. Options: (a) Redis cache with short TTL (15-30s), (b) in-memory cache per instance, (c) scheduler pre-computes stats on interval. Use an interface to abstract the cache backend.
+- [ ] BE-STATS-2: Real-time stats via SSE or WebSocket — when the chat WebSocket lands (BE-6.1), piggyback stats updates on the same connection. Broadcast stat changes when peers announce or torrents are uploaded. Eliminates polling entirely.
+- [ ] BE-STATS-3: Backfill torrent file lists — existing torrents uploaded before migration 023 have NULL `files` column. Write a one-time script that reads stored `.torrent` files from S3, parses them, and populates the `files` JSONB.
+
 ### Future: Admin Panel Enhancements (BE-8.x)
 - [ ] BE-8.1: Invalidate sessions on user disable — when admin toggles `enabled=false`, also call `sessions.DeleteByUserID()` so the ban is immediate
 - [ ] BE-8.2: Admin torrent moderation — add torrent delete action from admin panel, ideally linked from reports page ("resolve & delete torrent" flow)

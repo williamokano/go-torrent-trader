@@ -41,6 +41,7 @@ export function UploadPage() {
   const [categoryId, setCategoryId] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [nfo, setNfo] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -111,6 +112,7 @@ export function UploadPage() {
       if (name.trim()) formData.append("name", name.trim());
       if (description.trim())
         formData.append("description", description.trim());
+      if (nfo.trim()) formData.append("nfo", nfo.trim());
       if (anonymous) formData.append("anonymous", "true");
 
       const response = await fetch(`${getConfig().API_URL}/api/v1/torrents`, {
@@ -221,6 +223,14 @@ export function UploadPage() {
             onChange={(e) => setDescription(e.target.value)}
             rows={5}
             placeholder="Describe the torrent contents..."
+          />
+
+          <Textarea
+            label="NFO"
+            value={nfo}
+            onChange={(e) => setNfo(e.target.value)}
+            rows={6}
+            placeholder="Paste NFO content (optional)"
           />
 
           <Checkbox
