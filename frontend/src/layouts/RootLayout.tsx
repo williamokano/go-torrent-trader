@@ -17,11 +17,6 @@ function Dropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const location = useLocation();
-
-  useEffect(() => {
-    setOpen(false);
-  }, [location]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -57,6 +52,7 @@ export function RootLayout() {
   const { theme, toggleTheme } = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
 
   const [siteStats, setSiteStats] = useState<{
@@ -109,7 +105,11 @@ export function RootLayout() {
             Home
           </NavLink>
 
-          <Dropdown label="Torrents" onNavigate={closeMenu}>
+          <Dropdown
+            key={`torrents-${location.key}`}
+            label="Torrents"
+            onNavigate={closeMenu}
+          >
             <NavLink
               to="/browse"
               className="header__dropdown-item"
@@ -157,7 +157,11 @@ export function RootLayout() {
             Forums
           </NavLink>
 
-          <Dropdown label="Community" onNavigate={closeMenu}>
+          <Dropdown
+            key={`community-${location.key}`}
+            label="Community"
+            onNavigate={closeMenu}
+          >
             <NavLink
               to="/members"
               className="header__dropdown-item"
