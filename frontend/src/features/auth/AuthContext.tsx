@@ -166,7 +166,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     storeTokens(data.tokens);
-    setUser(mapUser(data.user as Record<string, unknown>) ?? null);
+
+    // Fetch full profile with permissions so isAdmin/isStaff are set immediately
+    const meRes = await api.GET("/api/v1/auth/me", {
+      headers: { Authorization: `Bearer ${data.tokens.access_token}` },
+    });
+    if (meRes.data?.user) {
+      setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
+    } else {
+      setUser(mapUser(data.user as Record<string, unknown>) ?? null);
+    }
   }, []);
 
   const logout = useCallback(async () => {
@@ -213,7 +222,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     storeTokens(resData.tokens);
-    setUser(mapUser(resData.user as Record<string, unknown>) ?? null);
+
+    const meRes = await api.GET("/api/v1/auth/me", {
+      headers: { Authorization: `Bearer ${resData.tokens.access_token}` },
+    });
+    if (meRes.data?.user) {
+      setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
+    } else {
+      setUser(mapUser(resData.user as Record<string, unknown>) ?? null);
+    }
   }, []);
 
   const value = useMemo<AuthContextValue>(

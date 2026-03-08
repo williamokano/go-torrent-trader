@@ -183,6 +183,10 @@ func handleAuthError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "invite_required", "registration is by invitation only")
 	case errors.Is(err, service.ErrInvalidInviteCode):
 		ErrorResponse(w, http.StatusBadRequest, "invalid_invite", "invalid or expired invite code")
+	case errors.Is(err, service.ErrBannedEmail):
+		ErrorResponse(w, http.StatusForbidden, "banned", "this email address is not allowed")
+	case errors.Is(err, service.ErrBannedIP):
+		ErrorResponse(w, http.StatusForbidden, "banned", "your IP address is banned")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}

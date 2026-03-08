@@ -125,6 +125,26 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.RegistrationModeChangedEvent)
 		return fmt.Sprintf("%s changed registration mode from %s to %s", e.Actor.Username, e.OldMode, e.NewMode), e.Actor
 	})
+
+	listen(event.EmailBanned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.EmailBannedEvent)
+		return fmt.Sprintf("%s banned email pattern: %s", e.Actor.Username, e.Pattern), e.Actor
+	})
+
+	listen(event.EmailUnbanned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.EmailUnbannedEvent)
+		return fmt.Sprintf("%s unbanned email pattern: %s", e.Actor.Username, e.Pattern), e.Actor
+	})
+
+	listen(event.IPBanned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.IPBannedEvent)
+		return fmt.Sprintf("%s banned IP range: %s", e.Actor.Username, e.IPRange), e.Actor
+	})
+
+	listen(event.IPUnbanned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.IPUnbannedEvent)
+		return fmt.Sprintf("%s unbanned IP range: %s", e.Actor.Username, e.IPRange), e.Actor
+	})
 }
 
 func marshalMetadata(evt event.Event) *string {

@@ -133,6 +133,19 @@ type SiteSettingsRepository interface {
 	GetAll(ctx context.Context) ([]model.SiteSetting, error)
 }
 
+// BanRepository defines persistence operations for email and IP bans.
+type BanRepository interface {
+	CreateEmailBan(ctx context.Context, ban *model.BannedEmail) error
+	DeleteEmailBan(ctx context.Context, id int64) error
+	ListEmailBans(ctx context.Context) ([]model.BannedEmail, error)
+	IsEmailBanned(ctx context.Context, email string) (bool, error)
+
+	CreateIPBan(ctx context.Context, ban *model.BannedIP) error
+	DeleteIPBan(ctx context.Context, id int64) error
+	ListIPBans(ctx context.Context) ([]model.BannedIP, error)
+	IsIPBanned(ctx context.Context, ip string) (bool, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

@@ -38,6 +38,14 @@ export function AdminLayout() {
         >
           Settings
         </NavLink>
+        <NavLink
+          to="/admin/bans"
+          className={({ isActive }) =>
+            `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`
+          }
+        >
+          Bans
+        </NavLink>
       </nav>
       <div className="admin-layout__content">
         <Outlet />

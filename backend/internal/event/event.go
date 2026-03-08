@@ -24,10 +24,14 @@ const (
 	ReportResolved  Type = "report_resolved"
 	CommentCreated    Type = "comment_created"
 	CommentDeleted    Type = "comment_deleted"
-	ReseedRequested        Type = "reseed_requested"
-	InviteCreated          Type = "invite_created"
-	InviteRedeemed         Type = "invite_redeemed"
+	ReseedRequested         Type = "reseed_requested"
+	InviteCreated           Type = "invite_created"
+	InviteRedeemed          Type = "invite_redeemed"
 	RegistrationModeChanged Type = "registration_mode_changed"
+	EmailBanned             Type = "email_banned"
+	EmailUnbanned           Type = "email_unbanned"
+	IPBanned                Type = "ip_banned"
+	IPUnbanned              Type = "ip_unbanned"
 )
 
 // Event is the base interface for all domain events.
@@ -177,8 +181,8 @@ type InviteCreatedEvent struct {
 
 type InviteRedeemedEvent struct {
 	Base
-	InviteID  int64 `json:"invite_id"`
-	InviteeID int64 `json:"invitee_id"`
+	InviteID  int64  `json:"invite_id"`
+	InviteeID int64  `json:"invitee_id"`
 	Token     string `json:"token"`
 }
 
@@ -186,4 +190,24 @@ type RegistrationModeChangedEvent struct {
 	Base
 	OldMode string `json:"old_mode"`
 	NewMode string `json:"new_mode"`
+}
+
+type EmailBannedEvent struct {
+	Base
+	Pattern string `json:"pattern"`
+}
+
+type EmailUnbannedEvent struct {
+	Base
+	Pattern string `json:"pattern"`
+}
+
+type IPBannedEvent struct {
+	Base
+	IPRange string `json:"ip_range"`
+}
+
+type IPUnbannedEvent struct {
+	Base
+	IPRange string `json:"ip_range"`
 }
