@@ -46,16 +46,19 @@ func NewRouter(deps *Deps) chi.Router {
 	r.Use(chimw.RealIP)
 	r.Use(mw.RequestLogger)
 	r.Use(mw.CORS)
-
-	// WebSocket endpoint — mounted BEFORE Recoverer because the recoverer
-	// wraps ResponseWriter and strips the http.Hijacker interface needed
-	// for WebSocket upgrade.
-	if deps != nil && deps.ChatHub != nil {
-		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
-	}
-
-	// Recoverer for all other routes (not compatible with WebSocket hijack)
 	r.Use(chimw.Recoverer)
+
+	// WebSocket endpoint — uses a separate sub-router WITHOUT Recoverer.
+	// Chi's Recoverer wraps ResponseWriter and strips http.Hijacker which
+	// gorilla/websocket needs for the upgrade handshake.
+	if deps != nil && deps.ChatHub != nil {
+		wsRouter := chi.NewRouter()
+		wsRouter.Use(chimw.RequestID)
+		wsRouter.Use(chimw.RealIP)
+		wsRouter.Use(mw.CORS)
+		wsRouter.Get("/", deps.ChatHub.HandleWebSocket)
+		r.Mount("/ws/chat", wsRouter)
+	}
 
 	// Health check
 	r.Get("/healthz", HandleHealthz)
