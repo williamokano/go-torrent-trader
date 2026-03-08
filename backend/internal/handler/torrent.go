@@ -24,11 +24,12 @@ const maxTorrentFileSize = 10 << 20 // 10 MB
 type TorrentHandler struct {
 	torrentSvc *service.TorrentService
 	peerRepo   repository.PeerRepository
+	userRepo   repository.UserRepository
 }
 
 // NewTorrentHandler creates a new TorrentHandler.
-func NewTorrentHandler(torrentSvc *service.TorrentService, peerRepo repository.PeerRepository) *TorrentHandler {
-	return &TorrentHandler{torrentSvc: torrentSvc, peerRepo: peerRepo}
+func NewTorrentHandler(torrentSvc *service.TorrentService, peerRepo repository.PeerRepository, userRepo repository.UserRepository) *TorrentHandler {
+	return &TorrentHandler{torrentSvc: torrentSvc, peerRepo: peerRepo, userRepo: userRepo}
 }
 
 // HandleUpload handles POST /api/v1/torrents.
@@ -70,6 +71,7 @@ func (h *TorrentHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	req := service.UploadTorrentRequest{
 		Name:        r.FormValue("name"),
 		Description: r.FormValue("description"),
+		Nfo:         r.FormValue("nfo"),
 		CategoryID:  categoryID,
 		Anonymous:   anonymous,
 	}
@@ -159,8 +161,17 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tResp := torrentResponse(torrent)
+
+	// Enrich with uploader info (unless anonymous)
+	if !torrent.Anonymous && h.userRepo != nil {
+		if uploader, err := h.userRepo.GetByID(r.Context(), torrent.UploaderID); err == nil {
+			tResp["uploader_name"] = uploader.Username
+		}
+	}
+
 	resp := map[string]interface{}{
-		"torrent": torrentResponse(torrent),
+		"torrent": tResp,
 	}
 
 	if h.peerRepo != nil {

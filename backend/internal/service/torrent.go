@@ -61,6 +61,7 @@ type ParsedTorrent struct {
 type UploadTorrentRequest struct {
 	Name        string
 	Description string
+	Nfo         string
 	CategoryID  int64
 	Anonymous   bool
 }
@@ -69,6 +70,7 @@ type UploadTorrentRequest struct {
 type EditTorrentRequest struct {
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
+	Nfo         *string `json:"nfo"`
 	CategoryID  *int64  `json:"category_id"`
 	Anonymous   *bool   `json:"anonymous"`
 	// Staff-only fields (admin group_id=1)
@@ -203,6 +205,9 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 	}
 	if req.Description != "" {
 		torrent.Description = &req.Description
+	}
+	if req.Nfo != "" {
+		torrent.Nfo = &req.Nfo
 	}
 
 	if s.db != nil {
@@ -354,6 +359,9 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 	}
 	if req.Description != nil {
 		torrent.Description = req.Description
+	}
+	if req.Nfo != nil {
+		torrent.Nfo = req.Nfo
 	}
 	if req.CategoryID != nil {
 		if *req.CategoryID <= 0 {

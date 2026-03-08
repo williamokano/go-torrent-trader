@@ -27,6 +27,7 @@ export function TorrentEditPage() {
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [anonymous, setAnonymous] = useState(false);
+  const [nfo, setNfo] = useState("");
   const [banned, setBanned] = useState(false);
   const [free, setFree] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,6 +96,7 @@ export function TorrentEditPage() {
       setTorrent(t);
       setName(t.name ?? "");
       setDescription(t.description ?? "");
+      setNfo(((t as Record<string, unknown>).nfo as string) ?? "");
       setCategoryId(String(t.category_id ?? ""));
       setAnonymous(t.anonymous ?? false);
       setLoading(false);
@@ -130,6 +132,7 @@ export function TorrentEditPage() {
       const body: Record<string, unknown> = {
         name: name.trim(),
         description: description.trim(),
+        nfo: nfo.trim(),
         category_id: Number(categoryId),
         anonymous,
       };
@@ -210,6 +213,14 @@ export function TorrentEditPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={5}
+          />
+
+          <Textarea
+            label="NFO"
+            value={nfo}
+            onChange={(e) => setNfo(e.target.value)}
+            rows={6}
+            placeholder="Paste NFO content (optional)"
           />
 
           <Select

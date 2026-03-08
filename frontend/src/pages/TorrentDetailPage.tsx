@@ -408,6 +408,24 @@ export function TorrentDetailPage() {
             {torrent.created_at ? timeAgo(torrent.created_at) : "Unknown"}
           </span>
         </div>
+        <div className="torrent-detail__info-row">
+          <span className="torrent-detail__info-label">Uploader</span>
+          <span className="torrent-detail__info-value">
+            {torrent.anonymous ? (
+              "Anonymous"
+            ) : (torrent as unknown as { uploader_name?: string })
+                .uploader_name ? (
+              <Link to={`/user/${torrent.uploader_id}`}>
+                {
+                  (torrent as unknown as { uploader_name: string })
+                    .uploader_name
+                }
+              </Link>
+            ) : (
+              "Unknown"
+            )}
+          </span>
+        </div>
       </div>
 
       {torrent.description && (

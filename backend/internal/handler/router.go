@@ -117,7 +117,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 			// Torrent endpoints (all protected)
 			if deps.TorrentService != nil {
-				torrents := NewTorrentHandler(deps.TorrentService, deps.PeerRepo)
+				torrents := NewTorrentHandler(deps.TorrentService, deps.PeerRepo, deps.UserRepo)
 				r.Route("/torrents", func(r chi.Router) {
 					r.Use(mw.RequireAuth(validator))
 					r.Get("/", torrents.HandleList)
