@@ -1,11 +1,13 @@
 ##############################################################################
 # TorrentTrader — Portainer Stack
 #
-# Deploy as a stack in Portainer. All environment variables below must be
-# configured in Portainer's stack environment variables or a .env file.
+# Deploy as a stack in Portainer. All environment variables should be
+# configured in Portainer's stack environment variables or via stack.env.
 #
 # Required variables (no defaults — you MUST set these):
 #   POSTGRES_PASSWORD, JWT_SECRET, MINIO_ROOT_PASSWORD, S3_SECRET_KEY
+#
+# See stack.env.example for all available variables with documentation.
 #
 # Image tag defaults to "latest" — override with IMAGE_TAG for versioned deploys.
 ##############################################################################
@@ -14,11 +16,12 @@ services:
   backend:
     image: williamokano/torrenttrader-backend:${IMAGE_TAG:-latest}
     ports:
-      - "${SERVER_PORT:-8080}:8080"
+      - "${BACKEND_PORT:-8080}:8080"
     environment:
       # Server
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "8080"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
 
       # Database (connects to the postgres service)
       DATABASE_URL: "postgres://${POSTGRES_USER:-torrenttrader}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-torrenttrader}?sslmode=disable"
@@ -29,10 +32,15 @@ services:
       # Redis (connects to the redis service)
       REDIS_URL: "redis://redis:6379/0"
 
+      # Sessions
+      SESSION_STORE: "${SESSION_STORE:-redis}"
+      ACCESS_TOKEN_TTL: "${ACCESS_TOKEN_TTL:-1h}"
+      REFRESH_TOKEN_TTL: "${REFRESH_TOKEN_TTL:-720h}"
+
       # JWT
       JWT_SECRET: "${JWT_SECRET}"
 
-      # Storage
+      # Storage (S3/MinIO)
       STORAGE_TYPE: "${STORAGE_TYPE:-s3}"
       S3_ENDPOINT: "minio:9000"
       S3_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
@@ -48,12 +56,16 @@ services:
       # Site
       SITE_NAME: "${SITE_NAME:-TorrentTrader}"
       SITE_DESCRIPTION: "${SITE_DESCRIPTION:-Private BitTorrent Tracker}"
-      SITE_BASE_URL: "${SITE_BASE_URL:-http://localhost:8080}"
+      SITE_BASE_URL: "${SITE_BASE_URL:-http://localhost:3000}"
+      API_URL: "${API_URL:-http://localhost:8080}"
 
       # Tracker
       TRACKER_ANNOUNCE_INTERVAL: "${TRACKER_ANNOUNCE_INTERVAL:-1800}"
       TRACKER_MIN_INTERVAL: "${TRACKER_MIN_INTERVAL:-900}"
       TRACKER_MAX_PEERS: "${TRACKER_MAX_PEERS:-50}"
+
+      # Worker
+      ENABLE_SCHEDULER: "${ENABLE_SCHEDULER:-true}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,6 +79,9 @@ services:
     image: williamokano/torrenttrader-frontend:${IMAGE_TAG:-latest}
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
+    environment:
+      API_URL: "${API_URL:-http://localhost:8080}"
+      SITE_NAME: "${SITE_NAME:-TorrentTrader}"
     networks:
       - torrenttrader
     restart: unless-stopped
@@ -90,7 +105,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
     healthcheck:
