@@ -68,10 +68,15 @@ export function RootLayout() {
   } | null>(null);
 
   useEffect(() => {
-    fetch(`${getConfig().API_URL}/api/v1/stats`)
-      .then((r) => r.json())
-      .then((d) => setSiteStats(d?.stats ?? null))
-      .catch(() => {});
+    function fetchStats() {
+      fetch(`${getConfig().API_URL}/api/v1/stats`)
+        .then((r) => r.json())
+        .then((d) => setSiteStats(d?.stats ?? null))
+        .catch(() => {});
+    }
+    fetchStats();
+    const interval = setInterval(fetchStats, 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
