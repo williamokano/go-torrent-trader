@@ -21,10 +21,15 @@ type AdminUserView struct {
 	Email      string  `json:"email"`
 	GroupID    int64   `json:"group_id"`
 	GroupName  string  `json:"group_name"`
+	Avatar     *string `json:"avatar"`
+	Title      *string `json:"title"`
+	Info       *string `json:"info"`
 	Uploaded   int64   `json:"uploaded"`
 	Downloaded int64   `json:"downloaded"`
 	Enabled    bool    `json:"enabled"`
 	Warned     bool    `json:"warned"`
+	Donor      bool    `json:"donor"`
+	Parked     bool    `json:"parked"`
 	Invites    int     `json:"invites"`
 	CreatedAt  string  `json:"created_at"`
 	LastAccess *string `json:"last_access"`
@@ -89,8 +94,13 @@ func (s *AdminService) ListUsers(ctx context.Context, opts repository.ListUsersO
 			GroupName:  groupNames[u.GroupID],
 			Uploaded:   u.Uploaded,
 			Downloaded: u.Downloaded,
+			Avatar:     u.Avatar,
+			Title:      u.Title,
+			Info:       u.Info,
 			Enabled:    u.Enabled,
 			Warned:     u.Warned,
+			Donor:      u.Donor,
+			Parked:     u.Parked,
 			Invites:    u.Invites,
 			CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
@@ -225,8 +235,13 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		GroupName:  groupName,
 		Uploaded:   user.Uploaded,
 		Downloaded: user.Downloaded,
+		Avatar:     user.Avatar,
+		Title:      user.Title,
+		Info:       user.Info,
 		Enabled:    user.Enabled,
 		Warned:     user.Warned,
+		Donor:      user.Donor,
+		Parked:     user.Parked,
 		Invites:    user.Invites,
 		CreatedAt:  user.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}

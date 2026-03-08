@@ -16,10 +16,15 @@ interface AdminUser {
   email: string;
   group_id: number;
   group_name: string;
+  avatar: string | null;
+  title: string | null;
+  info: string | null;
   uploaded: number;
   downloaded: number;
   enabled: boolean;
   warned: boolean;
+  donor: boolean;
+  parked: boolean;
   invites: number;
   created_at: string;
   last_access: string | null;
