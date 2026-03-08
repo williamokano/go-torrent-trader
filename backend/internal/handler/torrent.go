@@ -415,6 +415,7 @@ func peerResponse(p *model.Peer) map[string]interface{} {
 		"uploaded":      p.Uploaded,
 		"downloaded":    p.Downloaded,
 		"left_bytes":    p.LeftBytes,
+		"port":          p.Port,
 		"seeder":        p.Seeder,
 		"agent":         p.Agent,
 		"last_announce": p.LastAnnounce,

@@ -230,6 +230,7 @@ func (s *TrackerService) handleCompleted(
 	req AnnounceRequest,
 	isSeeder bool,
 ) error {
+	clientName := ParsePeerIDClient(req.PeerID)
 	now := time.Now()
 	peer := &model.Peer{
 		TorrentID:    torrent.ID,
@@ -241,6 +242,7 @@ func (s *TrackerService) handleCompleted(
 		Downloaded:   req.Downloaded,
 		LeftBytes:    req.Left,
 		Seeder:       isSeeder,
+		Agent:        &clientName,
 		StartedAt:    now,
 		LastAnnounce: now,
 	}
@@ -284,6 +286,7 @@ func (s *TrackerService) handleAnnounce(
 	req AnnounceRequest,
 	isSeeder bool,
 ) error {
+	clientName := ParsePeerIDClient(req.PeerID)
 	now := time.Now()
 	peer := &model.Peer{
 		TorrentID:    torrent.ID,
@@ -295,6 +298,7 @@ func (s *TrackerService) handleAnnounce(
 		Downloaded:   req.Downloaded,
 		LeftBytes:    req.Left,
 		Seeder:       isSeeder,
+		Agent:        &clientName,
 		StartedAt:    now,
 		LastAnnounce: now,
 	}

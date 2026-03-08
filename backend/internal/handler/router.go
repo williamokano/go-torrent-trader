@@ -74,6 +74,18 @@ func NewRouter(deps *Deps) chi.Router {
 			auth := NewAuthHandler(deps.AuthService, deps.UserService)
 			validator := NewSessionValidatorAdapter(deps.SessionStore)
 
+			authMw := mw.RequireAuth(validator)
+			var activityTracker *mw.ActivityTracker
+			if deps.UserRepo != nil {
+				activityTracker = mw.NewActivityTracker(deps.UserRepo)
+			}
+			authMiddleware := func(r chi.Router) {
+				r.Use(authMw)
+				if activityTracker != nil {
+					r.Use(activityTracker.Track)
+				}
+			}
+
 			r.Route("/auth", func(r chi.Router) {
 				// Public auth endpoints
 				r.Post("/register", auth.HandleRegister)
@@ -90,7 +102,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 				// Protected auth endpoints
 				r.Group(func(r chi.Router) {
-					r.Use(mw.RequireAuth(validator))
+					authMiddleware(r)
 					r.Post("/logout", auth.HandleLogout)
 					r.Get("/me", auth.HandleMe)
 				})
@@ -100,7 +112,7 @@ func NewRouter(deps *Deps) chi.Router {
 			if deps.UserService != nil {
 				users := NewUserHandler(deps.UserService)
 				r.Route("/users", func(r chi.Router) {
-					r.Use(mw.RequireAuth(validator))
+					authMiddleware(r)
 
 					// Member list endpoints (must be before /{id} to avoid Chi matching "staff" as an id)
 					if deps.MemberService != nil {
@@ -120,7 +132,7 @@ func NewRouter(deps *Deps) chi.Router {
 			if deps.TorrentService != nil {
 				torrents := NewTorrentHandler(deps.TorrentService, deps.PeerRepo, deps.UserRepo, deps.CategoryRepo)
 				r.Route("/torrents", func(r chi.Router) {
-					r.Use(mw.RequireAuth(validator))
+					authMiddleware(r)
 					r.Get("/", torrents.HandleList)
 					r.Get("/{id}", torrents.HandleGetByID)
 					r.Put("/{id}", torrents.HandleEdit)
@@ -149,7 +161,7 @@ func NewRouter(deps *Deps) chi.Router {
 			if deps.CommentService != nil {
 				comments := NewCommentHandler(deps.CommentService)
 				r.Route("/comments", func(r chi.Router) {
-					r.Use(mw.RequireAuth(validator))
+					authMiddleware(r)
 					r.Put("/{id}", comments.HandleEditComment)
 					r.Delete("/{id}", comments.HandleDeleteComment)
 				})
@@ -164,7 +176,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 					// Protected endpoints
 					r.Group(func(r chi.Router) {
-						r.Use(mw.RequireAuth(validator))
+						authMiddleware(r)
 						r.Get("/", invites.HandleListInvites)
 						r.With(mw.RequireCapability("invite")).Post("/", invites.HandleCreateInvite)
 					})
@@ -175,7 +187,7 @@ func NewRouter(deps *Deps) chi.Router {
 			if deps.ActivityLogService != nil {
 				activityLogs := NewActivityLogHandler(deps.ActivityLogService)
 				r.Route("/activity-logs", func(r chi.Router) {
-					r.Use(mw.RequireAuth(validator))
+					authMiddleware(r)
 					r.Get("/", activityLogs.HandleList)
 				})
 			}
@@ -184,7 +196,7 @@ func NewRouter(deps *Deps) chi.Router {
 			if deps.ReportService != nil {
 				reports := NewReportHandler(deps.ReportService)
 				r.Route("/reports", func(r chi.Router) {
-					r.Use(mw.RequireAuth(validator))
+					authMiddleware(r)
 					// Any authenticated user can submit a report
 					r.Post("/", reports.HandleCreate)
 
@@ -199,7 +211,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 			// Admin endpoints
 			r.Route("/admin", func(r chi.Router) {
-				r.Use(mw.RequireAuth(validator))
+				authMiddleware(r)
 				r.Use(mw.RequireAdmin)
 
 				if deps.AdminService != nil {

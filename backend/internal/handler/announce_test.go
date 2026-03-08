@@ -58,6 +58,7 @@ func (r *announceUserRepo) List(context.Context, repository.ListUsersOptions) ([
 func (r *announceUserRepo) ListStaff(context.Context) ([]model.User, error) {
 	return nil, nil
 }
+func (r *announceUserRepo) UpdateLastAccess(context.Context, int64) error { return nil }
 
 type announceTorrentRepo struct {
 	mu       sync.Mutex

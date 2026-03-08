@@ -7,6 +7,7 @@ import "./torrent-peers.css";
 
 interface Peer {
   user_id: number;
+  port: number;
   uploaded: number;
   downloaded: number;
   left_bytes: number;
@@ -96,6 +97,7 @@ export function TorrentPeersPage() {
           <thead>
             <tr>
               <th>Type</th>
+              <th>Port</th>
               <th>Uploaded</th>
               <th>Downloaded</th>
               <th>Left</th>
@@ -113,6 +115,7 @@ export function TorrentPeersPage() {
                     {p.seeder ? "Seed" : "Leech"}
                   </span>
                 </td>
+                <td>{p.port}</td>
                 <td>{formatBytes(p.uploaded)}</td>
                 <td>{formatBytes(p.downloaded)}</td>
                 <td>{p.left_bytes === 0 ? "-" : formatBytes(p.left_bytes)}</td>

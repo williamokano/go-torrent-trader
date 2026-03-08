@@ -89,6 +89,8 @@ func (m *trackerMockUserRepo) ListStaff(_ context.Context) ([]model.User, error)
 	return nil, nil
 }
 
+func (m *trackerMockUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
+
 // --- Mock Torrent Repository ---
 
 type trackerMockTorrentRepo struct {
