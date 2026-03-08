@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -26,6 +27,10 @@ func HandleStats(db *sql.DB) http.HandlerFunc {
 				(SELECT COUNT(*) FROM peers WHERE seeder = false)
 		`).Scan(&stats.Users, &stats.Torrents, &stats.Peers, &stats.Seeders, &stats.Leechers)
 		if err != nil {
+			if r.Context().Err() == context.Canceled {
+				// Client disconnected — not a real error
+				return
+			}
 			slog.Error("failed to query site stats", "error", err)
 			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "Failed to load site statistics")
 			return
