@@ -17,6 +17,7 @@ import { UserSettingsPage } from "@/pages/UserSettingsPage";
 import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
+import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -94,6 +95,14 @@ export const router = createBrowserRouter([
           { path: "reports", element: <AdminReportsPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
         ],
+      },
+      {
+        path: "log",
+        element: (
+          <ProtectedRoute>
+            <ActivityLogPage />
+          </ProtectedRoute>
+        ),
       },
       { path: "login", element: <LoginPage /> },
       { path: "signup", element: <SignupPage /> },

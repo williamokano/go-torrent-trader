@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -23,12 +24,13 @@ type CreateReportRequest struct {
 
 // ReportService handles report business logic.
 type ReportService struct {
-	reports repository.ReportRepository
+	reports  repository.ReportRepository
+	eventBus event.Bus
 }
 
 // NewReportService creates a new ReportService.
-func NewReportService(reports repository.ReportRepository) *ReportService {
-	return &ReportService{reports: reports}
+func NewReportService(reports repository.ReportRepository, bus event.Bus) *ReportService {
+	return &ReportService{reports: reports, eventBus: bus}
 }
 
 // Create submits a new report. One report per user per torrent is enforced.
@@ -56,6 +58,14 @@ func (s *ReportService) Create(ctx context.Context, reporterID int64, req Create
 		return nil, fmt.Errorf("create report: %w", err)
 	}
 
+	if req.TorrentID != nil {
+		s.eventBus.Publish(ctx, &event.TorrentReportedEvent{
+			Base:      event.NewBase(event.TorrentReported, event.Actor{ID: reporterID}),
+			TorrentID: *req.TorrentID,
+			Reason:    req.Reason,
+		})
+	}
+
 	return report, nil
 }
 
@@ -78,5 +88,11 @@ func (s *ReportService) Resolve(ctx context.Context, reportID, resolvedByUserID 
 	if err := s.reports.Resolve(ctx, reportID, resolvedByUserID); err != nil {
 		return ErrReportNotFound
 	}
+
+	s.eventBus.Publish(ctx, &event.ReportResolvedEvent{
+		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID}),
+		ReportID: reportID,
+	})
+
 	return nil
 }

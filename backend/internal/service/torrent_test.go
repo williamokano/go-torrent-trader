@@ -10,6 +10,7 @@ import (
 
 	"github.com/zeebo/bencode"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -311,7 +312,7 @@ func TestTorrentService_Upload(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	data := buildTorrentFile("upload-test")
 	req := UploadTorrentRequest{
@@ -343,7 +344,7 @@ func TestTorrentService_Upload_CustomName(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	data := buildTorrentFile("original-name")
 	req := UploadTorrentRequest{
@@ -372,7 +373,7 @@ func TestTorrentService_Upload_Duplicate(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	data := buildTorrentFile("dup-test")
 	req := UploadTorrentRequest{CategoryID: 1}
@@ -392,7 +393,7 @@ func TestTorrentService_GetByID(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	data := buildTorrentFile("get-test")
 	uploaded, _ := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 1)
@@ -410,7 +411,7 @@ func TestTorrentService_GetByID_NotFound(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	_, err := svc.GetByID(context.Background(), 999)
 	if !errors.Is(err, ErrTorrentNotFound) {
@@ -422,7 +423,7 @@ func TestTorrentService_List(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	// Upload 3 torrents
 	for i := 0; i < 3; i++ {
@@ -446,7 +447,7 @@ func TestTorrentService_List_Pagination(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	for i := 0; i < 5; i++ {
 		data := buildTorrentFile("page-test-" + string(rune('a'+i)))
@@ -472,7 +473,7 @@ func TestTorrentService_DownloadTorrent(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://tracker.example.com/announce", TorrentComment: "http://tracker.example.com", TorrentCreatedBy: "TestTracker"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://tracker.example.com/announce", TorrentComment: "http://tracker.example.com", TorrentCreatedBy: "TestTracker"}, event.NewInMemoryBus())
 
 	passkey := "abc123passkey"
 	userRepo.addUser(&model.User{ID: 1, Passkey: &passkey})
@@ -526,7 +527,7 @@ func TestTorrentService_DownloadTorrent_NotFound(t *testing.T) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 
 	_, _, err := svc.DownloadTorrent(context.Background(), 999, 1)
 	if !errors.Is(err, ErrTorrentNotFound) {
@@ -540,7 +541,7 @@ func setupEditDeleteService() (*TorrentService, *memTorrentRepo, *memStorage) {
 	repo := newMemTorrentRepo()
 	userRepo := newMemUserRepo()
 	store := newMemStorage()
-	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	svc := NewTorrentService(repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus())
 	return svc, repo, store
 }
 

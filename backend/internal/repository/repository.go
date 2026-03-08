@@ -94,6 +94,20 @@ type GroupRepository interface {
 	List(ctx context.Context) ([]model.Group, error)
 }
 
+// ActivityLogRepository defines persistence operations for activity logs.
+type ActivityLogRepository interface {
+	Create(ctx context.Context, log *model.ActivityLog) error
+	List(ctx context.Context, opts ListActivityLogsOptions) ([]model.ActivityLog, int64, error)
+}
+
+// ListActivityLogsOptions holds filtering and pagination options for activity logs.
+type ListActivityLogsOptions struct {
+	EventType *string
+	ActorID   *int64
+	Page      int
+	PerPage   int
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

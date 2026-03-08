@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -13,22 +14,38 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
+	"github.com/williamokano/go-torrent-trader/backend/internal/listener"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
 	"github.com/williamokano/go-torrent-trader/backend/internal/worker"
 )
 
-func run() int {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
 
+func run() int {
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load configuration", "error", err)
 		return 1
 	}
+
+	logLevel := parseLogLevel(cfg.LogLevel)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	slog.SetDefault(logger)
 
 	// Connect to PostgreSQL
 	connCfg := database.ConnConfig{
@@ -80,8 +97,11 @@ func run() int {
 
 	passwordResetStore := postgres.NewPasswordResetRepo(db)
 
+	// Event bus
+	eventBus := event.NewInMemoryBus()
+
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
-	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo)
+	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo, eventBus)
 	userService := service.NewUserService(userRepo, sessionStore, groupRepo)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
@@ -96,16 +116,21 @@ func run() int {
 		AnnounceURL:      fmt.Sprintf("%s/announce", cfg.Site.ApiURL),
 		TorrentComment:   cfg.Site.BaseURL,
 		TorrentCreatedBy: cfg.Site.Name,
-	})
+	}, eventBus)
 
 	reportRepo := postgres.NewReportRepo(db)
-	reportService := service.NewReportService(reportRepo)
+	reportService := service.NewReportService(reportRepo, eventBus)
 
 	commentRepo := postgres.NewCommentRepo(db)
 	ratingRepo := postgres.NewRatingRepo(db)
-	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo)
+	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, eventBus)
 
-	adminService := service.NewAdminService(userRepo, groupRepo)
+	// Activity log — register event listeners
+	activityLogRepo := postgres.NewActivityLogRepo(db)
+	activityLogService := service.NewActivityLogService(activityLogRepo)
+	listener.RegisterActivityLogListeners(eventBus, activityLogService)
+
+	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 
 	deps := &handler.Deps{
 		DB:             db,
@@ -114,9 +139,10 @@ func run() int {
 		UserService:    userService,
 		TorrentService: torrentService,
 		TrackerService: trackerService,
-		ReportService:  reportService,
-		CommentService: commentService,
-		AdminService:   adminService,
+		ReportService:      reportService,
+		CommentService:     commentService,
+		AdminService:       adminService,
+		ActivityLogService: activityLogService,
 	}
 
 	// Start background worker (asynq server + scheduler)

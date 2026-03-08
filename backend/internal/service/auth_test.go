@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -112,7 +113,7 @@ func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([
 func TestRegister_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	user, tokens, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "testuser",
@@ -140,7 +141,7 @@ func TestRegister_Success(t *testing.T) {
 func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	user, _, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "admin",
@@ -159,7 +160,7 @@ func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 func TestRegister_SecondUserGetsDefaultGroup(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	// Register first user
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -186,7 +187,7 @@ func TestRegister_SecondUserGetsDefaultGroup(t *testing.T) {
 func TestRegister_DuplicateUsername(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "dupe",
@@ -208,7 +209,7 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 func TestRegister_DuplicateEmail(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "user1",
@@ -230,7 +231,7 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 func TestRegister_ValidationErrors(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	tests := []struct {
 		name string
@@ -257,7 +258,7 @@ func TestRegister_ValidationErrors(t *testing.T) {
 func TestLogin_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "loginuser",
@@ -284,7 +285,7 @@ func TestLogin_Success(t *testing.T) {
 func TestLogin_WrongPassword(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "loginuser",
@@ -305,7 +306,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 func TestLogin_NonexistentUser(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, _, err := svc.Login(context.Background(), LoginRequest{
 		Username: "ghost",
@@ -320,7 +321,7 @@ func TestLogin_NonexistentUser(t *testing.T) {
 func TestRefresh_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "refreshuser",
@@ -351,7 +352,7 @@ func TestRefresh_Success(t *testing.T) {
 func TestRefresh_InvalidToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, err := svc.Refresh(RefreshRequest{
 		RefreshToken: "bogus",
@@ -365,7 +366,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 func TestLogout(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "logoutuser",
@@ -383,7 +384,7 @@ func TestLogout(t *testing.T) {
 func TestGetCurrentUser(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	registered, _, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "meuser",
@@ -403,7 +404,7 @@ func TestGetCurrentUser(t *testing.T) {
 func TestForgotPassword_GeneratesToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
@@ -437,7 +438,7 @@ func TestForgotPassword_GeneratesToken(t *testing.T) {
 func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
@@ -458,7 +459,7 @@ func TestForgotPassword_NonexistentEmail_NoError(t *testing.T) {
 func TestForgotPassword_RateLimit(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
@@ -494,7 +495,7 @@ func TestForgotPassword_RateLimit(t *testing.T) {
 func TestResetPassword_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
@@ -571,7 +572,7 @@ func TestResetPassword_Success(t *testing.T) {
 func TestResetPassword_InvalidToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
 		Token:    "bogustoken",
@@ -585,7 +586,7 @@ func TestResetPassword_InvalidToken(t *testing.T) {
 func TestResetPassword_ExpiredToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
@@ -617,7 +618,7 @@ func TestResetPassword_ExpiredToken(t *testing.T) {
 func TestResetPassword_UsedToken(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
@@ -649,7 +650,7 @@ func TestResetPassword_UsedToken(t *testing.T) {
 func TestResetPassword_WeakPassword(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
 		Token:    "sometoken",
@@ -668,7 +669,7 @@ func hashTokenForTest(token string) string {
 func TestLogin_DisabledUser(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "disabled",

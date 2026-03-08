@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -37,13 +38,14 @@ type AdminUpdateUserRequest struct {
 
 // AdminService handles admin-only business logic.
 type AdminService struct {
-	users  repository.UserRepository
-	groups repository.GroupRepository
+	users    repository.UserRepository
+	groups   repository.GroupRepository
+	eventBus event.Bus
 }
 
 // NewAdminService creates a new AdminService.
-func NewAdminService(users repository.UserRepository, groups repository.GroupRepository) *AdminService {
-	return &AdminService{users: users, groups: groups}
+func NewAdminService(users repository.UserRepository, groups repository.GroupRepository, bus event.Bus) *AdminService {
+	return &AdminService{users: users, groups: groups, eventBus: bus}
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -89,11 +91,20 @@ func (s *AdminService) ListUsers(ctx context.Context, opts repository.ListUsersO
 	return views, total, nil
 }
 
-// UpdateUser modifies admin-editable fields on a user.
-func (s *AdminService) UpdateUser(ctx context.Context, userID int64, req AdminUpdateUserRequest) (*AdminUserView, error) {
+// UpdateUser modifies admin-editable fields on a user. actorID is the admin performing the action.
+func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, req AdminUpdateUserRequest) (*AdminUserView, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return nil, ErrAdminUserNotFound
+	}
+
+	// Capture previous state for event detection
+	oldEnabled := user.Enabled
+	oldWarned := user.Warned
+	oldGroupID := user.GroupID
+	oldGroupName := ""
+	if g, err := s.groups.GetByID(ctx, oldGroupID); err == nil {
+		oldGroupName = g.Name
 	}
 
 	if req.GroupID != nil {
@@ -112,6 +123,52 @@ func (s *AdminService) UpdateUser(ctx context.Context, userID int64, req AdminUp
 
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	// Build actor for events
+	actor := s.actorFromUserID(ctx, actorID)
+
+	// Publish events for state changes
+	if oldEnabled && !user.Enabled {
+		s.eventBus.Publish(ctx, &event.UserBannedEvent{
+			Base:     event.NewBase(event.UserBanned, actor),
+			UserID:   user.ID,
+			Username: user.Username,
+		})
+	}
+	if !oldEnabled && user.Enabled {
+		s.eventBus.Publish(ctx, &event.UserUnbannedEvent{
+			Base:     event.NewBase(event.UserUnbanned, actor),
+			UserID:   user.ID,
+			Username: user.Username,
+		})
+	}
+	if !oldWarned && user.Warned {
+		s.eventBus.Publish(ctx, &event.UserWarnedEvent{
+			Base:     event.NewBase(event.UserWarned, actor),
+			UserID:   user.ID,
+			Username: user.Username,
+		})
+	}
+	if oldWarned && !user.Warned {
+		s.eventBus.Publish(ctx, &event.UserUnwarnedEvent{
+			Base:     event.NewBase(event.UserUnwarned, actor),
+			UserID:   user.ID,
+			Username: user.Username,
+		})
+	}
+	if oldGroupID != user.GroupID {
+		newGroupName := ""
+		if g, err := s.groups.GetByID(ctx, user.GroupID); err == nil {
+			newGroupName = g.Name
+		}
+		s.eventBus.Publish(ctx, &event.UserGroupChangedEvent{
+			Base:         event.NewBase(event.UserGroupChanged, actor),
+			UserID:       user.ID,
+			Username:     user.Username,
+			OldGroupName: oldGroupName,
+			NewGroupName: newGroupName,
+		})
 	}
 
 	groupName := ""
@@ -137,6 +194,14 @@ func (s *AdminService) UpdateUser(ctx context.Context, userID int64, req AdminUp
 	}
 
 	return view, nil
+}
+
+func (s *AdminService) actorFromUserID(ctx context.Context, userID int64) event.Actor {
+	actor := event.Actor{ID: userID}
+	if u, err := s.users.GetByID(ctx, userID); err == nil {
+		actor.Username = u.Username
+	}
+	return actor
 }
 
 // ListGroups returns all groups ordered by level.

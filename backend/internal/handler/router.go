@@ -12,15 +12,16 @@ import (
 
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
-	DB             *sql.DB
-	AuthService    *service.AuthService
-	SessionStore   service.SessionStore
-	UserService    *service.UserService
-	TorrentService *service.TorrentService
-	TrackerService *service.TrackerService
-	ReportService  *service.ReportService
-	CommentService *service.CommentService
-	AdminService   *service.AdminService
+	DB                 *sql.DB
+	AuthService        *service.AuthService
+	SessionStore       service.SessionStore
+	UserService        *service.UserService
+	TorrentService     *service.TorrentService
+	TrackerService     *service.TrackerService
+	ReportService      *service.ReportService
+	CommentService     *service.CommentService
+	AdminService       *service.AdminService
+	ActivityLogService *service.ActivityLogService
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -117,6 +118,15 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Use(mw.RequireAuth(validator))
 					r.Put("/{id}", comments.HandleEditComment)
 					r.Delete("/{id}", comments.HandleDeleteComment)
+				})
+			}
+
+			// Activity log endpoints (visible to all authenticated users)
+			if deps.ActivityLogService != nil {
+				activityLogs := NewActivityLogHandler(deps.ActivityLogService)
+				r.Route("/activity-logs", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Get("/", activityLogs.HandleList)
 				})
 			}
 

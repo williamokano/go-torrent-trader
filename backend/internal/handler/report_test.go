@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -130,8 +131,9 @@ func setupReportRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	reportRepo := newMockReportRepo()
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{})
-	reportSvc := service.NewReportService(reportRepo)
+	bus := event.NewInMemoryBus()
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
+	reportSvc := service.NewReportService(reportRepo, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:   authSvc,

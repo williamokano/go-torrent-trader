@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -204,6 +205,7 @@ func setupCommentService() *service.CommentService {
 		newMockCommentRepo(),
 		newMockRatingRepo(),
 		newMockTorrentRepoForComment(),
+		event.NewInMemoryBus(),
 	)
 }
 
@@ -340,7 +342,7 @@ func TestDeleteComment_AsAdmin(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "To delete")
 
-	err := svc.DeleteComment(context.Background(), comment.ID, model.Permissions{GroupID: 1, IsAdmin: true})
+	err := svc.DeleteComment(context.Background(), comment.ID, 99, model.Permissions{GroupID: 1, IsAdmin: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -350,7 +352,7 @@ func TestDeleteComment_NotStaff(t *testing.T) {
 	svc := setupCommentService()
 	comment, _ := svc.CreateComment(context.Background(), 1, 10, "To delete")
 
-	err := svc.DeleteComment(context.Background(), comment.ID, model.Permissions{GroupID: 5})
+	err := svc.DeleteComment(context.Background(), comment.ID, 10, model.Permissions{GroupID: 5})
 	if !errors.Is(err, service.ErrForbidden) {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -358,7 +360,7 @@ func TestDeleteComment_NotStaff(t *testing.T) {
 
 func TestDeleteComment_NotFound(t *testing.T) {
 	svc := setupCommentService()
-	err := svc.DeleteComment(context.Background(), 999, model.Permissions{GroupID: 1, IsAdmin: true})
+	err := svc.DeleteComment(context.Background(), 999, 99, model.Permissions{GroupID: 1, IsAdmin: true})
 	if !errors.Is(err, service.ErrCommentNotFound) {
 		t.Errorf("expected ErrCommentNotFound, got %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -68,6 +69,12 @@ func (h *AdminHandler) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 
 // HandleUpdateUser handles PUT /api/v1/admin/users/{id}.
 func (h *AdminHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
@@ -80,7 +87,7 @@ func (h *AdminHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	user, err := h.admin.UpdateUser(r.Context(), id, req)
+	user, err := h.admin.UpdateUser(r.Context(), actorID, id, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrAdminUserNotFound):
