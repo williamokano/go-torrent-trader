@@ -456,13 +456,13 @@ export function TorrentDetailPage() {
         ) : null;
       })()}
 
-      {peerCount > 0 && (
-        <div className="torrent-detail__peers-link">
-          <Link to={`/torrent/${id}/peers`}>
-            View {peerCount} active {peerCount === 1 ? "peer" : "peers"}
-          </Link>
-        </div>
-      )}
+      <div className="torrent-detail__peers-link">
+        <Link to={`/torrent/${id}/peers`}>
+          {peerCount > 0
+            ? `View ${peerCount} active ${peerCount === 1 ? "peer" : "peers"}`
+            : "View peers"}
+        </Link>
+      </div>
 
       <RatingWidget torrentId={id!} />
 
