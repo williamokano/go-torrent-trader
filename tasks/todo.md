@@ -32,6 +32,11 @@
 - BE-1.2.3: Move test doubles out of domain code (testutil package)
 - BE-3.13: Rich torrent metadata (research task)
 
+### Future: Reseed Notification via PM
+- [ ] BE-3.9.1: Reseed PM notification listener — when `ReseedRequested` event fires, send a PM to the torrent uploader notifying them of the reseed request
+  - **Depends on:** BE-7.1 (Private messaging: send & receive)
+  - Listener in `listener/` package, wires into event bus, calls PM service to create a system message
+
 ### Future: Admin Panel Enhancements (BE-8.x)
 - [ ] BE-8.1: Invalidate sessions on user disable — when admin toggles `enabled=false`, also call `sessions.DeleteByUserID()` so the ban is immediate
 - [ ] BE-8.2: Admin torrent moderation — add torrent delete action from admin panel, ideally linked from reports page ("resolve & delete torrent" flow)
