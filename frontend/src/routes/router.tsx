@@ -17,6 +17,7 @@ import { UserSettingsPage } from "@/pages/UserSettingsPage";
 import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
+import { RSSBuilderPage } from "@/pages/RSSBuilderPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -55,6 +56,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <TorrentDetailPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "rss",
+        element: (
+          <ProtectedRoute>
+            <RSSBuilderPage />
           </ProtectedRoute>
         ),
       },

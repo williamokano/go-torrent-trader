@@ -143,6 +143,12 @@ func run() int {
 		CommentService:     commentService,
 		AdminService:       adminService,
 		ActivityLogService: activityLogService,
+		UserRepo:           userRepo,
+		RSSConfig: &handler.RSSConfig{
+			SiteName: cfg.Site.Name,
+			BaseURL:  cfg.Site.BaseURL,
+			ApiURL:   cfg.Site.ApiURL,
+		},
 	}
 
 	// Start background worker (asynq server + scheduler)

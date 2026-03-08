@@ -66,6 +66,15 @@ export function RootLayout() {
             Upload
           </NavLink>
           <NavLink
+            to="/rss"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            RSS
+          </NavLink>
+          <NavLink
             to="/log"
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`

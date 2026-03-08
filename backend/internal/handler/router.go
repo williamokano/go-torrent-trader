@@ -7,6 +7,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	mw "github.com/williamokano/go-torrent-trader/backend/internal/middleware"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -22,6 +23,8 @@ type Deps struct {
 	CommentService     *service.CommentService
 	AdminService       *service.AdminService
 	ActivityLogService *service.ActivityLogService
+	UserRepo           repository.UserRepository
+	RSSConfig          *RSSConfig
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -52,6 +55,12 @@ func NewRouter(deps *Deps) chi.Router {
 		if deps != nil && deps.DB != nil {
 			r.Get("/stats", HandleStats(deps.DB))
 			r.Get("/categories", HandleCategories(deps.DB))
+		}
+
+		// RSS feed (public, authenticated via passkey query param)
+		if deps != nil && deps.TorrentService != nil && deps.UserRepo != nil && deps.RSSConfig != nil {
+			rssHandler := NewRSSHandler(deps.TorrentService, deps.UserRepo, *deps.RSSConfig)
+			r.Get("/rss", rssHandler.HandleRSS)
 		}
 
 		if deps != nil && deps.AuthService != nil {
