@@ -54,20 +54,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Update Docker Hub description
-        # Requires Docker Hub account password (not PAT) — PATs don't
-        # support the /v2/repositories PATCH endpoint for descriptions.
-        # Set DOCKERHUB_PASSWORD secret with your account password,
-        # or skip this step if not configured.
-        if: ${{ secrets.DOCKERHUB_PASSWORD != '' }}
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          repository: ${{ secrets.DOCKER_USERNAME }}/torrenttrader-${{ matrix.project }}
-          readme-filepath: ./${{ matrix.project }}/README.md
-          short-description: "TorrentTrader ${{ matrix.project }} — https://github.com/${{ github.repository }}"
-
   build-binaries:
     runs-on: ubuntu-latest
     strategy:
