@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/themes";
 import { useAuth } from "@/features/auth";
+import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { formatNumber } from "@/utils/format";
 import "./RootLayout.css";
@@ -49,6 +50,25 @@ export function RootLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
+
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    function fetchUnread() {
+      const token = getAccessToken();
+      if (!token) return;
+      fetch(`${getConfig().API_URL}/api/v1/messages/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((d) => setUnreadCount(d?.unread_count ?? 0))
+        .catch(() => {});
+    }
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30_000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
 
   const [siteStats, setSiteStats] = useState<{
     users: number;
@@ -158,6 +178,13 @@ export function RootLayout() {
             onNavigate={closeMenu}
           >
             <NavLink
+              to="/messages"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Messages
+            </NavLink>
+            <NavLink
               to="/members"
               className="header__dropdown-item"
               onClick={closeMenu}
@@ -197,6 +224,16 @@ export function RootLayout() {
           </button>
           {isAuthenticated ? (
             <>
+              <Link
+                to="/messages"
+                className="header__mail-link"
+                title="Messages"
+              >
+                <span className="header__mail-icon">&#9993;</span>
+                {unreadCount > 0 && (
+                  <span className="header__mail-badge">{unreadCount}</span>
+                )}
+              </Link>
               <Link to={`/user/${user?.id}`} className="header__username-link">
                 {user?.username}
               </Link>

@@ -126,6 +126,9 @@ func run() int {
 	ratingRepo := postgres.NewRatingRepo(db)
 	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, eventBus)
 
+	messageRepo := postgres.NewMessageRepo(db)
+	messageService := service.NewMessageService(messageRepo, userRepo, eventBus)
+
 	inviteRepo := postgres.NewInviteRepo(db)
 	inviteService := service.NewInviteService(inviteRepo, userRepo, eventBus)
 
@@ -167,6 +170,7 @@ func run() int {
 		ActivityLogService:  activityLogService,
 		SiteSettingsService: siteSettingsService,
 		BanService:          banService,
+		MessageService:      messageService,
 		PeerRepo:           peerRepo,
 		UserRepo:           userRepo,
 		CategoryRepo:       categoryRepo,

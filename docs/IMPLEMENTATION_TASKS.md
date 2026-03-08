@@ -919,6 +919,23 @@
 - WebSocket push: if user is connected, push notification in real-time
 - System messages: sent by "System" user for automated notifications (warnings, reseed requests, etc.)
 
+#### BE-7.4: Real-Time PM Notification via WebSocket [S]
+**As a** user
+**I want** to see my unread message count update in real time
+**So that** I know immediately when I receive a new message
+
+**Acceptance Criteria:**
+- Piggyback on the chat WebSocket connection (BE-6.1) — no separate connection
+- When a PM is sent, publish a `MessageSent` event
+- A listener checks if the receiver is connected to the chat WebSocket hub
+- If connected, broadcast `{"type":"pm_notification","unread_count":N}` to that user's connection only (not all clients)
+- Frontend chat WebSocket handler updates the header unread badge on receiving this message type
+- Eliminates the 30-second polling interval for unread count when WebSocket is active
+- Graceful fallback: if WebSocket is not connected, continue polling
+
+> **Depends on:** BE-6.1 (WebSocket chat hub must be merged first)
+> **Note:** The `MessageSentEvent` and unread count API already exist. This task only adds the WebSocket push layer.
+
 ---
 
 ### Epic BE-8: Admin Panel

@@ -137,6 +137,43 @@
   font-weight: 600;
 }
 
+/* Mail icon with unread badge */
+.header__mail-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  text-decoration: none;
+}
+
+.header__mail-icon {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  line-height: 1;
+}
+
+.header__mail-link:hover .header__mail-icon {
+  color: var(--color-accent);
+}
+
+.header__mail-badge {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  background-color: var(--color-error);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 8px;
+  line-height: 1;
+}
+
 .header__username {
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--text-sm);

@@ -162,6 +162,17 @@ type CategoryRepository interface {
 	CountTorrentsByCategory(ctx context.Context, categoryID int64) (int64, error)
 }
 
+// MessageRepository defines persistence operations for private messages.
+type MessageRepository interface {
+	Create(ctx context.Context, msg *model.Message) error
+	GetByID(ctx context.Context, id int64) (*model.Message, error)
+	ListInbox(ctx context.Context, userID int64, page, perPage int) ([]model.Message, int64, error)
+	ListOutbox(ctx context.Context, userID int64, page, perPage int) ([]model.Message, int64, error)
+	MarkAsRead(ctx context.Context, id, userID int64) error
+	DeleteForUser(ctx context.Context, id, userID int64) error
+	CountUnread(ctx context.Context, userID int64) (int, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

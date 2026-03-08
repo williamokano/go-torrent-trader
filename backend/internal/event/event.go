@@ -32,6 +32,7 @@ const (
 	EmailUnbanned           Type = "email_unbanned"
 	IPBanned                Type = "ip_banned"
 	IPUnbanned              Type = "ip_unbanned"
+	MessageSent             Type = "message_sent"
 )
 
 // Event is the base interface for all domain events.
@@ -210,4 +211,11 @@ type IPBannedEvent struct {
 type IPUnbannedEvent struct {
 	Base
 	IPRange string `json:"ip_range"`
+}
+
+type MessageSentEvent struct {
+	Base
+	MessageID  int64  `json:"message_id"`
+	ReceiverID int64  `json:"receiver_id"`
+	Subject    string `json:"subject"`
 }
