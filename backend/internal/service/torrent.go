@@ -209,11 +209,13 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		return nil, fmt.Errorf("create torrent: %w", err)
 	}
 
-	// Store the .torrent file
+	// Store the .torrent file — if this fails, roll back the DB record
 	storageKey := fmt.Sprintf("torrents/%d.torrent", torrent.ID)
 	if err := s.storage.Put(ctx, storageKey, bytes.NewReader(parsed.RawBytes)); err != nil {
-		// Best effort: log but don't fail the upload since DB record exists
-		slog.Error("failed to store torrent file", "torrent_id", torrent.ID, "error", err)
+		slog.Error("failed to store torrent file, rolling back", "torrent_id", torrent.ID, "error", err)
+		if delErr := s.torrents.Delete(ctx, torrent.ID); delErr != nil {
+			slog.Error("failed to roll back torrent record", "torrent_id", torrent.ID, "error", delErr)
+		}
 		return nil, fmt.Errorf("store torrent file: %w", err)
 	}
 
