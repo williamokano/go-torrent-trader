@@ -385,10 +385,7 @@ func (h *TorrentHandler) buildCategoryPath(ctx context.Context, categoryID int64
 	seen := make(map[int64]bool) // guard against cycles
 	currentID := categoryID
 
-	for {
-		if seen[currentID] {
-			break
-		}
+	for !seen[currentID] {
 		seen[currentID] = true
 
 		cat, err := h.categoryRepo.GetByID(ctx, currentID)
