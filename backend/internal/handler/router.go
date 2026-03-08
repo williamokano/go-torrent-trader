@@ -48,16 +48,11 @@ func NewRouter(deps *Deps) chi.Router {
 	r.Use(mw.CORS)
 	r.Use(chimw.Recoverer)
 
-	// WebSocket endpoint — uses a separate sub-router WITHOUT Recoverer.
-	// Chi's Recoverer wraps ResponseWriter and strips http.Hijacker which
-	// gorilla/websocket needs for the upgrade handshake.
+	// WebSocket endpoint (auth via query param, not middleware).
+	// The handler unwraps the ResponseWriter to bypass Recoverer's
+	// wrapper that strips http.Hijacker.
 	if deps != nil && deps.ChatHub != nil {
-		wsRouter := chi.NewRouter()
-		wsRouter.Use(chimw.RequestID)
-		wsRouter.Use(chimw.RealIP)
-		wsRouter.Use(mw.CORS)
-		wsRouter.Get("/", deps.ChatHub.HandleWebSocket)
-		r.Mount("/ws/chat", wsRouter)
+		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
 	}
 
 	// Health check

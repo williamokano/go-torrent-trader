@@ -110,6 +110,23 @@ type wsIncoming struct {
 }
 
 // HandleWebSocket handles the WebSocket upgrade and client lifecycle.
+// unwrapHijacker walks the ResponseWriter wrapper chain to find one that
+// implements http.Hijacker. Chi's Recoverer middleware wraps the writer,
+// stripping the Hijacker interface that WebSocket upgrade requires.
+func unwrapHijacker(w http.ResponseWriter) http.ResponseWriter {
+	if _, ok := w.(http.Hijacker); ok {
+		return w
+	}
+	// Chi and other middleware use Unwrap() to expose the inner writer.
+	type unwrapper interface {
+		Unwrap() http.ResponseWriter
+	}
+	if u, ok := w.(unwrapper); ok {
+		return unwrapHijacker(u.Unwrap())
+	}
+	return w
+}
+
 func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate via query param token.
 	token := r.URL.Query().Get("token")
@@ -124,7 +141,9 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// Unwrap the ResponseWriter to get past middleware wrappers (e.g.
+	// Chi's Recoverer) that strip the http.Hijacker interface.
+	conn, err := upgrader.Upgrade(unwrapHijacker(w), r, nil)
 	if err != nil {
 		slog.Error("websocket upgrade failed", "error", err)
 		return
