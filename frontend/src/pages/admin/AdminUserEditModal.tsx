@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Modal } from "@/components/modal/Modal";
+import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Checkbox } from "@/components/form";
 
@@ -9,6 +10,7 @@ interface AdminUser {
   group_id: number;
   enabled: boolean;
   warned: boolean;
+  invites: number;
 }
 
 interface GroupOption {
@@ -23,7 +25,12 @@ interface AdminUserEditModalProps {
   onClose: () => void;
   onSave: (
     userId: number,
-    data: { group_id?: number; enabled?: boolean; warned?: boolean },
+    data: {
+      group_id?: number;
+      enabled?: boolean;
+      warned?: boolean;
+      invites?: number;
+    },
   ) => Promise<void>;
 }
 
@@ -37,6 +44,7 @@ export function AdminUserEditModal({
   const [groupId, setGroupId] = useState(String(user.group_id));
   const [enabled, setEnabled] = useState(user.enabled);
   const [warned, setWarned] = useState(user.warned);
+  const [invites, setInvites] = useState(user.invites);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -47,6 +55,7 @@ export function AdminUserEditModal({
         group_id: Number(groupId),
         enabled,
         warned,
+        invites,
       });
       onClose();
     } finally {
@@ -72,6 +81,12 @@ export function AdminUserEditModal({
           label="Warned"
           checked={warned}
           onChange={(e) => setWarned(e.target.checked)}
+        />
+        <Input
+          label="Invites"
+          type="number"
+          value={String(invites)}
+          onChange={(e) => setInvites(Number(e.target.value))}
         />
         <div className="admin-users__modal-actions">
           <button

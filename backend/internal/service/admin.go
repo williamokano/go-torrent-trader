@@ -25,6 +25,7 @@ type AdminUserView struct {
 	Downloaded int64   `json:"downloaded"`
 	Enabled    bool    `json:"enabled"`
 	Warned     bool    `json:"warned"`
+	Invites    int     `json:"invites"`
 	CreatedAt  string  `json:"created_at"`
 	LastAccess *string `json:"last_access"`
 }
@@ -34,6 +35,7 @@ type AdminUpdateUserRequest struct {
 	GroupID *int64 `json:"group_id"`
 	Enabled *bool  `json:"enabled"`
 	Warned  *bool  `json:"warned"`
+	Invites *int   `json:"invites"`
 }
 
 // AdminService handles admin-only business logic.
@@ -80,6 +82,7 @@ func (s *AdminService) ListUsers(ctx context.Context, opts repository.ListUsersO
 			Downloaded: u.Downloaded,
 			Enabled:    u.Enabled,
 			Warned:     u.Warned,
+			Invites:    u.Invites,
 			CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 		if u.LastAccess != nil {
@@ -119,6 +122,9 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	}
 	if req.Warned != nil {
 		user.Warned = *req.Warned
+	}
+	if req.Invites != nil {
+		user.Invites = *req.Invites
 	}
 
 	if err := s.users.Update(ctx, user); err != nil {
@@ -186,6 +192,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		Downloaded: user.Downloaded,
 		Enabled:    user.Enabled,
 		Warned:     user.Warned,
+		Invites:    user.Invites,
 		CreatedAt:  user.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if user.LastAccess != nil {

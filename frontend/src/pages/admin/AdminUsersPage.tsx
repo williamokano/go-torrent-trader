@@ -20,6 +20,7 @@ interface AdminUser {
   downloaded: number;
   enabled: boolean;
   warned: boolean;
+  invites: number;
   created_at: string;
   last_access: string | null;
 }

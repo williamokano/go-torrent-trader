@@ -23,7 +23,7 @@ function getInviteLink(token: string): string {
 }
 
 export function InvitesPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [invites, setInvites] = useState<Invite[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -32,6 +32,7 @@ export function InvitesPage() {
   const [generating, setGenerating] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedAction, setCopiedAction] = useState<string | null>(null);
 
   const fetchInvites = useCallback(async () => {
     setLoading(true);
@@ -103,6 +104,7 @@ export function InvitesPage() {
         setGeneratedLink(getInviteLink(inviteToken));
       }
       fetchInvites();
+      refreshUser();
     } catch {
       setError("Failed to generate invite");
     } finally {
@@ -130,8 +132,8 @@ export function InvitesPage() {
         </span>
       </div>
 
-      {(user?.invites ?? 0) > 0 && (
-        <div className="invites__generate">
+      <div className="invites__generate">
+        {(user?.invites ?? 0) > 0 ? (
           <button
             type="button"
             className="invites__form-btn"
@@ -140,8 +142,13 @@ export function InvitesPage() {
           >
             {generating ? "Generating..." : "Generate Invite"}
           </button>
-        </div>
-      )}
+        ) : (
+          <p className="invites__no-invites">
+            You have no invites available. Staff can grant invites from the
+            admin panel.
+          </p>
+        )}
+      </div>
 
       {generatedLink && (
         <div className="invites__generated-link">
@@ -167,17 +174,18 @@ export function InvitesPage() {
         <table className="invites__table">
           <thead>
             <tr>
-              <th>Token</th>
+              <th>Code</th>
               <th>Status</th>
               <th>Created</th>
               <th>Expires</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {invites.map((inv) => (
               <tr key={inv.id}>
                 <td>
-                  <code>{inv.token.substring(0, 12)}...</code>
+                  <code className="invites__token">{inv.token}</code>
                 </td>
                 <td>
                   <span className={`invites__status--${inv.status}`}>
@@ -186,6 +194,48 @@ export function InvitesPage() {
                 </td>
                 <td>{formatDate(inv.created_at)}</td>
                 <td>{formatDate(inv.expires_at)}</td>
+                <td className="invites__actions">
+                  {inv.status === "pending" && (
+                    <>
+                      <button
+                        type="button"
+                        className="invites__copy-btn"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(inv.token);
+                            setCopiedAction(`code-${inv.id}`);
+                            setTimeout(() => setCopiedAction(null), 2000);
+                          } catch {
+                            /* fallback */
+                          }
+                        }}
+                      >
+                        {copiedAction === `code-${inv.id}`
+                          ? "Copied!"
+                          : "Copy Code"}
+                      </button>
+                      <button
+                        type="button"
+                        className="invites__copy-btn"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(
+                              getInviteLink(inv.token),
+                            );
+                            setCopiedAction(`link-${inv.id}`);
+                            setTimeout(() => setCopiedAction(null), 2000);
+                          } catch {
+                            /* fallback */
+                          }
+                        }}
+                      >
+                        {copiedAction === `link-${inv.id}`
+                          ? "Copied!"
+                          : "Copy Link"}
+                      </button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

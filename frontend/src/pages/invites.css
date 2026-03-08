@@ -117,6 +117,23 @@
   color: var(--color-text-muted);
 }
 
+.invites__token {
+  font-size: var(--text-xs);
+  word-break: break-all;
+  color: var(--color-text-secondary);
+}
+
+.invites__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.invites__no-invites {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
 .invites__loading {
   text-align: center;
   color: var(--color-text-muted);

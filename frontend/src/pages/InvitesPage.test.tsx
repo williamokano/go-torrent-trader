@@ -88,9 +88,13 @@ describe("InvitesPage", () => {
   test("renders invite table after loading", async () => {
     renderInvitesPage();
     await waitFor(() => {
-      expect(screen.getByText("abc123def456...")).toBeInTheDocument();
+      expect(
+        screen.getByText("abc123def456ghi789jkl012mno345pq"),
+      ).toBeInTheDocument();
     });
-    expect(screen.getByText("xyz789uvw456...")).toBeInTheDocument();
+    expect(
+      screen.getByText("xyz789uvw456rst123opq012nml345kj"),
+    ).toBeInTheDocument();
   });
 
   test("renders invite statuses", async () => {
@@ -104,9 +108,11 @@ describe("InvitesPage", () => {
   test("renders table headers", async () => {
     renderInvitesPage();
     await waitFor(() => {
-      expect(screen.getByText("abc123def456...")).toBeInTheDocument();
+      expect(
+        screen.getByText("abc123def456ghi789jkl012mno345pq"),
+      ).toBeInTheDocument();
     });
-    expect(screen.getByText("Token")).toBeInTheDocument();
+    expect(screen.getByText("Code")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Created")).toBeInTheDocument();
     expect(screen.getByText("Expires")).toBeInTheDocument();

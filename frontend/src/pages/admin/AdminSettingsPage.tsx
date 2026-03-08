@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
+import { useToast } from "@/components/toast";
+import { Select } from "@/components/form";
 
 interface SiteSetting {
   key: string;
@@ -9,45 +11,39 @@ interface SiteSetting {
 }
 
 export function AdminSettingsPage() {
-  const [settings, setSettings] = useState<SiteSetting[]>([]);
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [registrationMode, setRegistrationMode] = useState("invite_only");
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const token = getAccessToken();
       const res = await fetch(`${getConfig().API_URL}/api/v1/admin/settings`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = await res.json();
-      if (!res.ok) {
-        setError(body?.error?.message ?? "Failed to load settings");
-        return;
-      }
-      const items: SiteSetting[] = body?.settings ?? [];
-      setSettings(items);
-      const regMode = items.find((s) => s.key === "registration_mode");
-      if (regMode) {
-        setRegistrationMode(regMode.value);
+      if (res.ok) {
+        const items: SiteSetting[] = body?.settings ?? [];
+        const regMode = items.find((s) => s.key === "registration_mode");
+        if (regMode) {
+          setRegistrationMode(regMode.value);
+        }
       }
     } catch {
-      setError("Failed to load settings");
+      toast.error("Failed to load settings");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
 
-  const handleSaveRegistrationMode = async () => {
+  const handleSave = async () => {
     setSaving(true);
-    setError(null);
     try {
       const token = getAccessToken();
       const res = await fetch(
@@ -61,129 +57,67 @@ export function AdminSettingsPage() {
           body: JSON.stringify({ value: registrationMode }),
         },
       );
-      const body = await res.json();
-      if (!res.ok) {
-        setError(body?.error?.message ?? "Failed to save setting");
-        return;
+      if (res.ok) {
+        toast.success("Settings saved");
+      } else {
+        const body = await res.json();
+        toast.error(body?.error?.message ?? "Failed to save");
       }
-      fetchSettings();
     } catch {
-      setError("Failed to save setting");
+      toast.error("Failed to save settings");
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return <div>Loading settings...</div>;
-  }
+  if (loading) return <p>Loading settings...</p>;
 
   return (
     <div>
-      <h2>Site Settings</h2>
+      <h1
+        style={{ fontSize: "var(--text-xl)", marginBottom: "var(--space-lg)" }}
+      >
+        Site Settings
+      </h1>
 
-      {error && (
-        <div
-          style={{ color: "var(--color-error, #ef4444)", marginBottom: "1rem" }}
-        >
-          {error}
-        </div>
-      )}
-
-      <div style={{ marginBottom: "1.5rem" }}>
-        <label
-          htmlFor="registration-mode"
-          style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600 }}
-        >
-          Registration Mode
-        </label>
-        <select
-          id="registration-mode"
+      <div style={{ maxWidth: 400 }}>
+        <Select
+          label="Registration Mode"
+          options={[
+            { value: "invite_only", label: "Invite Only" },
+            { value: "open", label: "Open Registration" },
+          ]}
           value={registrationMode}
           onChange={(e) => setRegistrationMode(e.target.value)}
+        />
+        <p
           style={{
-            padding: "0.5rem",
-            borderRadius: "4px",
-            border: "1px solid var(--color-border)",
-            backgroundColor: "var(--color-bg-primary)",
-            color: "var(--color-text-primary)",
-            marginRight: "0.5rem",
+            fontSize: "var(--text-xs)",
+            color: "var(--color-text-muted)",
+            margin: "var(--space-xs) 0 var(--space-md)",
           }}
         >
-          <option value="invite_only">Invite Only</option>
-          <option value="open">Open</option>
-        </select>
+          {registrationMode === "open"
+            ? "Anyone can register without an invite code."
+            : "Users must provide a valid invite code to register."}
+        </p>
         <button
-          onClick={handleSaveRegistrationMode}
+          onClick={handleSave}
           disabled={saving}
           style={{
-            padding: "0.5rem 1rem",
+            padding: "var(--space-xs) var(--space-md)",
             backgroundColor: "var(--color-accent)",
-            color: "var(--color-bg-primary)",
+            color: "white",
             border: "none",
-            borderRadius: "4px",
+            borderRadius: "var(--radius-md)",
             cursor: saving ? "not-allowed" : "pointer",
-            opacity: saving ? 0.5 : 1,
+            opacity: saving ? 0.6 : 1,
+            fontSize: "var(--text-sm)",
           }}
         >
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
-
-      {settings.length > 0 && (
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "0.875rem",
-          }}
-        >
-          <thead>
-            <tr>
-              <th
-                style={{
-                  textAlign: "left",
-                  padding: "0.5rem",
-                  borderBottom: "1px solid var(--color-border)",
-                }}
-              >
-                Key
-              </th>
-              <th
-                style={{
-                  textAlign: "left",
-                  padding: "0.5rem",
-                  borderBottom: "1px solid var(--color-border)",
-                }}
-              >
-                Value
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {settings.map((s) => (
-              <tr key={s.key}>
-                <td
-                  style={{
-                    padding: "0.5rem",
-                    borderBottom: "1px solid var(--color-border)",
-                  }}
-                >
-                  {s.key}
-                </td>
-                <td
-                  style={{
-                    padding: "0.5rem",
-                    borderBottom: "1px solid var(--color-border)",
-                  }}
-                >
-                  {s.value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }
