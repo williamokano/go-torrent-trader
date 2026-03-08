@@ -130,7 +130,7 @@ func run() int {
 	activityLogService := service.NewActivityLogService(activityLogRepo)
 	listener.RegisterActivityLogListeners(eventBus, activityLogService)
 
-	adminService := service.NewAdminService(userRepo, groupRepo)
+	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 
 	deps := &handler.Deps{
 		DB:             db,

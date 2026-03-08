@@ -43,17 +43,32 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.UserBanned, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.UserBannedEvent)
-		return fmt.Sprintf("%s was banned", e.Username), e.Actor
+		return fmt.Sprintf("%s banned %s", e.Actor.Username, e.Username), e.Actor
 	})
 
 	listen(event.UserWarned, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.UserWarnedEvent)
-		return fmt.Sprintf("%s was warned", e.Username), e.Actor
+		return fmt.Sprintf("%s warned %s", e.Actor.Username, e.Username), e.Actor
+	})
+
+	listen(event.UserUnbanned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.UserUnbannedEvent)
+		return fmt.Sprintf("%s unbanned %s", e.Actor.Username, e.Username), e.Actor
+	})
+
+	listen(event.UserUnwarned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.UserUnwarnedEvent)
+		return fmt.Sprintf("%s removed warning from %s", e.Actor.Username, e.Username), e.Actor
+	})
+
+	listen(event.UserGroupChanged, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.UserGroupChangedEvent)
+		return fmt.Sprintf("%s changed %s from %s to %s", e.Actor.Username, e.Username, e.OldGroupName, e.NewGroupName), e.Actor
 	})
 
 	listen(event.UserDeleted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.UserDeletedEvent)
-		return fmt.Sprintf("%s was deleted", e.Username), e.Actor
+		return fmt.Sprintf("%s deleted %s", e.Actor.Username, e.Username), e.Actor
 	})
 
 	listen(event.TorrentUploaded, func(evt event.Event) (string, event.Actor) {

@@ -11,9 +11,12 @@ type Type string
 const (
 	UserRegistered Type = "user_registered"
 	UserLogin      Type = "user_login"
-	UserBanned     Type = "user_banned"
-	UserWarned      Type = "user_warned"
-	UserDeleted     Type = "user_deleted"
+	UserBanned       Type = "user_banned"
+	UserUnbanned     Type = "user_unbanned"
+	UserWarned       Type = "user_warned"
+	UserUnwarned     Type = "user_unwarned"
+	UserGroupChanged Type = "user_group_changed"
+	UserDeleted      Type = "user_deleted"
 	TorrentUploaded Type = "torrent_uploaded"
 	TorrentEdited   Type = "torrent_edited"
 	TorrentDeleted  Type = "torrent_deleted"
@@ -92,6 +95,26 @@ type UserDeletedEvent struct {
 	Base
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+}
+
+type UserUnbannedEvent struct {
+	Base
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+}
+
+type UserUnwarnedEvent struct {
+	Base
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+}
+
+type UserGroupChangedEvent struct {
+	Base
+	UserID       int64  `json:"user_id"`
+	Username     string `json:"username"`
+	OldGroupName string `json:"old_group_name"`
+	NewGroupName string `json:"new_group_name"`
 }
 
 type TorrentUploadedEvent struct {

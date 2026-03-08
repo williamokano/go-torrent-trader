@@ -45,7 +45,7 @@ func (m *mockAdminGroupRepo) List(_ context.Context) ([]model.Group, error) {
 func TestAdminListUsers(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	// Create some users via auth
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
@@ -78,7 +78,7 @@ func TestAdminListUsers(t *testing.T) {
 func TestAdminUpdateUser_ChangeGroup(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -88,7 +88,7 @@ func TestAdminUpdateUser_ChangeGroup(t *testing.T) {
 	}, "127.0.0.1")
 
 	newGroupID := int64(1)
-	view, err := svc.UpdateUser(context.Background(), user.ID, AdminUpdateUserRequest{
+	view, err := svc.UpdateUser(context.Background(), 99, user.ID, AdminUpdateUserRequest{
 		GroupID: &newGroupID,
 	})
 	if err != nil {
@@ -105,7 +105,7 @@ func TestAdminUpdateUser_ChangeGroup(t *testing.T) {
 func TestAdminUpdateUser_InvalidGroup(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -115,7 +115,7 @@ func TestAdminUpdateUser_InvalidGroup(t *testing.T) {
 	}, "127.0.0.1")
 
 	badGroupID := int64(999)
-	_, err := svc.UpdateUser(context.Background(), user.ID, AdminUpdateUserRequest{
+	_, err := svc.UpdateUser(context.Background(), 99, user.ID, AdminUpdateUserRequest{
 		GroupID: &badGroupID,
 	})
 	if !errors.Is(err, ErrAdminGroupNotFound) {
@@ -126,9 +126,9 @@ func TestAdminUpdateUser_InvalidGroup(t *testing.T) {
 func TestAdminUpdateUser_NotFound(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
-	_, err := svc.UpdateUser(context.Background(), 999, AdminUpdateUserRequest{})
+	_, err := svc.UpdateUser(context.Background(), 99, 999, AdminUpdateUserRequest{})
 	if !errors.Is(err, ErrAdminUserNotFound) {
 		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAdminUpdateUser_NotFound(t *testing.T) {
 func TestAdminUpdateUser_ToggleEnabled(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
@@ -147,7 +147,7 @@ func TestAdminUpdateUser_ToggleEnabled(t *testing.T) {
 	}, "127.0.0.1")
 
 	disabled := false
-	view, err := svc.UpdateUser(context.Background(), user.ID, AdminUpdateUserRequest{
+	view, err := svc.UpdateUser(context.Background(), 99, user.ID, AdminUpdateUserRequest{
 		Enabled: &disabled,
 	})
 	if err != nil {
@@ -161,7 +161,7 @@ func TestAdminUpdateUser_ToggleEnabled(t *testing.T) {
 func TestAdminListGroups(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	groups, err := svc.ListGroups(context.Background())
 	if err != nil {
@@ -175,7 +175,7 @@ func TestAdminListGroups(t *testing.T) {
 func TestAdminListUsers_WithLastAccess(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()
-	svc := NewAdminService(userRepo, groupRepo)
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	now := time.Now()
 	userRepo.mu.Lock()

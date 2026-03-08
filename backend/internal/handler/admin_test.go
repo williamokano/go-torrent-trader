@@ -17,8 +17,9 @@ func setupAdminRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	groupRepo := &mockGroupRepo{}
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupRepo, event.NewInMemoryBus())
-	adminSvc := service.NewAdminService(userRepo, groupRepo)
+	bus := event.NewInMemoryBus()
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupRepo, bus)
+	adminSvc := service.NewAdminService(userRepo, groupRepo, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,
