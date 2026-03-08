@@ -255,7 +255,7 @@
 
 > **Note:** Current in-memory session store loses all sessions on backend restart. This is the root cause of users being logged out during development and deployments.
 
-#### BE-1.2.3: Move Test-Only Implementations Out of Domain Code [S]
+#### BE-1.2.3: Move Test-Only Implementations Out of Domain Code [S] [DONE]
 **As a** developer
 **I want** test utilities separated from domain code
 **So that** the service package contains only interfaces and business logic, not test doubles
@@ -988,7 +988,7 @@
 - Reorder forums and categories
 - Forum-ban individual users
 
-#### BE-8.6: Logs & Monitoring [S]
+#### BE-8.6: Logs & Monitoring [S] [DONE — activity log with filtering + pagination, public at /log]
 **As an** admin
 **I want** to view system logs and activity
 **So that** I can audit actions and troubleshoot issues
@@ -1261,7 +1261,7 @@
 - Staff view: additional info (IP, email, warnings, mod notes)
 - Send PM button, report button
 
-#### FE-2.3: Torrent Upload Page [M]
+#### FE-2.3: Torrent Upload Page [M] [DONE — drag-drop upload, category select, anonymous toggle, validation, tests]
 **As an** uploader
 **I want** to upload a torrent with metadata
 **So that** it's available for download
@@ -1323,7 +1323,7 @@
 - Staff page: grouped by role, online/offline indicator
 - Click through to user profile
 
-#### FE-2.8: Report Dialog [S]
+#### FE-2.8: Report Dialog [S] [DONE — ReportModal component, torrent detail integration, duplicate detection, admin resolve]
 **As a** user
 **I want** to report content easily
 **So that** moderators can handle rule violations
@@ -1538,7 +1538,7 @@
 - Language list with CRUD
 - Warning before deleting category with existing torrents
 
-#### FE-5.6: Site Settings Editor [M]
+#### FE-5.6: Site Settings Editor [M] [DONE — AdminSettingsPage with editable table, type-aware inputs]
 **As an** admin
 **I want** to configure site settings from the admin panel
 **So that** I don't need to edit environment variables for runtime settings
@@ -1549,7 +1549,7 @@
 - Save with validation
 - Indication of which settings require restart vs. take effect immediately
 
-#### FE-5.7: Logs Viewer [S]
+#### FE-5.7: Logs Viewer [S] [DONE — ActivityLogPage with event type filter, pagination, currently public at /log]
 **As an** admin
 **I want** to browse system and audit logs
 **So that** I can troubleshoot issues and review actions
