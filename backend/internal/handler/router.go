@@ -26,6 +26,7 @@ type Deps struct {
 	AdminService        *service.AdminService
 	ActivityLogService  *service.ActivityLogService
 	SiteSettingsService *service.SiteSettingsService
+	BanService          *service.BanService
 	UserRepo            repository.UserRepository
 	RSSConfig           *RSSConfig
 }
@@ -208,6 +209,17 @@ func NewRouter(deps *Deps) chi.Router {
 						settingsHandler := NewSiteSettingsHandler(deps.SiteSettingsService)
 						r.Get("/settings", settingsHandler.HandleGetAllSettings)
 						r.Put("/settings/{key}", settingsHandler.HandleUpdateSetting)
+					}
+
+					// Ban management endpoints
+					if deps.BanService != nil {
+						bans := NewBanHandler(deps.BanService)
+						r.Get("/bans/emails", bans.HandleListEmailBans)
+						r.Post("/bans/emails", bans.HandleCreateEmailBan)
+						r.Delete("/bans/emails/{id}", bans.HandleDeleteEmailBan)
+						r.Get("/bans/ips", bans.HandleListIPBans)
+						r.Post("/bans/ips", bans.HandleCreateIPBan)
+						r.Delete("/bans/ips/{id}", bans.HandleDeleteIPBan)
 					}
 				})
 			}

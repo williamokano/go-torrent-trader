@@ -142,6 +142,10 @@ func run() int {
 	listener.RegisterActivityLogListeners(eventBus, activityLogService)
 	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
+	banRepo := postgres.NewBanRepo(db)
+	banService := service.NewBanService(banRepo, eventBus)
+	authService.SetBanChecker(banService)
+
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	memberService := service.NewMemberService(userRepo, groupRepo)
 
@@ -159,6 +163,7 @@ func run() int {
 		AdminService:        adminService,
 		ActivityLogService:  activityLogService,
 		SiteSettingsService: siteSettingsService,
+		BanService:          banService,
 		UserRepo:           userRepo,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,

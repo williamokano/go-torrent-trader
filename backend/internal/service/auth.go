@@ -24,9 +24,18 @@ var (
 	ErrValidationFailed     = errors.New("validation failed")
 	ErrResetRateLimitExceed = errors.New("too many password reset requests")
 	ErrInvalidResetToken    = errors.New("invalid or expired reset token")
-	ErrInviteRequired       = errors.New("invite code is required")
-	ErrInvalidInviteCode    = errors.New("invalid or expired invite code")
+	ErrInviteRequired    = errors.New("invite code is required")
+	ErrInvalidInviteCode = errors.New("invalid or expired invite code")
+	ErrBannedEmail       = errors.New("email is banned")
+	ErrBannedIP          = errors.New("IP address is banned")
 )
+
+// BanChecker checks whether an email or IP is banned.
+// When nil, ban checks are skipped (backward compatible).
+type BanChecker interface {
+	IsEmailBanned(ctx context.Context, email string) (bool, error)
+	IsIPBanned(ctx context.Context, ip string) (bool, error)
+}
 
 var (
 	usernameRe = regexp.MustCompile(`^[a-zA-Z0-9_]{3,20}$`)
@@ -99,6 +108,7 @@ type AuthService struct {
 	eventBus        event.Bus
 	siteSettings    *SiteSettingsService
 	inviteService   *InviteService
+	banChecker      BanChecker
 }
 
 // NewAuthService creates a new AuthService with default token TTLs.
@@ -152,10 +162,30 @@ func (s *AuthService) SetInviteService(svc *InviteService) {
 	s.inviteService = svc
 }
 
+// SetBanChecker sets the ban checker used during registration and login.
+// When nil, ban checks are skipped (backward compatible).
+func (s *AuthService) SetBanChecker(checker BanChecker) {
+	s.banChecker = checker
+}
+
 // Register creates a new user account and returns auth tokens.
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip string) (*model.User, *AuthTokens, error) {
 	if err := validateRegistration(req); err != nil {
 		return nil, nil, err
+	}
+
+	// Check bans before proceeding
+	if s.banChecker != nil {
+		if banned, err := s.banChecker.IsEmailBanned(ctx, req.Email); err != nil {
+			return nil, nil, fmt.Errorf("check email ban: %w", err)
+		} else if banned {
+			return nil, nil, ErrBannedEmail
+		}
+		if banned, err := s.banChecker.IsIPBanned(ctx, ip); err != nil {
+			return nil, nil, fmt.Errorf("check ip ban: %w", err)
+		} else if banned {
+			return nil, nil, ErrBannedIP
+		}
 	}
 
 	// Check registration mode and validate invite code
@@ -263,6 +293,15 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 
 // Login authenticates a user and returns auth tokens.
 func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*model.User, *AuthTokens, error) {
+	// Check IP ban before proceeding
+	if s.banChecker != nil {
+		if banned, err := s.banChecker.IsIPBanned(ctx, ip); err != nil {
+			return nil, nil, fmt.Errorf("check ip ban: %w", err)
+		} else if banned {
+			return nil, nil, ErrBannedIP
+		}
+	}
+
 	user, err := s.users.GetByUsername(ctx, req.Username)
 	if err != nil || user == nil {
 		return nil, nil, ErrInvalidCredentials

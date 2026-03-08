@@ -1,0 +1,109 @@
+.admin-bans__section {
+  margin-bottom: var(--space-xl);
+}
+
+.admin-bans__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.admin-bans__section-header h2 {
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.admin-bans__form {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.admin-bans__form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.admin-bans__form-field label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.admin-bans__form-field input {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+}
+
+.admin-bans__form-field input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.admin-bans__add-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.admin-bans__add-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-bans__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-bans__table th,
+.admin-bans__table td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.admin-bans__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-bans__table td {
+  color: var(--color-text-primary);
+}
+
+.admin-bans__delete-btn {
+  padding: 2px 8px;
+  background-color: var(--color-danger, #dc3545);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.admin-bans__delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-bans__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-lg);
+}
