@@ -217,7 +217,7 @@ func setupCommentRouter() (http.Handler, service.SessionStore) {
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
 	commentSvc := service.NewCommentService(newMockCommentRepo(), newMockRatingRepo(), torrentRepo, bus)
 	// TorrentService is needed because comment/rating routes are nested under /torrents
-	torrentSvc := service.NewTorrentService(newMockTorrentRepo(), userRepo, newMockStorage(), service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, nil)
+	torrentSvc := service.NewTorrentService(nil, newMockTorrentRepo(), userRepo, newMockStorage(), service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, nil)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:    authSvc,

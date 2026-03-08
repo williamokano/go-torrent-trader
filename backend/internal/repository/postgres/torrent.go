@@ -17,12 +17,17 @@ const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo,
 
 // TorrentRepo implements repository.TorrentRepository using PostgreSQL.
 type TorrentRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewTorrentRepo returns a new PostgreSQL-backed TorrentRepository.
-func NewTorrentRepo(db *sql.DB) repository.TorrentRepository {
+func NewTorrentRepo(db *sql.DB) *TorrentRepo {
 	return &TorrentRepo{db: db}
+}
+
+// WithTx returns a copy of the repo bound to the given transaction.
+func (r *TorrentRepo) WithTx(tx *sql.Tx) *TorrentRepo {
+	return &TorrentRepo{db: tx}
 }
 
 func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {

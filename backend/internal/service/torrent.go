@@ -12,6 +12,8 @@ import (
 
 	"github.com/zeebo/bencode"
 
+	"database/sql"
+
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -83,6 +85,7 @@ type TorrentServiceConfig struct {
 }
 
 type TorrentService struct {
+	db               *sql.DB
 	torrents         repository.TorrentRepository
 	users            repository.UserRepository
 	storage          storage.FileStorage
@@ -95,6 +98,7 @@ type TorrentService struct {
 
 // NewTorrentService creates a new TorrentService.
 func NewTorrentService(
+	db *sql.DB,
 	torrents repository.TorrentRepository,
 	users repository.UserRepository,
 	store storage.FileStorage,
@@ -103,6 +107,7 @@ func NewTorrentService(
 	reseedRequests repository.ReseedRequestRepository,
 ) *TorrentService {
 	return &TorrentService{
+		db:               db,
 		torrents:         torrents,
 		users:            users,
 		storage:          store,
@@ -200,23 +205,55 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		torrent.Description = &req.Description
 	}
 
-	if err := s.torrents.Create(ctx, torrent); err != nil {
-		// Handle DB unique constraint as duplicate
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
-			return nil, ErrDuplicateTorrent
-		}
-		return nil, fmt.Errorf("create torrent: %w", err)
-	}
+	if s.db != nil {
+		// Production path: use a transaction so DB insert + file storage are atomic
+		err = repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			createQuery := `INSERT INTO torrents (
+				name, info_hash, size, description, nfo, category_id, uploader_id,
+				anonymous, seeders, leechers, times_completed, comments_count,
+				visible, banned, free, silver, file_count
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+				$11, $12, $13, $14, $15, $16, $17
+			) RETURNING id, created_at, updated_at`
 
-	// Store the .torrent file — if this fails, roll back the DB record
-	storageKey := fmt.Sprintf("torrents/%d.torrent", torrent.ID)
-	if err := s.storage.Put(ctx, storageKey, bytes.NewReader(parsed.RawBytes)); err != nil {
-		slog.Error("failed to store torrent file, rolling back", "torrent_id", torrent.ID, "error", err)
-		if delErr := s.torrents.Delete(ctx, torrent.ID); delErr != nil {
-			slog.Error("failed to roll back torrent record", "torrent_id", torrent.ID, "error", delErr)
+			if err := tx.QueryRowContext(ctx, createQuery,
+				torrent.Name, torrent.InfoHash, torrent.Size, torrent.Description,
+				torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
+				torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
+				torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
+			).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt); err != nil {
+				errMsg := err.Error()
+				if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
+					return ErrDuplicateTorrent
+				}
+				return fmt.Errorf("create torrent: %w", err)
+			}
+
+			storageKey := fmt.Sprintf("torrents/%d.torrent", torrent.ID)
+			if err := s.storage.Put(ctx, storageKey, bytes.NewReader(parsed.RawBytes)); err != nil {
+				return fmt.Errorf("store torrent file: %w", err)
+			}
+
+			return nil
+		})
+	} else {
+		// Test path: no real DB, use repo interface directly
+		if err = s.torrents.Create(ctx, torrent); err != nil {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
+				return nil, ErrDuplicateTorrent
+			}
+			return nil, fmt.Errorf("create torrent: %w", err)
 		}
-		return nil, fmt.Errorf("store torrent file: %w", err)
+
+		storageKey := fmt.Sprintf("torrents/%d.torrent", torrent.ID)
+		if err = s.storage.Put(ctx, storageKey, bytes.NewReader(parsed.RawBytes)); err != nil {
+			return nil, fmt.Errorf("store torrent file: %w", err)
+		}
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	s.eventBus.Publish(ctx, &event.TorrentUploadedEvent{

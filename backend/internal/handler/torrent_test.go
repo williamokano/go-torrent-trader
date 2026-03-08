@@ -242,7 +242,7 @@ func setupTorrentRouter() (http.Handler, service.SessionStore) {
 	bus := event.NewInMemoryBus()
 	reseedRepo := newMockReseedRequestRepo()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
-	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, reseedRepo)
+	torrentSvc := service.NewTorrentService(nil, torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, reseedRepo)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:    authSvc,

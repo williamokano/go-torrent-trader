@@ -113,7 +113,7 @@ func run() int {
 	}
 
 	reseedRequestRepo := postgres.NewReseedRequestRepo(db)
-	torrentService := service.NewTorrentService(torrentRepo, userRepo, fileStore, service.TorrentServiceConfig{
+	torrentService := service.NewTorrentService(db, torrentRepo, userRepo, fileStore, service.TorrentServiceConfig{
 		AnnounceURL:      fmt.Sprintf("%s/announce", cfg.Site.ApiURL),
 		TorrentComment:   cfg.Site.BaseURL,
 		TorrentCreatedBy: cfg.Site.Name,
