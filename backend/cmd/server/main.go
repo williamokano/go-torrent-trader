@@ -147,6 +147,8 @@ func run() int {
 	authService.SetBanChecker(banService)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
+	categoryRepo := postgres.NewCategoryRepo(db)
+	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
 
 	deps := &handler.Deps{
@@ -161,6 +163,7 @@ func run() int {
 		CommentService:     commentService,
 		InviteService:       inviteService,
 		AdminService:        adminService,
+		CategoryService:     categoryService,
 		ActivityLogService:  activityLogService,
 		SiteSettingsService: siteSettingsService,
 		BanService:          banService,

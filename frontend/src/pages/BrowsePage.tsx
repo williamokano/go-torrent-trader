@@ -7,6 +7,7 @@ import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
+import { buildCategoryOptions } from "@/utils/categories";
 import "./browse.css";
 
 const SORT_OPTIONS = [
@@ -52,14 +53,17 @@ export function BrowsePage() {
     async function fetchCategories() {
       const { data } = await api.GET("/api/v1/categories");
       if (data?.categories) {
-        const opts = [
-          { value: "", label: "All Categories" },
-          ...data.categories.map((c) => ({
-            value: String(c.id ?? ""),
-            label: c.name ?? "Unknown",
-          })),
-        ];
-        setCategoryOptions(opts);
+        setCategoryOptions(
+          buildCategoryOptions(
+            data.categories as {
+              id: number;
+              name: string;
+              parent_id: number | null;
+              sort_order: number;
+            }[],
+            "All Categories",
+          ),
+        );
       }
     }
     fetchCategories();
