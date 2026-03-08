@@ -179,10 +179,22 @@ export function MessagesPage() {
           );
         } else {
           setError("Message not found");
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("msg");
+            return next;
+          });
         }
       })
       .catch(() => {
-        if (!cancelled) setError("Failed to load message");
+        if (!cancelled) {
+          setError("Failed to load message");
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("msg");
+            return next;
+          });
+        }
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
