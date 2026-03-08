@@ -84,8 +84,13 @@ func (r *ActivityLogRepo) List(ctx context.Context, opts repository.ListActivity
 	var logs []model.ActivityLog
 	for rows.Next() {
 		var l model.ActivityLog
-		if err := rows.Scan(&l.ID, &l.EventType, &l.ActorID, &l.Message, &l.Metadata, &l.CreatedAt); err != nil {
+		var metadata []byte
+		if err := rows.Scan(&l.ID, &l.EventType, &l.ActorID, &l.Message, &metadata, &l.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan activity log: %w", err)
+		}
+		if metadata != nil {
+			s := string(metadata)
+			l.Metadata = &s
 		}
 		logs = append(logs, l)
 	}
