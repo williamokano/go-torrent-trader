@@ -69,7 +69,8 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 		torrent_id, user_id, peer_id, ip, port, uploaded, downloaded,
 		left_bytes, seeder, agent, started_at, last_announce
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	ON CONFLICT (torrent_id, user_id, peer_id) DO UPDATE SET
+	ON CONFLICT (torrent_id, user_id) DO UPDATE SET
+		peer_id = EXCLUDED.peer_id,
 		ip = EXCLUDED.ip,
 		port = EXCLUDED.port,
 		uploaded = EXCLUDED.uploaded,
@@ -87,9 +88,9 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 	).Scan(&peer.ID, &peer.StartedAt)
 }
 
-func (r *PeerRepo) Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error {
-	query := `DELETE FROM peers WHERE torrent_id = $1 AND user_id = $2 AND peer_id = $3`
-	result, err := r.db.ExecContext(ctx, query, torrentID, userID, peerID)
+func (r *PeerRepo) Delete(ctx context.Context, torrentID, userID int64, _ []byte) error {
+	query := `DELETE FROM peers WHERE torrent_id = $1 AND user_id = $2`
+	result, err := r.db.ExecContext(ctx, query, torrentID, userID)
 	if err != nil {
 		return fmt.Errorf("deleting peer: %w", err)
 	}
