@@ -962,6 +962,7 @@
 - [ ] View: full profile with all fields, stats, invite history, warning history, mod notes
 - [x] Edit: role (group), enabled, warned
 - [ ] Edit: title, uploaded/downloaded, avatar, signature, passkey reset
+- [ ] Edit: reset user password (admin/staff sets a new password, user is forced to change on next login or notified via email)
 - [ ] Promote/demote (cannot promote above own level)
 - [ ] Delete account with reason (logged)
 - [ ] Warning management (add/remove/view)
