@@ -195,7 +195,7 @@ export function InvitesPage() {
                 <th>Down</th>
                 <th>%</th>
                 <th>Joined</th>
-                <th>Actions</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -283,7 +283,7 @@ export function InvitesPage() {
                         </button>
                       </>
                     ) : (
-                      <span className="invites__no-action">-</span>
+                      <span>&nbsp;</span>
                     )}
                   </td>
                 </tr>
