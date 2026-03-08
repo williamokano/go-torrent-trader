@@ -27,22 +27,32 @@ const (
 
 	// Maximum message size allowed from peer (10 KB).
 	maxMessageSize = 10 * 1024
+
+	// Rate limiting: max messages per window per client.
+	rateLimitWindow   = 10 * time.Second
+	rateLimitMaxMsgs  = 10 // 10 messages per 10 seconds = ~1/sec sustained
+
+	// Re-validate session token every N messages.
+	revalidateEveryN = 5
 )
 
 // ChatClient represents a connected WebSocket client.
 type ChatClient struct {
-	hub       *ChatHub
-	conn      *websocket.Conn
-	closeOnce sync.Once // Ensures conn.Close() is called exactly once.
-	userID    int64
-	perms     model.Permissions
-	send      chan []byte // Buffered channel of outbound messages.
+	hub         *ChatHub
+	conn        *websocket.Conn
+	closeOnce   sync.Once // Ensures conn.Close() is called exactly once.
+	userID      int64
+	accessToken string           // For periodic re-validation.
+	perms       model.Permissions
+	send        chan []byte       // Buffered channel of outbound messages.
+	lastMsg     time.Time         // Rate limiting: time of last sent message.
+	msgCount    int               // Rate limiting: messages in current window.
 }
 
 // closeConn safely closes the WebSocket connection exactly once.
 func (c *ChatClient) closeConn() {
 	c.closeOnce.Do(func() {
-		c.closeConn()
+		_ = c.conn.Close()
 	})
 }
 
@@ -177,10 +187,15 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
-			if len(h.allowedOrigins) == 0 {
-				return true // No restriction configured
-			}
 			origin := r.Header.Get("Origin")
+			// Allow non-browser clients (no Origin header).
+			if origin == "" {
+				return true
+			}
+			// If no origins configured, reject browser requests (safe default).
+			if len(h.allowedOrigins) == 0 {
+				return false
+			}
 			for _, allowed := range h.allowedOrigins {
 				if strings.EqualFold(origin, allowed) {
 					return true
@@ -197,11 +212,12 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &ChatClient{
-		hub:    h,
-		conn:   conn,
-		userID: sess.UserID,
-		perms:  sess.Permissions,
-		send:   make(chan []byte, 1024),
+		hub:         h,
+		conn:        conn,
+		userID:      sess.UserID,
+		accessToken: token,
+		perms:       sess.Permissions,
+		send:        make(chan []byte, 1024),
 	}
 
 	h.register <- client
@@ -264,6 +280,7 @@ func (c *ChatClient) readPump() {
 		return nil
 	})
 
+	var msgsSinceValidation int
 	for {
 		_, rawMsg, err := c.conn.ReadMessage()
 		if err != nil {
@@ -278,10 +295,40 @@ func (c *ChatClient) readPump() {
 			continue
 		}
 
-		switch incoming.Type {
-		case "message":
-			c.hub.handleIncomingMessage(c, incoming.Text)
+		if incoming.Type != "message" {
+			continue
 		}
+
+		// Periodic session re-validation.
+		msgsSinceValidation++
+		if msgsSinceValidation >= revalidateEveryN {
+			msgsSinceValidation = 0
+			if sess := c.hub.sessionStore.GetByAccessToken(c.accessToken); sess == nil {
+				slog.Debug("websocket session expired, closing", "user_id", c.userID)
+				return
+			}
+		}
+
+		// Rate limiting.
+		now := time.Now()
+		if now.Sub(c.lastMsg) > rateLimitWindow {
+			c.msgCount = 0
+			c.lastMsg = now
+		}
+		c.msgCount++
+		if c.msgCount > rateLimitMaxMsgs {
+			errPayload, _ := json.Marshal(map[string]interface{}{
+				"type":    "error",
+				"message": "rate limit exceeded, slow down",
+			})
+			select {
+			case c.send <- errPayload:
+			default:
+			}
+			continue
+		}
+
+		c.hub.handleIncomingMessage(c, incoming.Text)
 	}
 }
 
