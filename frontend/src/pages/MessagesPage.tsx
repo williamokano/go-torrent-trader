@@ -29,8 +29,7 @@ function authHeaders(): Record<string, string> {
 
 export function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get("tab") as Tab) || "inbox";
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const tab: Tab = (searchParams.get("tab") as Tab) || "inbox";
   const [messages, setMessages] = useState<Message[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -50,6 +49,12 @@ export function MessagesPage() {
   const [composeBody, setComposeBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
+
+  // Sync compose receiver from URL when navigating to ?tab=compose&to=username
+  const urlTo = searchParams.get("to") || "";
+  if (tab === "compose" && urlTo && urlTo !== composeReceiver) {
+    setComposeReceiver(urlTo);
+  }
 
   // Username autocomplete state
   const [userSuggestions, setUserSuggestions] = useState<
@@ -142,7 +147,6 @@ export function MessagesPage() {
   }, [fetchMessages, fetchUnreadCount]);
 
   const handleTabChange = (newTab: Tab) => {
-    setTab(newTab);
     setPage(1);
     setSelectedMessage(null);
     setError(null);
