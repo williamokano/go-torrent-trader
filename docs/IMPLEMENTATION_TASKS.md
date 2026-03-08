@@ -1045,6 +1045,41 @@
 - Auto-ban: users who didn't improve within warning period
 - PM sent for each action (via background job)
 
+#### BE-9.3: Cache Site Stats Query [S]
+**As a** tracker operator
+**I want** the site stats query to be cached
+**So that** the footer polling from every client doesn't hammer the database
+
+**Acceptance Criteria:**
+- Stats endpoint (`/api/v1/stats`) returns cached results
+- Cache backend abstracted via interface (Redis or in-memory)
+- Short TTL (15-30 seconds) — stats are near-real-time, not stale
+- Cache populated on first request or by scheduler
+- Fallback to direct query if cache unavailable
+
+#### BE-9.4: Real-Time Stats via SSE or WebSocket [M]
+**As a** user
+**I want** the site stats in the footer to update in real time
+**So that** I see live tracker activity without page refreshes
+
+**Acceptance Criteria:**
+- Stats pushed to clients via SSE or WebSocket (piggyback on chat connection when BE-6.1 lands)
+- Broadcast triggered on peer announce, torrent upload, user registration
+- Eliminates client-side polling entirely
+- Graceful fallback: if WebSocket disconnects, resume polling
+
+#### BE-9.5: Backfill Torrent File Lists [S]
+**As a** tracker operator
+**I want** existing torrents to have their file lists populated
+**So that** torrents uploaded before migration 023 show file details
+
+**Acceptance Criteria:**
+- One-time CLI command or background job
+- Reads stored `.torrent` files from S3/storage
+- Parses file list and updates `files` JSONB column
+- Skips torrents that already have files populated
+- Reports progress and errors
+
 ---
 
 ### Epic BE-10: Protocol Support
