@@ -126,6 +126,9 @@ func run() int {
 	ratingRepo := postgres.NewRatingRepo(db)
 	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, eventBus)
 
+	inviteRepo := postgres.NewInviteRepo(db)
+	inviteService := service.NewInviteService(inviteRepo, userRepo, emailSender, eventBus, cfg.Site.BaseURL)
+
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
@@ -145,6 +148,7 @@ func run() int {
 		TrackerService: trackerService,
 		ReportService:      reportService,
 		CommentService:     commentService,
+		InviteService:      inviteService,
 		AdminService:       adminService,
 		ActivityLogService: activityLogService,
 		UserRepo:           userRepo,

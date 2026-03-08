@@ -22,6 +22,7 @@ type Deps struct {
 	TrackerService     *service.TrackerService
 	ReportService      *service.ReportService
 	CommentService     *service.CommentService
+	InviteService      *service.InviteService
 	AdminService       *service.AdminService
 	ActivityLogService *service.ActivityLogService
 	UserRepo           repository.UserRepository
@@ -140,6 +141,22 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Use(mw.RequireAuth(validator))
 					r.Put("/{id}", comments.HandleEditComment)
 					r.Delete("/{id}", comments.HandleDeleteComment)
+				})
+			}
+
+			// Invite endpoints
+			if deps.InviteService != nil {
+				invites := NewInviteHandler(deps.InviteService)
+				r.Route("/invites", func(r chi.Router) {
+					// Public: validate invite token (used by registration page)
+					r.Get("/{token}", invites.HandleValidateInvite)
+
+					// Protected endpoints
+					r.Group(func(r chi.Router) {
+						r.Use(mw.RequireAuth(validator))
+						r.Get("/", invites.HandleListInvites)
+						r.With(mw.RequireCapability("invite")).Post("/", invites.HandleSendInvite)
+					})
 				})
 			}
 

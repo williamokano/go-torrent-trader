@@ -25,6 +25,8 @@ const (
 	CommentCreated    Type = "comment_created"
 	CommentDeleted    Type = "comment_deleted"
 	ReseedRequested   Type = "reseed_requested"
+	InviteSent        Type = "invite_sent"
+	InviteRedeemed    Type = "invite_redeemed"
 )
 
 // Event is the base interface for all domain events.
@@ -165,4 +167,17 @@ type ReseedRequestedEvent struct {
 	TorrentName   string `json:"torrent_name"`
 	UploaderID    int64  `json:"uploader_id"`
 	UploaderEmail string `json:"uploader_email"`
+}
+
+type InviteSentEvent struct {
+	Base
+	InviteID int64  `json:"invite_id"`
+	Email    string `json:"email"`
+}
+
+type InviteRedeemedEvent struct {
+	Base
+	InviteID  int64 `json:"invite_id"`
+	InviteeID int64 `json:"invitee_id"`
+	Token     string `json:"token"`
 }

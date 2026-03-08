@@ -1,0 +1,110 @@
+.invites__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.invites__title {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.invites__remaining {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.invites__form {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-end;
+  margin-bottom: var(--space-lg);
+}
+
+.invites__form-input {
+  flex: 1;
+  max-width: 400px;
+}
+
+.invites__form-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  height: 38px;
+}
+
+.invites__form-btn:hover {
+  opacity: 0.9;
+}
+
+.invites__form-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.invites__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.invites__table th,
+.invites__table td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.invites__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.invites__table td {
+  color: var(--color-text-primary);
+}
+
+.invites__status--pending {
+  color: var(--color-warning, #f59e0b);
+}
+
+.invites__status--redeemed {
+  color: var(--color-success, #10b981);
+}
+
+.invites__status--expired {
+  color: var(--color-text-muted);
+}
+
+.invites__loading {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}
+
+.invites__error {
+  text-align: center;
+  color: var(--color-error, #ef4444);
+  padding: var(--space-lg);
+}
+
+.invites__success {
+  color: var(--color-success, #10b981);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-md);
+}
+
+.invites__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}

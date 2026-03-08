@@ -20,6 +20,7 @@ import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { RSSBuilderPage } from "@/pages/RSSBuilderPage";
 import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
+import { InvitesPage } from "@/pages/InvitesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -120,6 +121,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <StaffPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "invites",
+        element: (
+          <ProtectedRoute>
+            <InvitesPage />
           </ProtectedRoute>
         ),
       },
