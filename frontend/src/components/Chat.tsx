@@ -51,10 +51,21 @@ export function Chat() {
     });
   }, []);
 
-  // Store the connect function in a ref so the onclose handler
-  // can call it without creating a circular dependency.
+  // Single effect for WebSocket lifecycle — avoids React Strict Mode
+  // double-mount creating two connections by closing any existing one
+  // before connecting, and cleaning up fully on unmount.
   useEffect(() => {
-    connectRef.current = () => {
+    if (!isAuthenticated) return;
+
+    shouldReconnectRef.current = true;
+
+    function connect() {
+      // Close any existing connection first
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+
       const token = getAccessToken();
       if (!token) return;
 
@@ -77,21 +88,16 @@ export function Chat() {
               setTimeout(scrollToBottom, 50);
               break;
             case "message":
-              setMessages((prev) => {
-                // Deduplicate — prevent showing the same message twice
-                // (can happen with React Strict Mode double-mount or reconnect race)
-                if (prev.some((m) => m.id === data.id)) return prev;
-                return [
-                  ...prev,
-                  {
-                    id: data.id,
-                    user_id: data.user_id,
-                    username: data.username,
-                    message: data.message,
-                    created_at: data.created_at,
-                  },
-                ];
-              });
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: data.id,
+                  user_id: data.user_id,
+                  username: data.username,
+                  message: data.message,
+                  created_at: data.created_at,
+                },
+              ]);
               setTimeout(scrollToBottom, 50);
               break;
             case "delete":
@@ -113,7 +119,7 @@ export function Chat() {
           const delay = reconnectDelayRef.current;
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectDelayRef.current = Math.min(delay * 2, 30000);
-            connectRef.current();
+            connect();
           }, delay);
         }
       };
@@ -121,14 +127,10 @@ export function Chat() {
       ws.onerror = () => {
         // onclose will fire after onerror, which handles reconnection.
       };
-    };
-  }, [scrollToBottom]);
+    }
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    shouldReconnectRef.current = true;
-    connectRef.current();
+    connectRef.current = connect;
+    connect();
 
     return () => {
       shouldReconnectRef.current = false;
@@ -140,7 +142,7 @@ export function Chat() {
         wsRef.current = null;
       }
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, scrollToBottom]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
