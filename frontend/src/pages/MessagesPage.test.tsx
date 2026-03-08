@@ -172,7 +172,7 @@ describe("MessagesPage", () => {
     });
 
     await user.click(screen.getByText("Compose"));
-    expect(screen.getByLabelText("To (username)")).toBeInTheDocument();
+    expect(screen.getByLabelText("To")).toBeInTheDocument();
     expect(screen.getByLabelText("Subject")).toBeInTheDocument();
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(screen.getByText("Send Message")).toBeInTheDocument();

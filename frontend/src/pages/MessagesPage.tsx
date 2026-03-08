@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
@@ -50,6 +50,48 @@ export function MessagesPage() {
   const [composeBody, setComposeBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
+
+  // Username autocomplete state
+  const [userSuggestions, setUserSuggestions] = useState<
+    Array<{ id: number; username: string }>
+  >([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const suggestionRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Debounced username search for autocomplete
+  const searchUsers = useCallback((query: string) => {
+    clearTimeout(debounceRef.current);
+    if (query.length < 2) {
+      setUserSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    setSuggestionLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users?search=${encodeURIComponent(query)}&per_page=8`,
+          { headers: authHeaders() },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setUserSuggestions(
+            (data?.users ?? []).map((u: { id: number; username: string }) => ({
+              id: u.id,
+              username: u.username,
+            })),
+          );
+          setShowSuggestions(true);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setSuggestionLoading(false);
+      }
+    }, 250);
+  }, []);
 
   const fetchUnreadCount = useCallback(async () => {
     try {
@@ -323,19 +365,49 @@ export function MessagesPage() {
             <div className="messages__success">{sendSuccess}</div>
           )}
           <form className="messages__compose-form" onSubmit={handleSend}>
-            <div className="messages__form-group">
+            <div className="messages__form-group" ref={suggestionRef}>
               <label htmlFor="msg-receiver" className="messages__form-label">
-                To (username)
+                To
               </label>
-              <input
-                id="msg-receiver"
-                type="text"
-                className="messages__form-input"
-                value={composeReceiver}
-                onChange={(e) => setComposeReceiver(e.target.value)}
-                required
-                placeholder="Enter username"
-              />
+              <div className="messages__autocomplete">
+                <input
+                  id="msg-receiver"
+                  type="text"
+                  className="messages__form-input"
+                  value={composeReceiver}
+                  onChange={(e) => {
+                    setComposeReceiver(e.target.value);
+                    searchUsers(e.target.value);
+                  }}
+                  onFocus={() => {
+                    if (userSuggestions.length > 0) setShowSuggestions(true);
+                  }}
+                  required
+                  placeholder="Search username..."
+                  autoComplete="off"
+                />
+                {suggestionLoading && (
+                  <span className="messages__autocomplete-loading">...</span>
+                )}
+                {showSuggestions && userSuggestions.length > 0 && (
+                  <ul className="messages__autocomplete-list">
+                    {userSuggestions.map((u) => (
+                      <li key={u.id}>
+                        <button
+                          type="button"
+                          className="messages__autocomplete-item"
+                          onClick={() => {
+                            setComposeReceiver(u.username);
+                            setShowSuggestions(false);
+                          }}
+                        >
+                          {u.username}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
             <div className="messages__form-group">
               <label htmlFor="msg-subject" className="messages__form-label">

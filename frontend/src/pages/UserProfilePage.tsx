@@ -145,6 +145,14 @@ export function UserProfilePage() {
                 Edit Profile
               </Link>
             )}
+            {!isOwnProfile && currentUser && (
+              <Link
+                to={`/messages?tab=compose&to=${encodeURIComponent(profile.username)}`}
+                className="profile-info__settings-link"
+              >
+                Send Message
+              </Link>
+            )}
             {!isOwnProfile && currentUser?.isStaff && (
               <Link
                 to={`/admin/users?q=${encodeURIComponent(profile.username)}`}

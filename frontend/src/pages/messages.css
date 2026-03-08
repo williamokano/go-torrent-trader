@@ -160,6 +160,54 @@
   border-color: var(--color-accent);
 }
 
+/* Username autocomplete */
+.messages__autocomplete {
+  position: relative;
+}
+
+.messages__autocomplete-loading {
+  position: absolute;
+  right: var(--space-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.messages__autocomplete-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  list-style: none;
+  padding: var(--space-xs) 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.messages__autocomplete-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  background: none;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.messages__autocomplete-item:hover {
+  background-color: var(--color-bg-tertiary);
+}
+
 .messages__form-textarea {
   padding: var(--space-xs) var(--space-sm);
   background-color: var(--color-bg-secondary, #1a1a2e);
