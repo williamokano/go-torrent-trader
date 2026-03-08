@@ -45,8 +45,17 @@ func NewRouter(deps *Deps) chi.Router {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(mw.RequestLogger)
-	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS)
+
+	// WebSocket endpoint — mounted BEFORE Recoverer because the recoverer
+	// wraps ResponseWriter and strips the http.Hijacker interface needed
+	// for WebSocket upgrade.
+	if deps != nil && deps.ChatHub != nil {
+		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
+	}
+
+	// Recoverer for all other routes (not compatible with WebSocket hijack)
+	r.Use(chimw.Recoverer)
 
 	// Health check
 	r.Get("/healthz", HandleHealthz)
@@ -57,11 +66,6 @@ func NewRouter(deps *Deps) chi.Router {
 		scrapeHandler := NewScrapeHandler(deps.TrackerService)
 		r.Get("/announce", announceHandler.HandleAnnounce)
 		r.Get("/scrape", scrapeHandler.HandleScrape)
-	}
-
-	// WebSocket endpoint (auth via query param, not middleware)
-	if deps != nil && deps.ChatHub != nil {
-		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
 	}
 
 	// API routes
