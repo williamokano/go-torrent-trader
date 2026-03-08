@@ -2,14 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
-import { Input } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { formatDate } from "@/utils/format";
 import "./invites.css";
 
 interface Invite {
   id: number;
-  email: string;
+  token: string;
   status: "pending" | "redeemed" | "expired";
   expires_at: string;
   created_at: string;
@@ -19,6 +18,10 @@ interface Invite {
 
 const PER_PAGE = 25;
 
+function getInviteLink(token: string): string {
+  return `${window.location.origin}/signup?invite=${token}`;
+}
+
 export function InvitesPage() {
   const { user } = useAuth();
   const [invites, setInvites] = useState<Invite[]>([]);
@@ -26,9 +29,9 @@ export function InvitesPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const fetchInvites = useCallback(async () => {
     setLoading(true);
@@ -70,13 +73,13 @@ export function InvitesPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
-  const handleSendInvite = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || sending) return;
+  const handleGenerateInvite = async () => {
+    if (generating) return;
 
-    setSending(true);
+    setGenerating(true);
     setError(null);
-    setSuccessMsg(null);
+    setGeneratedLink(null);
+    setCopied(false);
 
     try {
       const token = getAccessToken();
@@ -86,23 +89,35 @@ export function InvitesPage() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ email: email.trim() }),
       });
 
       const body = await res.json();
 
       if (!res.ok) {
-        setError(body?.error?.message ?? "Failed to send invite");
+        setError(body?.error?.message ?? "Failed to generate invite");
         return;
       }
 
-      setSuccessMsg(`Invite sent to ${email.trim()}`);
-      setEmail("");
+      const inviteToken = body?.invite?.token;
+      if (inviteToken) {
+        setGeneratedLink(getInviteLink(inviteToken));
+      }
       fetchInvites();
     } catch {
-      setError("Failed to send invite");
+      setError("Failed to generate invite");
     } finally {
-      setSending(false);
+      setGenerating(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!generatedLink) return;
+    try {
+      await navigator.clipboard.writeText(generatedLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: select the text
     }
   };
 
@@ -116,47 +131,54 @@ export function InvitesPage() {
       </div>
 
       {(user?.invites ?? 0) > 0 && (
-        <form className="invites__form" onSubmit={handleSendInvite}>
-          <div className="invites__form-input">
-            <Input
-              label="Email"
-              type="email"
-              placeholder="Enter email address..."
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
+        <div className="invites__generate">
           <button
-            type="submit"
+            type="button"
             className="invites__form-btn"
-            disabled={sending || !email.trim()}
+            disabled={generating}
+            onClick={handleGenerateInvite}
           >
-            {sending ? "Sending..." : "Send Invite"}
+            {generating ? "Generating..." : "Generate Invite"}
           </button>
-        </form>
+        </div>
       )}
 
-      {successMsg && <div className="invites__success">{successMsg}</div>}
+      {generatedLink && (
+        <div className="invites__generated-link">
+          <span className="invites__generated-link-label">Invite link:</span>
+          <code className="invites__generated-link-url">{generatedLink}</code>
+          <button
+            type="button"
+            className="invites__copy-btn"
+            onClick={handleCopy}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+      )}
+
       {error && <div className="invites__error">{error}</div>}
 
       {loading ? (
         <div className="invites__loading">Loading invites...</div>
       ) : invites.length === 0 ? (
-        <div className="invites__empty">No invites sent yet.</div>
+        <div className="invites__empty">No invites created yet.</div>
       ) : (
         <table className="invites__table">
           <thead>
             <tr>
-              <th>Email</th>
+              <th>Token</th>
               <th>Status</th>
-              <th>Sent</th>
+              <th>Created</th>
               <th>Expires</th>
             </tr>
           </thead>
           <tbody>
             {invites.map((inv) => (
               <tr key={inv.id}>
-                <td>{inv.email}</td>
+                <td>
+                  <code>{inv.token.substring(0, 12)}...</code>
+                </td>
                 <td>
                   <span className={`invites__status--${inv.status}`}>
                     {inv.status}

@@ -126,6 +126,13 @@ type InviteRepository interface {
 	CountPendingByInviter(ctx context.Context, inviterID int64) (int, error)
 }
 
+// SiteSettingsRepository defines persistence operations for site settings.
+type SiteSettingsRepository interface {
+	Get(ctx context.Context, key string) (*model.SiteSetting, error)
+	Set(ctx context.Context, key, value string) error
+	GetAll(ctx context.Context) ([]model.SiteSetting, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

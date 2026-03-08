@@ -17,16 +17,8 @@
   color: var(--color-text-muted);
 }
 
-.invites__form {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: flex-end;
+.invites__generate {
   margin-bottom: var(--space-lg);
-}
-
-.invites__form-input {
-  flex: 1;
-  max-width: 400px;
 }
 
 .invites__form-btn {
@@ -48,6 +40,46 @@
 .invites__form-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.invites__generated-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-secondary, #1a1a2e);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+
+.invites__generated-link-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.invites__generated-link-url {
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.invites__copy-btn {
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs, 0.75rem);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.invites__copy-btn:hover {
+  opacity: 0.9;
 }
 
 .invites__table {
@@ -95,12 +127,6 @@
   text-align: center;
   color: var(--color-error, #ef4444);
   padding: var(--space-lg);
-}
-
-.invites__success {
-  color: var(--color-success, #10b981);
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-md);
 }
 
 .invites__empty {

@@ -176,27 +176,13 @@ func (m *mockInviteUserRepo) ListStaff(_ context.Context) ([]model.User, error) 
 	return nil, nil
 }
 
-// --- noop email sender for invite tests ---
-
-type noopInviteSender struct {
-	sendCount int
-	lastTo    string
-}
-
-func (n *noopInviteSender) Send(_ context.Context, to, _, _ string) error {
-	n.sendCount++
-	n.lastTo = to
-	return nil
-}
-
 // --- tests ---
 
-func newTestInviteService() (*InviteService, *mockInviteRepo, *mockInviteUserRepo, *noopInviteSender) {
+func newTestInviteService() (*InviteService, *mockInviteRepo, *mockInviteUserRepo) {
 	inviteRepo := newMockInviteRepo()
 	userRepo := newMockInviteUserRepo()
-	sender := &noopInviteSender{}
 	bus := event.NewInMemoryBus()
-	svc := NewInviteService(inviteRepo, userRepo, sender, bus, "http://localhost:3000")
+	svc := NewInviteService(inviteRepo, userRepo, bus)
 
 	// Create a test user with invites
 	_ = userRepo.Create(context.Background(), &model.User{
@@ -207,21 +193,18 @@ func newTestInviteService() (*InviteService, *mockInviteRepo, *mockInviteUserRep
 		GroupID:  5,
 	})
 
-	return svc, inviteRepo, userRepo, sender
+	return svc, inviteRepo, userRepo
 }
 
-func TestInviteService_SendInvite_Success(t *testing.T) {
-	svc, _, userRepo, sender := newTestInviteService()
+func TestInviteService_CreateInvite_Success(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
 
-	invite, err := svc.SendInvite(context.Background(), 1, "friend@example.com")
+	invite, err := svc.CreateInvite(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if invite.ID != 1 {
 		t.Errorf("expected ID 1, got %d", invite.ID)
-	}
-	if invite.Email != "friend@example.com" {
-		t.Errorf("expected email friend@example.com, got %s", invite.Email)
 	}
 	if invite.Token == "" {
 		t.Error("expected non-empty token")
@@ -232,77 +215,54 @@ func TestInviteService_SendInvite_Success(t *testing.T) {
 	if user.Invites != 2 {
 		t.Errorf("expected 2 invites remaining, got %d", user.Invites)
 	}
-
-	// Check email sent
-	if sender.sendCount != 1 {
-		t.Errorf("expected 1 email sent, got %d", sender.sendCount)
-	}
-	if sender.lastTo != "friend@example.com" {
-		t.Errorf("expected email to friend@example.com, got %s", sender.lastTo)
-	}
 }
 
-func TestInviteService_SendInvite_NoInvitesRemaining(t *testing.T) {
-	svc, _, userRepo, _ := newTestInviteService()
+func TestInviteService_CreateInvite_NoInvitesRemaining(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
 
 	// Set invites to 0
 	user, _ := userRepo.GetByID(context.Background(), 1)
 	user.Invites = 0
 	_ = userRepo.Update(context.Background(), user)
 
-	_, err := svc.SendInvite(context.Background(), 1, "friend@example.com")
+	_, err := svc.CreateInvite(context.Background(), 1)
 	if !errors.Is(err, ErrNoInvitesRemaining) {
 		t.Errorf("expected ErrNoInvitesRemaining, got %v", err)
 	}
 }
 
-func TestInviteService_SendInvite_InvalidEmail(t *testing.T) {
-	svc, _, _, _ := newTestInviteService()
+func TestInviteService_ValidateInvite_Success(t *testing.T) {
+	svc, _, _ := newTestInviteService()
 
-	_, err := svc.SendInvite(context.Background(), 1, "")
-	if !errors.Is(err, ErrInvalidInviteEmail) {
-		t.Errorf("expected ErrInvalidInviteEmail for empty email, got %v", err)
+	// Create an invite first
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("unexpected error creating invite: %v", err)
 	}
 
-	_, err = svc.SendInvite(context.Background(), 1, "not-an-email")
-	if !errors.Is(err, ErrInvalidInviteEmail) {
-		t.Errorf("expected ErrInvalidInviteEmail for invalid email, got %v", err)
+	// Validate the token
+	result, err := svc.ValidateInvite(context.Background(), invite.Token)
+	if err != nil {
+		t.Fatalf("unexpected error validating invite: %v", err)
+	}
+	if result.ID != invite.ID {
+		t.Errorf("expected invite ID %d, got %d", invite.ID, result.ID)
 	}
 }
 
-func TestInviteService_RedeemInvite_Success(t *testing.T) {
-	svc, _, _, _ := newTestInviteService()
+func TestInviteService_ValidateInvite_NotFound(t *testing.T) {
+	svc, _, _ := newTestInviteService()
 
-	// Send an invite first
-	invite, err := svc.SendInvite(context.Background(), 1, "friend@example.com")
-	if err != nil {
-		t.Fatalf("unexpected error sending invite: %v", err)
-	}
-
-	// Validate/redeem the token
-	result, err := svc.RedeemInvite(context.Background(), invite.Token)
-	if err != nil {
-		t.Fatalf("unexpected error redeeming invite: %v", err)
-	}
-	if result.Email != "friend@example.com" {
-		t.Errorf("expected email friend@example.com, got %s", result.Email)
-	}
-}
-
-func TestInviteService_RedeemInvite_NotFound(t *testing.T) {
-	svc, _, _, _ := newTestInviteService()
-
-	_, err := svc.RedeemInvite(context.Background(), "nonexistent-token")
+	_, err := svc.ValidateInvite(context.Background(), "nonexistent-token")
 	if !errors.Is(err, ErrInviteNotFound) {
 		t.Errorf("expected ErrInviteNotFound, got %v", err)
 	}
 }
 
-func TestInviteService_RedeemInvite_Expired(t *testing.T) {
-	svc, inviteRepo, _, _ := newTestInviteService()
+func TestInviteService_ValidateInvite_Expired(t *testing.T) {
+	svc, inviteRepo, _ := newTestInviteService()
 
-	// Send an invite
-	invite, err := svc.SendInvite(context.Background(), 1, "friend@example.com")
+	invite, err := svc.CreateInvite(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -316,16 +276,16 @@ func TestInviteService_RedeemInvite_Expired(t *testing.T) {
 	}
 	inviteRepo.mu.Unlock()
 
-	_, err = svc.RedeemInvite(context.Background(), invite.Token)
+	_, err = svc.ValidateInvite(context.Background(), invite.Token)
 	if !errors.Is(err, ErrInviteExpired) {
 		t.Errorf("expected ErrInviteExpired, got %v", err)
 	}
 }
 
-func TestInviteService_RedeemInvite_AlreadyRedeemed(t *testing.T) {
-	svc, inviteRepo, _, _ := newTestInviteService()
+func TestInviteService_ValidateInvite_AlreadyRedeemed(t *testing.T) {
+	svc, inviteRepo, _ := newTestInviteService()
 
-	invite, err := svc.SendInvite(context.Background(), 1, "friend@example.com")
+	invite, err := svc.CreateInvite(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -341,18 +301,35 @@ func TestInviteService_RedeemInvite_AlreadyRedeemed(t *testing.T) {
 	}
 	inviteRepo.mu.Unlock()
 
-	_, err = svc.RedeemInvite(context.Background(), invite.Token)
+	_, err = svc.ValidateInvite(context.Background(), invite.Token)
 	if !errors.Is(err, ErrInviteRedeemed) {
 		t.Errorf("expected ErrInviteRedeemed, got %v", err)
 	}
 }
 
-func TestInviteService_ListMyInvites(t *testing.T) {
-	svc, _, _, _ := newTestInviteService()
+func TestInviteService_RedeemInvite_Success(t *testing.T) {
+	svc, _, _ := newTestInviteService()
 
-	// Send some invites
-	_, _ = svc.SendInvite(context.Background(), 1, "a@example.com")
-	_, _ = svc.SendInvite(context.Background(), 1, "b@example.com")
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("unexpected error creating invite: %v", err)
+	}
+
+	result, err := svc.RedeemInvite(context.Background(), invite.Token, 42)
+	if err != nil {
+		t.Fatalf("unexpected error redeeming invite: %v", err)
+	}
+	if result.ID != invite.ID {
+		t.Errorf("expected invite ID %d, got %d", invite.ID, result.ID)
+	}
+}
+
+func TestInviteService_ListMyInvites(t *testing.T) {
+	svc, _, _ := newTestInviteService()
+
+	// Create some invites
+	_, _ = svc.CreateInvite(context.Background(), 1)
+	_, _ = svc.CreateInvite(context.Background(), 1)
 
 	invites, total, err := svc.ListMyInvites(context.Background(), 1, 1, 25)
 	if err != nil {
@@ -367,12 +344,12 @@ func TestInviteService_ListMyInvites(t *testing.T) {
 }
 
 func TestInviteService_ListMyInvites_Pagination(t *testing.T) {
-	svc, _, _, _ := newTestInviteService()
+	svc, _, _ := newTestInviteService()
 
-	// Send 3 invites (user has 3 invites)
-	_, _ = svc.SendInvite(context.Background(), 1, "a@example.com")
-	_, _ = svc.SendInvite(context.Background(), 1, "b@example.com")
-	_, _ = svc.SendInvite(context.Background(), 1, "c@example.com")
+	// Create 3 invites (user has 3 invites)
+	_, _ = svc.CreateInvite(context.Background(), 1)
+	_, _ = svc.CreateInvite(context.Background(), 1)
+	_, _ = svc.CreateInvite(context.Background(), 1)
 
 	invites, total, err := svc.ListMyInvites(context.Background(), 1, 1, 2)
 	if err != nil {
@@ -386,14 +363,14 @@ func TestInviteService_ListMyInvites_Pagination(t *testing.T) {
 	}
 }
 
-func TestInviteService_SendInvite_DecrementsInviteCount(t *testing.T) {
-	svc, _, userRepo, _ := newTestInviteService()
+func TestInviteService_CreateInvite_DecrementsInviteCount(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
 
 	user, _ := userRepo.GetByID(context.Background(), 1)
 	initialInvites := user.Invites
 
-	_, _ = svc.SendInvite(context.Background(), 1, "a@example.com")
-	_, _ = svc.SendInvite(context.Background(), 1, "b@example.com")
+	_, _ = svc.CreateInvite(context.Background(), 1)
+	_, _ = svc.CreateInvite(context.Background(), 1)
 
 	user, _ = userRepo.GetByID(context.Background(), 1)
 	if user.Invites != initialInvites-2 {

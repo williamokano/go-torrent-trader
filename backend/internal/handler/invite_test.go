@@ -1,7 +1,6 @@
 package handler_test
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -211,7 +210,7 @@ func setupInviteRouter() (http.Handler, service.SessionStore, *mockInviteUserRep
 	sessions := testutil.NewMemorySessionStore()
 	bus := event.NewInMemoryBus()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
-	inviteSvc := service.NewInviteService(inviteRepo, userRepo, &testutil.NoopSender{}, bus, "http://localhost:3000")
+	inviteSvc := service.NewInviteService(inviteRepo, userRepo, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:   authSvc,
@@ -223,7 +222,7 @@ func setupInviteRouter() (http.Handler, service.SessionStore, *mockInviteUserRep
 
 // --- tests ---
 
-func TestHandleSendInvite_Success(t *testing.T) {
+func TestHandleCreateInvite_Success(t *testing.T) {
 	router, sessions, userRepo := setupInviteRouter()
 
 	// Create user with invites and admin group (which has CanInvite=true)
@@ -236,10 +235,7 @@ func TestHandleSendInvite_Success(t *testing.T) {
 	})
 	token := createSessionWithGroup(sessions, 1, 1)
 
-	body, _ := json.Marshal(map[string]string{
-		"email": "friend@example.com",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -252,21 +248,18 @@ func TestHandleSendInvite_Success(t *testing.T) {
 	var resp map[string]interface{}
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	invite := resp["invite"].(map[string]interface{})
-	if invite["email"] != "friend@example.com" {
-		t.Errorf("expected email friend@example.com, got %v", invite["email"])
+	if invite["token"] == nil || invite["token"] == "" {
+		t.Error("expected non-empty token in response")
 	}
 	if invite["status"] != "pending" {
 		t.Errorf("expected status pending, got %v", invite["status"])
 	}
 }
 
-func TestHandleSendInvite_Unauthenticated(t *testing.T) {
+func TestHandleCreateInvite_Unauthenticated(t *testing.T) {
 	router, _, _ := setupInviteRouter()
 
-	body, _ := json.Marshal(map[string]string{
-		"email": "friend@example.com",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -276,7 +269,7 @@ func TestHandleSendInvite_Unauthenticated(t *testing.T) {
 	}
 }
 
-func TestHandleSendInvite_NoInviteCapability(t *testing.T) {
+func TestHandleCreateInvite_NoInviteCapability(t *testing.T) {
 	router, sessions, userRepo := setupInviteRouter()
 
 	// Regular user (groupID=5) does NOT have CanInvite
@@ -289,10 +282,7 @@ func TestHandleSendInvite_NoInviteCapability(t *testing.T) {
 	})
 	token := createSessionWithGroup(sessions, 2, 5)
 
-	body, _ := json.Marshal(map[string]string{
-		"email": "friend@example.com",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -303,10 +293,10 @@ func TestHandleSendInvite_NoInviteCapability(t *testing.T) {
 	}
 }
 
-func TestHandleSendInvite_NoInvitesRemaining(t *testing.T) {
+func TestHandleCreateInvite_NoInvitesRemaining(t *testing.T) {
 	router, sessions, userRepo := setupInviteRouter()
 
-	// Create user with 0 invites (will get ID=1 since it's the first user)
+	// Create user with 0 invites
 	_ = userRepo.Create(context.Background(), &model.User{
 		Username: "noinvites",
 		Email:    "noinvites@test.com",
@@ -316,10 +306,7 @@ func TestHandleSendInvite_NoInvitesRemaining(t *testing.T) {
 	})
 	token := createSessionWithGroup(sessions, 1, 1)
 
-	body, _ := json.Marshal(map[string]string{
-		"email": "friend@example.com",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -333,7 +320,7 @@ func TestHandleSendInvite_NoInvitesRemaining(t *testing.T) {
 func TestHandleListInvites_Success(t *testing.T) {
 	router, sessions, userRepo := setupInviteRouter()
 
-	// Create user with invites (will get ID=1)
+	// Create user with invites
 	_ = userRepo.Create(context.Background(), &model.User{
 		Username: "lister",
 		Email:    "lister@test.com",
@@ -343,15 +330,14 @@ func TestHandleListInvites_Success(t *testing.T) {
 	})
 	token := createSessionWithGroup(sessions, 1, 1)
 
-	// Send an invite first
-	sendBody, _ := json.Marshal(map[string]string{"email": "invitee@example.com"})
-	sendReq := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(sendBody))
-	sendReq.Header.Set("Content-Type", "application/json")
-	sendReq.Header.Set("Authorization", "Bearer "+token)
-	sendRec := httptest.NewRecorder()
-	router.ServeHTTP(sendRec, sendReq)
-	if sendRec.Code != http.StatusCreated {
-		t.Fatalf("send invite failed: %d %s", sendRec.Code, sendRec.Body.String())
+	// Create an invite first
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	router.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create invite failed: %d %s", createRec.Code, createRec.Body.String())
 	}
 
 	// List invites
@@ -376,49 +362,6 @@ func TestHandleListInvites_Success(t *testing.T) {
 	}
 }
 
-func TestHandleValidateInvite_Success(t *testing.T) {
-	router, sessions, userRepo := setupInviteRouter()
-
-	// Create user and send invite (will get ID=1)
-	_ = userRepo.Create(context.Background(), &model.User{
-		Username: "validator",
-		Email:    "validator@test.com",
-		Invites:  5,
-		Enabled:  true,
-		GroupID:  1,
-	})
-	token := createSessionWithGroup(sessions, 1, 1)
-
-	sendBody, _ := json.Marshal(map[string]string{"email": "newuser@example.com"})
-	sendReq := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(sendBody))
-	sendReq.Header.Set("Content-Type", "application/json")
-	sendReq.Header.Set("Authorization", "Bearer "+token)
-	sendRec := httptest.NewRecorder()
-	router.ServeHTTP(sendRec, sendReq)
-	if sendRec.Code != http.StatusCreated {
-		t.Fatalf("send invite failed: %d %s", sendRec.Code, sendRec.Body.String())
-	}
-
-	// Extract the invite to get the token
-	var sendResp map[string]interface{}
-	_ = json.Unmarshal(sendRec.Body.Bytes(), &sendResp)
-	// We need the invite token — but it's not returned in the response for security.
-	// For this test, let's list invites to get info, but we actually need the token from the repo.
-	// Since the validate endpoint is public, let's just test with a bogus token first.
-	// Actually, for the handler test we need to know the token. Let's look at the list endpoint —
-	// the token is stored in the repo. For handler integration tests, we rely on the fact that
-	// the invite endpoint uses a token from the invite repo.
-
-	// Validate with nonexistent token
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/invites/nonexistent-token", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected 404 for nonexistent token, got %d; body: %s", rec.Code, rec.Body.String())
-	}
-}
-
 func TestHandleValidateInvite_NotFound(t *testing.T) {
 	router, _, _ := setupInviteRouter()
 
@@ -428,32 +371,5 @@ func TestHandleValidateInvite_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d; body: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandleSendInvite_InvalidEmail(t *testing.T) {
-	router, sessions, userRepo := setupInviteRouter()
-
-	// Create user (will get ID=1)
-	_ = userRepo.Create(context.Background(), &model.User{
-		Username: "emailtest",
-		Email:    "emailtest@test.com",
-		Invites:  5,
-		Enabled:  true,
-		GroupID:  1,
-	})
-	token := createSessionWithGroup(sessions, 1, 1)
-
-	body, _ := json.Marshal(map[string]string{
-		"email": "not-an-email",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d; body: %s", rec.Code, rec.Body.String())
 	}
 }

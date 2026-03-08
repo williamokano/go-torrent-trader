@@ -24,6 +24,8 @@ var (
 	ErrValidationFailed     = errors.New("validation failed")
 	ErrResetRateLimitExceed = errors.New("too many password reset requests")
 	ErrInvalidResetToken    = errors.New("invalid or expired reset token")
+	ErrInviteRequired       = errors.New("invite code is required")
+	ErrInvalidInviteCode    = errors.New("invalid or expired invite code")
 )
 
 var (
@@ -45,9 +47,10 @@ type AuthTokens struct {
 
 // RegisterRequest holds the input for user registration.
 type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Username   string `json:"username"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	InviteCode string `json:"invite_code"`
 }
 
 // LoginRequest holds the input for user login.
@@ -94,6 +97,8 @@ type AuthService struct {
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 	eventBus        event.Bus
+	siteSettings    *SiteSettingsService
+	inviteService   *InviteService
 }
 
 // NewAuthService creates a new AuthService with default token TTLs.
@@ -137,10 +142,45 @@ func (s *AuthService) SetSiteBaseURL(url string) {
 	s.siteBaseURL = url
 }
 
+// SetSiteSettings sets the site settings service (used for registration mode checks).
+func (s *AuthService) SetSiteSettings(svc *SiteSettingsService) {
+	s.siteSettings = svc
+}
+
+// SetInviteService sets the invite service (used for invite code validation during registration).
+func (s *AuthService) SetInviteService(svc *InviteService) {
+	s.inviteService = svc
+}
+
 // Register creates a new user account and returns auth tokens.
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip string) (*model.User, *AuthTokens, error) {
 	if err := validateRegistration(req); err != nil {
 		return nil, nil, err
+	}
+
+	// Check registration mode and validate invite code
+	var validatedInvite *model.Invite
+	isFirstUser, err := s.isFirstUser(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("check first user: %w", err)
+	}
+
+	// First user bypasses invite requirement (bootstrap)
+	if !isFirstUser && s.siteSettings != nil {
+		regMode := s.siteSettings.GetRegistrationMode(ctx)
+		if regMode == RegistrationModeInviteOnly {
+			if req.InviteCode == "" {
+				return nil, nil, ErrInviteRequired
+			}
+			if s.inviteService == nil {
+				return nil, nil, fmt.Errorf("invite service not configured")
+			}
+			invite, err := s.inviteService.ValidateInvite(ctx, req.InviteCode)
+			if err != nil {
+				return nil, nil, ErrInvalidInviteCode
+			}
+			validatedInvite = invite
+		}
 	}
 
 	// Fast-path uniqueness checks for better UX error messages.
@@ -159,10 +199,6 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 
 	// Determine group: first user gets admin
 	groupID := int64(defaultGroupID)
-	isFirstUser, err := s.isFirstUser(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("check first user: %w", err)
-	}
 	if isFirstUser {
 		groupID = adminGroupID
 	}
@@ -185,6 +221,11 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		IP:             &ip,
 	}
 
+	// Link inviter to invitee
+	if validatedInvite != nil {
+		user.InvitedBy = &validatedInvite.InviterID
+	}
+
 	if err := s.users.Create(ctx, user); err != nil {
 		// Map DB unique constraint violations to domain errors.
 		// This is the true race-condition safety net.
@@ -198,6 +239,13 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 			}
 		}
 		return nil, nil, fmt.Errorf("create user: %w", err)
+	}
+
+	// Redeem the invite now that the user is created
+	if validatedInvite != nil && s.inviteService != nil {
+		if _, err := s.inviteService.RedeemInvite(ctx, req.InviteCode, user.ID); err != nil {
+			slog.Error("failed to redeem invite after registration", "user_id", user.ID, "invite_id", validatedInvite.ID, "error", err)
+		}
 	}
 
 	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)

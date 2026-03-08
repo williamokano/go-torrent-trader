@@ -25,14 +25,14 @@ vi.mock("@/features/auth", () => ({
 const FAKE_INVITES = [
   {
     id: 1,
-    email: "alice@example.com",
+    token: "abc123def456ghi789jkl012mno345pq",
     status: "pending",
     expires_at: "2026-03-15T10:00:00Z",
     created_at: "2026-03-08T10:00:00Z",
   },
   {
     id: 2,
-    email: "bob@example.com",
+    token: "xyz789uvw456rst123opq012nml345kj",
     status: "redeemed",
     expires_at: "2026-03-10T10:00:00Z",
     created_at: "2026-03-03T10:00:00Z",
@@ -88,9 +88,9 @@ describe("InvitesPage", () => {
   test("renders invite table after loading", async () => {
     renderInvitesPage();
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      expect(screen.getByText("abc123def456...")).toBeInTheDocument();
     });
-    expect(screen.getByText("bob@example.com")).toBeInTheDocument();
+    expect(screen.getByText("xyz789uvw456...")).toBeInTheDocument();
   });
 
   test("renders invite statuses", async () => {
@@ -104,21 +104,17 @@ describe("InvitesPage", () => {
   test("renders table headers", async () => {
     renderInvitesPage();
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      expect(screen.getByText("abc123def456...")).toBeInTheDocument();
     });
-    const emailElements = screen.getAllByText("Email");
-    expect(emailElements.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Token")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
-    expect(screen.getByText("Sent")).toBeInTheDocument();
+    expect(screen.getByText("Created")).toBeInTheDocument();
     expect(screen.getByText("Expires")).toBeInTheDocument();
   });
 
-  test("shows invite form when user has invites", () => {
+  test("shows generate invite button when user has invites", () => {
     renderInvitesPage();
-    expect(
-      screen.getByPlaceholderText("Enter email address..."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Send Invite")).toBeInTheDocument();
+    expect(screen.getByText("Generate Invite")).toBeInTheDocument();
   });
 
   test("shows empty state when no invites", async () => {
@@ -129,7 +125,7 @@ describe("InvitesPage", () => {
     });
     renderInvitesPage();
     await waitFor(() => {
-      expect(screen.getByText("No invites sent yet.")).toBeInTheDocument();
+      expect(screen.getByText("No invites created yet.")).toBeInTheDocument();
     });
   });
 

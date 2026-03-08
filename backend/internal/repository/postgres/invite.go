@@ -23,7 +23,7 @@ func NewInviteRepo(db *sql.DB) repository.InviteRepository {
 func scanInvite(row interface{ Scan(...any) error }) (*model.Invite, error) {
 	var inv model.Invite
 	err := row.Scan(
-		&inv.ID, &inv.InviterID, &inv.Email, &inv.Token,
+		&inv.ID, &inv.InviterID, &inv.Token,
 		&inv.InviteeID, &inv.RedeemedAt, &inv.ExpiresAt, &inv.CreatedAt,
 	)
 	if err != nil {
@@ -33,14 +33,14 @@ func scanInvite(row interface{ Scan(...any) error }) (*model.Invite, error) {
 	return &inv, nil
 }
 
-const inviteColumns = `id, inviter_id, email, token, used_by_id, used_at, expires_at, created_at`
+const inviteColumns = `id, inviter_id, token, used_by_id, used_at, expires_at, created_at`
 
 func (r *InviteRepo) Create(ctx context.Context, invite *model.Invite) error {
-	query := `INSERT INTO invites (inviter_id, email, token, expires_at)
-		VALUES ($1, $2, $3, $4)
+	query := `INSERT INTO invites (inviter_id, token, expires_at)
+		VALUES ($1, $2, $3)
 		RETURNING id, created_at`
 	err := r.db.QueryRowContext(ctx, query,
-		invite.InviterID, invite.Email, invite.Token, invite.ExpiresAt,
+		invite.InviterID, invite.Token, invite.ExpiresAt,
 	).Scan(&invite.ID, &invite.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create invite: %w", err)
@@ -78,17 +78,13 @@ func (r *InviteRepo) ListByInviter(ctx context.Context, inviterID int64, page, p
 	if err != nil {
 		return nil, 0, fmt.Errorf("list invites: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			_ = closeErr
-		}
-	}()
+	defer func() { _ = rows.Close() }()
 
 	var invites []model.Invite
 	for rows.Next() {
 		var inv model.Invite
 		if err := rows.Scan(
-			&inv.ID, &inv.InviterID, &inv.Email, &inv.Token,
+			&inv.ID, &inv.InviterID, &inv.Token,
 			&inv.InviteeID, &inv.RedeemedAt, &inv.ExpiresAt, &inv.CreatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan invite: %w", err)

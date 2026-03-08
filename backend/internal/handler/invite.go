@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -24,23 +23,15 @@ func NewInviteHandler(invites *service.InviteService) *InviteHandler {
 	return &InviteHandler{invites: invites}
 }
 
-// HandleSendInvite handles POST /api/v1/invites.
-func (h *InviteHandler) HandleSendInvite(w http.ResponseWriter, r *http.Request) {
+// HandleCreateInvite handles POST /api/v1/invites.
+func (h *InviteHandler) HandleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.UserIDFromContext(r.Context())
 	if !ok {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
 		return
 	}
 
-	var req struct {
-		Email string `json:"email"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
-		return
-	}
-
-	invite, err := h.invites.SendInvite(r.Context(), userID, req.Email)
+	invite, err := h.invites.CreateInvite(r.Context(), userID)
 	if err != nil {
 		handleInviteError(w, err)
 		return
@@ -95,18 +86,14 @@ func (h *InviteHandler) HandleValidateInvite(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	invite, err := h.invites.RedeemInvite(r.Context(), token)
+	_, err := h.invites.ValidateInvite(r.Context(), token)
 	if err != nil {
 		handleInviteError(w, err)
 		return
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"invite": map[string]interface{}{
-			"email":      invite.Email,
-			"expires_at": invite.ExpiresAt,
-			"valid":      true,
-		},
+		"valid": true,
 	})
 }
 
@@ -114,8 +101,6 @@ func handleInviteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrNoInvitesRemaining):
 		ErrorResponse(w, http.StatusForbidden, "no_invites", "you have no invites remaining")
-	case errors.Is(err, service.ErrInvalidInviteEmail):
-		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	case errors.Is(err, service.ErrInviteNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "invite not found")
 	case errors.Is(err, service.ErrInviteExpired):
@@ -137,7 +122,7 @@ func inviteResponse(inv *model.Invite) map[string]interface{} {
 
 	resp := map[string]interface{}{
 		"id":         inv.ID,
-		"email":      inv.Email,
+		"token":      inv.Token,
 		"status":     status,
 		"expires_at": inv.ExpiresAt,
 		"created_at": inv.CreatedAt,
