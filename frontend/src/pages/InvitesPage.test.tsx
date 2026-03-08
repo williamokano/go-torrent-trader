@@ -114,8 +114,8 @@ describe("InvitesPage", () => {
     });
     expect(screen.getByText("Code")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
-    expect(screen.getByText("Invitee")).toBeInTheDocument();
-    expect(screen.getByText("Actions")).toBeInTheDocument();
+    expect(screen.getByText("Created")).toBeInTheDocument();
+    expect(screen.getByText("Expires")).toBeInTheDocument();
   });
 
   test("shows generate invite button when user has invites", () => {

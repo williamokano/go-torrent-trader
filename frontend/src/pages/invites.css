@@ -68,7 +68,7 @@
 }
 
 .invites__copy-btn {
-  padding: 3px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background-color: var(--color-accent);
   color: var(--color-bg-primary);
   border: none;
@@ -76,44 +76,50 @@
   font-size: var(--text-xs, 0.75rem);
   cursor: pointer;
   white-space: nowrap;
-  line-height: 1.2;
-  height: 22px;
-  box-sizing: border-box;
 }
 
 .invites__copy-btn:hover {
   opacity: 0.9;
 }
 
-.invites__table-wrapper {
-  overflow-x: auto;
+.invites__section-title {
+  font-size: var(--text-lg);
+  margin: var(--space-lg) 0 var(--space-md);
 }
 
 .invites__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-xs);
-  min-width: 700px;
+  font-size: var(--text-sm);
 }
 
 .invites__table th,
 .invites__table td {
   text-align: left;
-  padding: 8px var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
-  white-space: nowrap;
-  height: 36px;
-  box-sizing: border-box;
 }
 
 .invites__table th {
   color: var(--color-text-muted);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .invites__table td {
   color: var(--color-text-primary);
+}
+
+.invites__token {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.invites__actions {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
 }
 
 .invites__status--pending {
@@ -128,32 +134,18 @@
   color: var(--color-text-muted);
 }
 
-.invites__token {
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-}
-
-.invites__actions {
-  display: flex;
-  gap: var(--space-xs);
-  align-items: center;
-  justify-content: flex-end;
-}
-
 .invites__badge--banned {
   color: var(--color-error, #ef4444);
-  font-size: var(--text-xs);
   font-weight: 600;
 }
 
 .invites__badge--warned {
   color: var(--color-warning, #f59e0b);
-  font-size: var(--text-xs);
   font-weight: 600;
 }
 
-.invites__no-action {
-  color: var(--color-text-muted);
+.invites__badge--active {
+  color: var(--color-success, #10b981);
 }
 
 .invites__no-invites {

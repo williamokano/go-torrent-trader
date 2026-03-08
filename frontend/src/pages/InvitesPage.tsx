@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
@@ -23,10 +24,7 @@ interface Invite {
   status: "pending" | "redeemed" | "expired";
   expires_at: string;
   created_at: string;
-  invitee_id?: number;
-  invitee_name?: string;
   invitee?: InviteeView;
-  redeemed_at?: string;
 }
 
 const PER_PAGE = 25;
@@ -50,28 +48,20 @@ export function InvitesPage() {
   const fetchInvites = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
       const token = getAccessToken();
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("per_page", String(PER_PAGE));
-
       const res = await fetch(
         `${getConfig().API_URL}/api/v1/invites?${params.toString()}`,
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        },
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
       );
-
       const body = await res.json();
-
       if (!res.ok) {
         setError(body?.error?.message ?? "Failed to load invites");
-        setLoading(false);
         return;
       }
-
       setInvites(body?.invites ?? []);
       setTotal(body?.total ?? 0);
     } catch {
@@ -89,12 +79,10 @@ export function InvitesPage() {
 
   const handleGenerateInvite = async () => {
     if (generating) return;
-
     setGenerating(true);
     setError(null);
     setGeneratedLink(null);
     setCopied(false);
-
     try {
       const token = getAccessToken();
       const res = await fetch(`${getConfig().API_URL}/api/v1/invites`, {
@@ -104,14 +92,11 @@ export function InvitesPage() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-
       const body = await res.json();
-
       if (!res.ok) {
         setError(body?.error?.message ?? "Failed to generate invite");
         return;
       }
-
       const inviteToken = body?.invite?.token;
       if (inviteToken) {
         setGeneratedLink(getInviteLink(inviteToken));
@@ -132,9 +117,13 @@ export function InvitesPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback: select the text
+      /* fallback */
     }
   };
+
+  const invitees = invites
+    .filter((inv) => inv.invitee)
+    .map((inv) => inv.invitee!);
 
   return (
     <div className="invites">
@@ -181,124 +170,135 @@ export function InvitesPage() {
 
       {loading ? (
         <div className="invites__loading">Loading invites...</div>
-      ) : invites.length === 0 ? (
-        <div className="invites__empty">No invites created yet.</div>
       ) : (
-        <div className="invites__table-wrapper">
-          <table className="invites__table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Status</th>
-                <th>Invitee</th>
-                <th>Up</th>
-                <th>Down</th>
-                <th>%</th>
-                <th>Joined</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invites.map((inv) => (
-                <tr key={inv.id}>
-                  <td>
-                    <code className="invites__token">{inv.token}</code>
-                  </td>
-                  <td>
-                    <span className={`invites__status--${inv.status}`}>
-                      {inv.status}
-                    </span>
-                  </td>
-                  <td>
-                    {inv.invitee ? (
-                      <span>
-                        <a href={`/user/${inv.invitee.id}`}>
-                          {inv.invitee.username}
-                        </a>
-                        {!inv.invitee.enabled && (
-                          <span className="invites__badge--banned">
-                            {" "}
-                            Banned
-                          </span>
-                        )}
-                        {inv.invitee.warned && (
-                          <span className="invites__badge--warned">
-                            {" "}
-                            Warned
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  <td>
-                    {inv.invitee ? formatBytes(inv.invitee.uploaded) : "-"}
-                  </td>
-                  <td>
-                    {inv.invitee ? formatBytes(inv.invitee.downloaded) : "-"}
-                  </td>
-                  <td>{inv.invitee ? formatRatio(inv.invitee.ratio) : "-"}</td>
-                  <td>
-                    {inv.invitee ? formatDate(inv.invitee.created_at) : "-"}
-                  </td>
-                  <td className="invites__actions">
-                    {inv.status === "pending" ? (
-                      <>
-                        <button
-                          type="button"
-                          className="invites__copy-btn"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(inv.token);
-                              setCopiedAction(`code-${inv.id}`);
-                              setTimeout(() => setCopiedAction(null), 2000);
-                            } catch {
-                              /* fallback */
-                            }
-                          }}
-                        >
-                          {copiedAction === `code-${inv.id}`
-                            ? "Copied!"
-                            : "Copy Code"}
-                        </button>
-                        <button
-                          type="button"
-                          className="invites__copy-btn"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(
-                                getInviteLink(inv.token),
-                              );
-                              setCopiedAction(`link-${inv.id}`);
-                              setTimeout(() => setCopiedAction(null), 2000);
-                            } catch {
-                              /* fallback */
-                            }
-                          }}
-                        >
-                          {copiedAction === `link-${inv.id}`
-                            ? "Copied!"
-                            : "Copy Link"}
-                        </button>
-                      </>
-                    ) : (
-                      <span>&nbsp;</span>
-                    )}
-                  </td>
+        <>
+          <h2 className="invites__section-title">My Invites</h2>
+          {invites.length === 0 ? (
+            <div className="invites__empty">No invites created yet.</div>
+          ) : (
+            <table className="invites__table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Expires</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {invites.map((inv) => (
+                  <tr key={inv.id}>
+                    <td>
+                      <code className="invites__token">{inv.token}</code>
+                    </td>
+                    <td>
+                      <span className={`invites__status--${inv.status}`}>
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td>{formatDate(inv.created_at)}</td>
+                    <td>{formatDate(inv.expires_at)}</td>
+                    <td className="invites__actions">
+                      {inv.status === "pending" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="invites__copy-btn"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(inv.token);
+                                setCopiedAction(`code-${inv.id}`);
+                                setTimeout(() => setCopiedAction(null), 2000);
+                              } catch {
+                                /* fallback */
+                              }
+                            }}
+                          >
+                            {copiedAction === `code-${inv.id}`
+                              ? "Copied!"
+                              : "Copy Code"}
+                          </button>
+                          <button
+                            type="button"
+                            className="invites__copy-btn"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(
+                                  getInviteLink(inv.token),
+                                );
+                                setCopiedAction(`link-${inv.id}`);
+                                setTimeout(() => setCopiedAction(null), 2000);
+                              } catch {
+                                /* fallback */
+                              }
+                            }}
+                          >
+                            {copiedAction === `link-${inv.id}`
+                              ? "Copied!"
+                              : "Copy Link"}
+                          </button>
+                        </>
+                      ) : (
+                        <span>&nbsp;</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
-      {!loading && !error && totalPages > 1 && (
-        <Pagination
-          currentPage={page}
-          totalPages={totalPages}
-          onPageChange={setPage}
-        />
+          {totalPages > 1 && (
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
+          )}
+
+          {invitees.length > 0 && (
+            <>
+              <h2 className="invites__section-title">People I Invited</h2>
+              <table className="invites__table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Up</th>
+                    <th>Down</th>
+                    <th>Ratio</th>
+                    <th>Joined</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invitees.map((u) => (
+                    <tr key={u.id}>
+                      <td>
+                        <Link to={`/user/${u.id}`}>{u.username}</Link>
+                      </td>
+                      <td>{formatBytes(u.uploaded)}</td>
+                      <td>{formatBytes(u.downloaded)}</td>
+                      <td>{formatRatio(u.ratio)}</td>
+                      <td>{formatDate(u.created_at)}</td>
+                      <td>
+                        {!u.enabled && (
+                          <span className="invites__badge--banned">Banned</span>
+                        )}
+                        {u.enabled && u.warned && (
+                          <span className="invites__badge--warned">Warned</span>
+                        )}
+                        {u.enabled && !u.warned && (
+                          <span className="invites__badge--active">Active</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
       )}
     </div>
   );
