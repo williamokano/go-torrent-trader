@@ -210,7 +210,7 @@ export function MessagesPage() {
     try {
       // Resolve username to user ID via the members list
       const searchRes = await fetch(
-        `${getConfig().API_URL}/api/v1/users?search=${encodeURIComponent(composeReceiver.trim())}&per_page=1`,
+        `${getConfig().API_URL}/api/v1/users?search=${encodeURIComponent(composeReceiver.trim())}&per_page=25`,
         { headers: authHeaders() },
       );
       const searchBody = await searchRes.json();
