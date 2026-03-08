@@ -24,6 +24,9 @@ type mockPeerRepo struct {
 func (m *mockPeerRepo) GetByTorrentAndUser(_ context.Context, _, _ int64) (*model.Peer, error) {
 	return nil, nil
 }
+func (m *mockPeerRepo) GetByTorrentUserAndPeerID(_ context.Context, _, _ int64, _ []byte) (*model.Peer, error) {
+	return nil, nil
+}
 func (m *mockPeerRepo) ListByTorrent(_ context.Context, _ int64, _ int) ([]model.Peer, error) {
 	return nil, nil
 }

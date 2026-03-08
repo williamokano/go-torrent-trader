@@ -41,6 +41,11 @@ func (r *PeerRepo) GetByTorrentAndUser(ctx context.Context, torrentID, userID in
 	return scanPeer(r.db.QueryRowContext(ctx, query, torrentID, userID))
 }
 
+func (r *PeerRepo) GetByTorrentUserAndPeerID(ctx context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error) {
+	query := fmt.Sprintf("SELECT %s FROM peers WHERE torrent_id = $1 AND user_id = $2 AND peer_id = $3", peerColumns)
+	return scanPeer(r.db.QueryRowContext(ctx, query, torrentID, userID, peerID))
+}
+
 func (r *PeerRepo) ListByTorrent(ctx context.Context, torrentID int64, limit int) ([]model.Peer, error) {
 	query := fmt.Sprintf("SELECT %s FROM peers WHERE torrent_id = $1 ORDER BY last_announce DESC LIMIT $2", peerColumns)
 	rows, err := r.db.QueryContext(ctx, query, torrentID, limit)
@@ -69,8 +74,7 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 		torrent_id, user_id, peer_id, ip, port, uploaded, downloaded,
 		left_bytes, seeder, agent, started_at, last_announce
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	ON CONFLICT (torrent_id, user_id) DO UPDATE SET
-		peer_id = EXCLUDED.peer_id,
+	ON CONFLICT (torrent_id, user_id, peer_id) DO UPDATE SET
 		ip = EXCLUDED.ip,
 		port = EXCLUDED.port,
 		uploaded = EXCLUDED.uploaded,
@@ -88,9 +92,9 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 	).Scan(&peer.ID, &peer.StartedAt)
 }
 
-func (r *PeerRepo) Delete(ctx context.Context, torrentID, userID int64, _ []byte) error {
-	query := `DELETE FROM peers WHERE torrent_id = $1 AND user_id = $2`
-	result, err := r.db.ExecContext(ctx, query, torrentID, userID)
+func (r *PeerRepo) Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error {
+	query := `DELETE FROM peers WHERE torrent_id = $1 AND user_id = $2 AND peer_id = $3`
+	result, err := r.db.ExecContext(ctx, query, torrentID, userID, peerID)
 	if err != nil {
 		return fmt.Errorf("deleting peer: %w", err)
 	}

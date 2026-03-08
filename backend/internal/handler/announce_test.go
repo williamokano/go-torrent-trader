@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -97,6 +98,17 @@ func (r *announcePeerRepo) GetByTorrentAndUser(_ context.Context, torrentID, use
 	defer r.mu.Unlock()
 	for _, p := range r.peers {
 		if p.TorrentID == torrentID && p.UserID == userID {
+			return p, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (r *announcePeerRepo) GetByTorrentUserAndPeerID(_ context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.peers {
+		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
 			return p, nil
 		}
 	}

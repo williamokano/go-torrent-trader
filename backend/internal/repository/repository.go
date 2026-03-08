@@ -48,6 +48,7 @@ type TorrentRepository interface {
 // PeerRepository defines persistence operations for peers.
 type PeerRepository interface {
 	GetByTorrentAndUser(ctx context.Context, torrentID, userID int64) (*model.Peer, error)
+	GetByTorrentUserAndPeerID(ctx context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error)
 	ListByTorrent(ctx context.Context, torrentID int64, limit int) ([]model.Peer, error)
 	Upsert(ctx context.Context, peer *model.Peer) error
 	Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error

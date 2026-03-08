@@ -106,8 +106,9 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 		return nil, ErrTorrentBanned
 	}
 
-	// Look up existing peer for delta calculation.
-	existingPeer, _ := s.peers.GetByTorrentAndUser(ctx, torrent.ID, user.ID)
+	// Look up existing peer by the exact peer_id for delta calculation.
+	// A user can have multiple peers (seedbox + home PC), each with a unique peer_id.
+	existingPeer, _ := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
 
 	// Calculate upload/download deltas for user stats.
 	var uploadDelta, downloadDelta int64

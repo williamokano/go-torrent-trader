@@ -200,6 +200,17 @@ func (m *trackerMockPeerRepo) GetByTorrentAndUser(_ context.Context, torrentID, 
 	return nil, sql.ErrNoRows
 }
 
+func (m *trackerMockPeerRepo) GetByTorrentUserAndPeerID(_ context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.peers {
+		if p.TorrentID == torrentID && p.UserID == userID && bytesEqual(p.PeerID, peerID) {
+			return p, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
 func (m *trackerMockPeerRepo) ListByTorrent(_ context.Context, torrentID int64, limit int) ([]model.Peer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
