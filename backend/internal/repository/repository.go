@@ -117,6 +117,22 @@ type ReseedRequestRepository interface {
 	CountByTorrent(ctx context.Context, torrentID int64) (int, error)
 }
 
+// InviteRepository defines persistence operations for invites.
+type InviteRepository interface {
+	Create(ctx context.Context, invite *model.Invite) error
+	GetByToken(ctx context.Context, token string) (*model.Invite, error)
+	ListByInviter(ctx context.Context, inviterID int64, page, perPage int) ([]model.Invite, int64, error)
+	Redeem(ctx context.Context, token string, inviteeID int64) error
+	CountPendingByInviter(ctx context.Context, inviterID int64) (int, error)
+}
+
+// SiteSettingsRepository defines persistence operations for site settings.
+type SiteSettingsRepository interface {
+	Get(ctx context.Context, key string) (*model.SiteSetting, error)
+	Set(ctx context.Context, key, value string) error
+	GetAll(ctx context.Context) ([]model.SiteSetting, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all

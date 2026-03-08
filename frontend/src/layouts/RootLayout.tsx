@@ -84,6 +84,15 @@ export function RootLayout() {
             Staff
           </NavLink>
           <NavLink
+            to="/invites"
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            Invites
+          </NavLink>
+          <NavLink
             to="/rss"
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`

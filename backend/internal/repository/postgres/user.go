@@ -13,7 +13,7 @@ import (
 const userColumns = `id, username, email, password_hash, password_scheme, passkey,
 	group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 	ip, last_login, last_access, invites, warned, warn_until, donor,
-	created_at, updated_at`
+	invited_by, created_at, updated_at`
 
 // UserRepo implements repository.UserRepository using PostgreSQL.
 type UserRepo struct {
@@ -32,7 +32,7 @@ func scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
 		&u.GroupID, &u.Uploaded, &u.Downloaded, &u.Avatar, &u.Title, &u.Info,
 		&u.Enabled, &u.Parked, &u.IP, &u.LastLogin, &u.LastAccess,
 		&u.Invites, &u.Warned, &u.WarnUntil, &u.Donor,
-		&u.CreatedAt, &u.UpdatedAt,
+		&u.InvitedBy, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -70,10 +70,10 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	query := `INSERT INTO users (
 		username, email, password_hash, password_scheme, passkey,
 		group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
-		ip, last_login, last_access, invites, warned, warn_until, donor
+		ip, last_login, last_access, invites, warned, warn_until, donor, invited_by
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-		$11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+		$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
 	) RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -81,6 +81,7 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 		user.GroupID, user.Uploaded, user.Downloaded, user.Avatar, user.Title,
 		user.Info, user.Enabled, user.Parked, user.IP, user.LastLogin,
 		user.LastAccess, user.Invites, user.Warned, user.WarnUntil, user.Donor,
+		user.InvitedBy,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 }
 
@@ -90,8 +91,9 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 		passkey = $5, group_id = $6, uploaded = $7, downloaded = $8,
 		avatar = $9, title = $10, info = $11, enabled = $12, parked = $13,
 		ip = $14, last_login = $15, last_access = $16, invites = $17,
-		warned = $18, warn_until = $19, donor = $20, updated_at = NOW()
-	WHERE id = $21
+		warned = $18, warn_until = $19, donor = $20, invited_by = $21,
+		updated_at = NOW()
+	WHERE id = $22
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -99,7 +101,7 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 		user.Passkey, user.GroupID, user.Uploaded, user.Downloaded,
 		user.Avatar, user.Title, user.Info, user.Enabled, user.Parked,
 		user.IP, user.LastLogin, user.LastAccess, user.Invites,
-		user.Warned, user.WarnUntil, user.Donor, user.ID,
+		user.Warned, user.WarnUntil, user.Donor, user.InvitedBy, user.ID,
 	).Scan(&user.UpdatedAt)
 }
 

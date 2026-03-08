@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
@@ -16,10 +16,16 @@ interface AdminUser {
   email: string;
   group_id: number;
   group_name: string;
+  avatar: string | null;
+  title: string | null;
+  info: string | null;
   uploaded: number;
   downloaded: number;
   enabled: boolean;
   warned: boolean;
+  donor: boolean;
+  parked: boolean;
+  invites: number;
   created_at: string;
   last_access: string | null;
 }
@@ -226,7 +232,9 @@ export function AdminUsersPage() {
             <tbody>
               {users.map((user) => (
                 <tr key={user.id}>
-                  <td>{user.username}</td>
+                  <td>
+                    <Link to={`/user/${user.id}`}>{user.username}</Link>
+                  </td>
                   <td>{user.email}</td>
                   <td>{user.group_name}</td>
                   <td>{formatBytes(user.uploaded)}</td>

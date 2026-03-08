@@ -337,6 +337,8 @@ export interface components {
       email: string;
       /** @example mysecurepassword */
       password: string;
+      /** Optional invite code for invite-only registration */
+      invite_code?: string;
     };
     LoginRequest: {
       /** @example johndoe */

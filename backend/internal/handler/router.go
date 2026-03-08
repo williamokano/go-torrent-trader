@@ -13,19 +13,21 @@ import (
 
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
-	DB                 *sql.DB
-	AuthService        *service.AuthService
-	SessionStore       service.SessionStore
-	UserService        *service.UserService
-	MemberService      *service.MemberService
-	TorrentService     *service.TorrentService
-	TrackerService     *service.TrackerService
-	ReportService      *service.ReportService
-	CommentService     *service.CommentService
-	AdminService       *service.AdminService
-	ActivityLogService *service.ActivityLogService
-	UserRepo           repository.UserRepository
-	RSSConfig          *RSSConfig
+	DB                  *sql.DB
+	AuthService         *service.AuthService
+	SessionStore        service.SessionStore
+	UserService         *service.UserService
+	MemberService       *service.MemberService
+	TorrentService      *service.TorrentService
+	TrackerService      *service.TrackerService
+	ReportService       *service.ReportService
+	CommentService      *service.CommentService
+	InviteService       *service.InviteService
+	AdminService        *service.AdminService
+	ActivityLogService  *service.ActivityLogService
+	SiteSettingsService *service.SiteSettingsService
+	UserRepo            repository.UserRepository
+	RSSConfig           *RSSConfig
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -75,6 +77,12 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Post("/refresh", auth.HandleRefresh)
 				r.Post("/forgot-password", auth.HandleForgotPassword)
 				r.Post("/reset-password", auth.HandleResetPassword)
+
+				// Public registration mode endpoint
+				if deps.SiteSettingsService != nil {
+					settingsHandler := NewSiteSettingsHandler(deps.SiteSettingsService)
+					r.Get("/registration-mode", settingsHandler.HandleGetRegistrationMode)
+				}
 
 				// Protected auth endpoints
 				r.Group(func(r chi.Router) {
@@ -143,6 +151,22 @@ func NewRouter(deps *Deps) chi.Router {
 				})
 			}
 
+			// Invite endpoints
+			if deps.InviteService != nil {
+				invites := NewInviteHandler(deps.InviteService)
+				r.Route("/invites", func(r chi.Router) {
+					// Public: validate invite token (used by registration page)
+					r.Get("/{token}", invites.HandleValidateInvite)
+
+					// Protected endpoints
+					r.Group(func(r chi.Router) {
+						r.Use(mw.RequireAuth(validator))
+						r.Get("/", invites.HandleListInvites)
+						r.With(mw.RequireCapability("invite")).Post("/", invites.HandleCreateInvite)
+					})
+				})
+			}
+
 			// Activity log endpoints (visible to all authenticated users)
 			if deps.ActivityLogService != nil {
 				activityLogs := NewActivityLogHandler(deps.ActivityLogService)
@@ -178,6 +202,13 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/users", admin.HandleListUsers)
 					r.Put("/users/{id}", admin.HandleUpdateUser)
 					r.Get("/groups", admin.HandleListGroups)
+
+					// Site settings (admin only)
+					if deps.SiteSettingsService != nil {
+						settingsHandler := NewSiteSettingsHandler(deps.SiteSettingsService)
+						r.Get("/settings", settingsHandler.HandleGetAllSettings)
+						r.Put("/settings/{key}", settingsHandler.HandleUpdateSetting)
+					}
 				})
 			}
 		}

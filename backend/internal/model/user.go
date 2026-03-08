@@ -25,6 +25,7 @@ type User struct {
 	Warned         bool
 	WarnUntil      *time.Time
 	Donor          bool
+	InvitedBy      *int64
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

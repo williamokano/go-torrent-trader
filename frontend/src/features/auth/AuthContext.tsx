@@ -200,6 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         username: data.username,
         email: data.email,
         password: data.password,
+        invite_code: data.invite_code,
       },
     });
 

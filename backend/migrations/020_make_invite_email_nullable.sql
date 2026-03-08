@@ -1,0 +1,8 @@
+-- +goose Up
+ALTER TABLE invites ALTER COLUMN email DROP NOT NULL;
+ALTER TABLE invites ALTER COLUMN email SET DEFAULT '';
+
+-- +goose Down
+UPDATE invites SET email = '' WHERE email IS NULL;
+ALTER TABLE invites ALTER COLUMN email DROP DEFAULT;
+ALTER TABLE invites ALTER COLUMN email SET NOT NULL;

@@ -30,6 +30,14 @@ export function AdminLayout() {
         >
           Groups
         </NavLink>
+        <NavLink
+          to="/admin/settings"
+          className={({ isActive }) =>
+            `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`
+          }
+        >
+          Settings
+        </NavLink>
       </nav>
       <div className="admin-layout__content">
         <Outlet />

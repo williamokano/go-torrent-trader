@@ -179,6 +179,10 @@ func handleAuthError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusBadRequest, "invalid_token", "invalid or expired reset token")
 	case errors.Is(err, service.ErrValidationFailed):
 		ErrorResponse(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
+	case errors.Is(err, service.ErrInviteRequired):
+		ErrorResponse(w, http.StatusForbidden, "invite_required", "registration is by invitation only")
+	case errors.Is(err, service.ErrInvalidInviteCode):
+		ErrorResponse(w, http.StatusBadRequest, "invalid_invite", "invalid or expired invite code")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}

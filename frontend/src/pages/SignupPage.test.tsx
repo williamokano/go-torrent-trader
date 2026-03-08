@@ -24,18 +24,30 @@ vi.mock("@/features/auth", () => ({
   }),
 }));
 
+vi.mock("@/config", () => ({
+  getConfig: () => ({ API_URL: "http://localhost:8080", SITE_NAME: "Test" }),
+}));
+
+const mockFetch = vi.fn();
+
 afterEach(cleanup);
 
 beforeEach(() => {
   clearTokens();
   localStorage.clear();
   vi.clearAllMocks();
+  // Default: registration mode is open (simplest case for most tests)
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ mode: "open" }),
+  });
+  vi.stubGlobal("fetch", mockFetch);
 });
 
-function renderSignupPage() {
+function renderSignupPage(initialEntry = "/signup") {
   return render(
     <ToastProvider>
-      <MemoryRouter initialEntries={["/signup"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <SignupPage />
       </MemoryRouter>
     </ToastProvider>,
@@ -43,22 +55,84 @@ function renderSignupPage() {
 }
 
 describe("SignupPage", () => {
-  test("renders signup form with all fields", () => {
+  test("renders signup form with all fields", async () => {
     renderSignupPage();
-    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(screen.getByLabelText("Confirm Password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign Up" })).toBeInTheDocument();
   });
 
-  test("renders link to login page", () => {
+  test("renders link to login page", async () => {
     renderSignupPage();
-    expect(screen.getByText("Login")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Login")).toBeInTheDocument();
+    });
+  });
+
+  test("shows invite code field when invite_only", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ mode: "invite_only" }),
+    });
+    renderSignupPage();
+    await waitFor(() => {
+      expect(
+        screen.getByPlaceholderText("Enter invite code..."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("hides invite code field when open registration", async () => {
+    renderSignupPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign Up" }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByPlaceholderText("Enter invite code...")).toBeNull();
+  });
+
+  test("fetches registration mode on mount", async () => {
+    renderSignupPage();
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/auth/registration-mode",
+      );
+    });
+  });
+
+  test("shows invite-only notice when registration is invite_only", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ mode: "invite_only" }),
+    });
+    renderSignupPage();
+    await waitFor(() => {
+      expect(
+        screen.getByText("Registration is by invitation only."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("does not show invite-only notice when registration is open", async () => {
+    renderSignupPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText("Registration is by invitation only."),
+    ).not.toBeInTheDocument();
   });
 
   test("shows validation error for short username", async () => {
     renderSignupPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "ab" },
@@ -82,6 +156,9 @@ describe("SignupPage", () => {
 
   test("shows validation error for short password", async () => {
     renderSignupPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "testuser" },
@@ -105,6 +182,9 @@ describe("SignupPage", () => {
 
   test("shows validation error when passwords do not match", async () => {
     renderSignupPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "testuser" },
@@ -127,6 +207,9 @@ describe("SignupPage", () => {
   test("calls register on valid form submit", async () => {
     mockRegister.mockResolvedValueOnce(undefined);
     renderSignupPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "testuser" },
@@ -147,6 +230,7 @@ describe("SignupPage", () => {
         username: "testuser",
         email: "test@example.com",
         password: "password123",
+        invite_code: undefined,
       });
     });
   });
@@ -154,6 +238,9 @@ describe("SignupPage", () => {
   test("shows error toast on failed registration", async () => {
     mockRegister.mockRejectedValueOnce(new Error("Username already taken"));
     renderSignupPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "testuser" },

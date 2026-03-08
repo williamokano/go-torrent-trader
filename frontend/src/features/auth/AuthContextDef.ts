@@ -41,6 +41,7 @@ export interface RegisterData {
   username: string;
   email: string;
   password: string;
+  invite_code?: string;
 }
 
 export interface AuthContextValue {

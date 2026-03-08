@@ -110,6 +110,21 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.ReseedRequestedEvent)
 		return fmt.Sprintf("%s requested reseed for: %s", e.Actor.Username, e.TorrentName), e.Actor
 	})
+
+	listen(event.InviteCreated, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.InviteCreatedEvent)
+		return fmt.Sprintf("%s created invite #%d", e.Actor.Username, e.InviteID), e.Actor
+	})
+
+	listen(event.InviteRedeemed, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.InviteRedeemedEvent)
+		return fmt.Sprintf("invite #%d was redeemed by user #%d", e.InviteID, e.InviteeID), e.Actor
+	})
+
+	listen(event.RegistrationModeChanged, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.RegistrationModeChangedEvent)
+		return fmt.Sprintf("%s changed registration mode from %s to %s", e.Actor.Username, e.OldMode, e.NewMode), e.Actor
+	})
 }
 
 func marshalMetadata(evt event.Event) *string {

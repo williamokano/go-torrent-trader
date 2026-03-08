@@ -126,6 +126,16 @@ func run() int {
 	ratingRepo := postgres.NewRatingRepo(db)
 	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, eventBus)
 
+	inviteRepo := postgres.NewInviteRepo(db)
+	inviteService := service.NewInviteService(inviteRepo, userRepo, eventBus)
+
+	siteSettingsRepo := postgres.NewSiteSettingsRepo(db)
+	siteSettingsService := service.NewSiteSettingsService(siteSettingsRepo, eventBus)
+
+	// Wire site settings + invite service into auth service for registration mode checks
+	authService.SetSiteSettings(siteSettingsService)
+	authService.SetInviteService(inviteService)
+
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
@@ -145,8 +155,10 @@ func run() int {
 		TrackerService: trackerService,
 		ReportService:      reportService,
 		CommentService:     commentService,
-		AdminService:       adminService,
-		ActivityLogService: activityLogService,
+		InviteService:       inviteService,
+		AdminService:        adminService,
+		ActivityLogService:  activityLogService,
+		SiteSettingsService: siteSettingsService,
 		UserRepo:           userRepo,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,

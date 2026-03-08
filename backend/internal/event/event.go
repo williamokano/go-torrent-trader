@@ -24,7 +24,10 @@ const (
 	ReportResolved  Type = "report_resolved"
 	CommentCreated    Type = "comment_created"
 	CommentDeleted    Type = "comment_deleted"
-	ReseedRequested   Type = "reseed_requested"
+	ReseedRequested        Type = "reseed_requested"
+	InviteCreated          Type = "invite_created"
+	InviteRedeemed         Type = "invite_redeemed"
+	RegistrationModeChanged Type = "registration_mode_changed"
 )
 
 // Event is the base interface for all domain events.
@@ -165,4 +168,22 @@ type ReseedRequestedEvent struct {
 	TorrentName   string `json:"torrent_name"`
 	UploaderID    int64  `json:"uploader_id"`
 	UploaderEmail string `json:"uploader_email"`
+}
+
+type InviteCreatedEvent struct {
+	Base
+	InviteID int64 `json:"invite_id"`
+}
+
+type InviteRedeemedEvent struct {
+	Base
+	InviteID  int64 `json:"invite_id"`
+	InviteeID int64 `json:"invitee_id"`
+	Token     string `json:"token"`
+}
+
+type RegistrationModeChangedEvent struct {
+	Base
+	OldMode string `json:"old_mode"`
+	NewMode string `json:"new_mode"`
 }
