@@ -190,9 +190,9 @@ export function InvitesPage() {
               <th>Code</th>
               <th>Status</th>
               <th>Invitee</th>
-              <th>Uploaded</th>
-              <th>Downloaded</th>
-              <th>Ratio</th>
+              <th>Up</th>
+              <th>Down</th>
+              <th>%</th>
               <th>Joined</th>
               <th>Actions</th>
             </tr>

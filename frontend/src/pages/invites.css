@@ -86,39 +86,26 @@
 .invites__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-sm);
-  table-layout: fixed;
+  font-size: var(--text-xs);
+  table-layout: auto;
 }
 
 .invites__table th,
 .invites__table td {
   text-align: left;
-  padding: var(--space-sm) var(--space-sm);
+  padding: var(--space-xs) var(--space-xs);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
+  white-space: nowrap;
 }
 
 .invites__table th {
   color: var(--color-text-muted);
   font-weight: 600;
-  white-space: nowrap;
 }
 
 .invites__table td {
   color: var(--color-text-primary);
-}
-
-/* Column widths */
-.invites__table th:nth-child(1),
-.invites__table td:nth-child(1) {
-  width: 20%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.invites__table th:nth-child(8),
-.invites__table td:nth-child(8) {
-  width: 140px;
 }
 
 .invites__status--pending {
@@ -136,11 +123,11 @@
 .invites__token {
   font-size: var(--text-xs);
   color: var(--color-text-secondary);
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
-  max-width: 100%;
+  display: inline-block;
 }
 
 .invites__actions {
