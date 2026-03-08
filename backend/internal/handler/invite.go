@@ -38,7 +38,7 @@ func (h *InviteHandler) HandleCreateInvite(w http.ResponseWriter, r *http.Reques
 	}
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"invite": inviteResponse(invite),
+		"invite": h.inviteResponse(invite),
 	})
 }
 
@@ -67,7 +67,7 @@ func (h *InviteHandler) HandleListInvites(w http.ResponseWriter, r *http.Request
 
 	items := make([]map[string]interface{}, len(invites))
 	for i := range invites {
-		items[i] = inviteResponse(&invites[i])
+		items[i] = h.inviteResponse(&invites[i])
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -112,7 +112,7 @@ func handleInviteError(w http.ResponseWriter, err error) {
 	}
 }
 
-func inviteResponse(inv *model.Invite) map[string]interface{} {
+func (h *InviteHandler) inviteResponse(inv *model.Invite) map[string]interface{} {
 	status := "pending"
 	if inv.Redeemed {
 		status = "redeemed"
@@ -129,6 +129,12 @@ func inviteResponse(inv *model.Invite) map[string]interface{} {
 	}
 	if inv.InviteeID != nil {
 		resp["invitee_id"] = *inv.InviteeID
+	}
+	if inv.InviteeName != "" {
+		resp["invitee_name"] = inv.InviteeName
+	}
+	if inv.Invitee != nil {
+		resp["invitee"] = inv.Invitee
 	}
 	if inv.RedeemedAt != nil {
 		resp["redeemed_at"] = *inv.RedeemedAt

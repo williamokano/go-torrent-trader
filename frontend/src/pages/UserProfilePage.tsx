@@ -18,6 +18,8 @@ interface PublicUser {
   ratio: number;
   donor: boolean;
   created_at: string;
+  invited_by_id?: number;
+  invited_by_name?: string;
 }
 
 export function UserProfilePage() {
@@ -117,6 +119,14 @@ export function UserProfilePage() {
             <span className="profile-info__joined">
               Joined {formatDate(profile.created_at)}
             </span>
+            {profile.invited_by_name && (
+              <span className="profile-info__invited-by">
+                Invited by{" "}
+                <Link to={`/user/${profile.invited_by_id}`}>
+                  {profile.invited_by_name}
+                </Link>
+              </span>
+            )}
             {isOwnProfile && (
               <Link to="/settings" className="profile-info__settings-link">
                 Edit Profile

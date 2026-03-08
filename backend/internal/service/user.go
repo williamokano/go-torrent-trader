@@ -30,17 +30,19 @@ type ChangePasswordRequest struct {
 
 // PublicProfile is the profile data visible to any authenticated user.
 type PublicProfile struct {
-	ID         int64   `json:"id"`
-	Username   string  `json:"username"`
-	GroupID    int64   `json:"group_id"`
-	Avatar     *string `json:"avatar"`
-	Title      *string `json:"title"`
-	Info       *string `json:"info"`
-	Uploaded   int64   `json:"uploaded"`
-	Downloaded int64   `json:"downloaded"`
-	Ratio      float64 `json:"ratio"`
-	Donor      bool    `json:"donor"`
-	CreatedAt  string  `json:"created_at"`
+	ID              int64   `json:"id"`
+	Username        string  `json:"username"`
+	GroupID         int64   `json:"group_id"`
+	Avatar          *string `json:"avatar"`
+	Title           *string `json:"title"`
+	Info            *string `json:"info"`
+	Uploaded        int64   `json:"uploaded"`
+	Downloaded      int64   `json:"downloaded"`
+	Ratio           float64 `json:"ratio"`
+	Donor           bool    `json:"donor"`
+	CreatedAt       string  `json:"created_at"`
+	InvitedByID     *int64  `json:"invited_by_id,omitempty"`
+	InvitedByName   *string `json:"invited_by_name,omitempty"`
 }
 
 // OwnerProfile extends PublicProfile with fields only visible to the profile owner.
@@ -74,7 +76,7 @@ func (s *UserService) GetProfile(ctx context.Context, userID, viewerID int64) (i
 		return nil, ErrUserNotFound
 	}
 
-	pub := buildPublicProfile(user)
+	pub := s.buildPublicProfile(ctx, user)
 
 	if viewerID == userID {
 		return buildOwnerProfile(user, pub), nil
@@ -90,7 +92,7 @@ func (s *UserService) GetFullProfile(ctx context.Context, userID int64) (*OwnerP
 		return nil, ErrUserNotFound
 	}
 
-	pub := buildPublicProfile(user)
+	pub := s.buildPublicProfile(ctx, user)
 	op := buildOwnerProfile(user, pub)
 
 	if s.groups != nil {
@@ -129,7 +131,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 		return nil, fmt.Errorf("update profile: %w", err)
 	}
 
-	pub := buildPublicProfile(user)
+	pub := s.buildPublicProfile(ctx, user)
 	return buildOwnerProfile(user, pub), nil
 }
 
@@ -189,8 +191,8 @@ func (s *UserService) RegeneratePasskey(ctx context.Context, userID int64) (stri
 	return passkey, nil
 }
 
-func buildPublicProfile(u *model.User) PublicProfile {
-	return PublicProfile{
+func (s *UserService) buildPublicProfile(ctx context.Context, u *model.User) PublicProfile {
+	pub := PublicProfile{
 		ID:         u.ID,
 		Username:   u.Username,
 		GroupID:    u.GroupID,
@@ -202,7 +204,14 @@ func buildPublicProfile(u *model.User) PublicProfile {
 		Ratio:      calculateRatio(u.Uploaded, u.Downloaded),
 		Donor:      u.Donor,
 		CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		InvitedByID: u.InvitedBy,
 	}
+	if u.InvitedBy != nil {
+		if inviter, err := s.users.GetByID(ctx, *u.InvitedBy); err == nil {
+			pub.InvitedByName = &inviter.Username
+		}
+	}
+	return pub
 }
 
 func buildOwnerProfile(u *model.User, pub PublicProfile) *OwnerProfile {

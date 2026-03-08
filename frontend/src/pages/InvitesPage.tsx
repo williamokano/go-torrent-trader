@@ -3,8 +3,19 @@ import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { Pagination } from "@/components/Pagination";
-import { formatDate } from "@/utils/format";
+import { formatDate, formatBytes, formatRatio } from "@/utils/format";
 import "./invites.css";
+
+interface InviteeView {
+  id: number;
+  username: string;
+  uploaded: number;
+  downloaded: number;
+  ratio: number;
+  enabled: boolean;
+  warned: boolean;
+  created_at: string;
+}
 
 interface Invite {
   id: number;
@@ -13,6 +24,8 @@ interface Invite {
   expires_at: string;
   created_at: string;
   invitee_id?: number;
+  invitee_name?: string;
+  invitee?: InviteeView;
   redeemed_at?: string;
 }
 
@@ -176,8 +189,11 @@ export function InvitesPage() {
             <tr>
               <th>Code</th>
               <th>Status</th>
-              <th>Created</th>
-              <th>Expires</th>
+              <th>Invitee</th>
+              <th>Uploaded</th>
+              <th>Downloaded</th>
+              <th>Ratio</th>
+              <th>Joined</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -192,10 +208,33 @@ export function InvitesPage() {
                     {inv.status}
                   </span>
                 </td>
-                <td>{formatDate(inv.created_at)}</td>
-                <td>{formatDate(inv.expires_at)}</td>
+                <td>
+                  {inv.invitee ? (
+                    <span>
+                      <a href={`/user/${inv.invitee.id}`}>
+                        {inv.invitee.username}
+                      </a>
+                      {!inv.invitee.enabled && (
+                        <span className="invites__badge--banned"> Banned</span>
+                      )}
+                      {inv.invitee.warned && (
+                        <span className="invites__badge--warned"> Warned</span>
+                      )}
+                    </span>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                <td>{inv.invitee ? formatBytes(inv.invitee.uploaded) : "-"}</td>
+                <td>
+                  {inv.invitee ? formatBytes(inv.invitee.downloaded) : "-"}
+                </td>
+                <td>{inv.invitee ? formatRatio(inv.invitee.ratio) : "-"}</td>
+                <td>
+                  {inv.invitee ? formatDate(inv.invitee.created_at) : "-"}
+                </td>
                 <td className="invites__actions">
-                  {inv.status === "pending" && (
+                  {inv.status === "pending" ? (
                     <>
                       <button
                         type="button"
@@ -234,6 +273,8 @@ export function InvitesPage() {
                           : "Copy Link"}
                       </button>
                     </>
+                  ) : (
+                    <span className="invites__no-action">-</span>
                   )}
                 </td>
               </tr>

@@ -127,5 +127,33 @@ func (s *InviteService) ListMyInvites(ctx context.Context, userID int64, page, p
 	if perPage > 100 {
 		perPage = 100
 	}
-	return s.invites.ListByInviter(ctx, userID, page, perPage)
+	invites, total, err := s.invites.ListByInviter(ctx, userID, page, perPage)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Enrich with invitee data
+	for i := range invites {
+		if invites[i].InviteeID != nil {
+			if invitee, err := s.users.GetByID(ctx, *invites[i].InviteeID); err == nil {
+				invites[i].InviteeName = invitee.Username
+				ratio := float64(0)
+				if invitee.Downloaded > 0 {
+					ratio = float64(invitee.Uploaded) / float64(invitee.Downloaded)
+				}
+				invites[i].Invitee = &model.InviteeView{
+					ID:         invitee.ID,
+					Username:   invitee.Username,
+					Uploaded:   invitee.Uploaded,
+					Downloaded: invitee.Downloaded,
+					Ratio:      ratio,
+					Enabled:    invitee.Enabled,
+					Warned:     invitee.Warned,
+					CreatedAt:  invitee.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				}
+			}
+		}
+	}
+
+	return invites, total, nil
 }
