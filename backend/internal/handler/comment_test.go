@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -212,10 +213,11 @@ func setupCommentRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	torrentRepo := newMockTorrentRepoForCommentHandler()
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{})
-	commentSvc := service.NewCommentService(newMockCommentRepo(), newMockRatingRepo(), torrentRepo)
+	bus := event.NewInMemoryBus()
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
+	commentSvc := service.NewCommentService(newMockCommentRepo(), newMockRatingRepo(), torrentRepo, bus)
 	// TorrentService is needed because comment/rating routes are nested under /torrents
-	torrentSvc := service.NewTorrentService(newMockTorrentRepo(), userRepo, newMockStorage(), service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"})
+	torrentSvc := service.NewTorrentService(newMockTorrentRepo(), userRepo, newMockStorage(), service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:    authSvc,

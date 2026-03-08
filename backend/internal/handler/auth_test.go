@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -144,7 +145,7 @@ func (m *mockGroupRepo) List(_ context.Context) ([]model.Group, error) {
 func setupRouter() (*handler.AuthHandler, service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthService(repo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
+	authSvc := service.NewAuthService(repo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	userSvc := service.NewUserService(repo, sessions, nil)
 	return handler.NewAuthHandler(authSvc, userSvc), sessions, handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -22,6 +23,7 @@ type CommentService struct {
 	comments repository.CommentRepository
 	ratings  repository.RatingRepository
 	torrents repository.TorrentRepository
+	eventBus event.Bus
 }
 
 // NewCommentService creates a new CommentService.
@@ -29,11 +31,13 @@ func NewCommentService(
 	comments repository.CommentRepository,
 	ratings repository.RatingRepository,
 	torrents repository.TorrentRepository,
+	bus event.Bus,
 ) *CommentService {
 	return &CommentService{
 		comments: comments,
 		ratings:  ratings,
 		torrents: torrents,
+		eventBus: bus,
 	}
 }
 
@@ -64,6 +68,12 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 	if err != nil {
 		return nil, fmt.Errorf("get created comment: %w", err)
 	}
+
+	s.eventBus.Publish(ctx, &event.CommentCreatedEvent{
+		Base:      event.NewBase(event.CommentCreated, event.Actor{ID: userID}),
+		CommentID: created.ID,
+		TorrentID: torrentID,
+	})
 
 	return created, nil
 }
@@ -113,9 +123,15 @@ func (s *CommentService) UpdateComment(ctx context.Context, commentID, userID in
 }
 
 // DeleteComment removes a comment. Only staff (admin or moderator) may delete.
-func (s *CommentService) DeleteComment(ctx context.Context, commentID int64, perms model.Permissions) error {
+func (s *CommentService) DeleteComment(ctx context.Context, commentID, actorID int64, perms model.Permissions) error {
 	if !perms.IsStaff() {
 		return ErrForbidden
+	}
+
+	// Fetch before delete so we can log the torrent ID
+	comment, err := s.comments.GetByID(ctx, commentID)
+	if err != nil {
+		return ErrCommentNotFound
 	}
 
 	if err := s.comments.Delete(ctx, commentID); err != nil {
@@ -124,6 +140,12 @@ func (s *CommentService) DeleteComment(ctx context.Context, commentID int64, per
 		}
 		return fmt.Errorf("delete comment: %w", err)
 	}
+
+	s.eventBus.Publish(ctx, &event.CommentDeletedEvent{
+		Base:      event.NewBase(event.CommentDeleted, event.Actor{ID: actorID}),
+		CommentID: commentID,
+		TorrentID: comment.TorrentID,
+	})
 
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/zeebo/bencode"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
@@ -87,6 +88,7 @@ type TorrentService struct {
 	announceURL      string
 	torrentComment   string
 	torrentCreatedBy string
+	eventBus         event.Bus
 }
 
 // NewTorrentService creates a new TorrentService.
@@ -95,6 +97,7 @@ func NewTorrentService(
 	users repository.UserRepository,
 	store storage.FileStorage,
 	cfg TorrentServiceConfig,
+	bus event.Bus,
 ) *TorrentService {
 	return &TorrentService{
 		torrents:         torrents,
@@ -103,7 +106,16 @@ func NewTorrentService(
 		announceURL:      cfg.AnnounceURL,
 		torrentComment:   cfg.TorrentComment,
 		torrentCreatedBy: cfg.TorrentCreatedBy,
+		eventBus:         bus,
 	}
+}
+
+func (s *TorrentService) actorFromUserID(ctx context.Context, userID int64) event.Actor {
+	actor := event.Actor{ID: userID}
+	if u, err := s.users.GetByID(ctx, userID); err == nil {
+		actor.Username = u.Username
+	}
+	return actor
 }
 
 // ParseTorrentFile parses a .torrent file and extracts metadata.
@@ -200,6 +212,12 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		slog.Error("failed to store torrent file", "torrent_id", torrent.ID, "error", err)
 		return nil, fmt.Errorf("store torrent file: %w", err)
 	}
+
+	s.eventBus.Publish(ctx, &event.TorrentUploadedEvent{
+		Base:        event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, uploaderID)),
+		TorrentID:   torrent.ID,
+		TorrentName: torrent.Name,
+	})
 
 	return torrent, nil
 }
@@ -314,6 +332,12 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 		return nil, fmt.Errorf("update torrent: %w", err)
 	}
 
+	s.eventBus.Publish(ctx, &event.TorrentEditedEvent{
+		Base:        event.NewBase(event.TorrentEdited, s.actorFromUserID(ctx, userID)),
+		TorrentID:   torrent.ID,
+		TorrentName: torrent.Name,
+	})
+
 	return torrent, nil
 }
 
@@ -340,6 +364,12 @@ func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID in
 	if err := s.torrents.Delete(ctx, torrentID); err != nil {
 		return fmt.Errorf("delete torrent: %w", err)
 	}
+
+	s.eventBus.Publish(ctx, &event.TorrentDeletedEvent{
+		Base:        event.NewBase(event.TorrentDeleted, s.actorFromUserID(ctx, userID)),
+		TorrentID:   torrentID,
+		TorrentName: torrent.Name,
+	})
 
 	return nil
 }

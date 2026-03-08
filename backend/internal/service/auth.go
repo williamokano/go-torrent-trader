@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -92,11 +93,12 @@ type AuthService struct {
 	siteBaseURL     string
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
+	eventBus        event.Bus
 }
 
 // NewAuthService creates a new AuthService with default token TTLs.
 // groups may be nil; if so, sessions will have zero-value Permissions.
-func NewAuthService(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string) *AuthService {
+func NewAuthService(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string, bus event.Bus) *AuthService {
 	return &AuthService{
 		users:           users,
 		sessions:        sessions,
@@ -105,12 +107,13 @@ func NewAuthService(users repository.UserRepository, sessions SessionStore, pass
 		siteBaseURL:     siteBaseURL,
 		accessTokenTTL:  DefaultAccessTokenTTL,
 		refreshTokenTTL: DefaultRefreshTokenTTL,
+		eventBus:        bus,
 	}
 }
 
 // NewAuthServiceWithTTL creates a new AuthService with custom token TTLs.
 // groups may be nil; if so, sessions will have zero-value Permissions.
-func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration, groups repository.GroupRepository) *AuthService {
+func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStore, passwordResets PasswordResetStore, email EmailSender, siteBaseURL string, accessTTL, refreshTTL time.Duration, groups repository.GroupRepository, bus event.Bus) *AuthService {
 	return &AuthService{
 		users:           users,
 		groups:          groups,
@@ -120,6 +123,7 @@ func NewAuthServiceWithTTL(users repository.UserRepository, sessions SessionStor
 		siteBaseURL:     siteBaseURL,
 		accessTokenTTL:  accessTTL,
 		refreshTokenTTL: refreshTTL,
+		eventBus:        bus,
 	}
 }
 
@@ -201,6 +205,11 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		return nil, nil, fmt.Errorf("create session: %w", err)
 	}
 
+	s.eventBus.Publish(ctx, &event.UserRegisteredEvent{
+		Base:   event.NewBase(event.UserRegistered, event.Actor{ID: user.ID, Username: user.Username}),
+		UserID: user.ID,
+	})
+
 	return user, tokens, nil
 }
 
@@ -232,6 +241,12 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	if err := s.users.Update(ctx, user); err != nil {
 		slog.Error("failed to update last login", "user_id", user.ID, "error", err)
 	}
+
+	s.eventBus.Publish(ctx, &event.UserLoginEvent{
+		Base:   event.NewBase(event.UserLogin, event.Actor{ID: user.ID, Username: user.Username}),
+		UserID: user.ID,
+		IP:     ip,
+	})
 
 	return user, tokens, nil
 }

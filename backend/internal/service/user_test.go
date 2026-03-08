@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 )
 
 func TestGetProfile_PublicView(t *testing.T) {
@@ -15,7 +16,7 @@ func TestGetProfile_PublicView(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil)
 
 	// Create a user via auth service to get proper hashing etc.
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "profileuser",
 		Email:    "profile@example.com",
@@ -45,7 +46,7 @@ func TestGetProfile_OwnerView(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "owneruser",
 		Email:    "owner@example.com",
@@ -86,7 +87,7 @@ func TestGetFullProfile(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "fulluser",
 		Email:    "full@example.com",
@@ -110,7 +111,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "updateuser",
 		Email:    "update@example.com",
@@ -145,7 +146,7 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "partial",
 		Email:    "partial@example.com",
@@ -175,7 +176,7 @@ func TestUpdateProfile_InvalidAvatarURL(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "badavatar",
 		Email:    "badavatar@example.com",
@@ -194,7 +195,7 @@ func TestUpdateProfile_TitleTooLong(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "longtitle",
 		Email:    "longtitle@example.com",
@@ -213,7 +214,7 @@ func TestUpdateProfile_InfoTooLong(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "longinfo",
 		Email:    "longinfo@example.com",
@@ -232,7 +233,7 @@ func TestChangePassword_Success(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "changepw",
 		Email:    "changepw@example.com",
@@ -287,7 +288,7 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "wrongcurr",
 		Email:    "wrongcurr@example.com",
@@ -308,7 +309,7 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "weaknew",
 		Email:    "weaknew@example.com",
@@ -329,7 +330,7 @@ func TestRegeneratePasskey_Success(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil)
 
-	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "passkey",
 		Email:    "passkey@example.com",

@@ -13,7 +13,9 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
+	"github.com/williamokano/go-torrent-trader/backend/internal/listener"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
@@ -80,8 +82,11 @@ func run() int {
 
 	passwordResetStore := postgres.NewPasswordResetRepo(db)
 
+	// Event bus
+	eventBus := event.NewInMemoryBus()
+
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
-	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo)
+	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo, eventBus)
 	userService := service.NewUserService(userRepo, sessionStore, groupRepo)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 
@@ -96,14 +101,19 @@ func run() int {
 		AnnounceURL:      fmt.Sprintf("%s/announce", cfg.Site.ApiURL),
 		TorrentComment:   cfg.Site.BaseURL,
 		TorrentCreatedBy: cfg.Site.Name,
-	})
+	}, eventBus)
 
 	reportRepo := postgres.NewReportRepo(db)
-	reportService := service.NewReportService(reportRepo)
+	reportService := service.NewReportService(reportRepo, eventBus)
 
 	commentRepo := postgres.NewCommentRepo(db)
 	ratingRepo := postgres.NewRatingRepo(db)
-	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo)
+	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, eventBus)
+
+	// Activity log — register event listeners
+	activityLogRepo := postgres.NewActivityLogRepo(db)
+	activityLogService := service.NewActivityLogService(activityLogRepo)
+	listener.RegisterActivityLogListeners(eventBus, activityLogService)
 
 	adminService := service.NewAdminService(userRepo, groupRepo)
 
@@ -114,9 +124,10 @@ func run() int {
 		UserService:    userService,
 		TorrentService: torrentService,
 		TrackerService: trackerService,
-		ReportService:  reportService,
-		CommentService: commentService,
-		AdminService:   adminService,
+		ReportService:      reportService,
+		CommentService:     commentService,
+		AdminService:       adminService,
+		ActivityLogService: activityLogService,
 	}
 
 	// Start background worker (asynq server + scheduler)

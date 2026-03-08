@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -47,7 +48,7 @@ func TestAdminListUsers(t *testing.T) {
 	svc := NewAdminService(userRepo, groupRepo)
 
 	// Create some users via auth
-	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	_, _, _ = authSvc.Register(context.Background(), RegisterRequest{
 		Username: "alice",
 		Email:    "alice@example.com",
@@ -79,7 +80,7 @@ func TestAdminUpdateUser_ChangeGroup(t *testing.T) {
 	groupRepo := newMockAdminGroupRepo()
 	svc := NewAdminService(userRepo, groupRepo)
 
-	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "changeme",
 		Email:    "changeme@example.com",
@@ -106,7 +107,7 @@ func TestAdminUpdateUser_InvalidGroup(t *testing.T) {
 	groupRepo := newMockAdminGroupRepo()
 	svc := NewAdminService(userRepo, groupRepo)
 
-	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "invalidgrp",
 		Email:    "invalidgrp@example.com",
@@ -138,7 +139,7 @@ func TestAdminUpdateUser_ToggleEnabled(t *testing.T) {
 	groupRepo := newMockAdminGroupRepo()
 	svc := NewAdminService(userRepo, groupRepo)
 
-	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080")
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "disableme",
 		Email:    "disableme@example.com",

@@ -1,0 +1,38 @@
+.activity-log__title {
+  font-size: var(--text-xl);
+  margin: 0 0 var(--space-lg);
+}
+
+.activity-log__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.activity-log__table th,
+.activity-log__table td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.activity-log__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.activity-log__table td {
+  color: var(--color-text-primary);
+}
+
+.activity-log__time {
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.activity-log__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}

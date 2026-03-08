@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -72,7 +73,7 @@ func TestIntegrationServerStartsWithDB(t *testing.T) {
 
 	userRepo := postgres.NewUserRepo(db)
 	sessionStore := testutil.NewMemorySessionStore()
-	authService := service.NewAuthService(userRepo, sessionStore, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
+	authService := service.NewAuthService(userRepo, sessionStore, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	deps := &handler.Deps{
 		AuthService:  authService,

@@ -128,6 +128,11 @@ func (h *CommentHandler) HandleEditComment(w http.ResponseWriter, r *http.Reques
 
 // HandleDeleteComment handles DELETE /api/v1/comments/{id}.
 func (h *CommentHandler) HandleDeleteComment(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
 	perms := middleware.PermissionsFromContext(r.Context())
 
 	commentID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -136,7 +141,7 @@ func (h *CommentHandler) HandleDeleteComment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.commentSvc.DeleteComment(r.Context(), commentID, perms); err != nil {
+	if err := h.commentSvc.DeleteComment(r.Context(), commentID, userID, perms); err != nil {
 		handleCommentError(w, err)
 		return
 	}

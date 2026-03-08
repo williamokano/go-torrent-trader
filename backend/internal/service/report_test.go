@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -116,7 +117,7 @@ func (m *mockReportRepo) Resolve(_ context.Context, id, resolvedByUserID int64) 
 
 func TestReportService_Create_Success(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	torrentID := int64(42)
 	report, err := svc.Create(context.Background(), 1, CreateReportRequest{
@@ -139,7 +140,7 @@ func TestReportService_Create_Success(t *testing.T) {
 
 func TestReportService_Create_EmptyReason(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	_, err := svc.Create(context.Background(), 1, CreateReportRequest{
 		Reason: "",
@@ -151,7 +152,7 @@ func TestReportService_Create_EmptyReason(t *testing.T) {
 
 func TestReportService_Create_Duplicate(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	torrentID := int64(42)
 	_, err := svc.Create(context.Background(), 1, CreateReportRequest{
@@ -174,7 +175,7 @@ func TestReportService_Create_Duplicate(t *testing.T) {
 
 func TestReportService_Create_DifferentTorrents(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	tid1 := int64(1)
 	tid2 := int64(2)
@@ -199,7 +200,7 @@ func TestReportService_Create_DifferentTorrents(t *testing.T) {
 
 func TestReportService_Create_NilTorrentID(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	report, err := svc.Create(context.Background(), 1, CreateReportRequest{
 		Reason: "general report",
@@ -222,7 +223,7 @@ func TestReportService_Create_NilTorrentID(t *testing.T) {
 
 func TestReportService_List(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "r1"})
@@ -243,7 +244,7 @@ func TestReportService_List(t *testing.T) {
 
 func TestReportService_List_FilterByStatus(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "r1"})
@@ -280,7 +281,7 @@ func TestReportService_List_FilterByStatus(t *testing.T) {
 
 func TestReportService_Resolve_Success(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "r1"})
@@ -293,7 +294,7 @@ func TestReportService_Resolve_Success(t *testing.T) {
 
 func TestReportService_Resolve_NotFound(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo)
+	svc := NewReportService(repo, event.NewInMemoryBus())
 
 	err := svc.Resolve(context.Background(), 999, 99)
 	if !errors.Is(err, ErrReportNotFound) {

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"testing"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 )
 
 func TestNoopSender_RecordsCalls(t *testing.T) {
@@ -58,7 +60,7 @@ func TestForgotPassword_SendsEmail(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
 	sender := &noopSender{}
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080", event.NewInMemoryBus())
 
 	// Register a user
 	_, _, _ = svc.Register(context.Background(), RegisterRequest{
@@ -92,7 +94,7 @@ func TestForgotPassword_NoEmailForNonexistentUser(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
 	sender := &noopSender{}
-	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080")
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080", event.NewInMemoryBus())
 
 	_ = svc.ForgotPassword(context.Background(), ForgotPasswordRequest{
 		Email: "nobody@example.com",

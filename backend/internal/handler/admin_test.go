@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
@@ -16,7 +17,7 @@ func setupAdminRouter() (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	groupRepo := &mockGroupRepo{}
 	sessions := testutil.NewMemorySessionStore()
-	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupRepo)
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupRepo, event.NewInMemoryBus())
 	adminSvc := service.NewAdminService(userRepo, groupRepo)
 
 	router := handler.NewRouter(&handler.Deps{
