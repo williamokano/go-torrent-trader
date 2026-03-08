@@ -1,0 +1,292 @@
+.messages__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.messages__title {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.messages__tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: var(--space-lg);
+}
+
+.messages__tab {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.messages__tab:hover {
+  color: var(--color-text-primary);
+}
+
+.messages__tab--active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.messages__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-xs);
+  border-radius: 9px;
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.messages__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.messages__table th,
+.messages__table td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.messages__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.messages__table td {
+  color: var(--color-text-primary);
+}
+
+.messages__row--unread {
+  font-weight: 600;
+}
+
+.messages__row--unread td {
+  background-color: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
+}
+
+.messages__subject-link {
+  color: var(--color-text-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.messages__subject-link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.messages__user-link {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.messages__user-link:hover {
+  text-decoration: underline;
+}
+
+.messages__delete-btn {
+  padding: var(--space-xs) var(--space-sm);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs, 0.75rem);
+  cursor: pointer;
+}
+
+.messages__delete-btn:hover {
+  border-color: var(--color-error, #ef4444);
+  color: var(--color-error, #ef4444);
+}
+
+.messages__compose-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 600px;
+}
+
+.messages__form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.messages__form-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.messages__form-input {
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-secondary, #1a1a2e);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+
+.messages__form-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.messages__form-textarea {
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-secondary, #1a1a2e);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  min-height: 150px;
+  resize: vertical;
+}
+
+.messages__form-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.messages__form-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  height: 38px;
+  align-self: flex-start;
+}
+
+.messages__form-btn:hover {
+  opacity: 0.9;
+}
+
+.messages__form-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.messages__detail {
+  max-width: 700px;
+}
+
+.messages__detail-header {
+  margin-bottom: var(--space-lg);
+}
+
+.messages__detail-subject {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-sm);
+}
+
+.messages__detail-meta {
+  display: flex;
+  gap: var(--space-lg);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+
+.messages__detail-body {
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary, #1a1a2e);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.messages__detail-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.messages__back-btn {
+  padding: var(--space-xs) var(--space-md);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.messages__back-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.messages__reply-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.messages__reply-btn:hover {
+  opacity: 0.9;
+}
+
+.messages__loading {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}
+
+.messages__error {
+  text-align: center;
+  color: var(--color-error, #ef4444);
+  padding: var(--space-lg);
+}
+
+.messages__success {
+  text-align: center;
+  color: var(--color-success, #10b981);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.messages__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}

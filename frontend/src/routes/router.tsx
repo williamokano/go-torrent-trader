@@ -24,6 +24,7 @@ import { RSSBuilderPage } from "@/pages/RSSBuilderPage";
 import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
 import { InvitesPage } from "@/pages/InvitesPage";
+import { MessagesPage } from "@/pages/MessagesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
 import { NeedSeedPage } from "@/pages/NeedSeedPage";
@@ -154,6 +155,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <StaffPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "messages",
+        element: (
+          <ProtectedRoute>
+            <MessagesPage />
           </ProtectedRoute>
         ),
       },

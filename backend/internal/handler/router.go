@@ -28,6 +28,7 @@ type Deps struct {
 	ActivityLogService  *service.ActivityLogService
 	SiteSettingsService *service.SiteSettingsService
 	BanService          *service.BanService
+	MessageService      *service.MessageService
 	PeerRepo            repository.PeerRepository
 	UserRepo            repository.UserRepository
 	CategoryRepo        repository.CategoryRepository
@@ -189,6 +190,20 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/activity-logs", func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/", activityLogs.HandleList)
+				})
+			}
+
+			// Message endpoints
+			if deps.MessageService != nil {
+				messages := NewMessageHandler(deps.MessageService)
+				r.Route("/messages", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Post("/", messages.HandleSendMessage)
+					r.Get("/inbox", messages.HandleListInbox)
+					r.Get("/outbox", messages.HandleListOutbox)
+					r.Get("/unread-count", messages.HandleUnreadCount)
+					r.Get("/{id}", messages.HandleGetMessage)
+					r.Delete("/{id}", messages.HandleDeleteMessage)
 				})
 			}
 

@@ -158,6 +158,13 @@ export function RootLayout() {
             onNavigate={closeMenu}
           >
             <NavLink
+              to="/messages"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Messages
+            </NavLink>
+            <NavLink
               to="/members"
               className="header__dropdown-item"
               onClick={closeMenu}
