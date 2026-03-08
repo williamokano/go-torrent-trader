@@ -53,6 +53,9 @@ func (r *fakeTorrentRepo) IncrementLeechers(context.Context, int64, int) error {
 func (r *fakeTorrentRepo) IncrementTimesCompleted(context.Context, int64) error {
 	return nil
 }
+func (r *fakeTorrentRepo) ListByUploader(context.Context, int64, int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 func makeInfoHash(fill byte) []byte {
 	h := make([]byte, 20)

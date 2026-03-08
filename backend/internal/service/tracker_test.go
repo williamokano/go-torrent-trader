@@ -177,6 +177,9 @@ func (m *trackerMockTorrentRepo) IncrementTimesCompleted(_ context.Context, id i
 	}
 	return sql.ErrNoRows
 }
+func (m *trackerMockTorrentRepo) ListByUploader(_ context.Context, _ int64, _ int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 // --- Mock Peer Repository ---
 
@@ -252,6 +255,9 @@ func (m *trackerMockPeerRepo) Delete(_ context.Context, torrentID, userID int64,
 	return sql.ErrNoRows
 }
 
+func (m *trackerMockPeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) {
+	return 0, 0, nil
+}
 func (m *trackerMockPeerRepo) DeleteStale(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }

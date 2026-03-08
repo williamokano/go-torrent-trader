@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,11 +23,12 @@ const maxTorrentFileSize = 10 << 20 // 10 MB
 // TorrentHandler handles torrent HTTP endpoints.
 type TorrentHandler struct {
 	torrentSvc *service.TorrentService
+	peerRepo   repository.PeerRepository
 }
 
 // NewTorrentHandler creates a new TorrentHandler.
-func NewTorrentHandler(torrentSvc *service.TorrentService) *TorrentHandler {
-	return &TorrentHandler{torrentSvc: torrentSvc}
+func NewTorrentHandler(torrentSvc *service.TorrentService, peerRepo repository.PeerRepository) *TorrentHandler {
+	return &TorrentHandler{torrentSvc: torrentSvc, peerRepo: peerRepo}
 }
 
 // HandleUpload handles POST /api/v1/torrents.
@@ -106,6 +108,24 @@ func (h *TorrentHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		opts.PerPage, _ = strconv.Atoi(ppStr)
 	}
 
+	if afterStr := r.URL.Query().Get("created_after"); afterStr != "" {
+		if t, err := time.Parse(time.RFC3339, afterStr); err == nil {
+			opts.CreatedAfter = &t
+		}
+	}
+
+	if maxSeedersStr := r.URL.Query().Get("max_seeders"); maxSeedersStr != "" {
+		if n, err := strconv.Atoi(maxSeedersStr); err == nil {
+			opts.MaxSeeders = &n
+		}
+	}
+
+	if uploaderStr := r.URL.Query().Get("uploader_id"); uploaderStr != "" {
+		if uid, err := strconv.ParseInt(uploaderStr, 10, 64); err == nil && uid > 0 {
+			opts.UploaderID = &uid
+		}
+	}
+
 	torrents, total, err := h.torrentSvc.List(r.Context(), opts)
 	if err != nil {
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list torrents")
@@ -139,9 +159,21 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"torrent": torrentResponse(torrent),
-	})
+	}
+
+	if h.peerRepo != nil {
+		if peers, err := h.peerRepo.ListByTorrent(r.Context(), id, 50); err == nil {
+			peerItems := make([]map[string]interface{}, len(peers))
+			for i := range peers {
+				peerItems[i] = peerResponse(&peers[i])
+			}
+			resp["peers"] = peerItems
+		}
+	}
+
+	JSON(w, http.StatusOK, resp)
 }
 
 // HandleDownload handles GET /api/v1/torrents/{id}/download.
@@ -319,5 +351,20 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 	if t.Description != nil {
 		resp["description"] = *t.Description
 	}
+	if t.Nfo != nil {
+		resp["nfo"] = *t.Nfo
+	}
 	return resp
+}
+
+func peerResponse(p *model.Peer) map[string]interface{} {
+	return map[string]interface{}{
+		"user_id":       p.UserID,
+		"uploaded":      p.Uploaded,
+		"downloaded":    p.Downloaded,
+		"left_bytes":    p.LeftBytes,
+		"seeder":        p.Seeder,
+		"agent":         p.Agent,
+		"last_announce": p.LastAnnounce,
+	}
 }

@@ -87,6 +87,9 @@ func (r *announceTorrentRepo) Delete(context.Context, int64) error              
 func (r *announceTorrentRepo) IncrementSeeders(context.Context, int64, int) error   { return nil }
 func (r *announceTorrentRepo) IncrementLeechers(context.Context, int64, int) error  { return nil }
 func (r *announceTorrentRepo) IncrementTimesCompleted(context.Context, int64) error { return nil }
+func (r *announceTorrentRepo) ListByUploader(context.Context, int64, int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 type announcePeerRepo struct {
 	mu    sync.Mutex
@@ -142,6 +145,10 @@ func (r *announcePeerRepo) Upsert(_ context.Context, peer *model.Peer) error {
 	peer.ID = int64(len(r.peers) + 1)
 	r.peers = append(r.peers, peer)
 	return nil
+}
+
+func (r *announcePeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) {
+	return 0, 0, nil
 }
 
 func (r *announcePeerRepo) Delete(_ context.Context, torrentID, userID int64, peerID []byte) error {

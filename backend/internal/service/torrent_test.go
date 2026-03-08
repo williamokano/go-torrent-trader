@@ -167,6 +167,9 @@ func (m *memTorrentRepo) Delete(_ context.Context, id int64) error {
 func (m *memTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error  { return nil }
 func (m *memTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error { return nil }
 func (m *memTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error  { return nil }
+func (m *memTorrentRepo) ListByUploader(_ context.Context, _ int64, _ int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 // --- mock user repo ---
 

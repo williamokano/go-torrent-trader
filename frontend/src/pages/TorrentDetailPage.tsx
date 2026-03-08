@@ -11,6 +11,7 @@ import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
+import { NfoViewer } from "@/components/NfoViewer";
 import { getConfig } from "@/config";
 import "./torrent-detail.css";
 
@@ -43,6 +44,17 @@ export function TorrentDetailPage() {
   const [reseedCount, setReseedCount] = useState(0);
   const [reseedRequested, setReseedRequested] = useState(false);
   const [reseedLoading, setReseedLoading] = useState(false);
+  const [peers, setPeers] = useState<
+    Array<{
+      user_id: number;
+      uploaded: number;
+      downloaded: number;
+      left_bytes: number;
+      seeder: boolean;
+      agent: string | null;
+      last_announce: string;
+    }>
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +88,9 @@ export function TorrentDetailPage() {
       }
 
       setTorrent(data?.torrent ?? null);
+      setPeers(
+        ((data as Record<string, unknown>)?.peers as typeof peers) ?? [],
+      );
       setLoading(false);
     }
 
@@ -401,6 +416,46 @@ export function TorrentDetailPage() {
           <div className="torrent-detail__description-body">
             {torrent.description}
           </div>
+        </div>
+      )}
+
+      {(torrent as unknown as { nfo?: string }).nfo && (
+        <NfoViewer content={(torrent as unknown as { nfo: string }).nfo} />
+      )}
+
+      {peers.length > 0 && (
+        <div className="torrent-detail__peers">
+          <h2 className="torrent-detail__peers-title">Peers</h2>
+          <table className="torrent-detail__peers-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Uploaded</th>
+                <th>Downloaded</th>
+                <th>Left</th>
+                <th>Client</th>
+              </tr>
+            </thead>
+            <tbody>
+              {peers.map((p, i) => (
+                <tr key={i}>
+                  <td>
+                    <span
+                      className={`torrent-detail__peer-type ${p.seeder ? "torrent-detail__peer-type--seed" : "torrent-detail__peer-type--leech"}`}
+                    >
+                      {p.seeder ? "Seed" : "Leech"}
+                    </span>
+                  </td>
+                  <td>{formatBytes(p.uploaded)}</td>
+                  <td>{formatBytes(p.downloaded)}</td>
+                  <td>
+                    {p.left_bytes === 0 ? "-" : formatBytes(p.left_bytes)}
+                  </td>
+                  <td>{p.agent || "Unknown"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

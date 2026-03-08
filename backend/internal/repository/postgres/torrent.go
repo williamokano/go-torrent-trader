@@ -108,6 +108,21 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		args = append(args, *opts.CategoryID)
 	}
 
+	if opts.CreatedAfter != nil {
+		conditions = append(conditions, fmt.Sprintf("t.created_at >= %s", nextArg()))
+		args = append(args, *opts.CreatedAfter)
+	}
+
+	if opts.MaxSeeders != nil {
+		conditions = append(conditions, fmt.Sprintf("t.seeders <= %s", nextArg()))
+		args = append(args, *opts.MaxSeeders)
+	}
+
+	if opts.UploaderID != nil {
+		conditions = append(conditions, fmt.Sprintf("t.uploader_id = %s", nextArg()))
+		args = append(args, *opts.UploaderID)
+	}
+
 	// useFullText tracks whether to apply ts_rank ordering.
 	var useFullText bool
 
@@ -310,4 +325,26 @@ func (r *TorrentRepo) IncrementLeechers(ctx context.Context, id int64, delta int
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (r *TorrentRepo) ListByUploader(ctx context.Context, uploaderID int64, limit int) ([]model.Torrent, error) {
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.uploader_id = $1 AND t.visible = true AND t.banned = false ORDER BY t.created_at DESC LIMIT $2", torrentColumns)
+	rows, err := r.db.QueryContext(ctx, query, uploaderID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing torrents by uploader: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var torrents []model.Torrent
+	for rows.Next() {
+		t, err := scanTorrent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning torrent: %w", err)
+		}
+		torrents = append(torrents, *t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating torrents: %w", err)
+	}
+	return torrents, nil
 }

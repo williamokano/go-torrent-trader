@@ -25,6 +25,8 @@ import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
 import { InvitesPage } from "@/pages/InvitesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
+import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
+import { NeedSeedPage } from "@/pages/NeedSeedPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -46,6 +48,22 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <BrowsePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "today",
+        element: (
+          <ProtectedRoute>
+            <TodaysTorrentsPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "needseed",
+        element: (
+          <ProtectedRoute>
+            <NeedSeedPage />
           </ProtectedRoute>
         ),
       },

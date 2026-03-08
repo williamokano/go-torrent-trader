@@ -518,7 +518,7 @@
 - Response includes: name, category, size, seeders, leechers, completed, added, comments count, rating, freeleech flag, uploader (or "Anonymous")
 - Respect user privacy settings for uploader name
 
-#### BE-3.4: Torrent Detail Page [M]
+#### BE-3.4: Torrent Detail Page [M] [DONE — NFO + peer list in detail response, browse filters for date/seeders/uploader]
 **As a** user
 **I want** to see full details about a torrent
 **So that** I can decide whether to download it
@@ -1208,7 +1208,7 @@
 - Reseed request button (if dead)
 - Edit button (if owner or moderator)
 
-#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S]
+#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S] [PARTIAL — Today's + Need Seed done; Completed (user download history) deferred to PM system]
 **As a** user
 **I want** quick-access filtered views
 **So that** I can find torrents matching specific criteria
@@ -1248,7 +1248,7 @@
 - Active sessions list with revoke button
 - API keys management (create, list, revoke)
 
-#### FE-2.2: User Profile Page [M]
+#### FE-2.2: User Profile Page [M] [DONE — group name, seeding/leeching counts, recent uploads, invited-by link]
 **As a** user
 **I want** to view other users' profiles
 **So that** I can see their stats and activity
@@ -1334,7 +1334,7 @@
 - Confirmation on submit
 - Rate limit feedback if too many reports
 
-#### FE-2.9: NFO Viewer [S]
+#### FE-2.9: NFO Viewer [S] [DONE — monospace pre-formatted viewer on torrent detail page]
 **As a** user
 **I want** to view NFO files properly
 **So that** I can read release information

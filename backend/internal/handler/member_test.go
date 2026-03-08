@@ -20,7 +20,7 @@ func setupMemberRouter() (http.Handler, *mockUserRepo) {
 	sessions := testutil.NewMemorySessionStore()
 	groupRepo := &mockGroupRepo{}
 	authSvc := service.NewAuthService(repo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	userSvc := service.NewUserService(repo, sessions, groupRepo)
+	userSvc := service.NewUserService(repo, sessions, groupRepo, nil, nil)
 	memberSvc := service.NewMemberService(repo, groupRepo)
 
 	router := handler.NewRouter(&handler.Deps{

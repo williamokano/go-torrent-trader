@@ -121,6 +121,9 @@ func (m *mockTorrentRepo) Delete(_ context.Context, id int64) error {
 func (m *mockTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error  { return nil }
 func (m *mockTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error  { return nil }
+func (m *mockTorrentRepo) ListByUploader(_ context.Context, _ int64, _ int) ([]model.Torrent, error) {
+	return nil, nil
+}
 
 // --- mock storage ---
 

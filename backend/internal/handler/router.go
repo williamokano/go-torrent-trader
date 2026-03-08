@@ -28,6 +28,7 @@ type Deps struct {
 	ActivityLogService  *service.ActivityLogService
 	SiteSettingsService *service.SiteSettingsService
 	BanService          *service.BanService
+	PeerRepo            repository.PeerRepository
 	UserRepo            repository.UserRepository
 	RSSConfig           *RSSConfig
 }
@@ -116,7 +117,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 			// Torrent endpoints (all protected)
 			if deps.TorrentService != nil {
-				torrents := NewTorrentHandler(deps.TorrentService)
+				torrents := NewTorrentHandler(deps.TorrentService, deps.PeerRepo)
 				r.Route("/torrents", func(r chi.Router) {
 					r.Use(mw.RequireAuth(validator))
 					r.Get("/", torrents.HandleList)

@@ -37,6 +37,7 @@ type TorrentRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.Torrent, error)
 	GetByInfoHash(ctx context.Context, infoHash []byte) (*model.Torrent, error)
 	List(ctx context.Context, opts ListTorrentsOptions) ([]model.Torrent, int64, error)
+	ListByUploader(ctx context.Context, uploaderID int64, limit int) ([]model.Torrent, error)
 	Create(ctx context.Context, torrent *model.Torrent) error
 	Update(ctx context.Context, torrent *model.Torrent) error
 	Delete(ctx context.Context, id int64) error
@@ -50,6 +51,7 @@ type PeerRepository interface {
 	GetByTorrentAndUser(ctx context.Context, torrentID, userID int64) (*model.Peer, error)
 	GetByTorrentUserAndPeerID(ctx context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error)
 	ListByTorrent(ctx context.Context, torrentID int64, limit int) ([]model.Peer, error)
+	CountByUser(ctx context.Context, userID int64) (seeding int, leeching int, err error)
 	Upsert(ctx context.Context, peer *model.Peer) error
 	Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error
 	DeleteStale(ctx context.Context, before time.Time) (int64, error)
@@ -82,12 +84,15 @@ type RatingRepository interface {
 
 // ListTorrentsOptions holds filtering and pagination options for listing torrents.
 type ListTorrentsOptions struct {
-	CategoryID *int64
-	Search     string
-	SortBy     string // name, created_at, size, seeders, leechers
-	SortOrder  string // asc, desc
-	Page       int
-	PerPage    int
+	CategoryID   *int64
+	Search       string
+	SortBy       string // name, created_at, size, seeders, leechers
+	SortOrder    string // asc, desc
+	Page         int
+	PerPage      int
+	CreatedAfter *time.Time // for "today's torrents"
+	MaxSeeders   *int       // for "need seed" (seeders <= N)
+	UploaderID   *int64     // for "my uploads" or user's torrents
 }
 
 // GroupRepository defines persistence operations for groups.
