@@ -73,6 +73,11 @@ export function MessagesPage() {
   const suggestionRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => clearTimeout(debounceRef.current);
+  }, []);
+
   // Debounced username search for autocomplete
   const searchUsers = useCallback((query: string) => {
     clearTimeout(debounceRef.current);

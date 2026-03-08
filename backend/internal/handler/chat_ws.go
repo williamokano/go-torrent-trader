@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,17 +15,27 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = 30 * time.Second
+
+	// Maximum message size allowed from peer (10 KB).
+	maxMessageSize = 10 * 1024
+)
 
 // ChatClient represents a connected WebSocket client.
 type ChatClient struct {
+	hub    *ChatHub
 	conn   *websocket.Conn
 	userID int64
 	perms  model.Permissions
+	send   chan []byte // Buffered channel of outbound messages.
 }
 
 // ChatBroadcast is a message to broadcast to all connected clients.
@@ -36,6 +47,7 @@ type ChatBroadcast struct {
 type ChatHub struct {
 	chatSvc      *service.ChatService
 	sessionStore service.SessionStore
+	allowedOrigins []string
 
 	clients    map[*ChatClient]struct{}
 	broadcast  chan ChatBroadcast
@@ -45,14 +57,15 @@ type ChatHub struct {
 }
 
 // NewChatHub creates a new ChatHub.
-func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore) *ChatHub {
+func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore, allowedOrigins []string) *ChatHub {
 	return &ChatHub{
-		chatSvc:      chatSvc,
-		sessionStore: sessionStore,
-		clients:      make(map[*ChatClient]struct{}),
-		broadcast:    make(chan ChatBroadcast, 256),
-		register:     make(chan *ChatClient),
-		unregister:   make(chan *ChatClient),
+		chatSvc:        chatSvc,
+		sessionStore:   sessionStore,
+		allowedOrigins: allowedOrigins,
+		clients:        make(map[*ChatClient]struct{}),
+		broadcast:      make(chan ChatBroadcast, 256),
+		register:       make(chan *ChatClient, 64),
+		unregister:     make(chan *ChatClient, 64),
 	}
 }
 
@@ -70,21 +83,35 @@ func (h *ChatHub) Run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				_ = client.conn.Close()
+				close(client.send)
 			}
 			h.mu.Unlock()
 			slog.Debug("chat client disconnected", "user_id", client.userID)
 
 		case msg := <-h.broadcast:
 			h.mu.RLock()
+			var deadClients []*ChatClient
 			for client := range h.clients {
-				if err := client.conn.WriteMessage(websocket.TextMessage, msg.Data); err != nil {
-					slog.Debug("failed to write to client, removing", "user_id", client.userID, "error", err)
-					_ = client.conn.Close()
-					delete(h.clients, client)
+				select {
+				case client.send <- msg.Data:
+				default:
+					// Client's send buffer is full — drop it.
+					deadClients = append(deadClients, client)
 				}
 			}
 			h.mu.RUnlock()
+
+			// Clean up slow/dead clients outside the read lock.
+			if len(deadClients) > 0 {
+				h.mu.Lock()
+				for _, client := range deadClients {
+					if _, ok := h.clients[client]; ok {
+						delete(h.clients, client)
+						close(client.send)
+					}
+				}
+				h.mu.Unlock()
+			}
 		}
 	}
 }
@@ -109,15 +136,12 @@ type wsIncoming struct {
 	Text string `json:"text"`
 }
 
-// HandleWebSocket handles the WebSocket upgrade and client lifecycle.
 // unwrapHijacker walks the ResponseWriter wrapper chain to find one that
-// implements http.Hijacker. Chi's Recoverer middleware wraps the writer,
-// stripping the Hijacker interface that WebSocket upgrade requires.
+// implements http.Hijacker.
 func unwrapHijacker(w http.ResponseWriter) http.ResponseWriter {
 	if _, ok := w.(http.Hijacker); ok {
 		return w
 	}
-	// Chi and other middleware use Unwrap() to expose the inner writer.
 	type unwrapper interface {
 		Unwrap() http.ResponseWriter
 	}
@@ -141,8 +165,23 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unwrap the ResponseWriter to get past middleware wrappers (e.g.
-	// Chi's Recoverer) that strip the http.Hijacker interface.
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			if len(h.allowedOrigins) == 0 {
+				return true // No restriction configured
+			}
+			origin := r.Header.Get("Origin")
+			for _, allowed := range h.allowedOrigins {
+				if strings.EqualFold(origin, allowed) {
+					return true
+				}
+			}
+			return false
+		},
+	}
+
 	conn, err := upgrader.Upgrade(unwrapHijacker(w), r, nil)
 	if err != nil {
 		slog.Error("websocket upgrade failed", "error", err)
@@ -150,21 +189,26 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &ChatClient{
+		hub:    h,
 		conn:   conn,
 		userID: sess.UserID,
 		perms:  sess.Permissions,
+		send:   make(chan []byte, 256),
 	}
 
 	h.register <- client
 
-	// Send backfill of recent messages.
-	h.sendBackfill(conn)
+	// Send backfill before starting pumps.
+	h.sendBackfill(client)
 
-	// Read messages from client.
-	go h.readPump(client)
+	// Start the write pump (single writer goroutine per connection).
+	go client.writePump()
+
+	// readPump runs in the current goroutine (HandleWebSocket exits when it returns).
+	go client.readPump()
 }
 
-func (h *ChatHub) sendBackfill(conn *websocket.Conn) {
+func (h *ChatHub) sendBackfill(client *ChatClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -188,38 +232,32 @@ func (h *ChatHub) sendBackfill(conn *websocket.Conn) {
 		slog.Error("failed to marshal backfill", "error", err)
 		return
 	}
-	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		// Client may have disconnected before backfill was sent (e.g.
-		// React Strict Mode closing the first connection). Not a real error.
-		slog.Debug("failed to send backfill", "error", err)
+
+	// Send via the client's send channel (writePump handles the actual write).
+	select {
+	case client.send <- data:
+	default:
+		slog.Debug("failed to send backfill, client send buffer full")
 	}
 }
 
-func (h *ChatHub) readPump(client *ChatClient) {
+// readPump reads messages from the WebSocket connection.
+// There is at most one reader per connection.
+func (c *ChatClient) readPump() {
 	defer func() {
-		h.unregister <- client
+		c.hub.unregister <- c
+		_ = c.conn.Close()
 	}()
 
-	// Set read deadline and pong handler for keepalive.
-	_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	client.conn.SetPongHandler(func(string) error {
-		_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.conn.SetReadLimit(maxMessageSize)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
 
-	// Start ping ticker.
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
-			}
-		}
-	}()
-
 	for {
-		_, rawMsg, err := client.conn.ReadMessage()
+		_, rawMsg, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				slog.Debug("websocket read error", "error", err)
@@ -234,7 +272,38 @@ func (h *ChatHub) readPump(client *ChatClient) {
 
 		switch incoming.Type {
 		case "message":
-			h.handleIncomingMessage(client, incoming.Text)
+			c.hub.handleIncomingMessage(c, incoming.Text)
+		}
+	}
+}
+
+// writePump pumps messages from the send channel to the WebSocket connection.
+// There is exactly one writePump per connection, ensuring no concurrent writes.
+func (c *ChatClient) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		_ = c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// Hub closed the channel — send close frame.
+				_ = c.conn.WriteMessage(websocket.CloseMessage, nil)
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -245,12 +314,14 @@ func (h *ChatHub) handleIncomingMessage(client *ChatClient, text string) {
 
 	msg, err := h.chatSvc.SendMessage(ctx, client.userID, text)
 	if err != nil {
-		// Send error back to the sender.
 		errPayload, _ := json.Marshal(map[string]interface{}{
 			"type":    "error",
 			"message": err.Error(),
 		})
-		_ = client.conn.WriteMessage(websocket.TextMessage, errPayload)
+		select {
+		case client.send <- errPayload:
+		default:
+		}
 		return
 	}
 

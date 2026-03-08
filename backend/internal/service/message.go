@@ -66,6 +66,17 @@ func (s *MessageService) SendMessage(ctx context.Context, senderID int64, req Se
 		return nil, fmt.Errorf("%w: receiver not found", ErrInvalidMessage)
 	}
 
+	// Validate parent_id if provided: must exist and sender must be a participant.
+	if req.ParentID != nil {
+		parentMsg, err := s.messages.GetByID(ctx, *req.ParentID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: parent message not found", ErrInvalidMessage)
+		}
+		if parentMsg.SenderID != senderID && parentMsg.ReceiverID != senderID {
+			return nil, fmt.Errorf("%w: you are not a participant in the parent conversation", ErrInvalidMessage)
+		}
+	}
+
 	msg := &model.Message{
 		SenderID:   senderID,
 		ReceiverID: req.ReceiverID,

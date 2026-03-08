@@ -157,7 +157,7 @@ func run() int {
 	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
 
-	chatHub := handler.NewChatHub(chatService, sessionStore)
+	chatHub := handler.NewChatHub(chatService, sessionStore, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
 	deps := &handler.Deps{

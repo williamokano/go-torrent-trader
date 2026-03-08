@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -29,6 +30,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
   const [mainChatVisible, setMainChatVisible] = useState(false);
+  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -83,28 +85,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadMore = useCallback(async () => {
-    setMessages((currentMessages) => {
-      if (currentMessages.length === 0) return currentMessages;
-      const oldestId = currentMessages[0].id;
-      const token = getAccessToken();
-      if (!token) return currentMessages;
+    if (loadingMoreRef.current) return;
+    if (messages.length === 0) return;
 
-      // Fire async load, update state when done
-      fetch(
+    const oldestId = messages[0].id;
+    const token = getAccessToken();
+    if (!token) return;
+
+    loadingMoreRef.current = true;
+    try {
+      const resp = await fetch(
         `${getConfig().API_URL}/api/v1/chat/history?before_id=${oldestId}&limit=50`,
         { headers: { Authorization: `Bearer ${token}` } },
-      )
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (data?.messages?.length > 0) {
-            setMessages((prev) => [...data.messages, ...prev]);
-          }
-        })
-        .catch(() => {});
-
-      return currentMessages; // return unchanged for now
-    });
-  }, []);
+      );
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data?.messages?.length > 0) {
+        setMessages((prev) => [...data.messages, ...prev]);
+      }
+    } catch {
+      // ignore
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [messages]);
 
   return (
     <ChatContext.Provider
