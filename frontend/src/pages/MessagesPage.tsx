@@ -154,28 +154,27 @@ export function MessagesPage() {
     fetchUnreadCount();
   }, [fetchMessages, fetchUnreadCount]);
 
+  // Clear detail view when msg param is removed from URL
+  if (!selectedMsgId && selectedMessage) {
+    setSelectedMessage(null);
+  }
+
   // Fetch message detail when msg param is in URL
-  useEffect(() => {
-    if (!selectedMsgId) {
-      setSelectedMessage(null);
-      return;
-    }
-    let cancelled = false;
-    setDetailLoading(true);
-    setError(null);
-    fetch(`${getConfig().API_URL}/api/v1/messages/${selectedMsgId}`, {
-      headers: authHeaders(),
-    })
-      .then((r) => r.json())
-      .then((body) => {
-        if (cancelled) return;
+  const fetchMessageDetail = useCallback(
+    async (msgId: number) => {
+      setDetailLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/messages/${msgId}`,
+          { headers: authHeaders() },
+        );
+        const body = await res.json();
         if (body?.message) {
           setSelectedMessage(body.message);
           fetchUnreadCount();
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === selectedMsgId ? { ...m, is_read: true } : m,
-            ),
+            prev.map((m) => (m.id === msgId ? { ...m, is_read: true } : m)),
           );
         } else {
           setError("Message not found");
@@ -185,24 +184,25 @@ export function MessagesPage() {
             return next;
           });
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError("Failed to load message");
-          setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("msg");
-            return next;
-          });
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedMsgId, fetchUnreadCount]);
+      } catch {
+        setError("Failed to load message");
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("msg");
+          return next;
+        });
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [fetchUnreadCount, setSearchParams],
+  );
+
+  useEffect(() => {
+    if (selectedMsgId) {
+      fetchMessageDetail(selectedMsgId);
+    }
+  }, [selectedMsgId, fetchMessageDetail]);
 
   const handleTabChange = (newTab: Tab) => {
     setPage(1);

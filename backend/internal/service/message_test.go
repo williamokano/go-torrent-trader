@@ -203,6 +203,9 @@ func (m *mockUserRepoForMessage) List(context.Context, repository.ListUsersOptio
 func (m *mockUserRepoForMessage) ListStaff(context.Context) ([]model.User, error) {
 	return nil, nil
 }
+func (m *mockUserRepoForMessage) UpdateLastAccess(context.Context, int64) error {
+	return nil
+}
 
 // --- helpers ---
 
