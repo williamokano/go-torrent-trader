@@ -80,9 +80,9 @@ jobs:
               echo ""
             fi
             echo "## Docker Images"
-            echo "- \`williamokano/torrenttrader-backend:${VERSION}\`"
-            echo "- \`williamokano/torrenttrader-frontend:${VERSION}\`"
-            echo "- \`williamokano/torrenttrader-migration-tool:${VERSION}\`"
+            echo "- \`torrenttrader-backend:${VERSION}\`"
+            echo "- \`torrenttrader-frontend:${VERSION}\`"
+            echo "- \`torrenttrader-migration-tool:${VERSION}\`"
             echo ""
             echo "## Binary Downloads"
             echo "See assets below for pre-built binaries for Linux, macOS (Apple Silicon), and Windows."

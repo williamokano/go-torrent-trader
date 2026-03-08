@@ -29,7 +29,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: williamokano/torrenttrader-${{ matrix.project }}
+          images: ${{ secrets.DOCKER_USERNAME }}/torrenttrader-${{ matrix.project }}
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest
