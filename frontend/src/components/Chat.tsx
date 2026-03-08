@@ -77,16 +77,21 @@ export function Chat() {
               setTimeout(scrollToBottom, 50);
               break;
             case "message":
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: data.id,
-                  user_id: data.user_id,
-                  username: data.username,
-                  message: data.message,
-                  created_at: data.created_at,
-                },
-              ]);
+              setMessages((prev) => {
+                // Deduplicate — prevent showing the same message twice
+                // (can happen with React Strict Mode double-mount or reconnect race)
+                if (prev.some((m) => m.id === data.id)) return prev;
+                return [
+                  ...prev,
+                  {
+                    id: data.id,
+                    user_id: data.user_id,
+                    username: data.username,
+                    message: data.message,
+                    created_at: data.created_at,
+                  },
+                ];
+              });
               setTimeout(scrollToBottom, 50);
               break;
             case "delete":
