@@ -184,103 +184,113 @@ export function InvitesPage() {
       ) : invites.length === 0 ? (
         <div className="invites__empty">No invites created yet.</div>
       ) : (
-        <table className="invites__table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Status</th>
-              <th>Invitee</th>
-              <th>Up</th>
-              <th>Down</th>
-              <th>%</th>
-              <th>Joined</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invites.map((inv) => (
-              <tr key={inv.id}>
-                <td>
-                  <code className="invites__token">{inv.token}</code>
-                </td>
-                <td>
-                  <span className={`invites__status--${inv.status}`}>
-                    {inv.status}
-                  </span>
-                </td>
-                <td>
-                  {inv.invitee ? (
-                    <span>
-                      <a href={`/user/${inv.invitee.id}`}>
-                        {inv.invitee.username}
-                      </a>
-                      {!inv.invitee.enabled && (
-                        <span className="invites__badge--banned"> Banned</span>
-                      )}
-                      {inv.invitee.warned && (
-                        <span className="invites__badge--warned"> Warned</span>
-                      )}
-                    </span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td>{inv.invitee ? formatBytes(inv.invitee.uploaded) : "-"}</td>
-                <td>
-                  {inv.invitee ? formatBytes(inv.invitee.downloaded) : "-"}
-                </td>
-                <td>{inv.invitee ? formatRatio(inv.invitee.ratio) : "-"}</td>
-                <td>
-                  {inv.invitee ? formatDate(inv.invitee.created_at) : "-"}
-                </td>
-                <td className="invites__actions">
-                  {inv.status === "pending" ? (
-                    <>
-                      <button
-                        type="button"
-                        className="invites__copy-btn"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(inv.token);
-                            setCopiedAction(`code-${inv.id}`);
-                            setTimeout(() => setCopiedAction(null), 2000);
-                          } catch {
-                            /* fallback */
-                          }
-                        }}
-                      >
-                        {copiedAction === `code-${inv.id}`
-                          ? "Copied!"
-                          : "Copy Code"}
-                      </button>
-                      <button
-                        type="button"
-                        className="invites__copy-btn"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(
-                              getInviteLink(inv.token),
-                            );
-                            setCopiedAction(`link-${inv.id}`);
-                            setTimeout(() => setCopiedAction(null), 2000);
-                          } catch {
-                            /* fallback */
-                          }
-                        }}
-                      >
-                        {copiedAction === `link-${inv.id}`
-                          ? "Copied!"
-                          : "Copy Link"}
-                      </button>
-                    </>
-                  ) : (
-                    <span className="invites__no-action">-</span>
-                  )}
-                </td>
+        <div className="invites__table-wrapper">
+          <table className="invites__table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Status</th>
+                <th>Invitee</th>
+                <th>Up</th>
+                <th>Down</th>
+                <th>%</th>
+                <th>Joined</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {invites.map((inv) => (
+                <tr key={inv.id}>
+                  <td>
+                    <code className="invites__token">{inv.token}</code>
+                  </td>
+                  <td>
+                    <span className={`invites__status--${inv.status}`}>
+                      {inv.status}
+                    </span>
+                  </td>
+                  <td>
+                    {inv.invitee ? (
+                      <span>
+                        <a href={`/user/${inv.invitee.id}`}>
+                          {inv.invitee.username}
+                        </a>
+                        {!inv.invitee.enabled && (
+                          <span className="invites__badge--banned">
+                            {" "}
+                            Banned
+                          </span>
+                        )}
+                        {inv.invitee.warned && (
+                          <span className="invites__badge--warned">
+                            {" "}
+                            Warned
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td>
+                    {inv.invitee ? formatBytes(inv.invitee.uploaded) : "-"}
+                  </td>
+                  <td>
+                    {inv.invitee ? formatBytes(inv.invitee.downloaded) : "-"}
+                  </td>
+                  <td>{inv.invitee ? formatRatio(inv.invitee.ratio) : "-"}</td>
+                  <td>
+                    {inv.invitee ? formatDate(inv.invitee.created_at) : "-"}
+                  </td>
+                  <td className="invites__actions">
+                    {inv.status === "pending" ? (
+                      <>
+                        <button
+                          type="button"
+                          className="invites__copy-btn"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(inv.token);
+                              setCopiedAction(`code-${inv.id}`);
+                              setTimeout(() => setCopiedAction(null), 2000);
+                            } catch {
+                              /* fallback */
+                            }
+                          }}
+                        >
+                          {copiedAction === `code-${inv.id}`
+                            ? "Copied!"
+                            : "Copy Code"}
+                        </button>
+                        <button
+                          type="button"
+                          className="invites__copy-btn"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(
+                                getInviteLink(inv.token),
+                              );
+                              setCopiedAction(`link-${inv.id}`);
+                              setTimeout(() => setCopiedAction(null), 2000);
+                            } catch {
+                              /* fallback */
+                            }
+                          }}
+                        >
+                          {copiedAction === `link-${inv.id}`
+                            ? "Copied!"
+                            : "Copy Link"}
+                        </button>
+                      </>
+                    ) : (
+                      <span className="invites__no-action">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {!loading && !error && totalPages > 1 && (

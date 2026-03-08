@@ -83,11 +83,15 @@
   opacity: 0.9;
 }
 
+.invites__table-wrapper {
+  overflow-x: auto;
+}
+
 .invites__table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--text-xs);
-  table-layout: auto;
+  min-width: 700px;
 }
 
 .invites__table th,
