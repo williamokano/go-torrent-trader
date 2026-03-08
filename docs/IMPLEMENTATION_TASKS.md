@@ -962,7 +962,6 @@
 - [ ] View: full profile with all fields, stats, invite history, warning history, mod notes
 - [x] Edit: role (group), enabled, warned
 - [ ] Edit: title, uploaded/downloaded, avatar, signature, passkey reset
-- [ ] Edit: reset user password (admin/staff sets a new password, user is forced to change on next login or notified via email)
 - [ ] Promote/demote (cannot promote above own level)
 - [ ] Delete account with reason (logged)
 - [ ] Warning management (add/remove/view)
@@ -1028,6 +1027,22 @@
 - Download backup file
 - List/delete old backups
 - Optional: scheduled backups via cron job
+
+#### BE-8.8: Admin Password & Passkey Reset [S]
+**As an** admin or staff member
+**I want** to reset a user's password or passkey
+**So that** I can help users who are locked out or protect accounts with suspected leaked credentials
+
+**Acceptance Criteria:**
+- `PUT /api/v1/admin/users/{id}/reset-password` — sets a new password, hashes with Argon2id
+- Option to auto-generate a random password or accept an admin-provided one
+- Invalidates all existing sessions for the user after password reset
+- Email notification sent to the user with the new password (or a reset link)
+- `PUT /api/v1/admin/users/{id}/reset-passkey` — regenerates passkey (32-char hex)
+- Invalidates existing .torrent files (user must re-download with new passkey)
+- Both actions logged to activity log with actor info
+- Frontend: buttons in the admin user edit panel
+- Staff can reset passwords for users at or below their group level (cannot reset admin passwords unless admin)
 
 ---
 
