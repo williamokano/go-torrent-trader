@@ -43,7 +43,7 @@ export function AdminSettingsPage() {
   const [settings, setSettings] = useState<SiteSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -73,44 +73,77 @@ export function AdminSettingsPage() {
     fetchSettings();
   }, [fetchSettings]);
 
-  const handleSave = async (key: string) => {
-    setSavingKey(key);
-    try {
-      const token = getAccessToken();
-      const res = await fetch(
-        `${getConfig().API_URL}/api/v1/admin/settings/${key}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  const hasChanges = settings.some((s) => editValues[s.key] !== s.value);
+
+  const handleSaveAll = async () => {
+    setSaving(true);
+    const changed = settings.filter((s) => editValues[s.key] !== s.value);
+    const token = getAccessToken();
+    let failed = false;
+
+    for (const s of changed) {
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/settings/${s.key}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ value: editValues[s.key] }),
           },
-          body: JSON.stringify({ value: editValues[key] }),
-        },
-      );
-      if (res.ok) {
-        toast.success("Setting saved");
-        fetchSettings();
-      } else {
-        const body = await res.json();
-        toast.error(body?.error?.message ?? "Failed to save");
+        );
+        if (!res.ok) {
+          const body = await res.json();
+          toast.error(
+            `Failed to save ${getSettingDef(s.key).label}: ${body?.error?.message ?? "unknown error"}`,
+          );
+          failed = true;
+        }
+      } catch {
+        toast.error(`Failed to save ${getSettingDef(s.key).label}`);
+        failed = true;
       }
-    } catch {
-      toast.error("Failed to save setting");
-    } finally {
-      setSavingKey(null);
     }
+
+    if (!failed) {
+      toast.success("Settings saved");
+    }
+    fetchSettings();
+    setSaving(false);
   };
 
   if (loading) return <p>Loading settings...</p>;
 
   return (
     <div>
-      <h1
-        style={{ fontSize: "var(--text-xl)", marginBottom: "var(--space-lg)" }}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "var(--space-lg)",
+        }}
       >
-        Site Settings
-      </h1>
+        <h1 style={{ fontSize: "var(--text-xl)", margin: 0 }}>Site Settings</h1>
+        <button
+          onClick={handleSaveAll}
+          disabled={!hasChanges || saving}
+          style={{
+            padding: "var(--space-xs) var(--space-md)",
+            backgroundColor: "var(--color-accent)",
+            color: "white",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            cursor: !hasChanges || saving ? "not-allowed" : "pointer",
+            opacity: !hasChanges || saving ? 0.5 : 1,
+            fontSize: "var(--text-sm)",
+          }}
+        >
+          {saving ? "Saving..." : "Save Changes"}
+        </button>
+      </div>
 
       <table
         style={{
@@ -143,24 +176,11 @@ export function AdminSettingsPage() {
             >
               Value
             </th>
-            <th
-              style={{
-                textAlign: "left",
-                padding: "var(--space-xs) var(--space-sm)",
-                borderBottom: "1px solid var(--color-border)",
-                color: "var(--color-text-muted)",
-                fontWeight: 600,
-                width: 80,
-              }}
-            >
-              Actions
-            </th>
           </tr>
         </thead>
         <tbody>
           {settings.map((s) => {
             const def = getSettingDef(s.key);
-            const changed = editValues[s.key] !== s.value;
             return (
               <tr key={s.key}>
                 <td
@@ -222,31 +242,6 @@ export function AdminSettingsPage() {
                         width: 200,
                       }}
                     />
-                  )}
-                </td>
-                <td
-                  style={{
-                    padding: "var(--space-xs) var(--space-sm)",
-                    borderBottom: "1px solid var(--color-border)",
-                  }}
-                >
-                  {changed && (
-                    <button
-                      onClick={() => handleSave(s.key)}
-                      disabled={savingKey === s.key}
-                      style={{
-                        padding: "2px 10px",
-                        backgroundColor: "var(--color-accent)",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "var(--radius-sm)",
-                        cursor: savingKey === s.key ? "not-allowed" : "pointer",
-                        opacity: savingKey === s.key ? 0.6 : 1,
-                        fontSize: "var(--text-xs)",
-                      }}
-                    >
-                      {savingKey === s.key ? "..." : "Save"}
-                    </button>
                   )}
                 </td>
               </tr>
