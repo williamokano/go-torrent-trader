@@ -38,12 +38,20 @@ describe("RootLayout", () => {
     expect(screen.getByText("TorrentTrader")).toBeInTheDocument();
   });
 
-  test("renders navigation links", () => {
+  test("renders navigation links and dropdown menus", () => {
     renderLayout();
     expect(screen.getByText("Home")).toBeInTheDocument();
-    expect(screen.getByText("Browse")).toBeInTheDocument();
     expect(screen.getByText("Forums")).toBeInTheDocument();
-    expect(screen.getByText("Upload")).toBeInTheDocument();
+    expect(screen.getByText("Log")).toBeInTheDocument();
+    // Browse/Upload are inside the "Torrents" dropdown
+    const dropdownToggles = document.querySelectorAll(
+      ".header__dropdown-toggle",
+    );
+    const toggleLabels = Array.from(dropdownToggles).map(
+      (el) => el.textContent,
+    );
+    expect(toggleLabels.some((t) => t?.includes("Torrents"))).toBe(true);
+    expect(toggleLabels.some((t) => t?.includes("Community"))).toBe(true);
   });
 
   test("renders theme toggle button", () => {

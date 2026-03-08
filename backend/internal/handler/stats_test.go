@@ -19,8 +19,8 @@ func TestHandleStatsReturnsJSON(t *testing.T) {
 	defer db.Close() //nolint:errcheck // sqlmock close is safe to ignore
 
 	mock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers"}).
-			AddRow(100, 500, 42))
+		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers"}).
+			AddRow(100, 500, 42, 30, 12))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	rec := httptest.NewRecorder()
