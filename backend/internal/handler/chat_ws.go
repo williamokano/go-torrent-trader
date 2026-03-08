@@ -31,11 +31,19 @@ const (
 
 // ChatClient represents a connected WebSocket client.
 type ChatClient struct {
-	hub    *ChatHub
-	conn   *websocket.Conn
-	userID int64
-	perms  model.Permissions
-	send   chan []byte // Buffered channel of outbound messages.
+	hub       *ChatHub
+	conn      *websocket.Conn
+	closeOnce sync.Once // Ensures conn.Close() is called exactly once.
+	userID    int64
+	perms     model.Permissions
+	send      chan []byte // Buffered channel of outbound messages.
+}
+
+// closeConn safely closes the WebSocket connection exactly once.
+func (c *ChatClient) closeConn() {
+	c.closeOnce.Do(func() {
+		c.closeConn()
+	})
 }
 
 // ChatBroadcast is a message to broadcast to all connected clients.
@@ -193,7 +201,7 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn:   conn,
 		userID: sess.UserID,
 		perms:  sess.Permissions,
-		send:   make(chan []byte, 256),
+		send:   make(chan []byte, 1024),
 	}
 
 	h.register <- client
@@ -246,7 +254,7 @@ func (h *ChatHub) sendBackfill(client *ChatClient) {
 func (c *ChatClient) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		_ = c.conn.Close()
+		c.closeConn()
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
@@ -283,7 +291,7 @@ func (c *ChatClient) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		_ = c.conn.Close()
+		c.closeConn()
 	}()
 
 	for {

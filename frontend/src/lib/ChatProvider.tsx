@@ -38,8 +38,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    chatSocket.connect();
-
+    // Register listener BEFORE connect — if the WS connects instantly
+    // (cached/fast network), onopen can fire before the next line runs.
     const onEvent: ChatListener = (event) => {
       switch (event.type) {
         case "connected":
@@ -61,6 +61,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
 
     chatSocket.addListener(onEvent);
+    chatSocket.connect();
     return () => {
       chatSocket.removeListener(onEvent);
     };
