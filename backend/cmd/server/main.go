@@ -130,6 +130,7 @@ func run() int {
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
 	listener.RegisterActivityLogListeners(eventBus, activityLogService)
+	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 

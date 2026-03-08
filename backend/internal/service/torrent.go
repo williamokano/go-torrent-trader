@@ -381,7 +381,8 @@ func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID in
 // RequestReseed creates a reseed request for a torrent.
 func (s *TorrentService) RequestReseed(ctx context.Context, torrentID, userID int64) error {
 	// Validate torrent exists
-	if _, err := s.torrents.GetByID(ctx, torrentID); err != nil {
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
 		return ErrTorrentNotFound
 	}
 
@@ -401,6 +402,20 @@ func (s *TorrentService) RequestReseed(ctx context.Context, torrentID, userID in
 	if err := s.reseedRequests.Create(ctx, req); err != nil {
 		return fmt.Errorf("create reseed request: %w", err)
 	}
+
+	// Publish event with uploader info for email notification
+	actor := s.actorFromUserID(ctx, userID)
+	uploaderEmail := ""
+	if uploader, err := s.users.GetByID(ctx, torrent.UploaderID); err == nil {
+		uploaderEmail = uploader.Email
+	}
+	s.eventBus.Publish(ctx, &event.ReseedRequestedEvent{
+		Base:          event.NewBase(event.ReseedRequested, actor),
+		TorrentID:     torrent.ID,
+		TorrentName:   torrent.Name,
+		UploaderID:    torrent.UploaderID,
+		UploaderEmail: uploaderEmail,
+	})
 
 	return nil
 }
