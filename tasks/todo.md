@@ -37,6 +37,9 @@
   - **Depends on:** BE-7.1 (Private messaging: send & receive)
   - Listener in `listener/` package, wires into event bus, calls PM service to create a system message
 
+### Future: UX Bugs
+- [ ] FE-BUG-1: Invites page doesn't reflect updated invite count after admin edit — the auth context caches user data (including `invites` count) and only refreshes on login or manual page reload. When admin grants invites via the admin panel, the inviter's session still has the old count. Need to either poll `/auth/me` periodically, invalidate on navigation, or use a WebSocket push to refresh user data when it changes server-side.
+
 ### Future: Admin Panel Enhancements (BE-8.x)
 - [ ] BE-8.1: Invalidate sessions on user disable — when admin toggles `enabled=false`, also call `sessions.DeleteByUserID()` so the ban is immediate
 - [ ] BE-8.2: Admin torrent moderation — add torrent delete action from admin panel, ideally linked from reports page ("resolve & delete torrent" flow)
