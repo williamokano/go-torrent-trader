@@ -20,6 +20,7 @@ type Deps struct {
 	TrackerService *service.TrackerService
 	ReportService  *service.ReportService
 	CommentService *service.CommentService
+	AdminService   *service.AdminService
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -133,6 +134,18 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Get("/", reports.HandleList)
 						r.Put("/{id}/resolve", reports.HandleResolve)
 					})
+				})
+			}
+
+			// Admin endpoints
+			if deps.AdminService != nil {
+				admin := NewAdminHandler(deps.AdminService)
+				r.Route("/admin", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Use(mw.RequireAdmin)
+					r.Get("/users", admin.HandleListUsers)
+					r.Put("/users/{id}", admin.HandleUpdateUser)
+					r.Get("/groups", admin.HandleListGroups)
 				})
 			}
 		}

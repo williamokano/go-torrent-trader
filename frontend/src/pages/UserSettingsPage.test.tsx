@@ -41,6 +41,7 @@ vi.mock("@/features/auth", () => ({
       created_at: "2025-01-01T00:00:00Z",
       last_login: "",
       isAdmin: false,
+      isStaff: false,
     },
     isAuthenticated: true,
     isLoading: false,

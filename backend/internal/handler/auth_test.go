@@ -12,6 +12,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
@@ -104,6 +105,16 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 	return errors.New("not found")
 }
 
+func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []model.User
+	for _, u := range m.users {
+		result = append(result, *u)
+	}
+	return result, int64(len(result)), nil
+}
+
 // mockGroupRepo returns seeded group data for tests.
 type mockGroupRepo struct{}
 
@@ -121,11 +132,20 @@ func (m *mockGroupRepo) GetByID(_ context.Context, id int64) (*model.Group, erro
 	return g, nil
 }
 
+func (m *mockGroupRepo) List(_ context.Context) ([]model.Group, error) {
+	return []model.Group{
+		{ID: 1, Name: "Administrator", Slug: "administrator", Level: 100, CanUpload: true, CanDownload: true, CanInvite: true, CanComment: true, CanForum: true, IsAdmin: true, IsImmune: true},
+		{ID: 2, Name: "Moderator", Slug: "moderator", Level: 80, CanUpload: true, CanDownload: true, CanInvite: true, CanComment: true, CanForum: true, IsModerator: true, IsImmune: true},
+		{ID: 5, Name: "User", Slug: "user", Level: 20, CanUpload: true, CanDownload: true, CanComment: true, CanForum: true},
+		{ID: 6, Name: "Validating", Slug: "validating", Level: 10, CanDownload: true},
+	}, nil
+}
+
 func setupRouter() (*handler.AuthHandler, service.SessionStore, http.Handler) {
 	repo := newMockUserRepo()
 	sessions := testutil.NewMemorySessionStore()
 	authSvc := service.NewAuthService(repo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080")
-	userSvc := service.NewUserService(repo, sessions)
+	userSvc := service.NewUserService(repo, sessions, nil)
 	return handler.NewAuthHandler(authSvc, userSvc), sessions, handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,
 		SessionStore: sessions,

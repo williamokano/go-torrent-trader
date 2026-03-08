@@ -26,8 +26,16 @@
 - All SQL audited — parameterized queries, no injection
 
 ### What's Next
-- Merge feat/wire-worker PR
+- Merge feat/admin-panel PR
 - Build first Docker image for POC
-- Phase 3 remaining: forums, chat, PMs, invites, notifications, admin panel
+- Phase 3 remaining: forums, chat, PMs, invites, notifications
 - BE-1.2.3: Move test doubles out of domain code (testutil package)
 - BE-3.13: Rich torrent metadata (research task)
+
+### Future: Admin Panel Enhancements (BE-8.x)
+- [ ] BE-8.1: Invalidate sessions on user disable — when admin toggles `enabled=false`, also call `sessions.DeleteByUserID()` so the ban is immediate
+- [ ] BE-8.2: Admin torrent moderation — add torrent delete action from admin panel, ideally linked from reports page ("resolve & delete torrent" flow)
+- [ ] BE-8.3: Report action flow — resolve with action (warn uploader, delete torrent, ban user) instead of just toggling resolved status
+- [ ] BE-8.4: Admin user detail view — click username to see their torrents, reports against them, session history
+- [ ] BE-8.5: Admin audit log — record who changed what and when (user group changes, bans, torrent deletions, report resolutions)
+- [ ] BE-8.6: Admin dashboard — site stats landing page (registrations, uploads, active peers, pending reports count)

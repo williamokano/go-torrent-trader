@@ -81,6 +81,10 @@ func (m *trackerMockUserRepo) IncrementStats(_ context.Context, id int64, upload
 	return sql.ErrNoRows
 }
 
+func (m *trackerMockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
+	return nil, 0, nil
+}
+
 // --- Mock Torrent Repository ---
 
 type trackerMockTorrentRepo struct {

@@ -89,27 +89,36 @@ func (r *ReportRepo) List(ctx context.Context, opts repository.ListReportsOption
 	if opts.Status != nil {
 		switch *opts.Status {
 		case "resolved":
-			where += fmt.Sprintf(" AND resolved = $%d", argIdx)
+			where += fmt.Sprintf(" AND r.resolved = $%d", argIdx)
 			args = append(args, true)
 			argIdx++
 		case "pending":
-			where += fmt.Sprintf(" AND resolved = $%d", argIdx)
+			where += fmt.Sprintf(" AND r.resolved = $%d", argIdx)
 			args = append(args, false)
 			argIdx++
 		}
 	}
 
-	// Count
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM reports %s", where)
+	// Count (uses reports table alias-free for simplicity)
+	countWhere := where
+	// The count query doesn't use the alias, so strip the "r." prefix
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM reports r %s", countWhere)
 	var total int64
 	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count reports: %w", err)
 	}
 
-	// Fetch
+	// Fetch with JOINs for enrichment
 	offset := (page - 1) * perPage
-	query := fmt.Sprintf("SELECT %s FROM reports %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
-		reportColumns, where, argIdx, argIdx+1)
+	query := fmt.Sprintf(`SELECT r.id, r.reporter_id, r.torrent_id, r.reason,
+		r.resolved, r.resolved_by, r.resolved_at, r.created_at,
+		COALESCE(u.username, '') AS reporter_username,
+		COALESCE(t.name, '') AS torrent_name
+		FROM reports r
+		LEFT JOIN users u ON u.id = r.reporter_id
+		LEFT JOIN torrents t ON t.id = r.torrent_id
+		%s ORDER BY r.created_at DESC LIMIT $%d OFFSET $%d`,
+		where, argIdx, argIdx+1)
 	args = append(args, perPage, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -128,6 +137,7 @@ func (r *ReportRepo) List(ctx context.Context, opts repository.ListReportsOption
 		if err := rows.Scan(
 			&rpt.ID, &rpt.ReporterID, &rpt.TorrentID, &rpt.Reason,
 			&rpt.Resolved, &rpt.ResolvedBy, &rpt.ResolvedAt, &rpt.CreatedAt,
+			&rpt.ReporterUsername, &rpt.TorrentName,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan report: %w", err)
 		}

@@ -1,5 +1,19 @@
 import { createContext } from "react";
 
+export interface UserPermissions {
+  group_id: number;
+  group_name: string;
+  level: number;
+  can_upload: boolean;
+  can_download: boolean;
+  can_invite: boolean;
+  can_comment: boolean;
+  can_forum: boolean;
+  is_admin: boolean;
+  is_moderator: boolean;
+  is_immune: boolean;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -19,6 +33,8 @@ export interface User {
   created_at: string;
   last_login: string;
   isAdmin: boolean;
+  isStaff: boolean;
+  permissions?: UserPermissions;
 }
 
 export interface RegisterData {

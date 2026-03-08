@@ -77,6 +77,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     created_at: "",
     last_login: "",
     isAdmin: false,
+    isStaff: false,
     ...overrides,
   };
 }
@@ -461,10 +462,13 @@ describe("TorrentDetailPage", () => {
       }
       // Sub-component fetches (comments, ratings) — return empty
       return Promise.resolve(
-        new Response(JSON.stringify({ comments: [], total: 0, average: 0, count: 0 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ comments: [], total: 0, average: 0, count: 0 }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
       );
     });
 
@@ -510,10 +514,13 @@ describe("TorrentDetailPage", () => {
         );
       }
       return Promise.resolve(
-        new Response(JSON.stringify({ comments: [], total: 0, average: 0, count: 0 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ comments: [], total: 0, average: 0, count: 0 }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
       );
     });
 

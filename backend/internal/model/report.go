@@ -12,4 +12,8 @@ type Report struct {
 	ResolvedBy *int64
 	ResolvedAt *time.Time
 	CreatedAt  time.Time
+
+	// Enrichment fields (populated by JOINs, not persisted)
+	ReporterUsername string
+	TorrentName     string
 }

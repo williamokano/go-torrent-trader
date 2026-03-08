@@ -315,7 +315,7 @@
 - Accept PMs toggle
 - Change password (requires current password)
 
-#### BE-1.5: User Roles & Permissions [S] [DONE — RequireAuth + RequireAdmin middleware]
+#### BE-1.5: User Roles & Permissions [S] [DONE — RBAC with group permissions, RequireAuth/RequireAdmin/RequireStaff/RequireCapability middleware]
 **As an** admin
 **I want** a role-based permission system
 **So that** different user classes have different capabilities
@@ -923,7 +923,7 @@
 
 ### Epic BE-8: Admin Panel
 
-#### BE-8.1: Admin Dashboard & Site Settings [M]
+#### BE-8.1: Admin Dashboard & Site Settings [M] [TODO — dashboard stats, site settings]
 **As an** admin
 **I want** a control panel to manage site settings
 **So that** I can configure the tracker
@@ -934,32 +934,37 @@
 - Site settings: all configuration values (site name, URL, feature flags, limits, etc.)
 - Settings stored in DB (overrides env vars for runtime-configurable values)
 
-#### BE-8.2: User Management [M]
+#### BE-8.2: User Management [M] [PARTIAL — list/search/filter + edit group/enabled/warned done; remaining: IP search, full profile view, stats edit, delete, mod notes]
 **As an** admin
 **I want** to search, view, edit, and moderate users
 **So that** I can manage the community
 
 **Acceptance Criteria:**
-- Search: by username, email, IP, role, status
-- View: full profile with all fields, stats, invite history, warning history, mod notes
-- Edit: role, title, uploaded/downloaded, avatar, signature, enabled, passkey reset
-- Promote/demote (cannot promote above own level)
-- Delete account with reason (logged)
-- Warning management (add/remove/view)
-- Mod notes (staff-only field)
+- [x] Search: by username, email
+- [ ] Search: by IP, role, status
+- [ ] View: full profile with all fields, stats, invite history, warning history, mod notes
+- [x] Edit: role (group), enabled, warned
+- [ ] Edit: title, uploaded/downloaded, avatar, signature, passkey reset
+- [ ] Promote/demote (cannot promote above own level)
+- [ ] Delete account with reason (logged)
+- [ ] Warning management (add/remove/view)
+- [ ] Mod notes (staff-only field)
+- [x] Invalidate sessions when disabling user (tracked as future enhancement)
 
-#### BE-8.3: Torrent & Content Moderation [S]
+#### BE-8.3: Torrent & Content Moderation [S] [PARTIAL — report list with enriched data + resolve done; remaining: torrent search/ban/freeleech, bulk actions, resolve-with-action flow]
 **As an** admin
 **I want** to manage torrents and content
 **So that** I can maintain site quality
 
 **Acceptance Criteria:**
-- Search torrents by name, info_hash
-- Ban/unban torrents
-- Toggle freeleech per torrent
-- View/manage all reports (filter by type, status)
-- Bulk actions: ban multiple, delete multiple
-- View all freeleech torrents, all banned torrents
+- [ ] Search torrents by name, info_hash
+- [ ] Ban/unban torrents
+- [ ] Toggle freeleech per torrent
+- [x] View/manage all reports (filter by status, enriched with reporter/torrent names)
+- [x] Resolve reports
+- [ ] Resolve with action (warn uploader, delete torrent, ban user)
+- [ ] Bulk actions: ban multiple, delete multiple
+- [ ] View all freeleech torrents, all banned torrents
 
 #### BE-8.4: News Management [S]
 **As an** admin
@@ -1454,7 +1459,21 @@
 
 ---
 
-### Epic FE-5: Admin Panel [L]
+### Epic FE-5: Admin Panel [L] [PARTIAL — foundation, layout, routing, users/reports/groups pages done]
+
+#### FE-5.0: Admin Panel Foundation [S] [DONE]
+**As an** admin
+**I want** the admin panel scaffolding in place
+**So that** admin features can be built on a solid foundation
+
+**Acceptance Criteria:**
+- [x] Backend exposes `permissions` in `/auth/me` response (loaded from user's group)
+- [x] Frontend derives `isAdmin`/`isStaff` from server-provided permissions (removed hardcoded group ID)
+- [x] `AdminLayout` component with sidebar navigation (Users, Reports, Groups)
+- [x] Admin routes wired under `/admin` with `AdminRoute` guard
+- [x] Conditional "Admin" link in header for admin users
+- [x] Backend admin route group (`/api/v1/admin/*`) with `RequireAuth + RequireAdmin`
+- [x] Groups list API (`GET /admin/groups`) and read-only groups page with permission matrix
 
 #### FE-5.1: Admin Dashboard [M]
 **As an** admin
@@ -1467,30 +1486,36 @@
 - Quick action buttons (create news, manage reports)
 - System health indicators (DB connection, Redis, storage)
 
-#### FE-5.2: User Management [L]
+#### FE-5.2: User Management [L] [PARTIAL — list/search/filter + edit modal (group/enabled/warned) done; remaining: user detail, full edit, bulk actions, mod notes]
 **As an** admin
 **I want** to search, view, and moderate users
 **So that** I can manage the community
 
 **Acceptance Criteria:**
-- Search/filter: username, email, IP, role, status, ratio range
-- User detail view: all profile data, stats, invite history, warnings, mod notes
-- Edit user: role, title, stats override, avatar, enabled/disabled
-- Actions: warn, ban, promote/demote, reset passkey, delete
-- Mod notes: add/view staff-only notes
-- Bulk actions: select multiple users for group changes
+- [x] Search/filter: username, email, group, enabled status
+- [x] Paginated table with user data
+- [x] Edit user modal: group, enabled, warned
+- [ ] Search/filter: IP, ratio range
+- [ ] User detail view: all profile data, stats, invite history, warnings, mod notes
+- [ ] Edit user: title, stats override, avatar
+- [ ] Actions: warn, ban, promote/demote, reset passkey, delete
+- [ ] Mod notes: add/view staff-only notes
+- [ ] Bulk actions: select multiple users for group changes
 
-#### FE-5.3: Content Moderation [M]
+#### FE-5.3: Content Moderation [M] [PARTIAL — reports list with status filter + resolve done; remaining: report detail, resolve-with-action, torrent moderation, bulk actions]
 **As an** admin
 **I want** to manage torrents and review reports
 **So that** site content stays clean
 
 **Acceptance Criteria:**
-- Reports queue with filter by type (torrent/comment/user/forum) and status
-- Report detail: reported content, reporter, reason, actions taken
-- Resolve report with action (dismiss, warn, ban, delete content)
-- Torrent moderation: search, ban/unban, toggle freeleech
-- Bulk torrent actions
+- [x] Reports list with status filter (all/pending/resolved)
+- [x] Reporter and torrent name displayed (enriched from backend JOINs)
+- [x] Resolve report button
+- [ ] Reports queue filter by type (torrent/comment/user/forum)
+- [ ] Report detail: reported content, reporter, reason, actions taken
+- [ ] Resolve report with action (dismiss, warn, ban, delete content)
+- [ ] Torrent moderation: search, ban/unban, toggle freeleech
+- [ ] Bulk torrent actions
 
 #### FE-5.4: News Management [S]
 **As an** admin

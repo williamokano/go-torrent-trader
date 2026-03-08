@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 // mockUserRepo is an in-memory user repository for testing.
@@ -96,6 +97,16 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 		}
 	}
 	return errors.New("not found")
+}
+
+func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []model.User
+	for _, u := range m.users {
+		result = append(result, *u)
+	}
+	return result, int64(len(result)), nil
 }
 
 func TestRegister_Success(t *testing.T) {

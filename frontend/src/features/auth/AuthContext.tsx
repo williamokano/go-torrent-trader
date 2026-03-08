@@ -9,23 +9,28 @@ import {
   setTokenExpiry,
 } from "./token";
 import { AuthContext } from "./AuthContextDef";
-import type { User, RegisterData, AuthContextValue } from "./AuthContextDef";
+import type {
+  User,
+  UserPermissions,
+  RegisterData,
+  AuthContextValue,
+} from "./AuthContextDef";
 import { api } from "@/api";
 
-export type { User, RegisterData, AuthContextValue };
-
-const ADMIN_GROUP_ID = 1;
+export type { User, UserPermissions, RegisterData, AuthContextValue };
 
 function mapUser(
   profile: Record<string, unknown> | undefined,
 ): User | undefined {
   if (!profile) return undefined;
-  const groupId = profile.group_id as number;
+  const perms = profile.permissions as UserPermissions | undefined;
+  const isAdmin = perms?.is_admin ?? false;
+  const isModerator = perms?.is_moderator ?? false;
   return {
     id: profile.id as number,
     username: profile.username as string,
     email: (profile.email as string) ?? "",
-    group_id: groupId,
+    group_id: profile.group_id as number,
     avatar: (profile.avatar as string) ?? "",
     title: (profile.title as string) ?? "",
     info: (profile.info as string) ?? "",
@@ -39,7 +44,9 @@ function mapUser(
     enabled: (profile.enabled as boolean) ?? true,
     created_at: (profile.created_at as string) ?? "",
     last_login: (profile.last_login as string) ?? "",
-    isAdmin: groupId === ADMIN_GROUP_ID,
+    isAdmin,
+    isStaff: isAdmin || isModerator,
+    permissions: perms,
   };
 }
 

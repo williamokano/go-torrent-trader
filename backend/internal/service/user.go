@@ -46,22 +46,24 @@ type PublicProfile struct {
 // OwnerProfile extends PublicProfile with fields only visible to the profile owner.
 type OwnerProfile struct {
 	PublicProfile
-	Email     string  `json:"email"`
-	Passkey   string  `json:"passkey"`
-	Invites   int     `json:"invites"`
-	Warned    bool    `json:"warned"`
-	LastLogin *string `json:"last_login"`
+	Email       string            `json:"email"`
+	Passkey     string            `json:"passkey"`
+	Invites     int               `json:"invites"`
+	Warned      bool              `json:"warned"`
+	LastLogin   *string           `json:"last_login"`
+	Permissions *model.Permissions `json:"permissions,omitempty"`
 }
 
 // UserService handles user profile business logic.
 type UserService struct {
 	users    repository.UserRepository
 	sessions SessionStore
+	groups   repository.GroupRepository
 }
 
 // NewUserService creates a new UserService.
-func NewUserService(users repository.UserRepository, sessions SessionStore) *UserService {
-	return &UserService{users: users, sessions: sessions}
+func NewUserService(users repository.UserRepository, sessions SessionStore, groups repository.GroupRepository) *UserService {
+	return &UserService{users: users, sessions: sessions, groups: groups}
 }
 
 // GetProfile returns a user's profile. If viewerID matches the profile user ID,
@@ -89,7 +91,17 @@ func (s *UserService) GetFullProfile(ctx context.Context, userID int64) (*OwnerP
 	}
 
 	pub := buildPublicProfile(user)
-	return buildOwnerProfile(user, pub), nil
+	op := buildOwnerProfile(user, pub)
+
+	if s.groups != nil {
+		group, err := s.groups.GetByID(ctx, user.GroupID)
+		if err == nil {
+			perms := model.PermissionsFromGroup(group)
+			op.Permissions = &perms
+		}
+	}
+
+	return op, nil
 }
 
 // UpdateProfile updates the user's avatar, title, and info fields.
