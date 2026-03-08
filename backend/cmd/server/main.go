@@ -169,6 +169,7 @@ func run() int {
 		BanService:          banService,
 		PeerRepo:           peerRepo,
 		UserRepo:           userRepo,
+		CategoryRepo:       categoryRepo,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,

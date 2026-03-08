@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,14 +23,15 @@ const maxTorrentFileSize = 10 << 20 // 10 MB
 
 // TorrentHandler handles torrent HTTP endpoints.
 type TorrentHandler struct {
-	torrentSvc *service.TorrentService
-	peerRepo   repository.PeerRepository
-	userRepo   repository.UserRepository
+	torrentSvc   *service.TorrentService
+	peerRepo     repository.PeerRepository
+	userRepo     repository.UserRepository
+	categoryRepo repository.CategoryRepository
 }
 
 // NewTorrentHandler creates a new TorrentHandler.
-func NewTorrentHandler(torrentSvc *service.TorrentService, peerRepo repository.PeerRepository, userRepo repository.UserRepository) *TorrentHandler {
-	return &TorrentHandler{torrentSvc: torrentSvc, peerRepo: peerRepo, userRepo: userRepo}
+func NewTorrentHandler(torrentSvc *service.TorrentService, peerRepo repository.PeerRepository, userRepo repository.UserRepository, categoryRepo repository.CategoryRepository) *TorrentHandler {
+	return &TorrentHandler{torrentSvc: torrentSvc, peerRepo: peerRepo, userRepo: userRepo, categoryRepo: categoryRepo}
 }
 
 // HandleUpload handles POST /api/v1/torrents.
@@ -168,6 +170,11 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 		if uploader, err := h.userRepo.GetByID(r.Context(), torrent.UploaderID); err == nil {
 			tResp["uploader_name"] = uploader.Username
 		}
+	}
+
+	// Build category breadcrumb chain
+	if h.categoryRepo != nil {
+		tResp["category_path"] = h.buildCategoryPath(r.Context(), torrent.CategoryID)
 	}
 
 	resp := map[string]interface{}{
@@ -369,6 +376,40 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		resp["files"] = json.RawMessage(*t.Files)
 	}
 	return resp
+}
+
+// buildCategoryPath walks up the parent chain and returns the full breadcrumb
+// from root to leaf, e.g. [{"id":1,"name":"Software"},{"id":5,"name":"Windows"}]
+func (h *TorrentHandler) buildCategoryPath(ctx context.Context, categoryID int64) []map[string]interface{} {
+	var chain []map[string]interface{}
+	seen := make(map[int64]bool) // guard against cycles
+	currentID := categoryID
+
+	for {
+		if seen[currentID] {
+			break
+		}
+		seen[currentID] = true
+
+		cat, err := h.categoryRepo.GetByID(ctx, currentID)
+		if err != nil {
+			break
+		}
+		chain = append(chain, map[string]interface{}{
+			"id":   cat.ID,
+			"name": cat.Name,
+		})
+		if cat.ParentID == nil {
+			break
+		}
+		currentID = *cat.ParentID
+	}
+
+	// Reverse so root is first
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain
 }
 
 func peerResponse(p *model.Peer) map[string]interface{} {

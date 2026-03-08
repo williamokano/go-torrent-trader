@@ -33,6 +33,18 @@
   color: var(--color-text-secondary);
 }
 
+.torrent-detail__category-sep {
+  color: var(--color-text-muted);
+}
+
+.torrent-detail__category-link {
+  color: var(--color-text-secondary);
+}
+
+.torrent-detail__category-link:hover {
+  color: var(--color-accent);
+}
+
 /* Stats grid */
 .torrent-detail__stats {
   display: grid;

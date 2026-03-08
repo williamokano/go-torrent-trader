@@ -291,7 +291,31 @@ export function TorrentDetailPage() {
           {torrent.name}
         </h1>
         <span className="torrent-detail__category">
-          {torrent.category_name ?? "Unknown"}
+          {(() => {
+            const path = (
+              torrent as unknown as {
+                category_path?: Array<{ id: number; name: string }>;
+              }
+            ).category_path;
+            if (path && path.length > 0) {
+              return path.map((cat, i) => (
+                <span key={cat.id}>
+                  {i > 0 && (
+                    <span className="torrent-detail__category-sep">
+                      {" > "}
+                    </span>
+                  )}
+                  <Link
+                    to={`/browse?cat=${cat.id}`}
+                    className="torrent-detail__category-link"
+                  >
+                    {cat.name}
+                  </Link>
+                </span>
+              ));
+            }
+            return torrent.category_name ?? "Unknown";
+          })()}
         </span>
       </div>
 
