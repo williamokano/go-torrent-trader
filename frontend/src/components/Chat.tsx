@@ -74,11 +74,15 @@ export function Chat() {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        // Ignore if this WS was replaced by a newer connection
+        if (wsRef.current !== ws) return;
         setConnected(true);
         reconnectDelayRef.current = 1000;
       };
 
       ws.onmessage = (event) => {
+        // Ignore messages from a stale connection
+        if (wsRef.current !== ws) return;
         try {
           const data = JSON.parse(event.data as string) as WSMessage;
 
@@ -112,6 +116,8 @@ export function Chat() {
       };
 
       ws.onclose = () => {
+        // Ignore if this WS was replaced by a newer connection
+        if (wsRef.current !== ws) return;
         setConnected(false);
         wsRef.current = null;
 
