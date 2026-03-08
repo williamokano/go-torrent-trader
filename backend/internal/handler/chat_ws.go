@@ -189,7 +189,9 @@ func (h *ChatHub) sendBackfill(conn *websocket.Conn) {
 		return
 	}
 	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		slog.Error("failed to send backfill", "error", err)
+		// Client may have disconnected before backfill was sent (e.g.
+		// React Strict Mode closing the first connection). Not a real error.
+		slog.Debug("failed to send backfill", "error", err)
 	}
 }
 
