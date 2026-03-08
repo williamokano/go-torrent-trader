@@ -22,8 +22,9 @@ const (
 	TorrentDeleted  Type = "torrent_deleted"
 	TorrentReported Type = "torrent_reported"
 	ReportResolved  Type = "report_resolved"
-	CommentCreated  Type = "comment_created"
-	CommentDeleted  Type = "comment_deleted"
+	CommentCreated    Type = "comment_created"
+	CommentDeleted    Type = "comment_deleted"
+	ReseedRequested   Type = "reseed_requested"
 )
 
 // Event is the base interface for all domain events.
@@ -156,4 +157,12 @@ type CommentDeletedEvent struct {
 	Base
 	CommentID int64 `json:"comment_id"`
 	TorrentID int64 `json:"torrent_id"`
+}
+
+type ReseedRequestedEvent struct {
+	Base
+	TorrentID     int64  `json:"torrent_id"`
+	TorrentName   string `json:"torrent_name"`
+	UploaderID    int64  `json:"uploader_id"`
+	UploaderEmail string `json:"uploader_email"`
 }

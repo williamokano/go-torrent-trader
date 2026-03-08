@@ -238,6 +238,49 @@ func (h *TorrentHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// HandleRequestReseed handles POST /api/v1/torrents/{id}/reseed.
+func (h *TorrentHandler) HandleRequestReseed(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	if err := h.torrentSvc.RequestReseed(r.Context(), id, userID); err != nil {
+		handleTorrentError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusCreated, map[string]interface{}{
+		"message": "reseed request created",
+	})
+}
+
+// HandleGetReseedCount handles GET /api/v1/torrents/{id}/reseed.
+func (h *TorrentHandler) HandleGetReseedCount(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	count, err := h.torrentSvc.GetReseedCount(r.Context(), id)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to get reseed count")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"count": count,
+	})
+}
+
 func handleTorrentError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTorrent):
@@ -248,6 +291,8 @@ func handleTorrentError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusNotFound, "not_found", "torrent not found")
 	case errors.Is(err, service.ErrForbidden):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have permission to perform this action")
+	case errors.Is(err, service.ErrDuplicateReseedRequest):
+		ErrorResponse(w, http.StatusConflict, "duplicate_reseed_request", err.Error())
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}

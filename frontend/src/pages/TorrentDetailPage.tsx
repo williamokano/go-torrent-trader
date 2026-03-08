@@ -40,6 +40,9 @@ export function TorrentDetailPage() {
   const [deleteReason, setDeleteReason] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [reseedCount, setReseedCount] = useState(0);
+  const [reseedRequested, setReseedRequested] = useState(false);
+  const [reseedLoading, setReseedLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +84,76 @@ export function TorrentDetailPage() {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!torrent || !id) return;
+    const seeders = torrent.seeders ?? 0;
+    if (seeders > 0) return;
+
+    const token = getAccessToken();
+    if (!token) return;
+
+    const baseUrl = getConfig().API_URL;
+    fetch(`${baseUrl}/api/v1/torrents/${encodeURIComponent(id)}/reseed`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setReseedCount(data.count ?? 0);
+      })
+      .catch(() => {
+        /* ignore */
+      });
+  }, [torrent, id]);
+
+  async function handleRequestReseed() {
+    if (!id || reseedLoading || reseedRequested) return;
+
+    setReseedLoading(true);
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("You must be logged in");
+        return;
+      }
+
+      const baseUrl = getConfig().API_URL;
+      const response = await fetch(
+        `${baseUrl}/api/v1/torrents/${encodeURIComponent(id)}/reseed`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (response.status === 409) {
+        setReseedRequested(true);
+        toast.error("You have already requested a reseed for this torrent");
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const message =
+          data?.error?.message ?? `Reseed request failed (${response.status})`;
+        throw new Error(message);
+      }
+
+      setReseedCount((prev) => prev + 1);
+      setReseedRequested(true);
+      toast.success("Reseed request submitted");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Reseed request failed. Please try again.",
+      );
+    } finally {
+      setReseedLoading(false);
+    }
+  }
 
   async function handleDownload() {
     if (!id || downloading) return;
@@ -268,6 +341,27 @@ export function TorrentDetailPage() {
               Delete
             </button>
           </>
+        )}
+
+        {user && seeders === 0 && (
+          <button
+            className="torrent-detail__action-btn torrent-detail__reseed-btn"
+            onClick={handleRequestReseed}
+            disabled={reseedLoading || reseedRequested}
+          >
+            {reseedLoading
+              ? "Requesting..."
+              : reseedRequested
+                ? "Reseed Requested"
+                : "Request Reseed"}
+          </button>
+        )}
+
+        {seeders === 0 && reseedCount > 0 && (
+          <span className="torrent-detail__reseed-count">
+            {reseedCount} {reseedCount === 1 ? "user" : "users"} requested
+            reseed
+          </span>
         )}
 
         {user && (

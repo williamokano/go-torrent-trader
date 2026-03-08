@@ -172,6 +172,50 @@ func (m *mockStorage) URL(_ context.Context, key string) (string, error) {
 	return "/files/" + key, nil
 }
 
+// --- mock reseed request repo ---
+
+type mockReseedRequestRepo struct {
+	mu       sync.Mutex
+	requests []*model.ReseedRequest
+	nextID   int64
+}
+
+func newMockReseedRequestRepo() *mockReseedRequestRepo {
+	return &mockReseedRequestRepo{nextID: 1}
+}
+
+func (m *mockReseedRequestRepo) Create(_ context.Context, req *model.ReseedRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	req.ID = m.nextID
+	m.nextID++
+	m.requests = append(m.requests, req)
+	return nil
+}
+
+func (m *mockReseedRequestRepo) ExistsByTorrentAndUser(_ context.Context, torrentID, userID int64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.requests {
+		if r.TorrentID == torrentID && r.RequesterID == userID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockReseedRequestRepo) CountByTorrent(_ context.Context, torrentID int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, r := range m.requests {
+		if r.TorrentID == torrentID {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // --- helpers ---
 
 func buildTorrentFileBytes(name string) []byte {
@@ -196,8 +240,9 @@ func setupTorrentRouter() (http.Handler, service.SessionStore) {
 	store := newMockStorage()
 	sessions := testutil.NewMemorySessionStore()
 	bus := event.NewInMemoryBus()
+	reseedRepo := newMockReseedRequestRepo()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
-	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus)
+	torrentSvc := service.NewTorrentService(torrentRepo, userRepo, store, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, reseedRepo)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:    authSvc,
@@ -773,5 +818,136 @@ func TestHandleDelete_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+// --- Reseed handler tests ---
+
+func TestHandleRequestReseed_Success(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 1100, 5)
+	torrentData := buildTorrentFileBytes("reseed-handler-test")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	// Request reseed
+	requesterToken := createSessionWithGroup(sessions, 1101, 5)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/torrents/%d/reseed", id), nil)
+	req.Header.Set("Authorization", "Bearer "+requesterToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleRequestReseed_Duplicate(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 1200, 5)
+	torrentData := buildTorrentFileBytes("reseed-dup-handler-test")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	requesterToken := createSessionWithGroup(sessions, 1201, 5)
+
+	// First request
+	req1 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/torrents/%d/reseed", id), nil)
+	req1.Header.Set("Authorization", "Bearer "+requesterToken)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("first reseed failed: %d %s", rec1.Code, rec1.Body.String())
+	}
+
+	// Second request (duplicate)
+	req2 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/torrents/%d/reseed", id), nil)
+	req2.Header.Set("Authorization", "Bearer "+requesterToken)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d; body: %s", rec2.Code, rec2.Body.String())
+	}
+}
+
+func TestHandleRequestReseed_TorrentNotFound(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+	token := createSessionWithGroup(sessions, 1300, 5)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents/999/reseed", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleGetReseedCount_Success(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 1400, 5)
+	torrentData := buildTorrentFileBytes("reseed-count-handler-test")
+	uploadReq := makeUploadRequest(ownerToken, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResp map[string]interface{}
+	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
+	torrent := uploadResp["torrent"].(map[string]interface{})
+	id := int64(torrent["id"].(float64))
+
+	// Get count (should be 0)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/torrents/%d/reseed", id), nil)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	count := resp["count"].(float64)
+	if count != 0 {
+		t.Errorf("expected count 0, got %v", count)
+	}
+}
+
+func TestHandleRequestReseed_Unauthenticated(t *testing.T) {
+	router, _ := setupTorrentRouter()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents/1/reseed", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
 	}
 }

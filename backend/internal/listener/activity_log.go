@@ -105,6 +105,11 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.CommentDeletedEvent)
 		return fmt.Sprintf("%s deleted comment on torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
 	})
+
+	listen(event.ReseedRequested, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ReseedRequestedEvent)
+		return fmt.Sprintf("%s requested reseed for: %s", e.Actor.Username, e.TorrentName), e.Actor
+	})
 }
 
 func marshalMetadata(evt event.Event) *string {
