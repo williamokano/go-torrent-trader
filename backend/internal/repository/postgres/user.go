@@ -209,6 +209,15 @@ func (r *UserRepo) ListStaff(ctx context.Context) ([]model.User, error) {
 	return users, nil
 }
 
+func (r *UserRepo) UpdateLastAccess(ctx context.Context, id int64) error {
+	query := `UPDATE users SET last_access = NOW(), updated_at = NOW() WHERE id = $1`
+	_, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("updating last access: %w", err)
+	}
+	return nil
+}
+
 func (r *UserRepo) IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error {
 	query := `UPDATE users SET
 		uploaded = GREATEST(0, uploaded + $1),

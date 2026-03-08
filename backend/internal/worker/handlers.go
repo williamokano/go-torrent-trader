@@ -12,7 +12,7 @@ import (
 
 // StalePeerCutoff defines how long after the last announce a peer is
 // considered stale. This is typically announce_interval * 1.5.
-const StalePeerCutoff = 30 * time.Minute
+const StalePeerCutoff = 45 * time.Minute
 
 // HandleSendEmail processes email sending tasks.
 func HandleSendEmail(_ context.Context, t *asynq.Task) error {

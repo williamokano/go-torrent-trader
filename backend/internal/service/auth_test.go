@@ -110,6 +110,8 @@ func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([
 	return result, int64(len(result)), nil
 }
 
+func (m *mockUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
+
 func (m *mockUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

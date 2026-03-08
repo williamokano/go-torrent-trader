@@ -202,6 +202,8 @@ func (m *mockInviteUserRepo) ListStaff(_ context.Context) ([]model.User, error) 
 	return nil, nil
 }
 
+func (m *mockInviteUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
+
 // --- test helpers ---
 
 func setupInviteRouter() (http.Handler, service.SessionStore, *mockInviteUserRepo) {

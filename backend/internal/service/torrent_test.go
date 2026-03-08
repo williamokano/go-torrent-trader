@@ -228,6 +228,8 @@ func (m *memUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
 	return nil, nil
 }
 
+func (m *memUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
+
 // --- mock reseed request repo ---
 
 type memReseedRequestRepo struct {
