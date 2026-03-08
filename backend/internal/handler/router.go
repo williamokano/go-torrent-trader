@@ -29,6 +29,8 @@ type Deps struct {
 	SiteSettingsService *service.SiteSettingsService
 	BanService          *service.BanService
 	MessageService      *service.MessageService
+	ChatService         *service.ChatService
+	ChatHub             *ChatHub
 	PeerRepo            repository.PeerRepository
 	UserRepo            repository.UserRepository
 	CategoryRepo        repository.CategoryRepository
@@ -55,6 +57,11 @@ func NewRouter(deps *Deps) chi.Router {
 		scrapeHandler := NewScrapeHandler(deps.TrackerService)
 		r.Get("/announce", announceHandler.HandleAnnounce)
 		r.Get("/scrape", scrapeHandler.HandleScrape)
+	}
+
+	// WebSocket endpoint (auth via query param, not middleware)
+	if deps != nil && deps.ChatHub != nil {
+		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
 	}
 
 	// API routes
@@ -204,6 +211,16 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/unread-count", messages.HandleUnreadCount)
 					r.Get("/{id}", messages.HandleGetMessage)
 					r.Delete("/{id}", messages.HandleDeleteMessage)
+				})
+			}
+
+			// Chat endpoints
+			if deps.ChatService != nil && deps.ChatHub != nil {
+				chat := NewChatHandler(deps.ChatService, deps.ChatHub)
+				r.Route("/chat", func(r chi.Router) {
+					r.Use(mw.RequireAuth(validator))
+					r.Get("/history", chat.HandleHistory)
+					r.Delete("/{id}", chat.HandleDelete)
 				})
 			}
 

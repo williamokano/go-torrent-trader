@@ -149,10 +149,16 @@ func run() int {
 	banService := service.NewBanService(banRepo, eventBus)
 	authService.SetBanChecker(banService)
 
+	chatMessageRepo := postgres.NewChatMessageRepo(db)
+	chatService := service.NewChatService(chatMessageRepo, userRepo, eventBus)
+
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
+
+	chatHub := handler.NewChatHub(chatService, sessionStore)
+	go chatHub.Run()
 
 	deps := &handler.Deps{
 		DB:             db,
@@ -171,6 +177,8 @@ func run() int {
 		SiteSettingsService: siteSettingsService,
 		BanService:          banService,
 		MessageService:      messageService,
+		ChatService:        chatService,
+		ChatHub:            chatHub,
 		PeerRepo:           peerRepo,
 		UserRepo:           userRepo,
 		CategoryRepo:       categoryRepo,

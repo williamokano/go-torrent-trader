@@ -5,6 +5,7 @@ import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { formatNumber } from "@/utils/format";
+import { Chat } from "@/components/Chat";
 import "./RootLayout.css";
 
 function Dropdown({
@@ -275,6 +276,8 @@ export function RootLayout() {
       <main className="main">
         <Outlet />
       </main>
+
+      {isAuthenticated && <Chat />}
 
       <footer className="footer">
         <p className="footer__stats">
