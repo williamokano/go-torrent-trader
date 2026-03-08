@@ -73,13 +73,27 @@ describe("SignupPage", () => {
     });
   });
 
-  test("shows invite code field", async () => {
+  test("shows invite code field when invite_only", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ mode: "invite_only" }),
+    });
     renderSignupPage();
     await waitFor(() => {
       expect(
         screen.getByPlaceholderText("Enter invite code..."),
       ).toBeInTheDocument();
     });
+  });
+
+  test("hides invite code field when open registration", async () => {
+    renderSignupPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign Up" }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByPlaceholderText("Enter invite code...")).toBeNull();
   });
 
   test("fetches registration mode on mount", async () => {

@@ -173,14 +173,16 @@ export function SignupPage() {
             required
             autoComplete="new-password"
           />
-          <Input
-            label={inviteRequired ? "Invite Code *" : "Invite Code"}
-            type="text"
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value)}
-            error={errors.inviteCode}
-            placeholder="Enter invite code..."
-          />
+          {inviteRequired && (
+            <Input
+              label="Invite Code *"
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              error={errors.inviteCode}
+              placeholder="Enter invite code..."
+            />
+          )}
           <button
             type="submit"
             className="auth-card__submit"
