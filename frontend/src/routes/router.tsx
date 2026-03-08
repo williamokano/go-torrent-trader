@@ -19,6 +19,7 @@ import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { AdminSettingsPage } from "@/pages/admin/AdminSettingsPage";
 import { AdminBansPage } from "@/pages/admin/AdminBansPage";
+import { AdminCategoriesPage } from "@/pages/admin/AdminCategoriesPage";
 import { RSSBuilderPage } from "@/pages/RSSBuilderPage";
 import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="users" replace /> },
           { path: "users", element: <AdminUsersPage /> },
           { path: "reports", element: <AdminReportsPage /> },
+          { path: "categories", element: <AdminCategoriesPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
           { path: "settings", element: <AdminSettingsPage /> },
           { path: "bans", element: <AdminBansPage /> },

@@ -146,6 +146,16 @@ type BanRepository interface {
 	IsIPBanned(ctx context.Context, ip string) (bool, error)
 }
 
+// CategoryRepository defines persistence operations for categories.
+type CategoryRepository interface {
+	GetByID(ctx context.Context, id int64) (*model.Category, error)
+	List(ctx context.Context) ([]model.Category, error)
+	Create(ctx context.Context, cat *model.Category) error
+	Update(ctx context.Context, cat *model.Category) error
+	Delete(ctx context.Context, id int64) error
+	CountTorrentsByCategory(ctx context.Context, categoryID int64) (int64, error)
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all
