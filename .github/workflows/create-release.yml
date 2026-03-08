@@ -102,3 +102,9 @@ jobs:
           gh release create "v${VERSION}" \
             --title "v${VERSION}" \
             --notes-file release-notes.md
+
+      - name: Trigger release build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml --field tag="v${VERSION}"
