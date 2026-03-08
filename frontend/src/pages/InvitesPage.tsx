@@ -259,7 +259,7 @@ export function InvitesPage() {
 
           {invitees.length > 0 && (
             <>
-              <h2 className="invites__section-title">People I Invited</h2>
+              <h2 className="invites__section-title">Invited Users</h2>
               <table className="invites__table">
                 <thead>
                   <tr>
