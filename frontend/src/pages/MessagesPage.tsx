@@ -30,6 +30,9 @@ function authHeaders(): Record<string, string> {
 export function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: Tab = (searchParams.get("tab") as Tab) || "inbox";
+  const selectedMsgId = searchParams.get("msg")
+    ? Number(searchParams.get("msg"))
+    : null;
   const [messages, setMessages] = useState<Message[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -151,6 +154,44 @@ export function MessagesPage() {
     fetchUnreadCount();
   }, [fetchMessages, fetchUnreadCount]);
 
+  // Fetch message detail when msg param is in URL
+  useEffect(() => {
+    if (!selectedMsgId) {
+      setSelectedMessage(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setError(null);
+    fetch(`${getConfig().API_URL}/api/v1/messages/${selectedMsgId}`, {
+      headers: authHeaders(),
+    })
+      .then((r) => r.json())
+      .then((body) => {
+        if (cancelled) return;
+        if (body?.message) {
+          setSelectedMessage(body.message);
+          fetchUnreadCount();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === selectedMsgId ? { ...m, is_read: true } : m,
+            ),
+          );
+        } else {
+          setError("Message not found");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("Failed to load message");
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMsgId, fetchUnreadCount]);
+
   const handleTabChange = (newTab: Tab) => {
     setPage(1);
     setSelectedMessage(null);
@@ -159,30 +200,12 @@ export function MessagesPage() {
     setSearchParams({ tab: newTab });
   };
 
-  const handleViewMessage = async (id: number) => {
-    setDetailLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${getConfig().API_URL}/api/v1/messages/${id}`, {
-        headers: authHeaders(),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        setError(body?.error?.message ?? "Failed to load message");
-        return;
-      }
-      setSelectedMessage(body?.message ?? null);
-      // Refresh unread count since viewing marks as read
-      fetchUnreadCount();
-      // Update the local list to reflect read status
-      setMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, is_read: true } : m)),
-      );
-    } catch {
-      setError("Failed to load message");
-    } finally {
-      setDetailLoading(false);
-    }
+  const handleViewMessage = (id: number) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("msg", String(id));
+      return next;
+    });
   };
 
   const handleDelete = async (id: number) => {
@@ -197,7 +220,11 @@ export function MessagesPage() {
         return;
       }
       if (selectedMessage?.id === id) {
-        setSelectedMessage(null);
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("msg");
+          return next;
+        });
       }
       fetchMessages();
       fetchUnreadCount();
@@ -302,7 +329,13 @@ export function MessagesPage() {
           <button
             type="button"
             className="messages__back-btn"
-            onClick={() => setSelectedMessage(null)}
+            onClick={() => {
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("msg");
+                return next;
+              });
+            }}
           >
             Back
           </button>
