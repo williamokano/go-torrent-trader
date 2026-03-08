@@ -32,10 +32,19 @@ type AdminUserView struct {
 
 // AdminUpdateUserRequest holds fields an admin can change on a user.
 type AdminUpdateUserRequest struct {
-	GroupID *int64 `json:"group_id"`
-	Enabled *bool  `json:"enabled"`
-	Warned  *bool  `json:"warned"`
-	Invites *int   `json:"invites"`
+	Username   *string `json:"username"`
+	Email      *string `json:"email"`
+	Avatar     *string `json:"avatar"`
+	Title      *string `json:"title"`
+	Info       *string `json:"info"`
+	GroupID    *int64  `json:"group_id"`
+	Uploaded   *int64  `json:"uploaded"`
+	Downloaded *int64  `json:"downloaded"`
+	Enabled    *bool   `json:"enabled"`
+	Warned     *bool   `json:"warned"`
+	Donor      *bool   `json:"donor"`
+	Parked     *bool   `json:"parked"`
+	Invites    *int    `json:"invites"`
 }
 
 // AdminService handles admin-only business logic.
@@ -110,18 +119,44 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		oldGroupName = g.Name
 	}
 
+	if req.Username != nil {
+		user.Username = *req.Username
+	}
+	if req.Email != nil {
+		user.Email = *req.Email
+	}
+	if req.Avatar != nil {
+		user.Avatar = req.Avatar
+	}
+	if req.Title != nil {
+		user.Title = req.Title
+	}
+	if req.Info != nil {
+		user.Info = req.Info
+	}
 	if req.GroupID != nil {
-		// Validate group exists
 		if _, err := s.groups.GetByID(ctx, *req.GroupID); err != nil {
 			return nil, fmt.Errorf("%w: invalid group_id", ErrAdminGroupNotFound)
 		}
 		user.GroupID = *req.GroupID
+	}
+	if req.Uploaded != nil {
+		user.Uploaded = *req.Uploaded
+	}
+	if req.Downloaded != nil {
+		user.Downloaded = *req.Downloaded
 	}
 	if req.Enabled != nil {
 		user.Enabled = *req.Enabled
 	}
 	if req.Warned != nil {
 		user.Warned = *req.Warned
+	}
+	if req.Donor != nil {
+		user.Donor = *req.Donor
+	}
+	if req.Parked != nil {
+		user.Parked = *req.Parked
 	}
 	if req.Invites != nil {
 		user.Invites = *req.Invites
