@@ -263,9 +263,10 @@ func (s *TrackerService) handleCompleted(
 
 	// Record transfer history
 	if s.transferHistory != nil {
+		torrentID := torrent.ID
 		th := &model.TransferHistory{
 			UserID:       user.ID,
-			TorrentID:    torrent.ID,
+			TorrentID:    &torrentID,
 			Uploaded:     req.Uploaded,
 			Downloaded:   req.Downloaded,
 			Seeder:       isSeeder,

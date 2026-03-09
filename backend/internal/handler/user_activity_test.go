@@ -81,7 +81,17 @@ func (m *mockActivityTorrentRepo) GetByID(context.Context, int64) (*model.Torren
 func (m *mockActivityTorrentRepo) GetByInfoHash(context.Context, []byte) (*model.Torrent, error) {
 	return nil, nil
 }
-func (m *mockActivityTorrentRepo) List(_ context.Context, _ repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
+func (m *mockActivityTorrentRepo) List(_ context.Context, opts repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
+	// Simulate SQL-level ExcludeAnonymous filtering
+	if opts.ExcludeAnonymous {
+		var filtered []model.Torrent
+		for _, t := range m.torrents {
+			if !t.Anonymous {
+				filtered = append(filtered, t)
+			}
+		}
+		return filtered, int64(len(filtered)), nil
+	}
 	return m.torrents, m.total, nil
 }
 func (m *mockActivityTorrentRepo) ListByUploader(context.Context, int64, int) ([]model.Torrent, error) {
@@ -153,6 +163,8 @@ var (
 	_ event.Bus                          = (*mockActivityBus)(nil)
 	_ repository.ReseedRequestRepository = (*mockActivityReseedRepo)(nil)
 )
+
+func ptrInt64(v int64) *int64 { return &v }
 
 func newTestTorrentService(repo *mockActivityTorrentRepo) *service.TorrentService {
 	return service.NewTorrentService(
@@ -247,7 +259,7 @@ func TestHandleUserActivity_StaffCanAccess(t *testing.T) {
 	transferRepo := &mockTransferHistoryRepo{
 		history: []repository.TransferHistoryWithTorrent{
 			{
-				TransferHistory: model.TransferHistory{TorrentID: 1, Uploaded: 2000, Downloaded: 1000, Seeder: true, CompletedAt: time.Now(), LastAnnounce: time.Now()},
+				TransferHistory: model.TransferHistory{TorrentID: ptrInt64(1), Uploaded: 2000, Downloaded: 1000, Seeder: true, CompletedAt: time.Now(), LastAnnounce: time.Now()},
 				TorrentName:     "Completed Torrent",
 			},
 		},

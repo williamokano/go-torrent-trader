@@ -33,7 +33,8 @@ func NewUserActivityHandler(
 
 // HandleUserTorrents handles GET /api/v1/users/{id}/torrents — public uploaded torrents.
 // This endpoint is publicly accessible. Anonymous torrents are filtered out unless
-// the viewer is the profile owner or staff.
+// the viewer is the profile owner or staff. The filtering is pushed into the SQL
+// query via ExcludeAnonymous so that pagination and totals remain correct.
 func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.Request) {
 	// Auth is optional — endpoint is public
 	viewerID, hasAuth := middleware.UserIDFromContext(r.Context())
@@ -47,12 +48,15 @@ func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.
 
 	page, perPage := parsePagination(r)
 
+	isOwnerOrStaff := hasAuth && (viewerID == profileUserID || viewerPerms.IsStaff())
+
 	opts := repository.ListTorrentsOptions{
-		UploaderID: &profileUserID,
-		Page:       page,
-		PerPage:    perPage,
-		SortBy:     "created_at",
-		SortOrder:  "desc",
+		UploaderID:       &profileUserID,
+		Page:             page,
+		PerPage:          perPage,
+		SortBy:           "created_at",
+		SortOrder:        "desc",
+		ExcludeAnonymous: !isOwnerOrStaff,
 	}
 
 	torrents, total, err := h.torrentSvc.List(r.Context(), opts)
@@ -61,19 +65,10 @@ func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.
 		return
 	}
 
-	isOwnerOrStaff := hasAuth && (viewerID == profileUserID || viewerPerms.IsStaff())
-
-	// Filter out anonymous torrents for non-owner/non-staff viewers
-	var items []map[string]interface{}
+	items := make([]map[string]interface{}, len(torrents))
 	for i := range torrents {
 		t := &torrents[i]
-
-		if t.Anonymous && !isOwnerOrStaff {
-			total-- // adjust total to reflect filtered results
-			continue
-		}
-
-		items = append(items, map[string]interface{}{
+		items[i] = map[string]interface{}{
 			"id":              t.ID,
 			"name":            t.Name,
 			"size":            t.Size,
@@ -82,11 +77,7 @@ func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.
 			"times_completed": t.TimesCompleted,
 			"category_name":   t.CategoryName,
 			"created_at":      t.CreatedAt,
-		})
-	}
-
-	if items == nil {
-		items = []map[string]interface{}{}
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -123,9 +114,9 @@ func (h *UserActivityHandler) HandleUserActivity(w http.ResponseWriter, r *http.
 
 	switch tab {
 	case "seeding":
-		h.handleSeedingTab(w, r, profileUserID, page, perPage)
+		h.handlePeerTab(w, r, profileUserID, true, page, perPage)
 	case "leeching":
-		h.handleLeechingTab(w, r, profileUserID, page, perPage)
+		h.handlePeerTab(w, r, profileUserID, false, page, perPage)
 	case "history":
 		h.handleHistoryTab(w, r, profileUserID, page, perPage)
 	default:
@@ -133,41 +124,24 @@ func (h *UserActivityHandler) HandleUserActivity(w http.ResponseWriter, r *http.
 	}
 }
 
-func (h *UserActivityHandler) handleSeedingTab(w http.ResponseWriter, r *http.Request, userID int64, page, perPage int) {
-	peers, total, err := h.peerRepo.ListByUserSeeding(r.Context(), userID, page, perPage)
-	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list seeding activity")
-		return
+// handlePeerTab handles both seeding and leeching tabs, distinguished by the seeder flag.
+func (h *UserActivityHandler) handlePeerTab(w http.ResponseWriter, r *http.Request, userID int64, seeder bool, page, perPage int) {
+	var (
+		peers []repository.PeerWithTorrent
+		total int64
+		err   error
+	)
+	if seeder {
+		peers, total, err = h.peerRepo.ListByUserSeeding(r.Context(), userID, page, perPage)
+	} else {
+		peers, total, err = h.peerRepo.ListByUserLeeching(r.Context(), userID, page, perPage)
 	}
-
-	items := make([]map[string]interface{}, len(peers))
-	for i := range peers {
-		p := &peers[i]
-		items[i] = map[string]interface{}{
-			"torrent_id":    p.TorrentID,
-			"torrent_name":  p.TorrentName,
-			"uploaded":      p.Uploaded,
-			"downloaded":    p.Downloaded,
-			"ratio":         safeRatio(p.Uploaded, p.Downloaded),
-			"seeder":        p.Seeder,
-			"ip":            p.IP,
-			"port":          p.Port,
-			"last_announce": p.LastAnnounce,
+	if err != nil {
+		label := "seeding"
+		if !seeder {
+			label = "leeching"
 		}
-	}
-
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"activity": items,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
-	})
-}
-
-func (h *UserActivityHandler) handleLeechingTab(w http.ResponseWriter, r *http.Request, userID int64, page, perPage int) {
-	peers, total, err := h.peerRepo.ListByUserLeeching(r.Context(), userID, page, perPage)
-	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list leeching activity")
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list "+label+" activity")
 		return
 	}
 
@@ -241,12 +215,16 @@ func parsePagination(r *http.Request) (page, perPage int) {
 	return page, perPage
 }
 
+// safeRatio computes uploaded/downloaded, returning special sentinel values:
+//   - 0 when both uploaded and downloaded are zero (no activity)
+//   - -1 when uploaded > 0 but downloaded == 0 (effectively infinite ratio).
+//     The frontend's formatRatio function interprets -1 as "Inf" for display.
 func safeRatio(uploaded, downloaded int64) float64 {
 	if downloaded == 0 {
 		if uploaded == 0 {
 			return 0
 		}
-		return -1 // sentinel for "infinite" ratio — frontend formatRatio handles this
+		return -1
 	}
 	return float64(uploaded) / float64(downloaded)
 }

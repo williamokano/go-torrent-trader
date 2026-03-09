@@ -123,9 +123,14 @@ func NewRouter(deps *Deps) chi.Router {
 			if deps.UserService != nil {
 				users := NewUserHandler(deps.UserService)
 				r.Route("/users", func(r chi.Router) {
-					// Public endpoint with optional auth (for anonymous torrent filtering)
+					// Create the activity handler once (reused for both public and private endpoints)
+					var activity *UserActivityHandler
 					if deps.TorrentService != nil && deps.PeerRepo != nil && deps.TransferHistoryRepo != nil {
-						activity := NewUserActivityHandler(deps.TorrentService, deps.PeerRepo, deps.TransferHistoryRepo)
+						activity = NewUserActivityHandler(deps.TorrentService, deps.PeerRepo, deps.TransferHistoryRepo)
+					}
+
+					// Public endpoint with optional auth (for anonymous torrent filtering)
+					if activity != nil {
 						r.With(mw.OptionalAuth(validator)).Get("/{id}/torrents", activity.HandleUserTorrents)
 					}
 
@@ -143,8 +148,7 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Get("/{id}", users.HandleGetProfile)
 
 						// User activity endpoint (seeding/leeching/history — owner + staff only)
-						if deps.TorrentService != nil && deps.PeerRepo != nil && deps.TransferHistoryRepo != nil {
-							activity := NewUserActivityHandler(deps.TorrentService, deps.PeerRepo, deps.TransferHistoryRepo)
+						if activity != nil {
 							r.Get("/{id}/activity", activity.HandleUserActivity)
 						}
 

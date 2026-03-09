@@ -105,15 +105,16 @@ type RatingRepository interface {
 
 // ListTorrentsOptions holds filtering and pagination options for listing torrents.
 type ListTorrentsOptions struct {
-	CategoryID   *int64
-	Search       string
-	SortBy       string // name, created_at, size, seeders, leechers
-	SortOrder    string // asc, desc
-	Page         int
-	PerPage      int
-	CreatedAfter *time.Time // for "today's torrents"
-	MaxSeeders   *int       // for "need seed" (seeders <= N)
-	UploaderID   *int64     // for "my uploads" or user's torrents
+	CategoryID       *int64
+	Search           string
+	SortBy           string // name, created_at, size, seeders, leechers
+	SortOrder        string // asc, desc
+	Page             int
+	PerPage          int
+	CreatedAfter     *time.Time // for "today's torrents"
+	MaxSeeders       *int       // for "need seed" (seeders <= N)
+	UploaderID       *int64     // for "my uploads" or user's torrents
+	ExcludeAnonymous bool       // when true, filter out anonymous torrents (for non-owner/non-staff viewers)
 }
 
 // GroupRepository defines persistence operations for groups.

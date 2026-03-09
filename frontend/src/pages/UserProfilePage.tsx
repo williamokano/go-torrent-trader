@@ -73,6 +73,7 @@ export function UserProfilePage() {
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityPage, setActivityPage] = useState(1);
   const [tabLoading, setTabLoading] = useState(false);
+  const [tabError, setTabError] = useState<string | null>(null);
 
   const perPage = 25;
 
@@ -136,6 +137,7 @@ export function UserProfilePage() {
     async (page: number) => {
       if (!id) return;
       setTabLoading(true);
+      setTabError(null);
       try {
         const token = getAccessToken();
         const res = await fetch(
@@ -146,9 +148,11 @@ export function UserProfilePage() {
           const body = await res.json();
           setUploads(body.torrents ?? []);
           setUploadsTotal(body.total ?? 0);
+        } else {
+          setTabError("Failed to load uploads");
         }
       } catch {
-        // ignore
+        setTabError("Failed to load uploads");
       } finally {
         setTabLoading(false);
       }
@@ -160,6 +164,7 @@ export function UserProfilePage() {
     async (tab: "seeding" | "leeching" | "history", page: number) => {
       if (!id) return;
       setTabLoading(true);
+      setTabError(null);
       try {
         const token = getAccessToken();
         const res = await fetch(
@@ -170,9 +175,11 @@ export function UserProfilePage() {
           const body = await res.json();
           setActivity(body.activity ?? []);
           setActivityTotal(body.total ?? 0);
+        } else {
+          setTabError("Failed to load activity");
         }
       } catch {
-        // ignore
+        setTabError("Failed to load activity");
       } finally {
         setTabLoading(false);
       }
@@ -375,7 +382,9 @@ export function UserProfilePage() {
         </div>
 
         <div className="profile-activity__content">
-          {tabLoading ? (
+          {tabError ? (
+            <p className="profile-activity__error">{tabError}</p>
+          ) : tabLoading ? (
             <p className="profile-activity__loading">Loading...</p>
           ) : activeTab === "uploads" ? (
             <UploadsTable

@@ -53,9 +53,10 @@ func (r *TransferHistoryRepo) ListByUser(ctx context.Context, userID int64, page
 	}
 
 	query := `SELECT th.id, th.user_id, th.torrent_id, th.uploaded, th.downloaded,
-		th.seeder, th.completed_at, th.last_announce, t.name
+		th.seeder, th.completed_at, th.last_announce,
+		COALESCE(t.name, 'Deleted Torrent') AS torrent_name
 		FROM transfer_history th
-		JOIN torrents t ON th.torrent_id = t.id
+		LEFT JOIN torrents t ON th.torrent_id = t.id
 		WHERE th.user_id = $1
 		ORDER BY th.completed_at DESC
 		LIMIT $2 OFFSET $3`
