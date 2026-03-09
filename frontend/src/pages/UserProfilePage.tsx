@@ -15,6 +15,7 @@ interface UserWarning {
   issued_by_name: string | null;
   lifted_by_name: string | null;
   lifted_reason: string | null;
+  expires_at: string | null;
   created_at: string;
   lifted_at: string | null;
 }
@@ -396,6 +397,7 @@ export function UserProfilePage() {
                 <th>Reason</th>
                 <th>Status</th>
                 <th>Date</th>
+                <th>Expires</th>
                 {currentUser?.isStaff && <th>Issued By</th>}
               </tr>
             </thead>
@@ -432,6 +434,7 @@ export function UserProfilePage() {
                     </span>
                   </td>
                   <td>{timeAgo(w.created_at)}</td>
+                  <td>{w.expires_at ? timeAgo(w.expires_at) : "—"}</td>
                   {currentUser?.isStaff && (
                     <td>{w.issued_by_name ?? "System"}</td>
                   )}

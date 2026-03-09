@@ -320,6 +320,7 @@ export function AdminWarningsPage() {
                 <th>Status</th>
                 <th>Issued By</th>
                 <th>Date</th>
+                <th>Expires</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -346,6 +347,7 @@ export function AdminWarningsPage() {
                       (w.issued_by ? `#${w.issued_by}` : "System")}
                   </td>
                   <td>{timeAgo(w.created_at)}</td>
+                  <td>{w.expires_at ? timeAgo(w.expires_at) : "—"}</td>
                   <td>
                     {w.status === "active" && (
                       <button
