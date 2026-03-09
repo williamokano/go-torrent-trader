@@ -271,7 +271,7 @@
 
 > **Note:** Domain code should never know about testing. All dependencies must be injected. Memory implementations exist purely for test DI and should not live alongside production interfaces.
 
-#### BE-1.2.1: Email Confirmation Flow [M]
+#### BE-1.2.1: Email Confirmation Flow [M] [DONE]
 **As a** site operator
 **I want** new users to confirm their email address before accessing the tracker
 **So that** fake/spam accounts are prevented
