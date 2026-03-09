@@ -10,19 +10,24 @@ import { MemoryRouter } from "react-router-dom";
 import { LoginPage } from "@/pages/LoginPage";
 import { ToastProvider } from "@/components/toast";
 import { clearTokens } from "@/features/auth/token";
+import { ApiError } from "@/features/auth";
 
 const mockLogin = vi.fn();
 
-vi.mock("@/features/auth", () => ({
-  useAuth: () => ({
-    user: null,
-    isAuthenticated: false,
-    isLoading: false,
-    login: mockLogin,
-    logout: vi.fn(),
-    register: vi.fn(),
-  }),
-}));
+vi.mock("@/features/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/auth")>();
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      login: mockLogin,
+      logout: vi.fn(),
+      register: vi.fn(),
+    }),
+  };
+});
 
 afterEach(cleanup);
 
@@ -87,6 +92,32 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Invalid credentials")).toBeInTheDocument();
     });
+  });
+
+  test("shows email not confirmed notice when error code is email_not_confirmed", async () => {
+    mockLogin.mockRejectedValueOnce(
+      new ApiError(
+        "email_not_confirmed",
+        "please confirm your email address before logging in",
+      ),
+    );
+    renderLoginPage();
+
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "testuser" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "wrongpass" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/confirm your email address/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Resend confirmation email")).toBeInTheDocument();
   });
 
   test("shows loading state while submitting", async () => {

@@ -31,15 +31,23 @@ func (h *AuthHandler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
-	user, tokens, err := h.auth.Register(r.Context(), req, ip)
+	result, err := h.auth.Register(r.Context(), req, ip)
 	if err != nil {
 		handleAuthError(w, err)
 		return
 	}
 
+	if result.EmailConfirmationRequired {
+		JSON(w, http.StatusCreated, map[string]interface{}{
+			"email_confirmation_required": true,
+			"message":                     result.Message,
+		})
+		return
+	}
+
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"user":   userResponse(user),
-		"tokens": tokens,
+		"user":   userResponse(result.User),
+		"tokens": result.Tokens,
 	})
 }
 
@@ -165,6 +173,48 @@ func (h *AuthHandler) HandleResetPassword(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// HandleConfirmEmail handles POST /api/v1/auth/confirm-email.
+func (h *AuthHandler) HandleConfirmEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	if req.Token == "" {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "token is required")
+		return
+	}
+
+	if err := h.auth.ConfirmEmail(r.Context(), req.Token); err != nil {
+		handleAuthError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Email confirmed successfully. You can now log in.",
+	})
+}
+
+// HandleResendConfirmation handles POST /api/v1/auth/resend-confirmation.
+func (h *AuthHandler) HandleResendConfirmation(w http.ResponseWriter, r *http.Request) {
+	var req service.ResendConfirmationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if err := h.auth.ResendConfirmation(r.Context(), req); err != nil {
+		handleAuthError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "If this email has a pending confirmation, a new link has been sent",
+	})
+}
+
 func handleAuthError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidCredentials):
@@ -187,6 +237,14 @@ func handleAuthError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "banned", "this email address is not allowed")
 	case errors.Is(err, service.ErrBannedIP):
 		ErrorResponse(w, http.StatusForbidden, "banned", "your IP address is banned")
+	case errors.Is(err, service.ErrEmailNotConfirmed):
+		ErrorResponse(w, http.StatusForbidden, "email_not_confirmed", "please confirm your email address before logging in")
+	case errors.Is(err, service.ErrInvalidConfirmToken):
+		ErrorResponse(w, http.StatusBadRequest, "invalid_token", "invalid or expired confirmation link")
+	case errors.Is(err, service.ErrConfirmRateLimitExceed):
+		ErrorResponse(w, http.StatusTooManyRequests, "rate_limit", "please wait 5 minutes before requesting another confirmation email")
+	case errors.Is(err, service.ErrAccountAlreadyConfirmed):
+		ErrorResponse(w, http.StatusConflict, "already_confirmed", "this account is already confirmed")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}

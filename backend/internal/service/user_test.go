@@ -17,14 +17,14 @@ func TestGetProfile_PublicView(t *testing.T) {
 
 	// Create a user via auth service to get proper hashing etc.
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "profileuser",
 		Email:    "profile@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	// View as different user
-	profile, err := svc.GetProfile(context.Background(), user.ID, 999)
+	profile, err := svc.GetProfile(context.Background(), result.User.ID, 999)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -36,8 +36,8 @@ func TestGetProfile_PublicView(t *testing.T) {
 	if pub.Username != "profileuser" {
 		t.Errorf("expected username profileuser, got %s", pub.Username)
 	}
-	if pub.ID != user.ID {
-		t.Errorf("expected id %d, got %d", user.ID, pub.ID)
+	if pub.ID != result.User.ID {
+		t.Errorf("expected id %d, got %d", result.User.ID, pub.ID)
 	}
 }
 
@@ -47,13 +47,13 @@ func TestGetProfile_OwnerView(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "owneruser",
 		Email:    "owner@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	profile, err := svc.GetProfile(context.Background(), user.ID, user.ID)
+	profile, err := svc.GetProfile(context.Background(), result.User.ID, result.User.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,8 +66,8 @@ func TestGetProfile_OwnerView(t *testing.T) {
 		t.Errorf("expected email owner@example.com, got %s", op.Email)
 	}
 	// Owner should see full passkey
-	if op.Passkey != *user.Passkey {
-		t.Errorf("expected full passkey %q, got %q", *user.Passkey, op.Passkey)
+	if op.Passkey != *result.User.Passkey {
+		t.Errorf("expected full passkey %q, got %q", *result.User.Passkey, op.Passkey)
 	}
 }
 
@@ -88,13 +88,13 @@ func TestGetFullProfile(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "fulluser",
 		Email:    "full@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	profile, err := svc.GetFullProfile(context.Background(), user.ID)
+	profile, err := svc.GetFullProfile(context.Background(), result.User.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "updateuser",
 		Email:    "update@example.com",
 		Password: "password123",
@@ -122,7 +122,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 	title := "My Title"
 	info := "My bio text"
 
-	profile, err := svc.UpdateProfile(context.Background(), user.ID, UpdateProfileRequest{
+	profile, err := svc.UpdateProfile(context.Background(), result.User.ID, UpdateProfileRequest{
 		Avatar: &avatar,
 		Title:  &title,
 		Info:   &info,
@@ -147,7 +147,7 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "partial",
 		Email:    "partial@example.com",
 		Password: "password123",
@@ -155,11 +155,11 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 
 	// Set initial title
 	title := "Initial"
-	_, _ = svc.UpdateProfile(context.Background(), user.ID, UpdateProfileRequest{Title: &title})
+	_, _ = svc.UpdateProfile(context.Background(), result.User.ID, UpdateProfileRequest{Title: &title})
 
 	// Only update info, title should remain
 	info := "New bio"
-	profile, err := svc.UpdateProfile(context.Background(), user.ID, UpdateProfileRequest{Info: &info})
+	profile, err := svc.UpdateProfile(context.Background(), result.User.ID, UpdateProfileRequest{Info: &info})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,14 +177,14 @@ func TestUpdateProfile_InvalidAvatarURL(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "badavatar",
 		Email:    "badavatar@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	badURL := "not-a-url"
-	_, err := svc.UpdateProfile(context.Background(), user.ID, UpdateProfileRequest{Avatar: &badURL})
+	_, err := svc.UpdateProfile(context.Background(), result.User.ID, UpdateProfileRequest{Avatar: &badURL})
 	if !errors.Is(err, ErrValidationFailed) {
 		t.Errorf("expected ErrValidationFailed, got %v", err)
 	}
@@ -196,14 +196,14 @@ func TestUpdateProfile_TitleTooLong(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "longtitle",
 		Email:    "longtitle@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	longTitle := string(make([]byte, 101))
-	_, err := svc.UpdateProfile(context.Background(), user.ID, UpdateProfileRequest{Title: &longTitle})
+	_, err := svc.UpdateProfile(context.Background(), result.User.ID, UpdateProfileRequest{Title: &longTitle})
 	if !errors.Is(err, ErrValidationFailed) {
 		t.Errorf("expected ErrValidationFailed, got %v", err)
 	}
@@ -215,14 +215,14 @@ func TestUpdateProfile_InfoTooLong(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "longinfo",
 		Email:    "longinfo@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	longInfo := string(make([]byte, 5001))
-	_, err := svc.UpdateProfile(context.Background(), user.ID, UpdateProfileRequest{Info: &longInfo})
+	_, err := svc.UpdateProfile(context.Background(), result.User.ID, UpdateProfileRequest{Info: &longInfo})
 	if !errors.Is(err, ErrValidationFailed) {
 		t.Errorf("expected ErrValidationFailed, got %v", err)
 	}
@@ -234,7 +234,7 @@ func TestChangePassword_Success(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "changepw",
 		Email:    "changepw@example.com",
 		Password: "oldpassword1",
@@ -246,7 +246,7 @@ func TestChangePassword_Success(t *testing.T) {
 		Password: "oldpassword1",
 	}, "127.0.0.1")
 
-	err := svc.ChangePassword(context.Background(), user.ID, tokens.AccessToken, ChangePasswordRequest{
+	err := svc.ChangePassword(context.Background(), result.User.ID, result.Tokens.AccessToken, ChangePasswordRequest{
 		CurrentPassword: "oldpassword1",
 		NewPassword:     "newpassword1",
 	})
@@ -255,7 +255,7 @@ func TestChangePassword_Success(t *testing.T) {
 	}
 
 	// Current session should still work
-	if sessions.GetByAccessToken(tokens.AccessToken) == nil {
+	if sessions.GetByAccessToken(result.Tokens.AccessToken) == nil {
 		t.Error("current session should be kept")
 	}
 
@@ -289,13 +289,13 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "wrongcurr",
 		Email:    "wrongcurr@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	err := svc.ChangePassword(context.Background(), user.ID, tokens.AccessToken, ChangePasswordRequest{
+	err := svc.ChangePassword(context.Background(), result.User.ID, result.Tokens.AccessToken, ChangePasswordRequest{
 		CurrentPassword: "wrongpassword",
 		NewPassword:     "newpassword1",
 	})
@@ -310,13 +310,13 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, tokens, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "weaknew",
 		Email:    "weaknew@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	err := svc.ChangePassword(context.Background(), user.ID, tokens.AccessToken, ChangePasswordRequest{
+	err := svc.ChangePassword(context.Background(), result.User.ID, result.Tokens.AccessToken, ChangePasswordRequest{
 		CurrentPassword: "password123",
 		NewPassword:     "short",
 	})
@@ -331,15 +331,15 @@ func TestRegeneratePasskey_Success(t *testing.T) {
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
 	authSvc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "passkey",
 		Email:    "passkey@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	oldPasskey := *user.Passkey
+	oldPasskey := *result.User.Passkey
 
-	newPasskey, err := svc.RegeneratePasskey(context.Background(), user.ID)
+	newPasskey, err := svc.RegeneratePasskey(context.Background(), result.User.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestRegeneratePasskey_Success(t *testing.T) {
 	}
 
 	// Verify it was persisted
-	updated, _ := repo.GetByID(context.Background(), user.ID)
+	updated, _ := repo.GetByID(context.Background(), result.User.ID)
 	if updated.Passkey == nil || *updated.Passkey != newPasskey {
 		t.Error("passkey should be updated in repository")
 	}

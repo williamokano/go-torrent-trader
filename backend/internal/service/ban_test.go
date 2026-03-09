@@ -345,7 +345,7 @@ func TestAuthService_BannedEmailRejectsRegistration(t *testing.T) {
 	_ = banSvc.BanEmail(context.Background(), 1, "admin", &model.BannedEmail{Pattern: "%@mailinator.com"})
 	svc.SetBanChecker(banSvc)
 
-	_, _, err := svc.Register(context.Background(), RegisterRequest{
+	_, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "spammer",
 		Email:    "spammer@mailinator.com",
 		Password: "password123",
@@ -372,7 +372,7 @@ func TestAuthService_BannedIPRejectsRegistration(t *testing.T) {
 	_ = banSvc.BanIP(context.Background(), 1, "admin", &model.BannedIP{IPRange: "10.0.0.0/8"})
 	svc.SetBanChecker(banSvc)
 
-	_, _, err := svc.Register(context.Background(), RegisterRequest{
+	_, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "badactor",
 		Email:    "badactor@example.com",
 		Password: "password123",
@@ -394,7 +394,7 @@ func TestAuthService_BannedIPRejectsLogin(t *testing.T) {
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", bus)
 
 	// Register a user first (no ban yet)
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "normaluser",
 		Email:    "normal@example.com",
 		Password: "password123",
@@ -426,7 +426,7 @@ func TestAuthService_NoBanChecker_AllowsRegistration(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	user, tokens, err := svc.Register(context.Background(), RegisterRequest{
+	result, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "testuser",
 		Email:    "test@mailinator.com",
 		Password: "password123",
@@ -435,7 +435,7 @@ func TestAuthService_NoBanChecker_AllowsRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user == nil || tokens == nil {
+	if result.User == nil || result.Tokens == nil {
 		t.Fatal("expected user and tokens")
 	}
 }

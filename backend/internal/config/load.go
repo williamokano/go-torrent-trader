@@ -146,6 +146,13 @@ func Load() (*Config, error) {
 		}
 	}
 
+	if v := os.Getenv("REGISTRATION_EMAIL_CONFIRM"); v != "" {
+		cfg.Site.RegistrationEmailConfirm, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid REGISTRATION_EMAIL_CONFIRM %q: %w", v, err)
+		}
+	}
+
 	// Required fields.
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	if cfg.Database.URL == "" {

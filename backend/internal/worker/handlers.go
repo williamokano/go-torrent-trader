@@ -14,15 +14,23 @@ import (
 // considered stale. This is typically announce_interval * 1.5.
 const StalePeerCutoff = 45 * time.Minute
 
-// HandleSendEmail processes email sending tasks.
-func HandleSendEmail(_ context.Context, t *asynq.Task) error {
-	var payload EmailPayload
-	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return fmt.Errorf("unmarshal email payload: %w", err)
+// NewSendEmailHandler returns a handler that sends emails using the provided EmailSender.
+func NewSendEmailHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
+	return func(ctx context.Context, t *asynq.Task) error {
+		var payload EmailPayload
+		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+			return fmt.Errorf("unmarshal email payload: %w", err)
+		}
+		slog.Info("sending email", "to", payload.To, "subject", payload.Subject)
+		if deps.EmailSender == nil {
+			slog.Warn("email sender not configured, skipping email send")
+			return nil
+		}
+		if err := deps.EmailSender.Send(ctx, payload.To, payload.Subject, payload.Body); err != nil {
+			return fmt.Errorf("send email: %w", err)
+		}
+		return nil
 	}
-	slog.Info("sending email", "to", payload.To, "subject", payload.Subject)
-	// TODO: implement actual SMTP sending
-	return nil
 }
 
 // NewCleanupHandler returns an asynq handler that runs all scheduled
@@ -94,10 +102,17 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task
 		}
 
 		// 4. Delete expired pending registrations (enabled=false, older than 7 days)
+		// Exclude users who still have a pending (unclaimed, unexpired) email confirmation
 		res, err = deps.DB.ExecContext(ctx, `
 			DELETE FROM users
 			WHERE enabled = false
 			  AND created_at < NOW() - INTERVAL '7 days'
+			  AND NOT EXISTS (
+			    SELECT 1 FROM email_confirmations ec
+			    WHERE ec.user_id = users.id
+			      AND ec.confirmed_at IS NULL
+			      AND ec.expires_at > NOW()
+			  )
 		`)
 		if err != nil {
 			slog.Error("cleanup: failed to delete expired registrations", "error", err)
@@ -142,6 +157,17 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task
 			slog.Error("cleanup: failed to delete expired password resets", "error", err)
 		} else if n, _ := res.RowsAffected(); n > 0 {
 			slog.Info("cleanup: expired password resets deleted", "count", n)
+		}
+
+		// 8. Clean up expired/confirmed email confirmation tokens (older than 7 days)
+		res, err = deps.DB.ExecContext(ctx, `
+			DELETE FROM email_confirmations
+			WHERE confirmed_at IS NOT NULL OR expires_at < NOW() - INTERVAL '7 days'
+		`)
+		if err != nil {
+			slog.Error("cleanup: failed to delete expired email confirmations", "error", err)
+		} else if n, _ := res.RowsAffected(); n > 0 {
+			slog.Info("cleanup: expired email confirmations deleted", "count", n)
 		}
 
 		return nil

@@ -13,11 +13,18 @@ import type {
   User,
   UserPermissions,
   RegisterData,
+  RegisterResult,
   AuthContextValue,
 } from "./AuthContextDef";
 import { api } from "@/api";
 
-export type { User, UserPermissions, RegisterData, AuthContextValue };
+export type {
+  User,
+  UserPermissions,
+  RegisterData,
+  RegisterResult,
+  AuthContextValue,
+};
 
 function mapUser(
   profile: Record<string, unknown> | undefined,
@@ -50,17 +57,25 @@ function mapUser(
   };
 }
 
-function getErrorMessage(error: unknown): string {
+import { ApiError } from "./ApiError";
+
+function throwApiError(error: unknown): never {
   if (
     error &&
     typeof error === "object" &&
     "error" in error &&
     typeof (error as Record<string, unknown>).error === "object"
   ) {
-    const inner = (error as { error: { message?: string } }).error;
-    if (inner?.message) return inner.message;
+    const inner = (error as { error: { code?: string; message?: string } })
+      .error;
+    if (inner?.code || inner?.message) {
+      throw new ApiError(
+        inner.code ?? "unknown",
+        inner.message ?? "An unexpected error occurred",
+      );
+    }
   }
-  return "An unexpected error occurred";
+  throw new ApiError("unknown", "An unexpected error occurred");
 }
 
 function storeTokens(tokens: {
@@ -158,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) {
-      throw new Error(getErrorMessage(error));
+      throwApiError(error);
     }
 
     if (!data?.tokens || !data?.user) {
@@ -203,35 +218,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const register = useCallback(async (data: RegisterData) => {
-    const { data: resData, error } = await api.POST("/api/v1/auth/register", {
-      body: {
-        username: data.username,
-        email: data.email,
-        password: data.password,
-        invite_code: data.invite_code,
-      },
-    });
+  const register = useCallback(
+    async (data: RegisterData): Promise<RegisterResult> => {
+      const { data: resData, error } = await api.POST("/api/v1/auth/register", {
+        body: {
+          username: data.username,
+          email: data.email,
+          password: data.password,
+          invite_code: data.invite_code,
+        },
+      });
 
-    if (error) {
-      throw new Error(getErrorMessage(error));
-    }
+      if (error) {
+        throwApiError(error);
+      }
 
-    if (!resData?.tokens || !resData?.user) {
-      throw new Error("Invalid response from server");
-    }
+      // Check if email confirmation is required
+      if (resData?.email_confirmation_required) {
+        return { emailConfirmationRequired: true };
+      }
 
-    storeTokens(resData.tokens);
+      if (!resData?.tokens || !resData?.user) {
+        throw new Error("Invalid response from server");
+      }
 
-    const meRes = await api.GET("/api/v1/auth/me", {
-      headers: { Authorization: `Bearer ${resData.tokens.access_token}` },
-    });
-    if (meRes.data?.user) {
-      setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
-    } else {
-      setUser(mapUser(resData.user as Record<string, unknown>) ?? null);
-    }
-  }, []);
+      storeTokens(resData.tokens);
+
+      const meRes = await api.GET("/api/v1/auth/me", {
+        headers: { Authorization: `Bearer ${resData.tokens.access_token}` },
+      });
+      if (meRes.data?.user) {
+        setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
+      } else {
+        setUser(mapUser(resData.user as Record<string, unknown>) ?? null);
+      }
+
+      return { emailConfirmationRequired: false };
+    },
+    [],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({

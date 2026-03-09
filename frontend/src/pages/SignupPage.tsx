@@ -99,13 +99,18 @@ export function SignupPage() {
     setIsSubmitting(true);
 
     try {
-      await register({
+      const result = await register({
         username,
         email,
         password,
         invite_code: inviteCode.trim() || undefined,
       });
-      navigate("/", { replace: true });
+
+      if (result.emailConfirmationRequired) {
+        navigate("/check-email", { replace: true, state: { email } });
+      } else {
+        navigate("/", { replace: true });
+      }
     } catch (err) {
       toast.error(
         err instanceof Error

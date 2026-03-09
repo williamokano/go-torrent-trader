@@ -44,13 +44,17 @@ export interface RegisterData {
   invite_code?: string;
 }
 
+export interface RegisterResult {
+  emailConfirmationRequired: boolean;
+}
+
 export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  register: (data: RegisterData) => Promise<void>;
+  register: (data: RegisterData) => Promise<RegisterResult>;
   refreshUser: () => Promise<void>;
 }
 

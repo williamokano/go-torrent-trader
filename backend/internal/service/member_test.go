@@ -76,12 +76,12 @@ func TestMemberService_ListMembers(t *testing.T) {
 
 	// Create users via auth service
 	authSvc := NewAuthService(&userRepo.mockUserRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	_, _, _ = authSvc.Register(context.Background(), RegisterRequest{
+	_, _ = authSvc.Register(context.Background(), RegisterRequest{
 		Username: "alice",
 		Email:    "alice@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
-	_, _, _ = authSvc.Register(context.Background(), RegisterRequest{
+	_, _ = authSvc.Register(context.Background(), RegisterRequest{
 		Username: "bob",
 		Email:    "bob@example.com",
 		Password: "password123",

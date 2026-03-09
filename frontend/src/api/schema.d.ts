@@ -364,6 +364,8 @@ export interface components {
     AuthResponse: {
       user?: components["schemas"]["UserProfile"];
       tokens?: components["schemas"]["AuthTokens"];
+      email_confirmation_required?: boolean;
+      message?: string;
     };
     /** @description Profile visible to any authenticated user */
     PublicProfile: {

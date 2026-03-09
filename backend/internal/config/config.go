@@ -74,8 +74,9 @@ type TrackerConfig struct {
 
 // SiteConfig holds general site metadata.
 type SiteConfig struct {
-	Name        string // SITE_NAME, default "TorrentTrader"
-	Description string // SITE_DESCRIPTION, default "Private BitTorrent Tracker"
-	BaseURL     string // SITE_BASE_URL, default "http://localhost:5173" — website (frontend) URL, used in emails and links
-	ApiURL      string // API_URL, default "http://localhost:8080" — backend API URL, used for announce/scrape URLs
+	Name                   string // SITE_NAME, default "TorrentTrader"
+	Description            string // SITE_DESCRIPTION, default "Private BitTorrent Tracker"
+	BaseURL                string // SITE_BASE_URL, default "http://localhost:5173" — website (frontend) URL, used in emails and links
+	ApiURL                 string // API_URL, default "http://localhost:8080" — backend API URL, used for announce/scrape URLs
+	RegistrationEmailConfirm bool // REGISTRATION_EMAIL_CONFIRM, default false — require email confirmation on registration
 }
