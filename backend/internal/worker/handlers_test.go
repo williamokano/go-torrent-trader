@@ -87,15 +87,19 @@ func TestHandleSendEmailValid(t *testing.T) {
 		t.Fatalf("failed to marshal payload: %v", err)
 	}
 
+	deps := &WorkerDeps{}
+	handler := NewSendEmailHandler(deps)
 	task := asynq.NewTask(TaskSendEmail, payload)
-	if err := HandleSendEmail(context.Background(), task); err != nil {
+	if err := handler(context.Background(), task); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestHandleSendEmailInvalidPayload(t *testing.T) {
+	deps := &WorkerDeps{}
+	handler := NewSendEmailHandler(deps)
 	task := asynq.NewTask(TaskSendEmail, []byte("invalid json"))
-	err := HandleSendEmail(context.Background(), task)
+	err := handler(context.Background(), task)
 	if err == nil {
 		t.Fatal("expected error for invalid payload")
 	}

@@ -173,15 +173,21 @@ func (h *AuthHandler) HandleResetPassword(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// HandleConfirmEmail handles GET /api/v1/auth/confirm-email?token=...
+// HandleConfirmEmail handles POST /api/v1/auth/confirm-email.
 func (h *AuthHandler) HandleConfirmEmail(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	if req.Token == "" {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "token is required")
 		return
 	}
 
-	if err := h.auth.ConfirmEmail(r.Context(), token); err != nil {
+	if err := h.auth.ConfirmEmail(r.Context(), req.Token); err != nil {
 		handleAuthError(w, err)
 		return
 	}

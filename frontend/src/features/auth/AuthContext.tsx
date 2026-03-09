@@ -57,17 +57,25 @@ function mapUser(
   };
 }
 
-function getErrorMessage(error: unknown): string {
+import { ApiError } from "./ApiError";
+
+function throwApiError(error: unknown): never {
   if (
     error &&
     typeof error === "object" &&
     "error" in error &&
     typeof (error as Record<string, unknown>).error === "object"
   ) {
-    const inner = (error as { error: { message?: string } }).error;
-    if (inner?.message) return inner.message;
+    const inner = (error as { error: { code?: string; message?: string } })
+      .error;
+    if (inner?.code || inner?.message) {
+      throw new ApiError(
+        inner.code ?? "unknown",
+        inner.message ?? "An unexpected error occurred",
+      );
+    }
   }
-  return "An unexpected error occurred";
+  throw new ApiError("unknown", "An unexpected error occurred");
 }
 
 function storeTokens(tokens: {
@@ -165,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) {
-      throw new Error(getErrorMessage(error));
+      throwApiError(error);
     }
 
     if (!data?.tokens || !data?.user) {
@@ -222,7 +230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
-        throw new Error(getErrorMessage(error));
+        throwApiError(error);
       }
 
       // Check if email confirmation is required

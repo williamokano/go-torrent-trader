@@ -114,6 +114,12 @@ const DefaultAccessTokenTTL = 1 * time.Hour
 // DefaultRefreshTokenTTL is the default refresh token lifetime.
 const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 
+// TaskEnqueuer abstracts background job enqueueing (e.g. asynq).
+// When nil, emails are sent inline as a fallback.
+type TaskEnqueuer interface {
+	EnqueueSendEmail(ctx context.Context, to, subject, body string) error
+}
+
 // AuthService handles authentication business logic.
 type AuthService struct {
 	users              repository.UserRepository
@@ -122,6 +128,7 @@ type AuthService struct {
 	passwordResets     PasswordResetStore
 	emailConfirmations EmailConfirmationStore
 	email              EmailSender
+	taskEnqueuer       TaskEnqueuer
 	siteName           string
 	siteBaseURL        string
 	accessTokenTTL     time.Duration
@@ -188,6 +195,12 @@ func (s *AuthService) SetInviteService(svc *InviteService) {
 // When nil, ban checks are skipped (backward compatible).
 func (s *AuthService) SetBanChecker(checker BanChecker) {
 	s.banChecker = checker
+}
+
+// SetTaskEnqueuer sets the background task enqueuer for async email sending.
+// When nil, emails are sent inline as a fallback.
+func (s *AuthService) SetTaskEnqueuer(enqueuer TaskEnqueuer) {
+	s.taskEnqueuer = enqueuer
 }
 
 // SetEmailConfirmationStore sets the email confirmation store.
@@ -362,19 +375,22 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 		return nil, nil, ErrInvalidCredentials
 	}
 
+	// Verify password BEFORE checking enabled status to prevent user enumeration.
+	// An attacker should not learn account status without providing the correct password.
+	match, err := VerifyPassword(req.Password, user.PasswordHash)
+	if err != nil || !match {
+		return nil, nil, ErrInvalidCredentials
+	}
+
 	if !user.Enabled {
-		// Check if user has a pending email confirmation
+		// Password is correct but account is disabled. Check if this is a pending
+		// email confirmation (vs admin-disabled account).
 		if s.emailConfirmations != nil {
 			latest, ecErr := s.emailConfirmations.GetLatestByUserID(ctx, user.ID)
 			if ecErr == nil && latest != nil && latest.ConfirmedAt == nil {
 				return nil, nil, ErrEmailNotConfirmed
 			}
 		}
-		return nil, nil, ErrInvalidCredentials
-	}
-
-	match, err := VerifyPassword(req.Password, user.PasswordHash)
-	if err != nil || !match {
 		return nil, nil, ErrInvalidCredentials
 	}
 
@@ -521,7 +537,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req ForgotPasswordRequ
 		resetURL,
 	)
 
-	if err := s.email.Send(ctx, req.Email, "Password Reset — TorrentTrader", htmlBody); err != nil {
+	if err := s.sendEmail(ctx, req.Email, "Password Reset — TorrentTrader", htmlBody); err != nil {
 		slog.Error("failed to send password reset email", "user_id", user.ID, "error", err)
 		// Don't reveal email issues to caller
 	}
@@ -578,6 +594,9 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 }
 
 // ConfirmEmail validates a confirmation token and enables the user account.
+// NOTE: If an admin disables a user during the confirmation window, confirming
+// the token will re-enable them. Admins should delete pending confirmation
+// tokens when manually disabling a user, or re-disable after the user confirms.
 func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
 	if token == "" {
 		return ErrInvalidConfirmToken
@@ -633,7 +652,9 @@ func (s *AuthService) ResendConfirmation(ctx context.Context, req ResendConfirma
 	}
 
 	if user.Enabled {
-		return ErrAccountAlreadyConfirmed
+		// Already confirmed — return success to prevent account status enumeration.
+		slog.Info("resend confirmation skipped: account already confirmed", "user_id", user.ID)
+		return nil
 	}
 
 	// Rate limit: check latest confirmation was > 5 minutes ago
@@ -692,12 +713,21 @@ func (s *AuthService) sendConfirmationEmail(ctx context.Context, user *model.Use
 		siteName, confirmURL,
 	)
 
-	if err := s.email.Send(ctx, user.Email, "Confirm your email address", htmlBody); err != nil {
+	if err := s.sendEmail(ctx, user.Email, "Confirm your email address", htmlBody); err != nil {
 		return fmt.Errorf("send confirmation email: %w", err)
 	}
 
 	slog.Info("confirmation email sent", "user_id", user.ID, "email", user.Email)
 	return nil
+}
+
+// sendEmail sends an email via the background task enqueuer if available,
+// falling back to inline sending via EmailSender.
+func (s *AuthService) sendEmail(ctx context.Context, to, subject, htmlBody string) error {
+	if s.taskEnqueuer != nil {
+		return s.taskEnqueuer.EnqueueSendEmail(ctx, to, subject, htmlBody)
+	}
+	return s.email.Send(ctx, to, subject, htmlBody)
 }
 
 // hashTokenBytes returns the raw SHA-256 hash of a token string (as bytes for BYTEA storage).

@@ -9,9 +9,10 @@ import (
 
 // WorkerDeps holds the dependencies required by worker task handlers.
 type WorkerDeps struct {
-	PeerRepo       repository.PeerRepository
-	TorrentRepo    repository.TorrentRepository
-	DB             *sql.DB
-	WarningSvc     *service.WarningService
+	PeerRepo        repository.PeerRepository
+	TorrentRepo     repository.TorrentRepository
+	DB              *sql.DB
+	WarningSvc      *service.WarningService
 	SiteSettingsSvc *service.SiteSettingsService
+	EmailSender     service.EmailSender
 }

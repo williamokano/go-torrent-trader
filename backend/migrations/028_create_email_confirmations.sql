@@ -9,7 +9,7 @@ CREATE TABLE email_confirmations (
 );
 
 CREATE INDEX idx_email_confirmations_user_id ON email_confirmations(user_id);
-CREATE INDEX idx_email_confirmations_token_hash ON email_confirmations(token_hash);
+-- token_hash already has a UNIQUE constraint which creates an implicit index
 
 -- +goose Down
 DROP TABLE IF EXISTS email_confirmations;

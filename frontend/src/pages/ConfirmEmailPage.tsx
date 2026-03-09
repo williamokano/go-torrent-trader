@@ -1,60 +1,66 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import "./auth.css";
 
-type ConfirmState = "loading" | "success" | "error";
+type ConfirmState = "idle" | "loading" | "success" | "error";
 
 export function ConfirmEmailPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
 
   const [state, setState] = useState<ConfirmState>(() =>
-    token ? "loading" : "error",
+    token ? "idle" : "error",
   );
   const [errorMessage, setErrorMessage] = useState(() =>
     token ? "" : "No confirmation token provided.",
   );
 
-  useEffect(() => {
+  async function handleConfirm() {
     if (!token) return;
+    setState("loading");
 
-    let cancelled = false;
-
-    async function confirmEmail() {
-      try {
-        const res = await fetch(
-          `${getConfig().API_URL}/api/v1/auth/confirm-email?token=${encodeURIComponent(token!)}`,
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/auth/confirm-email`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        },
+      );
+      if (res.ok) {
+        setState("success");
+      } else {
+        const body = await res.json().catch(() => null);
+        setState("error");
+        setErrorMessage(
+          body?.error?.message || "Invalid or expired confirmation link.",
         );
-        if (cancelled) return;
-        if (res.ok) {
-          setState("success");
-        } else {
-          const body = await res.json().catch(() => null);
-          setState("error");
-          setErrorMessage(
-            body?.error?.message || "Invalid or expired confirmation link.",
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          setState("error");
-          setErrorMessage("Failed to confirm email. Please try again.");
-        }
       }
+    } catch {
+      setState("error");
+      setErrorMessage("Failed to confirm email. Please try again.");
     }
-
-    confirmEmail();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  }
 
   return (
     <div className="auth-page">
       <div className="auth-card">
         <h1 className="auth-card__title">Email Confirmation</h1>
+
+        {state === "idle" && (
+          <>
+            <p>Click the button below to confirm your email address.</p>
+            <button
+              className="auth-card__submit"
+              onClick={handleConfirm}
+              type="button"
+            >
+              Confirm Email
+            </button>
+          </>
+        )}
 
         {state === "loading" && <p>Confirming your email address...</p>}
 

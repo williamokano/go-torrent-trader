@@ -7,7 +7,7 @@ import "github.com/hibiken/asynq"
 // perform real work (e.g. peer cleanup).
 func NewMux(deps *WorkerDeps) *asynq.ServeMux {
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(TaskSendEmail, HandleSendEmail)
+	mux.HandleFunc(TaskSendEmail, NewSendEmailHandler(deps))
 	mux.HandleFunc(TaskCleanupPeers, NewCleanupHandler(deps))
 	mux.HandleFunc(TaskRecalcStats, HandleRecalcStats)
 	mux.HandleFunc(TaskRatioWarning, NewRatioWarningHandler(deps))

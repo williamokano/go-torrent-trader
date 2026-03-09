@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Input } from "@/components/form";
 import { useToast } from "@/components/toast";
-import { useAuth } from "@/features/auth";
+import { ApiError, useAuth } from "@/features/auth";
 import "./auth.css";
 
 export function LoginPage() {
@@ -27,11 +27,13 @@ export function LoginPage() {
       await login(username, password);
       navigate(from, { replace: true });
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Login failed. Please try again.";
-      if (msg.toLowerCase().includes("confirm your email")) {
+      if (err instanceof ApiError && err.code === "email_not_confirmed") {
         setEmailNotConfirmed(true);
       } else {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Login failed. Please try again.";
         toast.error(msg);
       }
     } finally {

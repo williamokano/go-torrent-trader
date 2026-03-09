@@ -103,6 +103,15 @@ func run() int {
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo, eventBus)
 
+	// Background email sending via asynq
+	asynqClient, err := worker.NewClient(cfg.Redis.URL)
+	if err != nil {
+		slog.Error("failed to create asynq client", "error", err)
+		return 1
+	}
+	defer func() { _ = asynqClient.Close() }()
+	authService.SetTaskEnqueuer(worker.NewAsynqEmailEnqueuer(asynqClient))
+
 	// Email confirmation
 	emailConfirmRepo := postgres.NewEmailConfirmationRepo(db)
 	authService.SetEmailConfirmationStore(emailConfirmRepo)
@@ -209,6 +218,7 @@ func run() int {
 		DB:              db,
 		WarningSvc:      warningService,
 		SiteSettingsSvc: siteSettingsService,
+		EmailSender:     emailSender,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)

@@ -349,7 +349,7 @@ func TestResendConfirmation_RateLimit(t *testing.T) {
 }
 
 func TestResendConfirmation_AlreadyConfirmed(t *testing.T) {
-	svc, _, _, _ := newAuthServiceWithEmailConfirm()
+	svc, _, _, sender := newAuthServiceWithEmailConfirm()
 
 	// Admin is already enabled (confirmed)
 	_, _ = svc.Register(context.Background(), RegisterRequest{
@@ -358,11 +358,92 @@ func TestResendConfirmation_AlreadyConfirmed(t *testing.T) {
 		Password: "password123",
 	}, "127.0.0.1")
 
+	sender.SendCount = 0
 	err := svc.ResendConfirmation(context.Background(), ResendConfirmationRequest{
 		Email: "admin@example.com",
 	})
-	if !errors.Is(err, ErrAccountAlreadyConfirmed) {
-		t.Errorf("expected ErrAccountAlreadyConfirmed, got %v", err)
+	// Should return nil (anti-enumeration) instead of leaking "already confirmed"
+	if err != nil {
+		t.Errorf("expected nil (anti-enumeration), got %v", err)
+	}
+	if sender.SendCount != 0 {
+		t.Errorf("expected no emails sent for already confirmed user, got %d", sender.SendCount)
+	}
+}
+
+func TestConfirmEmail_DoubleConfirm(t *testing.T) {
+	svc, repo, _, _ := newAuthServiceWithEmailConfirm()
+
+	// Register admin + user
+	_, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "admin",
+		Email:    "admin@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	_, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "doubleuser",
+		Email:    "double@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	user, _ := repo.GetByUsername(context.Background(), "doubleuser")
+	rawToken, _ := GenerateToken()
+	tokenHash := hashTokenBytes(rawToken)
+	ecStore := newMockEmailConfirmationStore()
+	_ = ecStore.Create(context.Background(), user.ID, tokenHash, time.Now().Add(24*time.Hour))
+	svc.SetEmailConfirmationStore(ecStore)
+
+	// First confirm should succeed
+	err := svc.ConfirmEmail(context.Background(), rawToken)
+	if err != nil {
+		t.Fatalf("first confirm should succeed: %v", err)
+	}
+
+	// Second confirm with same token should return invalid token error
+	// (token was already claimed by the first call)
+	err = svc.ConfirmEmail(context.Background(), rawToken)
+	if !errors.Is(err, ErrInvalidConfirmToken) {
+		t.Errorf("expected ErrInvalidConfirmToken on double-confirm, got %v", err)
+	}
+}
+
+func TestConfirmEmail_DoubleConfirm_DifferentTokens(t *testing.T) {
+	svc, repo, _, _ := newAuthServiceWithEmailConfirm()
+
+	_, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "admin",
+		Email:    "admin@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	_, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "dbluser2",
+		Email:    "dbl2@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	user, _ := repo.GetByUsername(context.Background(), "dbluser2")
+
+	// Create first token and confirm
+	rawToken1, _ := GenerateToken()
+	tokenHash1 := hashTokenBytes(rawToken1)
+	ecStore := newMockEmailConfirmationStore()
+	_ = ecStore.Create(context.Background(), user.ID, tokenHash1, time.Now().Add(24*time.Hour))
+	svc.SetEmailConfirmationStore(ecStore)
+
+	err := svc.ConfirmEmail(context.Background(), rawToken1)
+	if err != nil {
+		t.Fatalf("first confirm should succeed: %v", err)
+	}
+
+	// Create second token and try to confirm — should fail since token was already claimed
+	rawToken2, _ := GenerateToken()
+	tokenHash2 := hashTokenBytes(rawToken2)
+	_ = ecStore.Create(context.Background(), user.ID, tokenHash2, time.Now().Add(24*time.Hour))
+
+	// User is now enabled, so ConfirmEmail should return nil (idempotent)
+	err = svc.ConfirmEmail(context.Background(), rawToken2)
+	if err != nil {
+		t.Fatalf("confirming already-enabled user should succeed idempotently: %v", err)
 	}
 }
 
