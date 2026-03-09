@@ -836,7 +836,7 @@
 
 ### Epic BE-6: Real-Time Chat (Shoutbox Replacement)
 
-#### BE-6.1: WebSocket Chat [M]
+#### BE-6.1: WebSocket Chat [M] [DONE — WS hub with write pump, rate limiting, session revalidation, origin check]
 **As a** user
 **I want** a real-time chat on the homepage
 **So that** I can communicate with other users instantly
@@ -881,7 +881,7 @@
 
 ### Epic BE-7: Private Messaging
 
-#### BE-7.1: Send & Receive Messages [M]
+#### BE-7.1: Send & Receive Messages [M] [DONE — inbox/outbox/compose, autocomplete, reply with parent_id, unread badge]
 **As a** user
 **I want** to send private messages to other users
 **So that** I can communicate privately
@@ -1356,7 +1356,7 @@
 - Save and cancel buttons
 - Shows audit info (who last edited, when)
 
-#### FE-2.5: Private Messages [M]
+#### FE-2.5: Private Messages [M] [DONE — inbox/outbox/compose tabs, autocomplete, reply, unread badge in header, URL-driven navigation]
 **As a** user
 **I want** to send and receive private messages
 **So that** I can communicate with others privately
@@ -1486,7 +1486,7 @@
 
 ### Epic FE-4: Real-Time Features [M]
 
-#### FE-4.1: WebSocket Chat/Shoutbox [M]
+#### FE-4.1: WebSocket Chat/Shoutbox [M] [DONE — ChatSocket singleton, side chat + home page shoutbox, shared context, auto-reconnect]
 **As a** user
 **I want** a real-time chat widget
 **So that** I can communicate with other users instantly
