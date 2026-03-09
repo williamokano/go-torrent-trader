@@ -29,6 +29,15 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 			}
 		}
 
+		// 2. Clean up expired chat mutes
+		if deps.ChatSvc != nil {
+			if cleaned, err := deps.ChatSvc.CleanupExpiredMutes(ctx); err != nil {
+				slog.Error("maintenance: failed to clean expired chat mutes", "error", err)
+			} else if cleaned > 0 {
+				slog.Info("maintenance: cleaned expired chat mutes", "count", cleaned)
+			}
+		}
+
 		return nil
 	}
 }

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { useChat } from "@/lib/useChat";
+import { ChatModMenu } from "./ChatModMenu";
 import "./chat.css";
 
 function formatTime(iso: string): string {
@@ -86,12 +87,16 @@ export function Chat() {
                 <span className="chat__message-time">
                   {formatTime(msg.created_at)}
                 </span>
-                <Link
-                  to={`/user/${msg.user_id}`}
-                  className="chat__message-user"
-                >
-                  {msg.username}
-                </Link>
+                {isStaff ? (
+                  <ChatModMenu userId={msg.user_id} username={msg.username} />
+                ) : (
+                  <Link
+                    to={`/user/${msg.user_id}`}
+                    className="chat__message-user"
+                  >
+                    {msg.username}
+                  </Link>
+                )}
                 <span className="chat__message-text">{msg.message}</span>
                 {isStaff && (
                   <button

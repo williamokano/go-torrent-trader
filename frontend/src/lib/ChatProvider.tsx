@@ -20,6 +20,13 @@ export interface ChatContextValue {
   setMainChatVisible: (visible: boolean) => void;
   sendMessage: (text: string) => void;
   deleteMessage: (id: number) => Promise<void>;
+  deleteUserMessages: (userId: number) => Promise<void>;
+  muteUser: (
+    userId: number,
+    durationMinutes: number,
+    reason: string,
+  ) => Promise<void>;
+  unmuteUser: (userId: number) => Promise<void>;
   loadMore: () => Promise<void>;
 }
 
@@ -57,6 +64,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         case "delete":
           setMessages((prev) => prev.filter((m) => m.id !== event.id));
           break;
+        case "delete_user":
+          setMessages((prev) =>
+            prev.filter((m) => m.user_id !== event.user_id),
+          );
+          break;
       }
     };
 
@@ -76,10 +88,65 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const token = getAccessToken();
     if (!token) return;
     try {
-      await fetch(`${getConfig().API_URL}/api/v1/chat/${id}`, {
+      await fetch(`${getConfig().API_URL}/api/v1/admin/chat/messages/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const deleteUserMessages = useCallback(async (userId: number) => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      await fetch(
+        `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/messages`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const muteUser = useCallback(
+    async (userId: number, durationMinutes: number, reason: string) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ duration_minutes: durationMinutes, reason }),
+          },
+        );
+      } catch {
+        // ignore
+      }
+    },
+    [],
+  );
+
+  const unmuteUser = useCallback(async (userId: number) => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      await fetch(
+        `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
     } catch {
       // ignore
     }
@@ -121,6 +188,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setMainChatVisible,
         sendMessage,
         deleteMessage,
+        deleteUserMessages,
+        muteUser,
+        unmuteUser,
         loadMore,
       }}
     >

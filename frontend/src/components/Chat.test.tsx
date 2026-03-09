@@ -230,6 +230,96 @@ describe("Chat", () => {
     expect(screen.getByTitle("Delete message")).toBeInTheDocument();
   });
 
+  test("staff sees moderation menu on username", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "admin",
+      isStaff: true,
+      isAdmin: true,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "backfill",
+        messages: [
+          {
+            id: 1,
+            user_id: 2,
+            username: "bob",
+            message: "hello",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    // Username is a moderation trigger button for staff
+    const userButton = screen.getByTitle("Moderation actions");
+    expect(userButton).toBeInTheDocument();
+    expect(userButton.textContent).toBe("bob");
+
+    // Click opens dropdown with moderation actions
+    fireEvent.click(userButton);
+    expect(screen.getByText("Delete all messages")).toBeInTheDocument();
+    expect(screen.getByText("Mute user")).toBeInTheDocument();
+    expect(screen.getByText("Unmute user")).toBeInTheDocument();
+  });
+
+  test("non-staff sees regular link for username", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "alice",
+      isStaff: false,
+      isAdmin: false,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "backfill",
+        messages: [
+          {
+            id: 1,
+            user_id: 2,
+            username: "bob",
+            message: "hello",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    // Username is a regular link, not a moderation menu
+    expect(screen.queryByTitle("Moderation actions")).toBeNull();
+    const userLink = screen.getByText("bob");
+    expect(userLink.closest("a")).toBeTruthy();
+  });
+
   test("removes message on delete broadcast", async () => {
     mockAuth.user = {
       id: 1,
@@ -275,6 +365,72 @@ describe("Chat", () => {
 
     await vi.waitFor(() => {
       expect(screen.queryByText("to be deleted")).toBeNull();
+    });
+  });
+
+  test("removes all user messages on delete_user broadcast", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "alice",
+      isStaff: false,
+      isAdmin: false,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "backfill",
+        messages: [
+          {
+            id: 1,
+            user_id: 2,
+            username: "bob",
+            message: "bob msg 1",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: 2,
+            user_id: 2,
+            username: "bob",
+            message: "bob msg 2",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: 3,
+            user_id: 3,
+            username: "carol",
+            message: "carol msg",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText("bob msg 1")).toBeInTheDocument();
+      expect(screen.getByText("bob msg 2")).toBeInTheDocument();
+      expect(screen.getByText("carol msg")).toBeInTheDocument();
+    });
+
+    // Send delete_user event for bob
+    ws.onmessage?.({
+      data: JSON.stringify({ type: "delete_user", user_id: 2 }),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.queryByText("bob msg 1")).toBeNull();
+      expect(screen.queryByText("bob msg 2")).toBeNull();
+      // Carol's message should remain
+      expect(screen.getByText("carol msg")).toBeInTheDocument();
     });
   });
 });

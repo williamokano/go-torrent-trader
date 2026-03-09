@@ -16,4 +16,5 @@ type WorkerDeps struct {
 	SiteSettingsSvc *service.SiteSettingsService
 	EmailSender     service.EmailSender
 	StatsCache      *service.StatsCache
+	ChatSvc         *service.ChatService
 }

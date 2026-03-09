@@ -148,6 +148,21 @@ func (h *ChatHub) BroadcastDelete(id int64) {
 	h.broadcast <- ChatBroadcast{Data: data}
 }
 
+// BroadcastDeleteUser sends a delete_user event to all connected clients,
+// instructing them to remove all messages from the given user.
+func (h *ChatHub) BroadcastDeleteUser(userID int64) {
+	payload := map[string]interface{}{
+		"type":    "delete_user",
+		"user_id": userID,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("failed to marshal delete_user broadcast", "error", err)
+		return
+	}
+	h.broadcast <- ChatBroadcast{Data: data}
+}
+
 // wsIncoming represents an incoming WebSocket message from a client.
 type wsIncoming struct {
 	Type string `json:"type"`

@@ -200,6 +200,15 @@ type ChatMessageRepository interface {
 	ListRecent(ctx context.Context, limit int) ([]model.ChatMessage, error)
 	ListBefore(ctx context.Context, beforeID int64, limit int) ([]model.ChatMessage, error)
 	Delete(ctx context.Context, id int64) error
+	DeleteByUserID(ctx context.Context, userID int64) (int64, error)
+}
+
+// ChatMuteRepository defines persistence operations for chat mutes.
+type ChatMuteRepository interface {
+	Create(ctx context.Context, mute *model.ChatMute) error
+	GetActiveMute(ctx context.Context, userID int64) (*model.ChatMute, error)
+	Delete(ctx context.Context, userID int64) error
+	DeleteExpired(ctx context.Context) (int64, error)
 }
 
 // WarningRepository defines persistence operations for user warnings.
