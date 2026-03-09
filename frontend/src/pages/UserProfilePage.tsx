@@ -411,7 +411,14 @@ export function UserProfilePage() {
                           ? "Ratio Ban"
                           : w.type}
                   </td>
-                  <td className="profile-warnings__reason">{w.reason}</td>
+                  <td className="profile-warnings__reason">
+                    {w.reason}
+                    {w.status === "lifted" && w.lifted_reason && (
+                      <div className="profile-warnings__lifted-info">
+                        Lifted by {w.lifted_by_name ?? "?"}: {w.lifted_reason}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     <span
                       className={`profile-warnings__status profile-warnings__status--${w.status}`}

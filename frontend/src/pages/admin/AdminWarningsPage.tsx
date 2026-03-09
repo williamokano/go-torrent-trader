@@ -332,6 +332,11 @@ export function AdminWarningsPage() {
                   <td>{warningTypeLabel(w.type)}</td>
                   <td className="admin-warnings__reason-cell" title={w.reason}>
                     {w.reason}
+                    {w.status === "lifted" && w.lifted_reason && (
+                      <div className="admin-warnings__lifted-info">
+                        Lifted by {w.lifted_by_name ?? "?"}: {w.lifted_reason}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <StatusBadge status={w.status} />
@@ -349,13 +354,6 @@ export function AdminWarningsPage() {
                       >
                         Lift
                       </button>
-                    )}
-                    {w.status === "lifted" && w.lifted_reason && (
-                      <span
-                        title={`Lifted by ${w.lifted_by_name ?? "?"}: ${w.lifted_reason}`}
-                      >
-                        Lifted
-                      </span>
                     )}
                   </td>
                 </tr>
