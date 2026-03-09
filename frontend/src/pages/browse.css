@@ -81,8 +81,8 @@
   color: var(--color-accent);
 }
 
-.browse__category-cell {
-  display: flex;
+.browse__category-cell-content {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
 }

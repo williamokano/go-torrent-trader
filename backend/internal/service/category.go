@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -12,9 +13,9 @@ import (
 )
 
 var (
-	ErrCategoryNotFound     = errors.New("category not found")
-	ErrCategoryHasTorrents  = errors.New("category has torrents and cannot be deleted")
-	ErrInvalidCategory      = errors.New("invalid category")
+	ErrCategoryNotFound    = errors.New("category not found")
+	ErrCategoryHasTorrents = errors.New("category has torrents and cannot be deleted")
+	ErrInvalidCategory     = errors.New("invalid category")
 )
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -59,6 +60,10 @@ func (s *CategoryService) Create(ctx context.Context, req CreateCategoryRequest)
 		slug = generateSlug(name)
 	}
 
+	if err := validateImageURL(req.ImageURL); err != nil {
+		return nil, err
+	}
+
 	cat := &model.Category{
 		Name:      name,
 		Slug:      slug,
@@ -99,6 +104,10 @@ func (s *CategoryService) Update(ctx context.Context, id int64, req UpdateCatego
 		slug = generateSlug(name)
 	}
 
+	if err := validateImageURL(req.ImageURL); err != nil {
+		return nil, err
+	}
+
 	cat.Name = name
 	cat.Slug = slug
 	cat.ParentID = req.ParentID
@@ -128,6 +137,21 @@ func (s *CategoryService) Delete(ctx context.Context, id int64) error {
 
 	if err := s.categories.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete category: %w", err)
+	}
+	return nil
+}
+
+// validateImageURL checks that the image URL, if provided, is a valid HTTP(S) URL.
+func validateImageURL(imageURL *string) error {
+	if imageURL == nil || *imageURL == "" {
+		return nil
+	}
+	u, err := url.Parse(*imageURL)
+	if err != nil {
+		return fmt.Errorf("%w: invalid image URL", ErrInvalidCategory)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%w: image_url must use http or https scheme", ErrInvalidCategory)
 	}
 	return nil
 }

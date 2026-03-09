@@ -1,3 +1,4 @@
+import { useState } from "react";
 import "./category-icon.css";
 
 interface CategoryIconProps {
@@ -10,6 +11,7 @@ interface CategoryIconProps {
 /**
  * Displays a category image or a styled placeholder with the first letter of the category name.
  * Reusable across browse, detail, home, and admin pages.
+ * Falls back to the letter placeholder if the image fails to load.
  */
 export function CategoryIcon({
   name,
@@ -17,14 +19,17 @@ export function CategoryIcon({
   size = "sm",
   className = "",
 }: CategoryIconProps) {
+  const [imgError, setImgError] = useState(false);
   const sizeClass = `category-icon--${size}`;
 
-  if (imageUrl) {
+  if (imageUrl && !imgError) {
     return (
       <img
         src={imageUrl}
         alt={name}
+        loading="lazy"
         className={`category-icon category-icon--img ${sizeClass} ${className}`.trim()}
+        onError={() => setImgError(true)}
       />
     );
   }

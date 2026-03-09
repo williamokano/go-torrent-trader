@@ -161,10 +161,7 @@ export function HomePage() {
                   <td>
                     <CategoryIcon
                       name={t.category_name ?? "?"}
-                      imageUrl={
-                        (t as unknown as { category_image_url?: string })
-                          .category_image_url
-                      }
+                      imageUrl={t.category_image_url}
                     />
                   </td>
                   <td>
