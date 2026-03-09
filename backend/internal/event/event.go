@@ -39,6 +39,7 @@ const (
 	ChatUserUnmuted         Type = "chat_user_unmuted"
 	WarningIssued           Type = "warning_issued"
 	WarningLifted           Type = "warning_lifted"
+	NewsPublished           Type = "news_published"
 )
 
 // Event is the base interface for all domain events.
@@ -262,4 +263,10 @@ type WarningLiftedEvent struct {
 	WarningID int64  `json:"warning_id"`
 	UserID    int64  `json:"user_id"`
 	Username  string `json:"username"`
+}
+
+type NewsPublishedEvent struct {
+	Base
+	ArticleID int64  `json:"article_id"`
+	Title     string `json:"title"`
 }

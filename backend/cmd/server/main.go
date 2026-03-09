@@ -177,6 +177,9 @@ func run() int {
 	warningRepo := postgres.NewWarningRepo(db)
 	warningService := service.NewWarningService(warningRepo, userRepo, messageRepo, eventBus)
 
+	newsRepo := postgres.NewNewsRepo(db)
+	newsService := service.NewNewsService(newsRepo, userRepo, eventBus)
+
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
@@ -204,6 +207,7 @@ func run() int {
 		BanService:          banService,
 		MessageService:      messageService,
 		WarningService:     warningService,
+		NewsService:        newsService,
 		ChatService:        chatService,
 		ChatHub:            chatHub,
 		PeerRepo:            peerRepo,

@@ -239,3 +239,20 @@ type ListReportsOptions struct {
 	Page    int
 	PerPage int
 }
+
+// NewsRepository defines persistence operations for news articles.
+type NewsRepository interface {
+	Create(ctx context.Context, article *model.NewsArticle) error
+	GetByID(ctx context.Context, id int64) (*model.NewsArticle, error)
+	Update(ctx context.Context, article *model.NewsArticle) error
+	Delete(ctx context.Context, id int64) error
+	List(ctx context.Context, opts ListNewsOptions) ([]model.NewsArticle, int64, error)
+	ListPublished(ctx context.Context, page, perPage int) ([]model.NewsArticle, int64, error)
+}
+
+// ListNewsOptions holds filtering and pagination options for listing news (admin).
+type ListNewsOptions struct {
+	Published *bool
+	Page      int
+	PerPage   int
+}
