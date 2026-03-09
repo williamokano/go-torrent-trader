@@ -1315,10 +1315,31 @@
 - `Form` components: Input, Select, Textarea, Checkbox, Radio, with validation integration
 - `Modal`: accessible dialog with overlay, close on escape/outside click
 - `Toast` notifications: success, error, info, auto-dismiss
-- `BBCode/Markdown Editor`: toolbar with common formatting, preview toggle — **use a library** (e.g., `react-markdown`, `@uiw/react-markdown-editor`), do NOT build from scratch
+- `MarkdownRenderer`: shared component for rendering Markdown content — see FE-0.7
+- `MarkdownEditor`: toolbar with common formatting, preview toggle — **use a library** (e.g., `@uiw/react-markdown-editor`), do NOT build from scratch
 - `Avatar`: user avatar with fallback to initials
 - `Badge`: role badges, status indicators
 - All components theme-aware (use CSS custom properties)
+
+#### FE-0.7: Markdown Rendering System [M]
+**As a** user
+**I want** rich text formatting in descriptions, comments, forum posts, PMs, news, and chat
+**So that** content is readable and expressive
+
+**Acceptance Criteria:**
+- Shared `MarkdownRenderer` component using `react-markdown` + `remark-gfm` + `rehype-raw`
+- Supports standard Markdown: headings, bold, italic, strikethrough, links, images, code blocks, blockquotes, tables, lists, horizontal rules
+- Supports GFM extensions: tables, task lists, strikethrough, autolinks
+- Spoiler support via custom remark plugin: `!!spoiler text!!` renders as a click-to-reveal `<details>/<summary>` element
+- Safe by default: sanitize HTML via `rehype-sanitize` to prevent XSS — only allow safe tags (`<details>`, `<summary>`, `<br>`, `<hr>`, `<img>` with restricted src)
+- No color/font-size syntax — keep it clean and consistent
+- Theme-aware: code blocks, blockquotes, tables styled with CSS custom properties
+- `MarkdownEditor` component: textarea with toolbar buttons (bold, italic, link, image, code, quote, spoiler, list) that insert Markdown syntax at cursor position, plus a preview toggle that renders via `MarkdownRenderer`
+- Used across: torrent descriptions, comments, forum posts, PMs, news articles, chat messages
+- Formatting reference page (FE-6.3) updated to show Markdown syntax instead of BBCode
+- Lightweight: no heavy editor frameworks — just a textarea with helpers + the rendering library
+
+> **Note:** No BBCode support. The original TorrentTrader used BBCode; this reimplementation standardizes on Markdown. Legacy content is converted during migration (MT-1.5).
 
 ---
 
@@ -1777,15 +1798,18 @@
 - Numbered rules with sections
 - Content stored as a React component or Markdown file (not in DB)
 
-#### FE-6.3: BBCode/Markdown Reference [S]
+#### FE-6.3: Markdown Formatting Reference [S]
 **As a** user
 **I want** a formatting reference
 **So that** I can format my posts and descriptions correctly
 
 **Acceptance Criteria:**
-- Side-by-side: syntax example and rendered output
-- Covers all supported tags/syntax
+- Side-by-side: Markdown syntax example and rendered output (using `MarkdownRenderer` from FE-0.7)
+- Covers: headings, bold, italic, strikethrough, links, images, code (inline + block), blockquotes, tables, lists (ordered + unordered), horizontal rules, spoilers (`!!text!!`)
 - Linkable from editor toolbars
+- No BBCode — this project standardizes on Markdown
+
+> **Depends on:** FE-0.7 (Markdown Rendering System) for live rendered previews
 
 ---
 
