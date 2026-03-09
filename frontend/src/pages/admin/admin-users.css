@@ -31,8 +31,9 @@
 .admin-users__table th,
 .admin-users__table td {
   text-align: left;
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-sm);
   border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
 }
 
 .admin-users__table th {
@@ -68,23 +69,19 @@
   color: var(--color-warning, #856404);
 }
 
-.admin-users__actions {
-  display: flex;
-  gap: var(--space-xs);
-}
-
 .admin-users__edit-btn {
+  margin-right: var(--space-xs);
   padding: 2px 8px;
-  background: none;
-  border: 1px solid var(--color-border);
+  background-color: var(--color-accent);
+  border: none;
   border-radius: var(--radius-sm);
-  color: var(--color-accent);
+  color: white;
   cursor: pointer;
   font-size: var(--text-xs);
 }
 
 .admin-users__edit-btn:hover {
-  background-color: var(--color-bg-tertiary);
+  opacity: 0.85;
 }
 
 .admin-users__empty {

@@ -234,6 +234,12 @@ export function BrowsePage() {
             {torrents.map((t) => (
               <tr key={t.id}>
                 <td>
+                  <CategoryIcon
+                    name={t.category_name ?? "?"}
+                    imageUrl={t.category_image_url}
+                  />
+                </td>
+                <td>
                   <span
                     className={`browse__health ${healthClass(t.seeders ?? 0)}`}
                   />
@@ -243,12 +249,6 @@ export function BrowsePage() {
                   >
                     {t.name}
                   </Link>
-                </td>
-                <td>
-                  <CategoryIcon
-                    name={t.category_name ?? "?"}
-                    imageUrl={t.category_image_url}
-                  />
                 </td>
                 <td>
                   {t.anonymous ? (

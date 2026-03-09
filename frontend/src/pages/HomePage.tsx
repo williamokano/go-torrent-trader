@@ -146,7 +146,7 @@ export function HomePage() {
           <table className="home__latest-table">
             <thead>
               <tr>
-                <th>Cat</th>
+                <th title="Category">Cat.</th>
                 <th>Name</th>
                 <th>Uploader</th>
                 <th>Size</th>

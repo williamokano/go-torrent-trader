@@ -27,6 +27,7 @@ export function CategoryIcon({
       <img
         src={imageUrl}
         alt={name}
+        title={name}
         loading="lazy"
         className={`category-icon category-icon--img ${sizeClass} ${className}`.trim()}
         onError={() => setImgError(true)}

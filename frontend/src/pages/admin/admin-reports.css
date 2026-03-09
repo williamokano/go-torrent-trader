@@ -20,8 +20,9 @@
 .admin-reports__table th,
 .admin-reports__table td {
   text-align: left;
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-sm);
   border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
 }
 
 .admin-reports__table th {
@@ -44,8 +45,12 @@
   font-size: var(--text-xs);
 }
 
+.admin-reports__resolve-btn:hover {
+  opacity: 0.85;
+}
+
 .admin-reports__resolve-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
