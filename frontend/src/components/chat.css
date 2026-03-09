@@ -44,9 +44,10 @@
 }
 
 .chat__header-status {
-  font-size: var(--text-xs);
+  font-size: 0.6em;
   color: var(--color-text-muted);
   margin-left: var(--space-xs);
+  vertical-align: middle;
 }
 
 .chat__header-status--connected {
