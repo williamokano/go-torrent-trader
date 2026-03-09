@@ -58,8 +58,9 @@ export function Chat() {
           <span className="chat__header-title">Shoutbox</span>
           <span
             className={`chat__header-status chat__header-status--${connected ? "connected" : "disconnected"}`}
+            title={connected ? "Connected" : "Disconnected"}
           >
-            {connected ? "connected" : "disconnected"}
+            {connected ? "\uD83D\uDFE2" : "\uD83D\uDD34"}
           </span>
         </span>
         <span className="chat__header-toggle">
