@@ -67,8 +67,9 @@ describe("RootLayout", () => {
 
   test("renders footer links", () => {
     renderLayout();
-    expect(screen.getByText("About")).toBeInTheDocument();
+    expect(screen.getByText("Rules")).toBeInTheDocument();
     expect(screen.getByText("FAQ")).toBeInTheDocument();
+    expect(screen.getByText("Formatting")).toBeInTheDocument();
   });
 
   test("shows Login and Sign Up links when not authenticated", () => {
