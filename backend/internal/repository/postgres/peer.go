@@ -69,6 +69,65 @@ func (r *PeerRepo) ListByTorrent(ctx context.Context, torrentID int64, limit int
 	return peers, nil
 }
 
+func (r *PeerRepo) listByUserWithSeeder(ctx context.Context, userID int64, seeder bool, page, perPage int) ([]repository.PeerWithTorrent, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 25
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+	offset := (page - 1) * perPage
+
+	var total int64
+	countQuery := `SELECT COUNT(*) FROM peers WHERE user_id = $1 AND seeder = $2`
+	if err := r.db.QueryRowContext(ctx, countQuery, userID, seeder).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("counting peers by user: %w", err)
+	}
+
+	query := fmt.Sprintf(`SELECT %s, t.name FROM peers p
+		JOIN torrents t ON p.torrent_id = t.id
+		WHERE p.user_id = $1 AND p.seeder = $2
+		ORDER BY p.last_announce DESC
+		LIMIT $3 OFFSET $4`,
+		"p.id, p.torrent_id, p.user_id, p.peer_id, p.ip, p.port, p.uploaded, p.downloaded, p.left_bytes, p.seeder, p.agent, p.started_at, p.last_announce")
+
+	rows, err := r.db.QueryContext(ctx, query, userID, seeder, perPage, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing peers by user: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []repository.PeerWithTorrent
+	for rows.Next() {
+		var item repository.PeerWithTorrent
+		if err := rows.Scan(
+			&item.ID, &item.TorrentID, &item.UserID, &item.PeerID,
+			&item.IP, &item.Port, &item.Uploaded, &item.Downloaded,
+			&item.LeftBytes, &item.Seeder, &item.Agent,
+			&item.StartedAt, &item.LastAnnounce, &item.TorrentName,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scanning peer: %w", err)
+		}
+		results = append(results, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterating peers: %w", err)
+	}
+
+	return results, total, nil
+}
+
+func (r *PeerRepo) ListByUserSeeding(ctx context.Context, userID int64, page, perPage int) ([]repository.PeerWithTorrent, int64, error) {
+	return r.listByUserWithSeeder(ctx, userID, true, page, perPage)
+}
+
+func (r *PeerRepo) ListByUserLeeching(ctx context.Context, userID int64, page, perPage int) ([]repository.PeerWithTorrent, int64, error) {
+	return r.listByUserWithSeeder(ctx, userID, false, page, perPage)
+}
+
 func (r *PeerRepo) CountByUser(ctx context.Context, userID int64) (int, int, error) {
 	query := `SELECT
 		COUNT(*) FILTER (WHERE seeder = true) AS seeding,

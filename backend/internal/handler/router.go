@@ -31,10 +31,11 @@ type Deps struct {
 	MessageService      *service.MessageService
 	ChatService         *service.ChatService
 	ChatHub             *ChatHub
-	PeerRepo            repository.PeerRepository
-	UserRepo            repository.UserRepository
-	CategoryRepo        repository.CategoryRepository
-	RSSConfig           *RSSConfig
+	PeerRepo             repository.PeerRepository
+	UserRepo             repository.UserRepository
+	CategoryRepo         repository.CategoryRepository
+	TransferHistoryRepo  repository.TransferHistoryRepository
+	RSSConfig            *RSSConfig
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -132,6 +133,14 @@ func NewRouter(deps *Deps) chi.Router {
 					}
 
 					r.Get("/{id}", users.HandleGetProfile)
+
+					// User torrent activity endpoints
+					if deps.TorrentService != nil && deps.PeerRepo != nil && deps.TransferHistoryRepo != nil {
+						activity := NewUserActivityHandler(deps.TorrentService, deps.PeerRepo, deps.TransferHistoryRepo)
+						r.Get("/{id}/torrents", activity.HandleUserTorrents)
+						r.Get("/{id}/activity", activity.HandleUserActivity)
+					}
+
 					r.Put("/me/profile", users.HandleUpdateProfile)
 					r.Put("/me/password", users.HandleChangePassword)
 					r.Post("/me/passkey", users.HandleRegeneratePasskey)

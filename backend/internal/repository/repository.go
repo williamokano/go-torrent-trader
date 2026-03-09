@@ -52,10 +52,30 @@ type PeerRepository interface {
 	GetByTorrentAndUser(ctx context.Context, torrentID, userID int64) (*model.Peer, error)
 	GetByTorrentUserAndPeerID(ctx context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error)
 	ListByTorrent(ctx context.Context, torrentID int64, limit int) ([]model.Peer, error)
+	ListByUserSeeding(ctx context.Context, userID int64, page, perPage int) ([]PeerWithTorrent, int64, error)
+	ListByUserLeeching(ctx context.Context, userID int64, page, perPage int) ([]PeerWithTorrent, int64, error)
 	CountByUser(ctx context.Context, userID int64) (seeding int, leeching int, err error)
 	Upsert(ctx context.Context, peer *model.Peer) error
 	Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error
 	DeleteStale(ctx context.Context, before time.Time) (int64, error)
+}
+
+// PeerWithTorrent is a peer joined with torrent name for activity views.
+type PeerWithTorrent struct {
+	model.Peer
+	TorrentName string
+}
+
+// TransferHistoryRepository defines persistence operations for transfer history.
+type TransferHistoryRepository interface {
+	Upsert(ctx context.Context, th *model.TransferHistory) error
+	ListByUser(ctx context.Context, userID int64, page, perPage int) ([]TransferHistoryWithTorrent, int64, error)
+}
+
+// TransferHistoryWithTorrent is a transfer history entry with torrent name.
+type TransferHistoryWithTorrent struct {
+	model.TransferHistory
+	TorrentName string
 }
 
 // ReportRepository defines persistence operations for reports.

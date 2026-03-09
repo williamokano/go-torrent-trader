@@ -103,7 +103,9 @@ func run() int {
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo, eventBus)
 	userService := service.NewUserService(userRepo, sessionStore, groupRepo, peerRepo, torrentRepo)
+	transferHistoryRepo := postgres.NewTransferHistoryRepo(db)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
+	trackerService.SetTransferHistoryRepo(transferHistoryRepo)
 
 	// File storage
 	fileStore, err := storage.New(cfg.Storage)
@@ -179,9 +181,10 @@ func run() int {
 		MessageService:      messageService,
 		ChatService:        chatService,
 		ChatHub:            chatHub,
-		PeerRepo:           peerRepo,
-		UserRepo:           userRepo,
-		CategoryRepo:       categoryRepo,
+		PeerRepo:            peerRepo,
+		UserRepo:            userRepo,
+		CategoryRepo:        categoryRepo,
+		TransferHistoryRepo: transferHistoryRepo,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,
