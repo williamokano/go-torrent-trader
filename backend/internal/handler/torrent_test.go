@@ -414,6 +414,105 @@ func TestHandleList_Success(t *testing.T) {
 	}
 }
 
+func TestHandleList_IncludesUploaderName(t *testing.T) {
+	router, _ := setupTorrentRouter()
+	token := registerAndGetToken(t, router)
+
+	// Upload a non-anonymous torrent
+	torrentData := buildTorrentFileBytes("uploader-name-test")
+	uploadReq := makeUploadRequest(token, torrentData, "1")
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	// List
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	torrents := resp["torrents"].([]interface{})
+	if len(torrents) == 0 {
+		t.Fatal("expected at least 1 torrent")
+	}
+
+	first := torrents[0].(map[string]interface{})
+	uploaderName, ok := first["uploader_name"]
+	if !ok {
+		t.Fatal("expected uploader_name field in list response")
+	}
+	if uploaderName == "" {
+		t.Error("expected non-empty uploader_name")
+	}
+	// Non-anonymous upload should not show "Anonymous"
+	if first["anonymous"] == false && uploaderName == "Anonymous" {
+		t.Error("non-anonymous torrent should not have uploader_name 'Anonymous'")
+	}
+}
+
+func TestHandleList_AnonymousUploaderShowsAnonymous(t *testing.T) {
+	router, sessions := setupTorrentRouter()
+
+	ownerToken := createSessionWithGroup(sessions, 1500, 5)
+
+	// Upload an anonymous torrent
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, _ := w.CreateFormFile("torrent_file", "test.torrent")
+	_, _ = fw.Write(buildTorrentFileBytes("anon-uploader-test"))
+	_ = w.WriteField("category_id", "1")
+	_ = w.WriteField("anonymous", "true")
+	_ = w.Close()
+
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", &buf)
+	uploadReq.Header.Set("Content-Type", w.FormDataContentType())
+	uploadReq.Header.Set("Authorization", "Bearer "+ownerToken)
+	uploadRec := httptest.NewRecorder()
+	router.ServeHTTP(uploadRec, uploadReq)
+
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload failed: %d %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	// List
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	torrents := resp["torrents"].([]interface{})
+
+	// Find the anonymous torrent
+	found := false
+	for _, item := range torrents {
+		torrent := item.(map[string]interface{})
+		if torrent["anonymous"] == true {
+			found = true
+			if torrent["uploader_name"] != "Anonymous" {
+				t.Errorf("expected uploader_name 'Anonymous' for anonymous torrent, got %v", torrent["uploader_name"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find an anonymous torrent in the list")
+	}
+}
+
 func TestHandleList_Unauthenticated(t *testing.T) {
 	router, _ := setupTorrentRouter()
 

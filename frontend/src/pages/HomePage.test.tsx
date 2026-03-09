@@ -41,6 +41,7 @@ const FAKE_TORRENTS = [
     category_id: 1,
     uploader_id: 1,
     anonymous: false,
+    uploader_name: "testuser1",
     seeders: 42,
     leechers: 5,
     times_completed: 318,

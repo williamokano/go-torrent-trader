@@ -1461,6 +1461,9 @@ components:
           format: int64
         anonymous:
           type: boolean
+        uploader_name:
+          type: string
+          description: Display name of the uploader ("Anonymous" when anonymous=true)
         seeders:
           type: integer
         leechers:
