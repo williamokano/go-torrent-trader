@@ -149,20 +149,41 @@ const FAQ_SECTIONS: FAQSection[] = [
   },
 ];
 
-function FAQItem({ item }: { item: FAQItem }) {
+function FAQItemComponent({
+  item,
+  sectionIndex,
+  itemIndex,
+}: {
+  item: FAQItem;
+  sectionIndex: number;
+  itemIndex: number;
+}) {
   const [open, setOpen] = useState(false);
+  const questionId = `faq-q-${sectionIndex}-${itemIndex}`;
+  const answerId = `faq-a-${sectionIndex}-${itemIndex}`;
 
   return (
     <div className="faq__item">
       <button
+        id={questionId}
         className="faq__question"
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
+        aria-controls={answerId}
       >
         {item.question}
         <span className="faq__arrow">{open ? "\u25B4" : "\u25BE"}</span>
       </button>
-      {open && <div className="faq__answer">{item.answer}</div>}
+      {open && (
+        <div
+          id={answerId}
+          role="region"
+          aria-labelledby={questionId}
+          className="faq__answer"
+        >
+          {item.answer}
+        </div>
+      )}
     </div>
   );
 }
@@ -175,11 +196,16 @@ export function FAQPage() {
         Find answers to common questions about using the tracker.
       </p>
 
-      {FAQ_SECTIONS.map((section) => (
+      {FAQ_SECTIONS.map((section, sectionIndex) => (
         <section key={section.title} className="faq__section">
           <h2 className="faq__section-title">{section.title}</h2>
-          {section.items.map((item) => (
-            <FAQItem key={item.question} item={item} />
+          {section.items.map((item, itemIndex) => (
+            <FAQItemComponent
+              key={item.question}
+              item={item}
+              sectionIndex={sectionIndex}
+              itemIndex={itemIndex}
+            />
           ))}
         </section>
       ))}

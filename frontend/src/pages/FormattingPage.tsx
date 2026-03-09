@@ -62,7 +62,7 @@ const FORMAT_SECTIONS: FormatSection[] = [
         name: "Image",
         syntax: "[img]https://example.com/image.png[/img]",
         preview: (
-          <span style={{ color: "var(--color-text-muted)" }}>
+          <span className="formatting__preview-muted">
             (image would render here)
           </span>
         ),
@@ -81,15 +81,7 @@ const FORMAT_SECTIONS: FormatSection[] = [
         name: "Code block",
         syntax: "[pre]code block\nmultiple lines[/pre]",
         preview: (
-          <pre
-            style={{
-              fontFamily: "var(--font-mono, monospace)",
-              fontSize: "0.85em",
-              background: "var(--color-bg-tertiary, #2a2a2a)",
-              padding: "0.3rem 0.5rem",
-              borderRadius: "3px",
-            }}
-          >
+          <pre className="formatting__preview-code">
             {"code block\nmultiple lines"}
           </pre>
         ),
@@ -116,22 +108,30 @@ const FORMAT_SECTIONS: FormatSection[] = [
       {
         name: "Color",
         syntax: "[color=red]red text[/color]",
-        preview: <span style={{ color: "red" }}>red text</span>,
+        preview: (
+          <span className="formatting__preview-color-red">red text</span>
+        ),
       },
       {
         name: "Color (hex)",
         syntax: "[color=#00ff00]green text[/color]",
-        preview: <span style={{ color: "#00ff00" }}>green text</span>,
+        preview: (
+          <span className="formatting__preview-color-green">green text</span>
+        ),
       },
       {
         name: "Size (small)",
         syntax: "[size=1]small text[/size]",
-        preview: <span style={{ fontSize: "0.75em" }}>small text</span>,
+        preview: (
+          <span className="formatting__preview-size-small">small text</span>
+        ),
       },
       {
         name: "Size (large)",
         syntax: "[size=5]large text[/size]",
-        preview: <span style={{ fontSize: "1.5em" }}>large text</span>,
+        preview: (
+          <span className="formatting__preview-size-large">large text</span>
+        ),
       },
     ],
   },
@@ -142,7 +142,7 @@ const FORMAT_SECTIONS: FormatSection[] = [
         name: "Unordered list",
         syntax: "[list]\n[*]Item one\n[*]Item two\n[*]Item three\n[/list]",
         preview: (
-          <ul style={{ paddingLeft: "1.5rem", margin: 0 }}>
+          <ul className="formatting__preview-list">
             <li>Item one</li>
             <li>Item two</li>
             <li>Item three</li>
@@ -154,7 +154,7 @@ const FORMAT_SECTIONS: FormatSection[] = [
         syntax:
           "[list=1]\n[*]First item\n[*]Second item\n[*]Third item\n[/list]",
         preview: (
-          <ol style={{ paddingLeft: "1.5rem", margin: 0 }}>
+          <ol className="formatting__preview-list">
             <li>First item</li>
             <li>Second item</li>
             <li>Third item</li>
@@ -169,28 +169,14 @@ const FORMAT_SECTIONS: FormatSection[] = [
       {
         name: "Horizontal rule",
         syntax: "[hr]",
-        preview: (
-          <hr
-            style={{
-              border: "none",
-              borderTop: "1px solid var(--color-border, #333)",
-              margin: "0.25rem 0",
-            }}
-          />
-        ),
+        preview: <hr className="formatting__preview-hr" />,
       },
       {
         name: "Spoiler",
         syntax: "[spoiler]hidden text[/spoiler]",
         preview: (
           <span
-            style={{
-              background: "var(--color-text-primary)",
-              color: "var(--color-text-primary)",
-              padding: "0 0.25rem",
-              borderRadius: "2px",
-              cursor: "pointer",
-            }}
+            className="formatting__preview-spoiler"
             title="Hover or click to reveal"
           >
             hidden text
@@ -200,7 +186,9 @@ const FORMAT_SECTIONS: FormatSection[] = [
       {
         name: "Align center",
         syntax: "[center]centered text[/center]",
-        preview: <div style={{ textAlign: "center" }}>centered text</div>,
+        preview: (
+          <div className="formatting__preview-center">centered text</div>
+        ),
       },
     ],
   },
@@ -220,9 +208,9 @@ export function FormattingPage() {
           <table className="formatting__table">
             <thead>
               <tr>
-                <th>Format</th>
-                <th>Syntax</th>
-                <th>Preview</th>
+                <th scope="col">Format</th>
+                <th scope="col">Syntax</th>
+                <th scope="col">Preview</th>
               </tr>
             </thead>
             <tbody>

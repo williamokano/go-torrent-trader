@@ -73,3 +73,15 @@
   color: var(--color-warning, #e6a817);
   margin-bottom: 0.5rem;
 }
+
+.rules__warning-intro {
+  margin: 0 0 0.75rem;
+}
+
+.rules__warning-item {
+  margin: 0 0 0.25rem;
+}
+
+.rules__warning-note {
+  margin: 0.75rem 0 0;
+}

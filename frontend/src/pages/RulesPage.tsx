@@ -53,7 +53,7 @@ const RULES_SECTIONS: RulesSection[] = [
   {
     title: "5. Ratio Requirements",
     rules: [
-      "Your ratio (uploaded / downloaded) must stay above the minimum threshold. The current minimum ratio is 0.3.",
+      "Your ratio (uploaded / downloaded) must stay above the minimum threshold. The current minimum ratio is 0.3." /* TODO: fetch from site settings */,
       "New accounts receive a grace period before ratio enforcement begins. Use this time to build your ratio.",
       "If your ratio drops below the minimum, your download privileges will be restricted until it recovers.",
       "Free Leech torrents do not count against your download total and are a great way to build ratio.",
@@ -87,24 +87,22 @@ export function RulesPage() {
 
       <div className="rules__warning">
         <div className="rules__warning-title">Consequences for Violations</div>
-        <p>
+        <p className="rules__warning-intro">
           Rule violations are handled on a case-by-case basis. Typical
           consequences include:
         </p>
-        <br />
-        <p>
+        <p className="rules__warning-item">
           <strong>First offense:</strong> Warning issued to your account.
         </p>
-        <p>
+        <p className="rules__warning-item">
           <strong>Second offense:</strong> Temporary restriction of privileges
           (download, upload, or chat).
         </p>
-        <p>
+        <p className="rules__warning-item">
           <strong>Third offense:</strong> Extended ban or permanent account
           termination.
         </p>
-        <br />
-        <p>
+        <p className="rules__warning-note">
           Severe violations (cheating, exploits, illegal content) may result in
           an immediate permanent ban without prior warnings.
         </p>

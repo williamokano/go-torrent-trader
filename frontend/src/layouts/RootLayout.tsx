@@ -316,6 +316,9 @@ export function RootLayout() {
           {siteStats ? formatNumber(siteStats.leechers) : "--"}
         </p>
         <div className="footer__links">
+          <a href="#" className="footer__link">
+            About
+          </a>
           <Link to="/rules" className="footer__link">
             Rules
           </Link>
@@ -325,6 +328,9 @@ export function RootLayout() {
           <Link to="/formatting" className="footer__link">
             Formatting
           </Link>
+          <a href="#" className="footer__link">
+            Contact
+          </a>
         </div>
       </footer>
     </div>

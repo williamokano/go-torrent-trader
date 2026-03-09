@@ -55,6 +55,11 @@
   background-color: var(--color-bg-tertiary, #2a2a2a);
 }
 
+.faq__question:focus-visible {
+  outline: 2px solid var(--color-accent, #4a9eff);
+  outline-offset: -2px;
+}
+
 .faq__arrow {
   font-size: var(--text-sm);
   color: var(--color-text-muted, #888);
