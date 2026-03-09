@@ -9,6 +9,7 @@ import {
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
+import { useToast } from "@/components/toast";
 import { chatSocket, type ChatMessage, type ChatListener } from "./ChatSocket";
 
 export interface ChatContextValue {
@@ -34,10 +35,13 @@ export const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth();
+  const toast = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
   const [mainChatVisible, setMainChatVisible] = useState(false);
   const loadingMoreRef = useRef(false);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -84,41 +88,58 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (trimmed) chatSocket.send(trimmed);
   }, []);
 
-  const deleteMessage = useCallback(async (id: number) => {
-    const token = getAccessToken();
-    if (!token) return;
-    try {
-      await fetch(`${getConfig().API_URL}/api/v1/admin/chat/messages/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      // ignore
-    }
-  }, []);
+  const deleteMessage = useCallback(
+    async (id: number) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/messages/${id}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to delete message");
+        }
+      } catch (err) {
+        console.error("deleteMessage failed:", err);
+        toast.error("Failed to delete message");
+      }
+    },
+    [toast],
+  );
 
-  const deleteUserMessages = useCallback(async (userId: number) => {
-    const token = getAccessToken();
-    if (!token) return;
-    try {
-      await fetch(
-        `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/messages`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-    } catch {
-      // ignore
-    }
-  }, []);
+  const deleteUserMessages = useCallback(
+    async (userId: number) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/messages`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to delete user messages");
+        }
+      } catch (err) {
+        console.error("deleteUserMessages failed:", err);
+        toast.error("Failed to delete user messages");
+      }
+    },
+    [toast],
+  );
 
   const muteUser = useCallback(
     async (userId: number, durationMinutes: number, reason: string) => {
       const token = getAccessToken();
       if (!token) return;
       try {
-        await fetch(
+        const resp = await fetch(
           `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
           {
             method: "POST",
@@ -129,34 +150,45 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ duration_minutes: durationMinutes, reason }),
           },
         );
-      } catch {
-        // ignore
+        if (!resp.ok) {
+          toast.error("Failed to mute user");
+        }
+      } catch (err) {
+        console.error("muteUser failed:", err);
+        toast.error("Failed to mute user");
       }
     },
-    [],
+    [toast],
   );
 
-  const unmuteUser = useCallback(async (userId: number) => {
-    const token = getAccessToken();
-    if (!token) return;
-    try {
-      await fetch(
-        `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-    } catch {
-      // ignore
-    }
-  }, []);
+  const unmuteUser = useCallback(
+    async (userId: number) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to unmute user");
+        }
+      } catch (err) {
+        console.error("unmuteUser failed:", err);
+        toast.error("Failed to unmute user");
+      }
+    },
+    [toast],
+  );
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current) return;
-    if (messages.length === 0) return;
+    if (messagesRef.current.length === 0) return;
 
-    const oldestId = messages[0].id;
+    const oldestId = messagesRef.current[0].id;
     const token = getAccessToken();
     if (!token) return;
 
@@ -176,7 +208,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } finally {
       loadingMoreRef.current = false;
     }
-  }, [messages]);
+  }, []);
 
   return (
     <ChatContext.Provider

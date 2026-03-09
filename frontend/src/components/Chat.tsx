@@ -101,7 +101,10 @@ export function Chat() {
                 {isStaff && (
                   <button
                     className="chat__message-delete"
-                    onClick={() => deleteMessage(msg.id)}
+                    onClick={() => {
+                      if (window.confirm("Delete this message?"))
+                        deleteMessage(msg.id);
+                    }}
                     title="Delete message"
                   >
                     x

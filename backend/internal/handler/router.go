@@ -279,56 +279,65 @@ func NewRouter(deps *Deps) chi.Router {
 			// Admin endpoints
 			r.Route("/admin", func(r chi.Router) {
 				authMiddleware(r)
-				r.Use(mw.RequireAdmin)
 
-				if deps.AdminService != nil {
-					admin := NewAdminHandler(deps.AdminService)
-					r.Get("/users", admin.HandleListUsers)
-					r.Put("/users/{id}", admin.HandleUpdateUser)
-					r.Get("/groups", admin.HandleListGroups)
-				}
+				// Admin-only endpoints
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequireAdmin)
 
-				// Warning management endpoints
-				if deps.WarningService != nil {
-					warnings := NewWarningHandler(deps.WarningService)
-					r.Post("/warnings", warnings.HandleIssueWarning)
-					r.Get("/warnings", warnings.HandleListWarnings)
-					r.Post("/warnings/{id}/lift", warnings.HandleLiftWarning)
-				}
+					if deps.AdminService != nil {
+						admin := NewAdminHandler(deps.AdminService)
+						r.Get("/users", admin.HandleListUsers)
+						r.Put("/users/{id}", admin.HandleUpdateUser)
+						r.Get("/groups", admin.HandleListGroups)
+					}
 
-				// Site settings (admin only)
-				if deps.SiteSettingsService != nil {
-					settingsHandler := NewSiteSettingsHandler(deps.SiteSettingsService)
-					r.Get("/settings", settingsHandler.HandleGetAllSettings)
-					r.Put("/settings/{key}", settingsHandler.HandleUpdateSetting)
-				}
+					// Warning management endpoints
+					if deps.WarningService != nil {
+						warnings := NewWarningHandler(deps.WarningService)
+						r.Post("/warnings", warnings.HandleIssueWarning)
+						r.Get("/warnings", warnings.HandleListWarnings)
+						r.Post("/warnings/{id}/lift", warnings.HandleLiftWarning)
+					}
 
-				// Ban management endpoints
-				if deps.BanService != nil {
-					bans := NewBanHandler(deps.BanService)
-					r.Get("/bans/emails", bans.HandleListEmailBans)
-					r.Post("/bans/emails", bans.HandleCreateEmailBan)
-					r.Delete("/bans/emails/{id}", bans.HandleDeleteEmailBan)
-					r.Get("/bans/ips", bans.HandleListIPBans)
-					r.Post("/bans/ips", bans.HandleCreateIPBan)
-					r.Delete("/bans/ips/{id}", bans.HandleDeleteIPBan)
-				}
+					// Site settings (admin only)
+					if deps.SiteSettingsService != nil {
+						settingsHandler := NewSiteSettingsHandler(deps.SiteSettingsService)
+						r.Get("/settings", settingsHandler.HandleGetAllSettings)
+						r.Put("/settings/{key}", settingsHandler.HandleUpdateSetting)
+					}
 
-				if deps.CategoryService != nil {
-					catAdmin := NewCategoryAdminHandler(deps.CategoryService)
-					r.Get("/categories", catAdmin.HandleListCategories)
-					r.Post("/categories", catAdmin.HandleCreateCategory)
-					r.Put("/categories/{id}", catAdmin.HandleUpdateCategory)
-					r.Delete("/categories/{id}", catAdmin.HandleDeleteCategory)
-				}
+					// Ban management endpoints
+					if deps.BanService != nil {
+						bans := NewBanHandler(deps.BanService)
+						r.Get("/bans/emails", bans.HandleListEmailBans)
+						r.Post("/bans/emails", bans.HandleCreateEmailBan)
+						r.Delete("/bans/emails/{id}", bans.HandleDeleteEmailBan)
+						r.Get("/bans/ips", bans.HandleListIPBans)
+						r.Post("/bans/ips", bans.HandleCreateIPBan)
+						r.Delete("/bans/ips/{id}", bans.HandleDeleteIPBan)
+					}
 
-				if deps.ChatService != nil && deps.ChatHub != nil {
-					chatAdmin := NewChatAdminHandler(deps.ChatService, deps.ChatHub)
-					r.Delete("/chat/messages/{id}", chatAdmin.HandleDeleteMessage)
-					r.Delete("/chat/users/{id}/messages", chatAdmin.HandleDeleteUserMessages)
-					r.Post("/chat/users/{id}/mute", chatAdmin.HandleMuteUser)
-					r.Delete("/chat/users/{id}/mute", chatAdmin.HandleUnmuteUser)
-				}
+					if deps.CategoryService != nil {
+						catAdmin := NewCategoryAdminHandler(deps.CategoryService)
+						r.Get("/categories", catAdmin.HandleListCategories)
+						r.Post("/categories", catAdmin.HandleCreateCategory)
+						r.Put("/categories/{id}", catAdmin.HandleUpdateCategory)
+						r.Delete("/categories/{id}", catAdmin.HandleDeleteCategory)
+					}
+				})
+
+				// Staff-level endpoints (accessible by admins and moderators)
+				r.Group(func(r chi.Router) {
+					r.Use(mw.RequireStaff)
+
+					if deps.ChatService != nil && deps.ChatHub != nil {
+						chatAdmin := NewChatAdminHandler(deps.ChatService, deps.ChatHub)
+						r.Delete("/chat/messages/{id}", chatAdmin.HandleDeleteMessage)
+						r.Delete("/chat/users/{id}/messages", chatAdmin.HandleDeleteUserMessages)
+						r.Post("/chat/users/{id}/mute", chatAdmin.HandleMuteUser)
+						r.Delete("/chat/users/{id}/mute", chatAdmin.HandleUnmuteUser)
+					}
+				})
 			})
 		}
 	})

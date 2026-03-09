@@ -20,9 +20,10 @@ var (
 )
 
 const (
-	maxChatMessageLength = 500
-	defaultChatLimit     = 50
-	maxChatLimit         = 100
+	maxChatMessageLength  = 500
+	defaultChatLimit      = 50
+	maxChatLimit          = 100
+	maxMuteDurationMinutes = 43200 // 30 days
 )
 
 // ChatService handles chat/shoutbox business logic.
@@ -145,6 +146,12 @@ func (s *ChatService) DeleteUserMessages(ctx context.Context, userID, actorID in
 		return 0, fmt.Errorf("delete user chat messages: %w", err)
 	}
 
+	s.eventBus.Publish(ctx, &event.ChatUserMessagesDeletedEvent{
+		Base:         event.NewBase(event.ChatUserMessagesDeleted, event.Actor{ID: actorID}),
+		TargetUserID: userID,
+		Count:        count,
+	})
+
 	return count, nil
 }
 
@@ -156,6 +163,9 @@ func (s *ChatService) MuteUser(ctx context.Context, userID, actorID int64, durat
 
 	if durationMinutes <= 0 {
 		return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidChatMessage)
+	}
+	if durationMinutes > maxMuteDurationMinutes {
+		return nil, fmt.Errorf("%w: duration cannot exceed %d minutes (30 days)", ErrInvalidChatMessage, maxMuteDurationMinutes)
 	}
 
 	mute := &model.ChatMute{

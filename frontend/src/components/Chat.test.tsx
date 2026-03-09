@@ -1,6 +1,7 @@
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { afterEach, describe, test, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "@/components/toast";
 import { ChatProvider } from "@/lib/ChatProvider";
 import { Chat } from "./Chat";
 
@@ -70,17 +71,19 @@ afterEach(cleanup);
 function renderChat() {
   return render(
     <MemoryRouter>
-      <ChatProvider>
-        <Chat />
-      </ChatProvider>
+      <ToastProvider>
+        <ChatProvider>
+          <Chat />
+        </ChatProvider>
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
 
 describe("Chat", () => {
   test("renders nothing when not authenticated", () => {
-    const { container } = renderChat();
-    expect(container.innerHTML).toBe("");
+    renderChat();
+    expect(screen.queryByText("Shoutbox")).toBeNull();
   });
 
   test("renders collapsed chat when authenticated", () => {

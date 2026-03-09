@@ -88,6 +88,7 @@ export function ChatModMenu({ userId, username }: ChatModMenuProps) {
               <input
                 type="number"
                 min="1"
+                max="43200"
                 value={muteDuration}
                 onChange={(e) => setMuteDuration(e.target.value)}
                 placeholder="Minutes"
