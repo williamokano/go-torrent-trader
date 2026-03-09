@@ -30,6 +30,7 @@ type Deps struct {
 	BanService          *service.BanService
 	MessageService      *service.MessageService
 	ChatService         *service.ChatService
+	WarningService      *service.WarningService
 	ChatHub             *ChatHub
 	PeerRepo             repository.PeerRepository
 	UserRepo             repository.UserRepository
@@ -146,6 +147,12 @@ func NewRouter(deps *Deps) chi.Router {
 						}
 
 						r.Get("/{id}", users.HandleGetProfile)
+
+						// User warnings endpoint (owner sees active, staff sees all)
+						if deps.WarningService != nil {
+							warningHandler := NewWarningHandler(deps.WarningService)
+							r.Get("/{id}/warnings", warningHandler.HandleGetUserWarnings)
+						}
 
 						// User activity endpoint (seeding/leeching/history — owner + staff only)
 						if activity != nil {
@@ -274,6 +281,14 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/users", admin.HandleListUsers)
 					r.Put("/users/{id}", admin.HandleUpdateUser)
 					r.Get("/groups", admin.HandleListGroups)
+				}
+
+				// Warning management endpoints
+				if deps.WarningService != nil {
+					warnings := NewWarningHandler(deps.WarningService)
+					r.Post("/warnings", warnings.HandleIssueWarning)
+					r.Get("/warnings", warnings.HandleListWarnings)
+					r.Post("/warnings/{id}/lift", warnings.HandleLiftWarning)
 				}
 
 				// Site settings (admin only)

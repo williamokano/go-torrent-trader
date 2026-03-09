@@ -6,6 +6,18 @@ import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
 import "./profile.css";
 
+interface UserWarning {
+  id: number;
+  type: string;
+  reason: string;
+  status: string;
+  issued_by_name: string | null;
+  lifted_by_name: string | null;
+  lifted_reason: string | null;
+  created_at: string;
+  lifted_at: string | null;
+}
+
 interface PublicUser {
   id: number;
   username: string;
@@ -74,6 +86,7 @@ export function UserProfilePage() {
   const [activityPage, setActivityPage] = useState(1);
   const [tabLoading, setTabLoading] = useState(false);
   const [tabError, setTabError] = useState<string | null>(null);
+  const [userWarnings, setUserWarnings] = useState<UserWarning[]>([]);
 
   const perPage = 25;
 
@@ -132,6 +145,30 @@ export function UserProfilePage() {
     profile &&
     currentUser &&
     (currentUser.id === profile.id || currentUser.isStaff);
+
+  // Fetch warnings for this user (owner sees own active, staff sees all)
+  useEffect(() => {
+    if (!profile || !currentUser) return;
+    if (currentUser.id !== profile.id && !currentUser.isStaff) return;
+
+    async function fetchWarnings() {
+      const token = getAccessToken();
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users/${profile!.id}/warnings`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setUserWarnings(data.warnings ?? []);
+        }
+      } catch {
+        // Silently fail — warnings are supplementary info
+      }
+    }
+
+    fetchWarnings();
+  }, [profile, currentUser]);
 
   const fetchUploads = useCallback(
     async (page: number) => {
@@ -340,6 +377,58 @@ export function UserProfilePage() {
           <div className="profile-stat__value">{profile.leeching_count}</div>
         </div>
       </div>
+
+      {userWarnings.length > 0 && (
+        <div className="profile-warnings">
+          <h2 className="profile-warnings__title">
+            Warnings ({userWarnings.filter((w) => w.status === "active").length}{" "}
+            active)
+          </h2>
+          <table className="profile-warnings__table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Date</th>
+                {currentUser?.isStaff && <th>Issued By</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {userWarnings.map((w) => (
+                <tr
+                  key={w.id}
+                  className={
+                    w.status === "active" ? "profile-warnings__row--active" : ""
+                  }
+                >
+                  <td>
+                    {w.type === "manual"
+                      ? "Manual"
+                      : w.type === "ratio_soft"
+                        ? "Ratio"
+                        : w.type === "ratio_ban"
+                          ? "Ratio Ban"
+                          : w.type}
+                  </td>
+                  <td className="profile-warnings__reason">{w.reason}</td>
+                  <td>
+                    <span
+                      className={`profile-warnings__status profile-warnings__status--${w.status}`}
+                    >
+                      {w.status}
+                    </span>
+                  </td>
+                  <td>{timeAgo(w.created_at)}</td>
+                  {currentUser?.isStaff && (
+                    <td>{w.issued_by_name ?? "System"}</td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {profile.info && (
         <div className="profile-bio">

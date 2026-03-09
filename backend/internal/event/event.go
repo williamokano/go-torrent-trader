@@ -34,6 +34,8 @@ const (
 	IPUnbanned              Type = "ip_unbanned"
 	MessageSent             Type = "message_sent"
 	ChatMessageDeleted      Type = "chat_message_deleted"
+	WarningIssued           Type = "warning_issued"
+	WarningLifted           Type = "warning_lifted"
 )
 
 // Event is the base interface for all domain events.
@@ -224,4 +226,19 @@ type MessageSentEvent struct {
 type ChatMessageDeletedEvent struct {
 	Base
 	MessageID int64 `json:"message_id"`
+}
+
+type WarningIssuedEvent struct {
+	Base
+	WarningID   int64  `json:"warning_id"`
+	UserID      int64  `json:"user_id"`
+	Username    string `json:"username"`
+	WarningType string `json:"warning_type"`
+}
+
+type WarningLiftedEvent struct {
+	Base
+	WarningID int64  `json:"warning_id"`
+	UserID    int64  `json:"user_id"`
+	Username  string `json:"username"`
 }

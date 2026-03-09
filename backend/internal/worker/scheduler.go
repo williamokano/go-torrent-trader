@@ -35,5 +35,14 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register recalc stats: %w", err)
 	}
 
+	// Check ratio warnings every 6 hours.
+	ratioTask, err := NewRatioWarningTask()
+	if err != nil {
+		return fmt.Errorf("create ratio warning task: %w", err)
+	}
+	if _, err := scheduler.Register("0 */6 * * *", ratioTask); err != nil {
+		return fmt.Errorf("register ratio warning: %w", err)
+	}
+
 	return nil
 }

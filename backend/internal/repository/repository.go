@@ -202,6 +202,27 @@ type ChatMessageRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// WarningRepository defines persistence operations for user warnings.
+type WarningRepository interface {
+	Create(ctx context.Context, warning *model.Warning) error
+	GetByID(ctx context.Context, id int64) (*model.Warning, error)
+	ListByUser(ctx context.Context, userID int64, includeInactive bool) ([]model.Warning, error)
+	ListAll(ctx context.Context, opts ListWarningsOptions) ([]model.Warning, int64, error)
+	Update(ctx context.Context, warning *model.Warning) error
+	CountActiveByUser(ctx context.Context, userID int64) (int, error)
+	GetActiveRatioWarning(ctx context.Context, userID int64) (*model.Warning, error)
+	GetUsersWithLowRatio(ctx context.Context, threshold float64, minDownloaded int64) ([]model.User, error)
+}
+
+// ListWarningsOptions holds filtering and pagination options for listing warnings.
+type ListWarningsOptions struct {
+	UserID  *int64
+	Status  *string
+	Search  string // search by username
+	Page    int
+	PerPage int
+}
+
 // ListReportsOptions holds filtering and pagination options for listing reports.
 type ListReportsOptions struct {
 	Status  *string // "pending", "resolved", or nil for all
