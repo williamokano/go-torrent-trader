@@ -174,9 +174,18 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task
 	}
 }
 
-// HandleRecalcStats recalculates site-wide statistics.
-func HandleRecalcStats(_ context.Context, _ *asynq.Task) error {
-	slog.Info("recalculating site statistics")
-	// TODO: implement stats recalculation
-	return nil
+// NewRecalcStatsHandler returns an asynq handler that pre-warms the stats cache.
+func NewRecalcStatsHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
+	return func(ctx context.Context, _ *asynq.Task) error {
+		if deps.StatsCache == nil {
+			slog.Info("recalc stats: stats cache not configured, skipping")
+			return nil
+		}
+
+		if err := deps.StatsCache.Warm(ctx); err != nil {
+			return fmt.Errorf("recalc stats: %w", err)
+		}
+		slog.Info("recalc stats: cache warmed successfully")
+		return nil
+	}
 }

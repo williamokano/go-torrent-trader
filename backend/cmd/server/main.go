@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -94,6 +95,18 @@ func run() int {
 		}()
 	}
 	slog.Info("session store initialized", "type", cfg.Session.Store)
+
+	// Redis client for caching (separate from session store).
+	redisOpts, err := redis.ParseURL(cfg.Redis.URL)
+	if err != nil {
+		slog.Error("failed to parse redis URL for cache", "error", err)
+		return 1
+	}
+	redisClient := redis.NewClient(redisOpts)
+	defer func() { _ = redisClient.Close() }()
+
+	statsCache := service.NewStatsCache(db, redisClient, cfg.Cache.StatsTTL)
+	slog.Info("stats cache initialized", "ttl", cfg.Cache.StatsTTL)
 
 	passwordResetStore := postgres.NewPasswordResetRepo(db)
 
@@ -182,6 +195,7 @@ func run() int {
 
 	deps := &handler.Deps{
 		DB:             db,
+		StatsCache:     statsCache,
 		AuthService:    authService,
 		SessionStore:   sessionStore,
 		UserService:    userService,
@@ -219,6 +233,7 @@ func run() int {
 		WarningSvc:      warningService,
 		SiteSettingsSvc: siteSettingsService,
 		EmailSender:     emailSender,
+		StatsCache:      statsCache,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)

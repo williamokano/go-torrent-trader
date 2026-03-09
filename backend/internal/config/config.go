@@ -13,7 +13,13 @@ type Config struct {
 	Storage  StorageConfig
 	Tracker  TrackerConfig
 	Site     SiteConfig
+	Cache    CacheConfig
 	Worker   WorkerConfig
+}
+
+// CacheConfig holds cache-related settings.
+type CacheConfig struct {
+	StatsTTL time.Duration // STATS_CACHE_TTL, default 30s
 }
 
 // WorkerConfig holds background worker settings.

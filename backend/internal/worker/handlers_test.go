@@ -184,9 +184,17 @@ func TestCleanupHandler_NoPeersRemovedSkipsRecount(t *testing.T) {
 
 // --- recalc stats handler test ----------------------------------------------
 
-func TestHandleRecalcStats(t *testing.T) {
+func TestRecalcStatsHandler_NilCache(t *testing.T) {
+	deps := &WorkerDeps{
+		PeerRepo:    &mockPeerRepo{},
+		TorrentRepo: &mockTorrentRepo{},
+		StatsCache:  nil,
+	}
+
+	handler := NewRecalcStatsHandler(deps)
 	task := asynq.NewTask(TaskRecalcStats, nil)
-	if err := HandleRecalcStats(context.Background(), task); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err := handler(context.Background(), task); err != nil {
+		t.Fatalf("unexpected error with nil cache: %v", err)
 	}
 }

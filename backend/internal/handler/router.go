@@ -14,6 +14,7 @@ import (
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
 	DB                  *sql.DB
+	StatsCache          *service.StatsCache
 	AuthService         *service.AuthService
 	SessionStore        service.SessionStore
 	UserService         *service.UserService
@@ -71,8 +72,10 @@ func NewRouter(deps *Deps) chi.Router {
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints
+		if deps != nil && deps.StatsCache != nil {
+			r.Get("/stats", HandleStats(deps.StatsCache))
+		}
 		if deps != nil && deps.DB != nil {
-			r.Get("/stats", HandleStats(deps.DB))
 			r.Get("/categories", HandleCategories(deps.DB))
 		}
 
