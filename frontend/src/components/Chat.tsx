@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { useChat } from "@/lib/useChat";
+import { ConfirmModal } from "@/components/modal";
 import { ChatModMenu } from "./ChatModMenu";
 import "./chat.css";
 
@@ -23,6 +24,7 @@ export function Chat() {
   } = useChat();
   const [collapsed, setCollapsed] = useState(true);
   const [input, setInput] = useState("");
+  const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -101,10 +103,7 @@ export function Chat() {
                 {isStaff && (
                   <button
                     className="chat__message-delete"
-                    onClick={() => {
-                      if (window.confirm("Delete this message?"))
-                        deleteMessage(msg.id);
-                    }}
+                    onClick={() => setDeletingMsgId(msg.id)}
                     title="Delete message"
                   >
                     x
@@ -136,6 +135,18 @@ export function Chat() {
           </div>
         </>
       )}
+      <ConfirmModal
+        isOpen={deletingMsgId !== null}
+        title="Delete Message"
+        message="Are you sure you want to delete this message?"
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => {
+          if (deletingMsgId !== null) deleteMessage(deletingMsgId);
+          setDeletingMsgId(null);
+        }}
+        onCancel={() => setDeletingMsgId(null)}
+      />
     </div>
   );
 }
