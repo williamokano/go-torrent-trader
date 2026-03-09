@@ -158,6 +158,16 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.WarningLiftedEvent)
 		return fmt.Sprintf("%s lifted warning from %s", e.Actor.Username, e.Username), e.Actor
 	})
+
+	listen(event.ChatUserMuted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ChatUserMutedEvent)
+		return fmt.Sprintf("User #%d muted in chat for %d minutes", e.TargetUserID, e.DurationMinutes), e.Actor
+	})
+
+	listen(event.ChatUserUnmuted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ChatUserUnmutedEvent)
+		return fmt.Sprintf("User #%d unmuted in chat", e.TargetUserID), e.Actor
+	})
 }
 
 func marshalMetadata(evt event.Event) *string {

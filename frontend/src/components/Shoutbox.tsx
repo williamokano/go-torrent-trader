@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useChat } from "@/lib/useChat";
+import { ConfirmModal } from "@/components/modal";
+import { ChatModMenu } from "./ChatModMenu";
 import "./shoutbox.css";
 
 function formatTime(iso: string): string {
@@ -18,13 +20,39 @@ export function Shoutbox() {
     messages,
     connected,
     isStaff,
+    muted,
+    muteExpiresAt,
     setMainChatVisible,
     sendMessage,
     deleteMessage,
     loadMore,
   } = useChat();
   const [input, setInput] = useState("");
+  const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null);
+  const [muteRemainingText, setMuteRemainingText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Update mute remaining time display periodically.
+  useEffect(() => {
+    if (!muted || !muteExpiresAt) return;
+    const computeText = () => {
+      const ms = new Date(muteExpiresAt).getTime() - Date.now();
+      if (ms <= 0) return "";
+      const mins = Math.ceil(ms / 60000);
+      return mins === 1 ? "1 minute" : `${mins} minutes`;
+    };
+    const raf = requestAnimationFrame(() => {
+      setMuteRemainingText(computeText());
+    });
+    const interval = setInterval(() => {
+      setMuteRemainingText(computeText());
+    }, 30000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(interval);
+      setMuteRemainingText("");
+    };
+  }, [muted, muteExpiresAt]);
 
   // Signal that the main chat is visible while this component is mounted
   useEffect(() => {
@@ -87,17 +115,21 @@ export function Shoutbox() {
             <span className="shoutbox__message-time">
               {formatTime(msg.created_at)}
             </span>
-            <Link
-              to={`/user/${msg.user_id}`}
-              className="shoutbox__message-user"
-            >
-              {msg.username}
-            </Link>
+            {isStaff ? (
+              <ChatModMenu userId={msg.user_id} username={msg.username} />
+            ) : (
+              <Link
+                to={`/user/${msg.user_id}`}
+                className="shoutbox__message-user"
+              >
+                {msg.username}
+              </Link>
+            )}
             <span className="shoutbox__message-text">{msg.message}</span>
             {isStaff && (
               <button
                 className="shoutbox__message-delete"
-                onClick={() => deleteMessage(msg.id)}
+                onClick={() => setDeletingMsgId(msg.id)}
                 title="Delete message"
               >
                 x
@@ -108,25 +140,42 @@ export function Shoutbox() {
         <div ref={messagesEndRef} />
       </div>
 
+      {muted && muteRemainingText && (
+        <div className="shoutbox__muted-notice">
+          You are muted. (expires in {muteRemainingText})
+        </div>
+      )}
       <div className="shoutbox__input-area">
         <input
           className="shoutbox__input"
           type="text"
-          placeholder="Type a message..."
+          placeholder={muted ? "You are muted" : "Type a message..."}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           maxLength={500}
-          disabled={!connected}
+          disabled={!connected || muted}
         />
         <button
           className="shoutbox__send-btn"
           onClick={handleSend}
-          disabled={!connected || !input.trim()}
+          disabled={!connected || !input.trim() || muted}
         >
           Send
         </button>
       </div>
+      <ConfirmModal
+        isOpen={deletingMsgId !== null}
+        title="Delete Message"
+        message="Are you sure you want to delete this message?"
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => {
+          if (deletingMsgId !== null) deleteMessage(deletingMsgId);
+          setDeletingMsgId(null);
+        }}
+        onCancel={() => setDeletingMsgId(null)}
+      />
     </div>
   );
 }

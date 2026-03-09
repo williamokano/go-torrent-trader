@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -26,6 +27,24 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 				slog.Error("maintenance: failed to resolve expired manual warnings", "error", err)
 			} else if resolved > 0 {
 				slog.Info("maintenance: resolved expired manual warnings", "count", resolved)
+			}
+		}
+
+		// 2. Clean up expired chat mutes and notify users via WebSocket
+		if deps.ChatSvc != nil {
+			unmutedUsers, err := deps.ChatSvc.CleanupExpiredMutes(ctx)
+			if err != nil {
+				slog.Error("maintenance: failed to clean expired chat mutes", "error", err)
+			} else if len(unmutedUsers) > 0 {
+				slog.Info("maintenance: cleaned expired chat mutes", "count", len(unmutedUsers))
+
+				// Send unmute WS events to affected users
+				if deps.SendToUser != nil {
+					payload, _ := json.Marshal(map[string]string{"type": "unmute"})
+					for _, userID := range unmutedUsers {
+						deps.SendToUser(userID, payload)
+					}
+				}
 			}
 		}
 

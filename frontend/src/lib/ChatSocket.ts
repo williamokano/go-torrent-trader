@@ -13,6 +13,9 @@ type WSMessage =
   | { type: "backfill"; messages: ChatMessage[] }
   | ({ type: "message" } & ChatMessage)
   | { type: "delete"; id: number }
+  | { type: "delete_user"; user_id: number }
+  | { type: "mute"; expires_at: string; reason: string }
+  | { type: "unmute" }
   | { type: "error"; message: string };
 
 export type ChatListener = (
@@ -21,7 +24,11 @@ export type ChatListener = (
     | { type: "disconnected" }
     | { type: "backfill"; messages: ChatMessage[] }
     | { type: "message"; message: ChatMessage }
-    | { type: "delete"; id: number },
+    | { type: "delete"; id: number }
+    | { type: "delete_user"; user_id: number }
+    | { type: "mute"; expires_at: string; reason: string }
+    | { type: "unmute" }
+    | { type: "error"; message: string },
 ) => void;
 
 function getWebSocketURL(): string {
@@ -104,6 +111,22 @@ class ChatSocket {
             break;
           case "delete":
             this.emit({ type: "delete", id: data.id });
+            break;
+          case "delete_user":
+            this.emit({ type: "delete_user", user_id: data.user_id });
+            break;
+          case "mute":
+            this.emit({
+              type: "mute",
+              expires_at: data.expires_at,
+              reason: data.reason,
+            });
+            break;
+          case "unmute":
+            this.emit({ type: "unmute" });
+            break;
+          case "error":
+            this.emit({ type: "error", message: data.message });
             break;
         }
       } catch {

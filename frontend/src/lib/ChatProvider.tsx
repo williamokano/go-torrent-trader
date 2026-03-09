@@ -9,17 +9,29 @@ import {
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
+import { useToast } from "@/components/toast";
 import { chatSocket, type ChatMessage, type ChatListener } from "./ChatSocket";
 
 export interface ChatContextValue {
   messages: ChatMessage[];
   connected: boolean;
   isStaff: boolean;
+  /** Whether the current user is muted in chat */
+  muted: boolean;
+  /** ISO timestamp when the mute expires */
+  muteExpiresAt: string | null;
   /** Whether the full-size shoutbox (home page) is currently mounted */
   mainChatVisible: boolean;
   setMainChatVisible: (visible: boolean) => void;
   sendMessage: (text: string) => void;
   deleteMessage: (id: number) => Promise<void>;
+  deleteUserMessages: (userId: number) => Promise<void>;
+  muteUser: (
+    userId: number,
+    durationMinutes: number,
+    reason: string,
+  ) => Promise<void>;
+  unmuteUser: (userId: number) => Promise<void>;
   loadMore: () => Promise<void>;
 }
 
@@ -27,14 +39,40 @@ export const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth();
+  const toast = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [muteExpiresAt, setMuteExpiresAt] = useState<string | null>(null);
   const [mainChatVisible, setMainChatVisible] = useState(false);
+  const muteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingMoreRef = useRef(false);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  // Schedule a timer that auto-clears the mute when it expires.
+  const scheduleMuteExpiry = useCallback((expiresAt: string) => {
+    if (muteTimerRef.current) {
+      clearTimeout(muteTimerRef.current);
+      muteTimerRef.current = null;
+    }
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) {
+      setMuted(false);
+      setMuteExpiresAt(null);
+      return;
+    }
+    muteTimerRef.current = setTimeout(() => {
+      setMuted(false);
+      setMuteExpiresAt(null);
+    }, ms);
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
       chatSocket.disconnect();
+      setMuted(false);
+      setMuteExpiresAt(null);
       return;
     }
 
@@ -57,39 +95,170 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         case "delete":
           setMessages((prev) => prev.filter((m) => m.id !== event.id));
           break;
+        case "delete_user":
+          setMessages((prev) =>
+            prev.filter((m) => m.user_id !== event.user_id),
+          );
+          break;
+        case "mute":
+          setMuted(true);
+          setMuteExpiresAt(event.expires_at);
+          scheduleMuteExpiry(event.expires_at);
+          break;
+        case "unmute":
+          setMuted(false);
+          setMuteExpiresAt(null);
+          if (muteTimerRef.current) {
+            clearTimeout(muteTimerRef.current);
+            muteTimerRef.current = null;
+          }
+          break;
+        case "error":
+          toast.error(event.message);
+          break;
       }
     };
 
     chatSocket.addListener(onEvent);
     chatSocket.connect();
+
+    // Check mute status via REST on mount (covers page refresh).
+    const token = getAccessToken();
+    if (token) {
+      fetch(`${getConfig().API_URL}/api/v1/chat/mute-status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((resp) => {
+          if (!resp.ok) return null;
+          return resp.json();
+        })
+        .then((data) => {
+          if (data?.muted) {
+            setMuted(true);
+            setMuteExpiresAt(data.expires_at);
+            scheduleMuteExpiry(data.expires_at);
+          }
+        })
+        .catch(() => {
+          // Ignore — WS mute event will cover this.
+        });
+    }
+
     return () => {
       chatSocket.removeListener(onEvent);
+      if (muteTimerRef.current) {
+        clearTimeout(muteTimerRef.current);
+        muteTimerRef.current = null;
+      }
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, scheduleMuteExpiry]);
 
   const sendMessage = useCallback((text: string) => {
     const trimmed = text.trim();
     if (trimmed) chatSocket.send(trimmed);
   }, []);
 
-  const deleteMessage = useCallback(async (id: number) => {
-    const token = getAccessToken();
-    if (!token) return;
-    try {
-      await fetch(`${getConfig().API_URL}/api/v1/chat/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      // ignore
-    }
-  }, []);
+  const deleteMessage = useCallback(
+    async (id: number) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/messages/${id}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to delete message");
+        }
+      } catch (err) {
+        console.error("deleteMessage failed:", err);
+        toast.error("Failed to delete message");
+      }
+    },
+    [toast],
+  );
+
+  const deleteUserMessages = useCallback(
+    async (userId: number) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/messages`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to delete user messages");
+        }
+      } catch (err) {
+        console.error("deleteUserMessages failed:", err);
+        toast.error("Failed to delete user messages");
+      }
+    },
+    [toast],
+  );
+
+  const muteUser = useCallback(
+    async (userId: number, durationMinutes: number, reason: string) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ duration_minutes: durationMinutes, reason }),
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to mute user");
+        }
+      } catch (err) {
+        console.error("muteUser failed:", err);
+        toast.error("Failed to mute user");
+      }
+    },
+    [toast],
+  );
+
+  const unmuteUser = useCallback(
+    async (userId: number) => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const resp = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/chat/users/${userId}/mute`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!resp.ok) {
+          toast.error("Failed to unmute user");
+        }
+      } catch (err) {
+        console.error("unmuteUser failed:", err);
+        toast.error("Failed to unmute user");
+      }
+    },
+    [toast],
+  );
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current) return;
-    if (messages.length === 0) return;
+    if (messagesRef.current.length === 0) return;
 
-    const oldestId = messages[0].id;
+    const oldestId = messagesRef.current[0].id;
     const token = getAccessToken();
     if (!token) return;
 
@@ -109,7 +278,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } finally {
       loadingMoreRef.current = false;
     }
-  }, [messages]);
+  }, []);
 
   return (
     <ChatContext.Provider
@@ -117,10 +286,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         messages,
         connected,
         isStaff: user?.isStaff ?? false,
+        muted,
+        muteExpiresAt,
         mainChatVisible,
         setMainChatVisible,
         sendMessage,
         deleteMessage,
+        deleteUserMessages,
+        muteUser,
+        unmuteUser,
         loadMore,
       }}
     >

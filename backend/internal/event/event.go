@@ -34,6 +34,9 @@ const (
 	IPUnbanned              Type = "ip_unbanned"
 	MessageSent             Type = "message_sent"
 	ChatMessageDeleted      Type = "chat_message_deleted"
+	ChatUserMessagesDeleted Type = "chat_user_messages_deleted"
+	ChatUserMuted           Type = "chat_user_muted"
+	ChatUserUnmuted         Type = "chat_user_unmuted"
 	WarningIssued           Type = "warning_issued"
 	WarningLifted           Type = "warning_lifted"
 )
@@ -226,6 +229,24 @@ type MessageSentEvent struct {
 type ChatMessageDeletedEvent struct {
 	Base
 	MessageID int64 `json:"message_id"`
+}
+
+type ChatUserMessagesDeletedEvent struct {
+	Base
+	TargetUserID int64 `json:"target_user_id"`
+	Count        int64 `json:"count"`
+}
+
+type ChatUserMutedEvent struct {
+	Base
+	TargetUserID    int64  `json:"target_user_id"`
+	DurationMinutes int    `json:"duration_minutes"`
+	Reason          string `json:"reason"`
+}
+
+type ChatUserUnmutedEvent struct {
+	Base
+	TargetUserID int64 `json:"target_user_id"`
 }
 
 type WarningIssuedEvent struct {

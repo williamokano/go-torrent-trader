@@ -94,6 +94,18 @@ func (r *ChatMessageRepo) ListBefore(ctx context.Context, beforeID int64, limit 
 	return msgs, nil
 }
 
+func (r *ChatMessageRepo) DeleteByUserID(ctx context.Context, userID int64) (int64, error) {
+	result, err := r.db.ExecContext(ctx, "DELETE FROM chat_messages WHERE user_id = $1", userID)
+	if err != nil {
+		return 0, fmt.Errorf("delete chat messages by user: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("checking rows affected: %w", err)
+	}
+	return n, nil
+}
+
 func (r *ChatMessageRepo) Delete(ctx context.Context, id int64) error {
 	result, err := r.db.ExecContext(ctx, "DELETE FROM chat_messages WHERE id = $1", id)
 	if err != nil {

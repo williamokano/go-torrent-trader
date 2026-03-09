@@ -1,0 +1,82 @@
+.chat-mod-menu {
+  display: inline-block;
+  position: relative;
+}
+
+.chat-mod-menu__trigger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--color-accent, #4a9eff);
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.chat-mod-menu__trigger:hover {
+  text-decoration-style: solid;
+}
+
+.chat-mod-menu__dropdown {
+  min-width: 180px;
+  background: var(--color-surface, #1e1e2e);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 4px 0;
+}
+
+.chat-mod-menu__item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--color-text, #ccc);
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.chat-mod-menu__item:hover {
+  background: var(--color-hover, rgba(255, 255, 255, 0.08));
+}
+
+.chat-mod-menu__mute-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #888);
+  font-weight: 600;
+}
+
+.chat-mod-menu__mute-form {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-mod-menu__mute-input {
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 3px;
+  background: var(--color-input-bg, #2a2a3e);
+  color: var(--color-text, #ccc);
+}
+
+.chat-mod-menu__mute-btn {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  background: var(--color-danger, #e74c3c);
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.chat-mod-menu__mute-btn:hover {
+  opacity: 0.9;
+}

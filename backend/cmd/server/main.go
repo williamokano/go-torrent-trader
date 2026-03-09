@@ -171,7 +171,8 @@ func run() int {
 	authService.SetBanChecker(banService)
 
 	chatMessageRepo := postgres.NewChatMessageRepo(db)
-	chatService := service.NewChatService(chatMessageRepo, userRepo, eventBus)
+	chatMuteRepo := postgres.NewChatMuteRepo(db)
+	chatService := service.NewChatService(chatMessageRepo, chatMuteRepo, userRepo, eventBus)
 
 	warningRepo := postgres.NewWarningRepo(db)
 	warningService := service.NewWarningService(warningRepo, userRepo, messageRepo, eventBus)
@@ -225,6 +226,8 @@ func run() int {
 		SiteSettingsSvc: siteSettingsService,
 		EmailSender:     emailSender,
 		StatsCache:      statsCache,
+		ChatSvc:         chatService,
+		SendToUser:      chatHub.SendToUser,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)

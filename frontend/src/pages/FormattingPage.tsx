@@ -47,17 +47,23 @@ const FORMAT_SECTIONS: FormatSection[] = [
       {
         name: "Heading 1",
         syntax: "# Heading 1",
-        preview: <span style={{ fontSize: "1.5em", fontWeight: 700 }}>Heading 1</span>,
+        preview: (
+          <span style={{ fontSize: "1.5em", fontWeight: 700 }}>Heading 1</span>
+        ),
       },
       {
         name: "Heading 2",
         syntax: "## Heading 2",
-        preview: <span style={{ fontSize: "1.3em", fontWeight: 700 }}>Heading 2</span>,
+        preview: (
+          <span style={{ fontSize: "1.3em", fontWeight: 700 }}>Heading 2</span>
+        ),
       },
       {
         name: "Heading 3",
         syntax: "### Heading 3",
-        preview: <span style={{ fontSize: "1.1em", fontWeight: 700 }}>Heading 3</span>,
+        preview: (
+          <span style={{ fontSize: "1.1em", fontWeight: 700 }}>Heading 3</span>
+        ),
       },
     ],
   },
@@ -156,7 +162,10 @@ const FORMAT_SECTIONS: FormatSection[] = [
         name: "Task list",
         syntax: "- [x] Completed task\n- [ ] Pending task",
         preview: (
-          <ul className="formatting__preview-list" style={{ listStyle: "none" }}>
+          <ul
+            className="formatting__preview-list"
+            style={{ listStyle: "none" }}
+          >
             <li>&#9745; Completed task</li>
             <li>&#9744; Pending task</li>
           </ul>

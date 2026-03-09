@@ -134,6 +134,22 @@ func (h *ChatHub) Run() {
 	}
 }
 
+// SendToUser sends a payload to all connected clients belonging to the given user.
+func (h *ChatHub) SendToUser(userID int64, payload []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		if client.userID == userID {
+			select {
+			case client.send <- payload:
+			default:
+				// Buffer full — skip (will be cleaned up on next broadcast).
+			}
+		}
+	}
+}
+
 // BroadcastDelete sends a delete event to all connected clients.
 func (h *ChatHub) BroadcastDelete(id int64) {
 	payload := map[string]interface{}{
@@ -143,6 +159,21 @@ func (h *ChatHub) BroadcastDelete(id int64) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		slog.Error("failed to marshal delete broadcast", "error", err)
+		return
+	}
+	h.broadcast <- ChatBroadcast{Data: data}
+}
+
+// BroadcastDeleteUser sends a delete_user event to all connected clients,
+// instructing them to remove all messages from the given user.
+func (h *ChatHub) BroadcastDeleteUser(userID int64) {
+	payload := map[string]interface{}{
+		"type":    "delete_user",
+		"user_id": userID,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("failed to marshal delete_user broadcast", "error", err)
 		return
 	}
 	h.broadcast <- ChatBroadcast{Data: data}
@@ -225,6 +256,9 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Send backfill before starting pumps.
 	h.sendBackfill(client)
 
+	// Send mute status if the user has an active mute.
+	h.sendMuteStatus(client)
+
 	// Start the write pump (single writer goroutine per connection).
 	go client.writePump()
 
@@ -262,6 +296,37 @@ func (h *ChatHub) sendBackfill(client *ChatClient) {
 	case client.send <- data:
 	default:
 		slog.Debug("failed to send backfill, client send buffer full")
+	}
+}
+
+func (h *ChatHub) sendMuteStatus(client *ChatClient) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	mute, err := h.chatSvc.GetActiveMute(ctx, client.userID)
+	if err != nil {
+		slog.Error("failed to check mute status on connect", "error", err)
+		return
+	}
+	if mute == nil {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"type":       "mute",
+		"expires_at": mute.ExpiresAt.Format(time.RFC3339),
+		"reason":     mute.Reason,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("failed to marshal mute status", "error", err)
+		return
+	}
+
+	select {
+	case client.send <- data:
+	default:
+		slog.Debug("failed to send mute status, client send buffer full")
 	}
 }
 
