@@ -74,6 +74,17 @@ export function UserProfilePage() {
 
   const perPage = 25;
 
+  // Reset tab and stale data when navigating to a different profile
+  useEffect(() => {
+    setActiveTab("uploads");
+    setUploads([]);
+    setUploadsTotal(0);
+    setUploadsPage(1);
+    setActivity([]);
+    setActivityTotal(0);
+    setActivityPage(1);
+  }, [id]);
+
   useEffect(() => {
     const numericId = Number(id);
     if (!id || isNaN(numericId)) {

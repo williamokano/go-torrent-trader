@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"math"
 	"net/http"
 	"strconv"
 
@@ -33,12 +32,11 @@ func NewUserActivityHandler(
 }
 
 // HandleUserTorrents handles GET /api/v1/users/{id}/torrents — public uploaded torrents.
+// This endpoint is publicly accessible. Anonymous torrents are filtered out unless
+// the viewer is the profile owner or staff.
 func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.Request) {
-	viewerID, ok := middleware.UserIDFromContext(r.Context())
-	if !ok {
-		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
-		return
-	}
+	// Auth is optional — endpoint is public
+	viewerID, hasAuth := middleware.UserIDFromContext(r.Context())
 	viewerPerms := middleware.PermissionsFromContext(r.Context())
 
 	profileUserID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -63,12 +61,19 @@ func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.
 		return
 	}
 
-	isOwnerOrStaff := viewerID == profileUserID || viewerPerms.IsStaff()
+	isOwnerOrStaff := hasAuth && (viewerID == profileUserID || viewerPerms.IsStaff())
 
-	items := make([]map[string]interface{}, len(torrents))
+	// Filter out anonymous torrents for non-owner/non-staff viewers
+	var items []map[string]interface{}
 	for i := range torrents {
 		t := &torrents[i]
-		item := map[string]interface{}{
+
+		if t.Anonymous && !isOwnerOrStaff {
+			total-- // adjust total to reflect filtered results
+			continue
+		}
+
+		items = append(items, map[string]interface{}{
 			"id":              t.ID,
 			"name":            t.Name,
 			"size":            t.Size,
@@ -77,14 +82,11 @@ func (h *UserActivityHandler) HandleUserTorrents(w http.ResponseWriter, r *http.
 			"times_completed": t.TimesCompleted,
 			"category_name":   t.CategoryName,
 			"created_at":      t.CreatedAt,
-		}
+		})
+	}
 
-		// If anonymous and viewer is not the owner or staff, mark as anonymous
-		if t.Anonymous && !isOwnerOrStaff {
-			item["anonymous"] = true
-		}
-
-		items[i] = item
+	if items == nil {
+		items = []map[string]interface{}{}
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -198,16 +200,16 @@ func (h *UserActivityHandler) handleHistoryTab(w http.ResponseWriter, r *http.Re
 
 	items := make([]map[string]interface{}, len(history))
 	for i := range history {
-		h := &history[i]
+		entry := &history[i]
 		items[i] = map[string]interface{}{
-			"torrent_id":    h.TorrentID,
-			"torrent_name":  h.TorrentName,
-			"uploaded":      h.Uploaded,
-			"downloaded":    h.Downloaded,
-			"ratio":         safeRatio(h.Uploaded, h.Downloaded),
-			"seeder":        h.Seeder,
-			"completed_at":  h.CompletedAt,
-			"last_announce": h.LastAnnounce,
+			"torrent_id":    entry.TorrentID,
+			"torrent_name":  entry.TorrentName,
+			"uploaded":      entry.Uploaded,
+			"downloaded":    entry.Downloaded,
+			"ratio":         safeRatio(entry.Uploaded, entry.Downloaded),
+			"seeder":        entry.Seeder,
+			"completed_at":  entry.CompletedAt,
+			"last_announce": entry.LastAnnounce,
 		}
 	}
 
@@ -240,7 +242,7 @@ func safeRatio(uploaded, downloaded int64) float64 {
 		if uploaded == 0 {
 			return 0
 		}
-		return math.Inf(1)
+		return -1 // sentinel for "infinite" ratio — frontend formatRatio handles this
 	}
 	return float64(uploaded) / float64(downloaded)
 }

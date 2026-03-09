@@ -14,5 +14,9 @@ CREATE TABLE transfer_history (
 CREATE INDEX idx_transfer_history_user ON transfer_history (user_id);
 CREATE INDEX idx_transfer_history_torrent ON transfer_history (torrent_id);
 
+-- Composite index for user activity queries (seeding/leeching tabs)
+CREATE INDEX IF NOT EXISTS idx_peers_user_seeder ON peers (user_id, seeder);
+
 -- +goose Down
+DROP INDEX IF EXISTS idx_peers_user_seeder;
 DROP TABLE IF EXISTS transfer_history;

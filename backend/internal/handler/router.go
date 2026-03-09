@@ -119,31 +119,39 @@ func NewRouter(deps *Deps) chi.Router {
 				})
 			})
 
-			// User profile and member list endpoints (all protected)
+			// User profile and member list endpoints
 			if deps.UserService != nil {
 				users := NewUserHandler(deps.UserService)
 				r.Route("/users", func(r chi.Router) {
-					authMiddleware(r)
-
-					// Member list endpoints (must be before /{id} to avoid Chi matching "staff" as an id)
-					if deps.MemberService != nil {
-						members := NewMemberHandler(deps.MemberService)
-						r.Get("/", members.HandleList)
-						r.Get("/staff", members.HandleStaff)
-					}
-
-					r.Get("/{id}", users.HandleGetProfile)
-
-					// User torrent activity endpoints
+					// Public endpoint with optional auth (for anonymous torrent filtering)
 					if deps.TorrentService != nil && deps.PeerRepo != nil && deps.TransferHistoryRepo != nil {
 						activity := NewUserActivityHandler(deps.TorrentService, deps.PeerRepo, deps.TransferHistoryRepo)
-						r.Get("/{id}/torrents", activity.HandleUserTorrents)
-						r.Get("/{id}/activity", activity.HandleUserActivity)
+						r.With(mw.OptionalAuth(validator)).Get("/{id}/torrents", activity.HandleUserTorrents)
 					}
 
-					r.Put("/me/profile", users.HandleUpdateProfile)
-					r.Put("/me/password", users.HandleChangePassword)
-					r.Post("/me/passkey", users.HandleRegeneratePasskey)
+					// All remaining endpoints require auth
+					r.Group(func(r chi.Router) {
+						authMiddleware(r)
+
+						// Member list endpoints (must be before /{id} to avoid Chi matching "staff" as an id)
+						if deps.MemberService != nil {
+							members := NewMemberHandler(deps.MemberService)
+							r.Get("/", members.HandleList)
+							r.Get("/staff", members.HandleStaff)
+						}
+
+						r.Get("/{id}", users.HandleGetProfile)
+
+						// User activity endpoint (seeding/leeching/history — owner + staff only)
+						if deps.TorrentService != nil && deps.PeerRepo != nil && deps.TransferHistoryRepo != nil {
+							activity := NewUserActivityHandler(deps.TorrentService, deps.PeerRepo, deps.TransferHistoryRepo)
+							r.Get("/{id}/activity", activity.HandleUserActivity)
+						}
+
+						r.Put("/me/profile", users.HandleUpdateProfile)
+						r.Put("/me/password", users.HandleChangePassword)
+						r.Post("/me/passkey", users.HandleRegeneratePasskey)
+					})
 				})
 			}
 
