@@ -1090,6 +1090,64 @@
 - Frontend: buttons in the admin user edit panel
 - Staff can reset passwords for users at or below their group level (cannot reset admin passwords unless admin)
 
+#### BE-8.9: Per-User Privilege Restrictions [M]
+**As a** staff member
+**I want** to restrict specific privileges for a user without fully disabling their account
+**So that** I can apply proportional consequences for rule violations
+
+**Acceptance Criteria:**
+- New restriction flags on users table: `can_download`, `can_upload`, `can_chat` (all default `true`)
+- Migration adds columns with `DEFAULT true` so existing users are unaffected
+- `PUT /api/v1/admin/users/{id}/restrictions` — set restriction flags `{can_download, can_upload, can_chat}` with optional `reason` and `expires_at`
+- Restrictions are checked in the relevant handlers:
+  - `can_download=false` → download .torrent file returns 403 with "Your download privileges have been suspended"
+  - `can_upload=false` → upload torrent returns 403 with "Your upload privileges have been suspended"
+  - `can_chat=false` → WebSocket chat rejects messages with "Your chat privileges have been suspended"
+- Restrictions table: `user_restrictions` (id, user_id, restriction_type, reason, issued_by, expires_at, created_at) for audit history
+- Maintenance job auto-removes expired restrictions
+- User profile shows active restrictions to the user (so they know why they can't download/upload/chat)
+- Admin user detail shows restriction history
+- Restriction issued/removed events logged to activity log
+- Frontend: restriction controls in admin user edit panel, checkboxes + optional reason/expiry
+
+#### BE-8.10: Tiered Warning Escalation [S]
+**As a** site operator
+**I want** optional automatic escalation based on warning count
+**So that** moderation consequences are consistent and predictable
+
+**Acceptance Criteria:**
+- Configurable via site settings (all optional, disabled by default):
+  - `warning_escalation_enabled` — master toggle (default `false`)
+  - `warning_count_restrict` — number of active warnings before privilege restriction (default 2)
+  - `warning_count_ban` — number of active warnings before account ban (default 3)
+  - `warning_restrict_type` — which privilege to restrict: `download`, `upload`, `chat`, or `all` (default `download`)
+  - `warning_restrict_days` — duration of the restriction in days (default 7)
+- When a new manual warning is issued, the job checks the user's active warning count:
+  - If count >= `warning_count_restrict` and < `warning_count_ban`: apply privilege restriction (requires BE-8.9)
+  - If count >= `warning_count_ban`: disable account
+- Escalation is logged to activity log with the trigger reason
+- Staff can always override (lift warnings, re-enable accounts, remove restrictions)
+- When disabled (`warning_escalation_enabled=false`), warnings remain purely informational (current behavior)
+
+#### BE-8.11: Quick Ban Action [S]
+**As a** staff member
+**I want** a one-click ban action that combines account disable + warning + optional IP ban
+**So that** I can swiftly handle severe violations without multiple steps
+
+**Acceptance Criteria:**
+- `POST /api/v1/admin/users/{id}/ban` — accepts `{reason, ban_ip?, ban_email?, duration_days?}`
+- In a single transaction:
+  - Sets `enabled=false` on the user
+  - Creates a warning record (type `manual`, status `escalated`) with the reason
+  - Optionally creates an IP ban for the user's last known IP (if `ban_ip=true`)
+  - Optionally creates an email ban for the user's email domain (if `ban_email=true`)
+  - Invalidates all user sessions
+  - Sends a PM to the user with the ban reason (before disabling)
+- If `duration_days` is set, the ban is temporary — maintenance job re-enables after expiry
+- Activity log records the ban with all details (IP ban, email ban, duration)
+- Frontend: "Ban User" button in admin user management with a modal for reason, checkboxes for IP/email ban, optional duration
+- Separate from the existing warning lift/escalate flow — this is a direct moderation action
+
 ---
 
 ### Epic BE-9: Cleanup & Maintenance Jobs
