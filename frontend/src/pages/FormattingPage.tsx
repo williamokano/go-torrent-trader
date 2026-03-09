@@ -17,23 +17,47 @@ const FORMAT_SECTIONS: FormatSection[] = [
     examples: [
       {
         name: "Bold",
-        syntax: "[b]bold text[/b]",
+        syntax: "**bold text**",
         preview: <b>bold text</b>,
       },
       {
         name: "Italic",
-        syntax: "[i]italic text[/i]",
+        syntax: "*italic text*",
         preview: <i>italic text</i>,
       },
       {
-        name: "Underline",
-        syntax: "[u]underlined text[/u]",
-        preview: <u>underlined text</u>,
+        name: "Strikethrough",
+        syntax: "~~struck text~~",
+        preview: <s>struck text</s>,
       },
       {
-        name: "Strikethrough",
-        syntax: "[s]struck text[/s]",
-        preview: <s>struck text</s>,
+        name: "Bold & Italic",
+        syntax: "***bold italic***",
+        preview: (
+          <b>
+            <i>bold italic</i>
+          </b>
+        ),
+      },
+    ],
+  },
+  {
+    title: "Headings",
+    examples: [
+      {
+        name: "Heading 1",
+        syntax: "# Heading 1",
+        preview: <span style={{ fontSize: "1.5em", fontWeight: 700 }}>Heading 1</span>,
+      },
+      {
+        name: "Heading 2",
+        syntax: "## Heading 2",
+        preview: <span style={{ fontSize: "1.3em", fontWeight: 700 }}>Heading 2</span>,
+      },
+      {
+        name: "Heading 3",
+        syntax: "### Heading 3",
+        preview: <span style={{ fontSize: "1.1em", fontWeight: 700 }}>Heading 3</span>,
       },
     ],
   },
@@ -41,17 +65,8 @@ const FORMAT_SECTIONS: FormatSection[] = [
     title: "Links & Images",
     examples: [
       {
-        name: "URL (auto label)",
-        syntax: "[url]https://example.com[/url]",
-        preview: (
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            https://example.com
-          </a>
-        ),
-      },
-      {
-        name: "URL (custom label)",
-        syntax: "[url=https://example.com]Click here[/url]",
+        name: "Link",
+        syntax: "[Click here](https://example.com)",
         preview: (
           <a href="#" onClick={(e) => e.preventDefault()}>
             Click here
@@ -59,8 +74,17 @@ const FORMAT_SECTIONS: FormatSection[] = [
         ),
       },
       {
+        name: "Auto-link",
+        syntax: "https://example.com",
+        preview: (
+          <a href="#" onClick={(e) => e.preventDefault()}>
+            https://example.com
+          </a>
+        ),
+      },
+      {
         name: "Image",
-        syntax: "[img]https://example.com/image.png[/img]",
+        syntax: "![alt text](https://example.com/image.png)",
         preview: (
           <span className="formatting__preview-muted">
             (image would render here)
@@ -74,12 +98,12 @@ const FORMAT_SECTIONS: FormatSection[] = [
     examples: [
       {
         name: "Inline code",
-        syntax: "[code]inline code[/code]",
+        syntax: "`inline code`",
         preview: <code>inline code</code>,
       },
       {
         name: "Code block",
-        syntax: "[pre]code block\nmultiple lines[/pre]",
+        syntax: "```\ncode block\nmultiple lines\n```",
         preview: (
           <pre className="formatting__preview-code">
             {"code block\nmultiple lines"}
@@ -88,49 +112,17 @@ const FORMAT_SECTIONS: FormatSection[] = [
       },
       {
         name: "Quote",
-        syntax: "[quote]quoted text[/quote]",
+        syntax: "> quoted text",
         preview: <blockquote>quoted text</blockquote>,
       },
       {
-        name: "Named quote",
-        syntax: "[quote=username]their words[/quote]",
+        name: "Nested quote",
+        syntax: "> first level\n>> nested quote",
         preview: (
           <blockquote>
-            <strong>username</strong> wrote: their words
+            first level
+            <blockquote>nested quote</blockquote>
           </blockquote>
-        ),
-      },
-    ],
-  },
-  {
-    title: "Colors & Sizes",
-    examples: [
-      {
-        name: "Color",
-        syntax: "[color=red]red text[/color]",
-        preview: (
-          <span className="formatting__preview-color-red">red text</span>
-        ),
-      },
-      {
-        name: "Color (hex)",
-        syntax: "[color=#00ff00]green text[/color]",
-        preview: (
-          <span className="formatting__preview-color-green">green text</span>
-        ),
-      },
-      {
-        name: "Size (small)",
-        syntax: "[size=1]small text[/size]",
-        preview: (
-          <span className="formatting__preview-size-small">small text</span>
-        ),
-      },
-      {
-        name: "Size (large)",
-        syntax: "[size=5]large text[/size]",
-        preview: (
-          <span className="formatting__preview-size-large">large text</span>
         ),
       },
     ],
@@ -140,7 +132,7 @@ const FORMAT_SECTIONS: FormatSection[] = [
     examples: [
       {
         name: "Unordered list",
-        syntax: "[list]\n[*]Item one\n[*]Item two\n[*]Item three\n[/list]",
+        syntax: "- Item one\n- Item two\n- Item three",
         preview: (
           <ul className="formatting__preview-list">
             <li>Item one</li>
@@ -151,14 +143,49 @@ const FORMAT_SECTIONS: FormatSection[] = [
       },
       {
         name: "Ordered list",
-        syntax:
-          "[list=1]\n[*]First item\n[*]Second item\n[*]Third item\n[/list]",
+        syntax: "1. First item\n2. Second item\n3. Third item",
         preview: (
           <ol className="formatting__preview-list">
             <li>First item</li>
             <li>Second item</li>
             <li>Third item</li>
           </ol>
+        ),
+      },
+      {
+        name: "Task list",
+        syntax: "- [x] Completed task\n- [ ] Pending task",
+        preview: (
+          <ul className="formatting__preview-list" style={{ listStyle: "none" }}>
+            <li>&#9745; Completed task</li>
+            <li>&#9744; Pending task</li>
+          </ul>
+        ),
+      },
+    ],
+  },
+  {
+    title: "Tables",
+    examples: [
+      {
+        name: "Table",
+        syntax:
+          "| Header 1 | Header 2 |\n| -------- | -------- |\n| Cell 1   | Cell 2   |",
+        preview: (
+          <table className="formatting__preview-table">
+            <thead>
+              <tr>
+                <th>Header 1</th>
+                <th>Header 2</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Cell 1</td>
+                <td>Cell 2</td>
+              </tr>
+            </tbody>
+          </table>
         ),
       },
     ],
@@ -168,26 +195,17 @@ const FORMAT_SECTIONS: FormatSection[] = [
     examples: [
       {
         name: "Horizontal rule",
-        syntax: "[hr]",
+        syntax: "---",
         preview: <hr className="formatting__preview-hr" />,
       },
       {
         name: "Spoiler",
-        syntax: "[spoiler]hidden text[/spoiler]",
+        syntax: "!!hidden text!!",
         preview: (
-          <span
-            className="formatting__preview-spoiler"
-            title="Hover or click to reveal"
-          >
+          <details>
+            <summary>Spoiler</summary>
             hidden text
-          </span>
-        ),
-      },
-      {
-        name: "Align center",
-        syntax: "[center]centered text[/center]",
-        preview: (
-          <div className="formatting__preview-center">centered text</div>
+          </details>
         ),
       },
     ],
@@ -199,7 +217,7 @@ export function FormattingPage() {
     <div className="formatting">
       <h1 className="formatting__title">Formatting Reference</h1>
       <p className="formatting__subtitle">
-        Use BBCode tags to format text in descriptions, comments, and messages.
+        Use Markdown to format text in descriptions, comments, and messages.
       </p>
 
       {FORMAT_SECTIONS.map((section) => (
@@ -229,10 +247,10 @@ export function FormattingPage() {
       ))}
 
       <div className="formatting__note">
-        This is a reference guide for supported formatting tags. Tags can be
-        nested (e.g.,{" "}
-        <code className="formatting__syntax">[b][i]bold italic[/i][/b]</code>).
-        Not all tags may be available in all areas of the site.
+        This is a reference guide for supported Markdown formatting. Syntax can
+        be combined (e.g.,{" "}
+        <code className="formatting__syntax">***bold italic***</code>). Not all
+        formatting may be available in all areas of the site.
       </div>
     </div>
   );
