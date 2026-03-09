@@ -457,6 +457,8 @@ export interface components {
       category_id?: number;
       /** @description Name of the category (resolved via JOIN) */
       category_name?: string;
+      /** @description Image URL for the category (resolved via JOIN) */
+      category_image_url?: string | null;
       /** Format: int64 */
       uploader_id?: number;
       anonymous?: boolean;

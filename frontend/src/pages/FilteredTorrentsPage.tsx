@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { Pagination } from "@/components/Pagination";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import "./browse.css";
@@ -98,8 +99,8 @@ export function FilteredTorrentsPage({
         <table className="browse__table">
           <thead>
             <tr>
+              <th title="Category">Cat.</th>
               <th>Name</th>
-              <th>Category</th>
               <th>Uploader</th>
               <th>Size</th>
               <th>S</th>
@@ -111,6 +112,12 @@ export function FilteredTorrentsPage({
             {torrents.map((t) => (
               <tr key={t.id}>
                 <td>
+                  <CategoryIcon
+                    name={t.category_name ?? "?"}
+                    imageUrl={t.category_image_url}
+                  />
+                </td>
+                <td>
                   <span
                     className={`browse__health ${healthClass(t.seeders ?? 0)}`}
                   />
@@ -121,7 +128,6 @@ export function FilteredTorrentsPage({
                     {t.name}
                   </Link>
                 </td>
-                <td>{t.category_name ?? "Unknown"}</td>
                 <td>
                   {t.anonymous ? (
                     <span className="browse__anonymous">Anonymous</span>

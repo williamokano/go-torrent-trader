@@ -13,6 +13,7 @@ import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import { NfoViewer } from "@/components/NfoViewer";
 import { getConfig } from "@/config";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import "./torrent-detail.css";
 
 function healthClass(seeders: number): string {
@@ -294,7 +295,11 @@ export function TorrentDetailPage() {
           {(() => {
             const path = (
               torrent as unknown as {
-                category_path?: Array<{ id: number; name: string }>;
+                category_path?: Array<{
+                  id: number;
+                  name: string;
+                  image_url?: string;
+                }>;
               }
             ).category_path;
             if (path && path.length > 0) {
@@ -305,6 +310,7 @@ export function TorrentDetailPage() {
                       {" > "}
                     </span>
                   )}
+                  <CategoryIcon name={cat.name} imageUrl={cat.image_url} />{" "}
                   <Link
                     to={`/browse?cat=${cat.id}`}
                     className="torrent-detail__category-link"

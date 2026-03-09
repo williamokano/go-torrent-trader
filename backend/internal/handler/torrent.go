@@ -357,14 +357,15 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 	}
 
 	resp := map[string]interface{}{
-		"id":              t.ID,
-		"name":            t.Name,
-		"info_hash":       hex.EncodeToString(t.InfoHash),
-		"size":            t.Size,
-		"category_id":     t.CategoryID,
-		"category_name":   t.CategoryName,
-		"uploader_id":     uploaderID,
-		"anonymous":       t.Anonymous,
+		"id":                 t.ID,
+		"name":               t.Name,
+		"info_hash":          hex.EncodeToString(t.InfoHash),
+		"size":               t.Size,
+		"category_id":        t.CategoryID,
+		"category_name":      t.CategoryName,
+		"category_image_url": t.CategoryImageURL,
+		"uploader_id":        uploaderID,
+		"anonymous":          t.Anonymous,
 		"uploader_name":   uploaderName,
 		"seeders":         t.Seeders,
 		"leechers":        t.Leechers,
@@ -400,10 +401,14 @@ func (h *TorrentHandler) buildCategoryPath(ctx context.Context, categoryID int64
 		if err != nil {
 			break
 		}
-		chain = append(chain, map[string]interface{}{
+		entry := map[string]interface{}{
 			"id":   cat.ID,
 			"name": cat.Name,
-		})
+		}
+		if cat.ImageURL != nil {
+			entry["image_url"] = *cat.ImageURL
+		}
+		chain = append(chain, entry)
 		if cat.ParentID == nil {
 			break
 		}

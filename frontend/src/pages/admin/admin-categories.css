@@ -33,8 +33,9 @@
 .admin-categories__table th,
 .admin-categories__table td {
   text-align: left;
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-sm);
   border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
 }
 
 .admin-categories__table th {
@@ -47,35 +48,29 @@
   color: var(--color-text-primary);
 }
 
-.admin-categories__actions {
-  display: flex;
-  gap: var(--space-xs);
-}
 
 .admin-categories__edit-btn,
 .admin-categories__delete-btn {
+  margin-right: var(--space-xs);
   padding: 2px 8px;
-  background: none;
-  border: 1px solid var(--color-border);
+  color: white;
+  border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: var(--text-xs);
 }
 
 .admin-categories__edit-btn {
-  color: var(--color-accent);
-}
-
-.admin-categories__edit-btn:hover {
-  background-color: var(--color-bg-tertiary);
+  background-color: var(--color-accent);
 }
 
 .admin-categories__delete-btn {
-  color: var(--color-danger, #dc3545);
+  background-color: var(--color-danger, #dc3545);
 }
 
+.admin-categories__edit-btn:hover,
 .admin-categories__delete-btn:hover {
-  background-color: var(--color-danger-bg, #f8d7da);
+  opacity: 0.85;
 }
 
 .admin-categories__delete-btn:disabled {
@@ -130,6 +125,12 @@
   color: var(--color-text-primary);
   cursor: pointer;
   font-size: var(--text-sm);
+}
+
+.admin-categories__image-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 .admin-categories__error {

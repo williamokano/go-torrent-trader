@@ -11,7 +11,7 @@ import (
 )
 
 const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo, t.category_id,
-	c.name AS category_name,
+	c.name AS category_name, c.image_url AS category_image_url,
 	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
 	t.visible, t.banned, t.free, t.silver, t.file_count, t.files,
 	CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END AS uploader_name,
@@ -36,7 +36,7 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 	var t model.Torrent
 	err := row.Scan(
 		&t.ID, &t.Name, &t.InfoHash, &t.Size, &t.Description, &t.Nfo,
-		&t.CategoryID, &t.CategoryName,
+		&t.CategoryID, &t.CategoryName, &t.CategoryImageURL,
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
 		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.UploaderName,

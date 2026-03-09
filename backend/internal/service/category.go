@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -12,9 +13,9 @@ import (
 )
 
 var (
-	ErrCategoryNotFound     = errors.New("category not found")
-	ErrCategoryHasTorrents  = errors.New("category has torrents and cannot be deleted")
-	ErrInvalidCategory      = errors.New("invalid category")
+	ErrCategoryNotFound    = errors.New("category not found")
+	ErrCategoryHasTorrents = errors.New("category has torrents and cannot be deleted")
+	ErrInvalidCategory     = errors.New("invalid category")
 )
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -40,10 +41,11 @@ func (s *CategoryService) List(ctx context.Context) ([]model.Category, error) {
 
 // CreateCategoryRequest holds the input for creating a category.
 type CreateCategoryRequest struct {
-	Name      string `json:"name"`
-	Slug      string `json:"slug"`
-	ParentID  *int64 `json:"parent_id"`
-	SortOrder int    `json:"sort_order"`
+	Name      string  `json:"name"`
+	Slug      string  `json:"slug"`
+	ParentID  *int64  `json:"parent_id"`
+	ImageURL  *string `json:"image_url"`
+	SortOrder int     `json:"sort_order"`
 }
 
 // Create creates a new category.
@@ -58,10 +60,15 @@ func (s *CategoryService) Create(ctx context.Context, req CreateCategoryRequest)
 		slug = generateSlug(name)
 	}
 
+	if err := validateImageURL(req.ImageURL); err != nil {
+		return nil, err
+	}
+
 	cat := &model.Category{
 		Name:      name,
 		Slug:      slug,
 		ParentID:  req.ParentID,
+		ImageURL:  req.ImageURL,
 		SortOrder: req.SortOrder,
 	}
 
@@ -73,10 +80,11 @@ func (s *CategoryService) Create(ctx context.Context, req CreateCategoryRequest)
 
 // UpdateCategoryRequest holds the input for updating a category.
 type UpdateCategoryRequest struct {
-	Name      string `json:"name"`
-	Slug      string `json:"slug"`
-	ParentID  *int64 `json:"parent_id"`
-	SortOrder int    `json:"sort_order"`
+	Name      string  `json:"name"`
+	Slug      string  `json:"slug"`
+	ParentID  *int64  `json:"parent_id"`
+	ImageURL  *string `json:"image_url"`
+	SortOrder int     `json:"sort_order"`
 }
 
 // Update updates an existing category.
@@ -96,9 +104,14 @@ func (s *CategoryService) Update(ctx context.Context, id int64, req UpdateCatego
 		slug = generateSlug(name)
 	}
 
+	if err := validateImageURL(req.ImageURL); err != nil {
+		return nil, err
+	}
+
 	cat.Name = name
 	cat.Slug = slug
 	cat.ParentID = req.ParentID
+	cat.ImageURL = req.ImageURL
 	cat.SortOrder = req.SortOrder
 
 	if err := s.categories.Update(ctx, cat); err != nil {
@@ -124,6 +137,21 @@ func (s *CategoryService) Delete(ctx context.Context, id int64) error {
 
 	if err := s.categories.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete category: %w", err)
+	}
+	return nil
+}
+
+// validateImageURL checks that the image URL, if provided, is a valid HTTP(S) URL.
+func validateImageURL(imageURL *string) error {
+	if imageURL == nil || *imageURL == "" {
+		return nil
+	}
+	u, err := url.Parse(*imageURL)
+	if err != nil {
+		return fmt.Errorf("%w: invalid image URL", ErrInvalidCategory)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%w: image_url must use http or https scheme", ErrInvalidCategory)
 	}
 	return nil
 }

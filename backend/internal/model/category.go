@@ -8,6 +8,7 @@ type Category struct {
 	Name      string
 	Slug      string
 	ParentID  *int64
+	ImageURL  *string
 	SortOrder int
 	CreatedAt time.Time
 	UpdatedAt time.Time
