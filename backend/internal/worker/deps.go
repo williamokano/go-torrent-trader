@@ -15,4 +15,5 @@ type WorkerDeps struct {
 	WarningSvc      *service.WarningService
 	SiteSettingsSvc *service.SiteSettingsService
 	EmailSender     service.EmailSender
+	StatsCache      *service.StatsCache
 }

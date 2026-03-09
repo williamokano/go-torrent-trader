@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -75,25 +76,28 @@ func run() int {
 	peerRepo := postgres.NewPeerRepo(db)
 	groupRepo := postgres.NewGroupRepo(db)
 
-	sessionStore, err := service.NewSessionStore(service.SessionStoreConfig{
-		Type:            cfg.Session.Store,
-		RedisURL:        cfg.Redis.URL,
-		AccessTokenTTL:  cfg.Session.AccessTokenTTL,
-		RefreshTokenTTL: cfg.Session.RefreshTokenTTL,
-	})
+	// Shared Redis client used by both session store and stats cache.
+	redisOpts, err := redis.ParseURL(cfg.Redis.URL)
 	if err != nil {
-		slog.Error("failed to initialize session store", "error", err)
+		slog.Error("failed to parse redis URL", "error", err)
 		return 1
 	}
-	// Close the session store on shutdown if it implements io.Closer.
-	if closer, ok := sessionStore.(interface{ Close() error }); ok {
-		defer func() {
-			if err := closer.Close(); err != nil {
-				slog.Error("failed to close session store", "error", err)
-			}
-		}()
+	redisClient := redis.NewClient(redisOpts)
+	defer func() { _ = redisClient.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		slog.Error("failed to ping redis", "error", err)
+		return 1
 	}
+	slog.Info("redis connected")
+
+	sessionStore := service.NewSessionStoreWithClient(redisClient, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
 	slog.Info("session store initialized", "type", cfg.Session.Store)
+
+	statsCache := service.NewStatsCache(db, redisClient, cfg.Cache.StatsTTL)
+	slog.Info("stats cache initialized", "ttl", cfg.Cache.StatsTTL)
 
 	passwordResetStore := postgres.NewPasswordResetRepo(db)
 
@@ -182,6 +186,7 @@ func run() int {
 
 	deps := &handler.Deps{
 		DB:             db,
+		StatsCache:     statsCache,
 		AuthService:    authService,
 		SessionStore:   sessionStore,
 		UserService:    userService,
@@ -219,6 +224,7 @@ func run() int {
 		WarningSvc:      warningService,
 		SiteSettingsSvc: siteSettingsService,
 		EmailSender:     emailSender,
+		StatsCache:      statsCache,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)

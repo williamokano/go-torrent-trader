@@ -54,6 +54,9 @@ func Load() (*Config, error) {
 			BaseURL:     envOrDefault("SITE_BASE_URL", "http://localhost:5173"),
 			ApiURL:      envOrDefault("API_URL", "http://localhost:8080"),
 		},
+		Cache: CacheConfig{
+			StatsTTL: 30 * time.Second,
+		},
 		Worker: WorkerConfig{
 			EnableScheduler: true,
 		},
@@ -136,6 +139,13 @@ func Load() (*Config, error) {
 		cfg.Session.RefreshTokenTTL, err = time.ParseDuration(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid REFRESH_TOKEN_TTL %q: %w", v, err)
+		}
+	}
+
+	if v := os.Getenv("STATS_CACHE_TTL"); v != "" {
+		cfg.Cache.StatsTTL, err = time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid STATS_CACHE_TTL %q: %w", v, err)
 		}
 	}
 

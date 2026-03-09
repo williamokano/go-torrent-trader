@@ -28,35 +28,14 @@ type RedisSessionStore struct {
 	refreshTokenTTL time.Duration
 }
 
-// NewRedisSessionStore creates a Redis-backed session store.
-func NewRedisSessionStore(redisURL string, accessTokenTTL, refreshTokenTTL time.Duration) (*RedisSessionStore, error) {
-	opts, err := redis.ParseURL(redisURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse redis URL: %w", err)
-	}
-
-	client := redis.NewClient(opts)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		if closeErr := client.Close(); closeErr != nil {
-			slog.Error("failed to close redis client after ping failure", "error", closeErr)
-		}
-		return nil, fmt.Errorf("redis ping: %w", err)
-	}
-
+// NewRedisSessionStore creates a Redis-backed session store using the provided
+// Redis client. The caller is responsible for closing the client.
+func NewRedisSessionStore(client *redis.Client, accessTokenTTL, refreshTokenTTL time.Duration) *RedisSessionStore {
 	return &RedisSessionStore{
 		client:          client,
 		accessTokenTTL:  accessTokenTTL,
 		refreshTokenTTL: refreshTokenTTL,
-	}, nil
-}
-
-// Close closes the underlying Redis client.
-func (r *RedisSessionStore) Close() error {
-	return r.client.Close()
+	}
 }
 
 // Create stores a new session in Redis.
