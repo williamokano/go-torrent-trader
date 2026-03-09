@@ -339,7 +339,7 @@
 - Admin CRUD for both ban types
 - Audit log: who banned, when, reason
 
-#### BE-1.7: User Warnings & Auto-Ban [M]
+#### BE-1.7: User Warnings & Auto-Ban [M] [DONE]
 **As an** admin
 **I want** to warn users for rule violations with automatic escalation
 **So that** moderation is consistent and partially automated
@@ -1112,7 +1112,7 @@
 - Each task independently toggleable
 - Execution logged with stats (rows affected)
 
-#### BE-9.2: Ratio Warning Automation [S]
+#### BE-9.2: Ratio Warning Automation [S] [DONE]
 **As a** tracker operator
 **I want** automatic ratio warnings and bans
 **So that** ratio enforcement is consistent
