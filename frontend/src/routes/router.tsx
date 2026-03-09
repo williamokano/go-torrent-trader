@@ -34,6 +34,9 @@ import { ConfirmEmailPage } from "@/pages/ConfirmEmailPage";
 import { ResendConfirmationPage } from "@/pages/ResendConfirmationPage";
 import { CheckEmailPage } from "@/pages/CheckEmailPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { FAQPage } from "@/pages/FAQPage";
+import { RulesPage } from "@/pages/RulesPage";
+import { FormattingPage } from "@/pages/FormattingPage";
 
 export const router = createBrowserRouter([
   {
@@ -194,6 +197,9 @@ export const router = createBrowserRouter([
       { path: "confirm-email", element: <ConfirmEmailPage /> },
       { path: "resend-confirmation", element: <ResendConfirmationPage /> },
       { path: "check-email", element: <CheckEmailPage /> },
+      { path: "faq", element: <FAQPage /> },
+      { path: "rules", element: <RulesPage /> },
+      { path: "formatting", element: <FormattingPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

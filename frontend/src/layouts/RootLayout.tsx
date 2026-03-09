@@ -208,6 +208,34 @@ export function RootLayout() {
             </NavLink>
           </Dropdown>
 
+          <Dropdown
+            key={`info-${location.key}`}
+            label="Info"
+            onNavigate={closeMenu}
+          >
+            <NavLink
+              to="/faq"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              FAQ
+            </NavLink>
+            <NavLink
+              to="/rules"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Rules
+            </NavLink>
+            <NavLink
+              to="/formatting"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Formatting Guide
+            </NavLink>
+          </Dropdown>
+
           <NavLink
             to="/log"
             className={({ isActive }) =>
@@ -288,18 +316,15 @@ export function RootLayout() {
           {siteStats ? formatNumber(siteStats.leechers) : "--"}
         </p>
         <div className="footer__links">
-          <a href="#" className="footer__link">
-            About
-          </a>
-          <a href="#" className="footer__link">
+          <Link to="/rules" className="footer__link">
             Rules
-          </a>
-          <a href="#" className="footer__link">
+          </Link>
+          <Link to="/faq" className="footer__link">
             FAQ
-          </a>
-          <a href="#" className="footer__link">
-            Contact
-          </a>
+          </Link>
+          <Link to="/formatting" className="footer__link">
+            Formatting
+          </Link>
         </div>
       </footer>
     </div>
