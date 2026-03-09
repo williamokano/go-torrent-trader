@@ -41,6 +41,12 @@ func (m *mockPeerRepo) DeleteStale(_ context.Context, before time.Time) (int64, 
 	m.deleteStaleCall = &before
 	return m.deleteStaleCount, m.deleteStaleErr
 }
+func (m *mockPeerRepo) ListByUserSeeding(_ context.Context, _ int64, _, _ int) ([]repository.PeerWithTorrent, int64, error) {
+	return nil, 0, nil
+}
+func (m *mockPeerRepo) ListByUserLeeching(_ context.Context, _ int64, _, _ int) ([]repository.PeerWithTorrent, int64, error) {
+	return nil, 0, nil
+}
 
 var _ repository.PeerRepository = (*mockPeerRepo)(nil)
 

@@ -165,6 +165,12 @@ func (r *announcePeerRepo) Delete(_ context.Context, torrentID, userID int64, pe
 }
 
 func (r *announcePeerRepo) DeleteStale(context.Context, time.Time) (int64, error) { return 0, nil }
+func (r *announcePeerRepo) ListByUserSeeding(context.Context, int64, int, int) ([]repository.PeerWithTorrent, int64, error) {
+	return nil, 0, nil
+}
+func (r *announcePeerRepo) ListByUserLeeching(context.Context, int64, int, int) ([]repository.PeerWithTorrent, int64, error) {
+	return nil, 0, nil
+}
 
 // --- Helpers ---
 

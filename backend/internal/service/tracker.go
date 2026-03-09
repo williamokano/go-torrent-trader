@@ -68,9 +68,10 @@ type ScrapeEntry struct {
 
 // TrackerService handles tracker-related business logic (announce, scrape).
 type TrackerService struct {
-	users    repository.UserRepository
-	torrents repository.TorrentRepository
-	peers    repository.PeerRepository
+	users           repository.UserRepository
+	torrents        repository.TorrentRepository
+	peers           repository.PeerRepository
+	transferHistory repository.TransferHistoryRepository
 }
 
 // NewTrackerService creates a new TrackerService.
@@ -84,6 +85,11 @@ func NewTrackerService(
 		torrents: torrents,
 		peers:    peers,
 	}
+}
+
+// SetTransferHistoryRepo sets the transfer history repository for recording completions.
+func (s *TrackerService) SetTransferHistoryRepo(repo repository.TransferHistoryRepository) {
+	s.transferHistory = repo
 }
 
 // Announce processes an announce request and returns the response.
@@ -253,6 +259,23 @@ func (s *TrackerService) handleCompleted(
 
 	if err := s.torrents.IncrementTimesCompleted(ctx, torrent.ID); err != nil {
 		slog.Error("failed to increment times_completed", "torrent_id", torrent.ID, "error", err)
+	}
+
+	// Record transfer history
+	if s.transferHistory != nil {
+		torrentID := torrent.ID
+		th := &model.TransferHistory{
+			UserID:       user.ID,
+			TorrentID:    &torrentID,
+			Uploaded:     req.Uploaded,
+			Downloaded:   req.Downloaded,
+			Seeder:       isSeeder,
+			CompletedAt:  now,
+			LastAnnounce: now,
+		}
+		if err := s.transferHistory.Upsert(ctx, th); err != nil {
+			slog.Error("failed to record transfer history", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
+		}
 	}
 
 	// Transition from leecher to seeder if applicable.

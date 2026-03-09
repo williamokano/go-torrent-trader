@@ -126,6 +126,10 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		args = append(args, *opts.UploaderID)
 	}
 
+	if opts.ExcludeAnonymous {
+		conditions = append(conditions, "t.anonymous = false")
+	}
+
 	// useFullText tracks whether to apply ts_rank ordering.
 	var useFullText bool
 

@@ -263,6 +263,12 @@ func (m *trackerMockPeerRepo) CountByUser(_ context.Context, _ int64) (int, int,
 func (m *trackerMockPeerRepo) DeleteStale(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
+func (m *trackerMockPeerRepo) ListByUserSeeding(_ context.Context, _ int64, _, _ int) ([]repository.PeerWithTorrent, int64, error) {
+	return nil, 0, nil
+}
+func (m *trackerMockPeerRepo) ListByUserLeeching(_ context.Context, _ int64, _, _ int) ([]repository.PeerWithTorrent, int64, error) {
+	return nil, 0, nil
+}
 
 // --- Helpers ---
 

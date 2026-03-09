@@ -13,7 +13,7 @@ export function formatNumber(n: number): string {
 }
 
 export function formatRatio(ratio: number): string {
-  if (!isFinite(ratio)) return "Inf";
+  if (ratio === -1 || !isFinite(ratio)) return "Inf";
   return ratio.toFixed(2);
 }
 

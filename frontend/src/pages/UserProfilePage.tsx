@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
@@ -30,6 +30,33 @@ interface PublicUser {
   }>;
 }
 
+interface TorrentUpload {
+  id: number;
+  name: string;
+  size: number;
+  seeders: number;
+  leechers: number;
+  times_completed: number;
+  category_name: string;
+  created_at: string;
+  anonymous?: boolean;
+}
+
+interface ActivityItem {
+  torrent_id: number;
+  torrent_name: string;
+  uploaded: number;
+  downloaded: number;
+  ratio: number;
+  seeder: boolean;
+  ip?: string;
+  port?: number;
+  last_announce?: string;
+  completed_at?: string;
+}
+
+type ActivityTab = "uploads" | "seeding" | "leeching" | "history";
+
 export function UserProfilePage() {
   const { id } = useParams<{ id: string }>();
   const { user: currentUser } = useAuth();
@@ -37,6 +64,29 @@ export function UserProfilePage() {
   const [profile, setProfile] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<ActivityTab>("uploads");
+  const [uploads, setUploads] = useState<TorrentUpload[]>([]);
+  const [uploadsTotal, setUploadsTotal] = useState(0);
+  const [uploadsPage, setUploadsPage] = useState(1);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [activityTotal, setActivityTotal] = useState(0);
+  const [activityPage, setActivityPage] = useState(1);
+  const [tabLoading, setTabLoading] = useState(false);
+  const [tabError, setTabError] = useState<string | null>(null);
+
+  const perPage = 25;
+
+  // Reset tab and stale data when navigating to a different profile
+  useEffect(() => {
+    setActiveTab("uploads");
+    setUploads([]);
+    setUploadsTotal(0);
+    setUploadsPage(1);
+    setActivity([]);
+    setActivityTotal(0);
+    setActivityPage(1);
+  }, [id]);
 
   useEffect(() => {
     const numericId = Number(id);
@@ -78,6 +128,92 @@ export function UserProfilePage() {
     fetchProfile();
   }, [id]);
 
+  const canViewPrivateActivity =
+    profile &&
+    currentUser &&
+    (currentUser.id === profile.id || currentUser.isStaff);
+
+  const fetchUploads = useCallback(
+    async (page: number) => {
+      if (!id) return;
+      setTabLoading(true);
+      setTabError(null);
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users/${id}/torrents?page=${page}&per_page=${perPage}`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (res.ok) {
+          const body = await res.json();
+          setUploads(body.torrents ?? []);
+          setUploadsTotal(body.total ?? 0);
+        } else {
+          setTabError("Failed to load uploads");
+        }
+      } catch {
+        setTabError("Failed to load uploads");
+      } finally {
+        setTabLoading(false);
+      }
+    },
+    [id],
+  );
+
+  const fetchActivity = useCallback(
+    async (tab: "seeding" | "leeching" | "history", page: number) => {
+      if (!id) return;
+      setTabLoading(true);
+      setTabError(null);
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users/${id}/activity?tab=${tab}&page=${page}&per_page=${perPage}`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (res.ok) {
+          const body = await res.json();
+          setActivity(body.activity ?? []);
+          setActivityTotal(body.total ?? 0);
+        } else {
+          setTabError("Failed to load activity");
+        }
+      } catch {
+        setTabError("Failed to load activity");
+      } finally {
+        setTabLoading(false);
+      }
+    },
+    [id],
+  );
+
+  // Fetch data when tab or page changes
+  useEffect(() => {
+    if (!profile) return;
+    if (activeTab === "uploads") {
+      fetchUploads(uploadsPage);
+    } else if (canViewPrivateActivity) {
+      fetchActivity(activeTab, activityPage);
+    }
+  }, [
+    profile,
+    activeTab,
+    uploadsPage,
+    activityPage,
+    canViewPrivateActivity,
+    fetchUploads,
+    fetchActivity,
+  ]);
+
+  function handleTabChange(tab: ActivityTab) {
+    setActiveTab(tab);
+    if (tab === "uploads") {
+      setUploadsPage(1);
+    } else {
+      setActivityPage(1);
+    }
+  }
+
   if (loading) {
     return (
       <div className="profile-page">
@@ -104,6 +240,9 @@ export function UserProfilePage() {
 
   const initials = profile.username.charAt(0).toUpperCase();
   const isOwnProfile = currentUser?.id === profile.id;
+
+  const uploadsTotalPages = Math.ceil(uploadsTotal / perPage);
+  const activityTotalPages = Math.ceil(activityTotal / perPage);
 
   return (
     <div className="profile-page">
@@ -209,23 +348,205 @@ export function UserProfilePage() {
         </div>
       )}
 
-      {profile.recent_uploads && profile.recent_uploads.length > 0 && (
-        <div className="profile-uploads">
-          <h2 className="profile-uploads__title">Recent Uploads</h2>
-          <ul className="profile-uploads__list">
-            {profile.recent_uploads.map((t) => (
-              <li key={t.id} className="profile-uploads__item">
-                <Link to={`/torrent/${t.id}`} className="profile-uploads__link">
-                  {t.name}
-                </Link>
-                <span className="profile-uploads__date">
-                  {timeAgo(t.created_at)}
-                </span>
-              </li>
-            ))}
-          </ul>
+      {/* Activity Tabs */}
+      <div className="profile-activity">
+        <div className="profile-activity__tabs">
+          <button
+            className={`profile-activity__tab ${activeTab === "uploads" ? "profile-activity__tab--active" : ""}`}
+            onClick={() => handleTabChange("uploads")}
+          >
+            Uploads
+          </button>
+          {canViewPrivateActivity && (
+            <>
+              <button
+                className={`profile-activity__tab ${activeTab === "seeding" ? "profile-activity__tab--active" : ""}`}
+                onClick={() => handleTabChange("seeding")}
+              >
+                Seeding
+              </button>
+              <button
+                className={`profile-activity__tab ${activeTab === "leeching" ? "profile-activity__tab--active" : ""}`}
+                onClick={() => handleTabChange("leeching")}
+              >
+                Leeching
+              </button>
+              <button
+                className={`profile-activity__tab ${activeTab === "history" ? "profile-activity__tab--active" : ""}`}
+                onClick={() => handleTabChange("history")}
+              >
+                History
+              </button>
+            </>
+          )}
         </div>
-      )}
+
+        <div className="profile-activity__content">
+          {tabError ? (
+            <p className="profile-activity__error">{tabError}</p>
+          ) : tabLoading ? (
+            <p className="profile-activity__loading">Loading...</p>
+          ) : activeTab === "uploads" ? (
+            <UploadsTable
+              uploads={uploads}
+              page={uploadsPage}
+              totalPages={uploadsTotalPages}
+              onPageChange={setUploadsPage}
+            />
+          ) : (
+            <ActivityTable
+              items={activity}
+              showPort={activeTab === "seeding" || activeTab === "leeching"}
+              showCompletedAt={activeTab === "history"}
+              page={activityPage}
+              totalPages={activityTotalPages}
+              onPageChange={setActivityPage}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UploadsTable({
+  uploads,
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  uploads: TorrentUpload[];
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (uploads.length === 0) {
+    return <p className="profile-activity__empty">No uploads found.</p>;
+  }
+
+  return (
+    <>
+      <table className="profile-activity__table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Size</th>
+            <th>SE</th>
+            <th>LE</th>
+            <th>Completed</th>
+            <th>Added</th>
+          </tr>
+        </thead>
+        <tbody>
+          {uploads.map((t) => (
+            <tr key={t.id}>
+              <td>
+                <Link to={`/torrent/${t.id}`}>{t.name}</Link>
+              </td>
+              <td>{formatBytes(t.size)}</td>
+              <td className="profile-activity__seeders">{t.seeders}</td>
+              <td className="profile-activity__leechers">{t.leechers}</td>
+              <td>{t.times_completed}</td>
+              <td>{timeAgo(t.created_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Pagination page={page} totalPages={totalPages} onChange={onPageChange} />
+    </>
+  );
+}
+
+function ActivityTable({
+  items,
+  showPort,
+  showCompletedAt,
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  items: ActivityItem[];
+  showPort: boolean;
+  showCompletedAt: boolean;
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (items.length === 0) {
+    return <p className="profile-activity__empty">No activity found.</p>;
+  }
+
+  return (
+    <>
+      <table className="profile-activity__table">
+        <thead>
+          <tr>
+            <th>Torrent</th>
+            <th>Uploaded</th>
+            <th>Downloaded</th>
+            <th>Ratio</th>
+            {showPort && <th>IP</th>}
+            {showPort && <th>Port</th>}
+            {showCompletedAt && <th>Completed</th>}
+            <th>Last Announce</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.torrent_id}>
+              <td>
+                <Link to={`/torrent/${item.torrent_id}`}>
+                  {item.torrent_name}
+                </Link>
+              </td>
+              <td>{formatBytes(item.uploaded)}</td>
+              <td>{formatBytes(item.downloaded)}</td>
+              <td>{formatRatio(item.ratio)}</td>
+              {showPort && <td>{item.ip ?? "-"}</td>}
+              {showPort && <td>{item.port ?? "-"}</td>}
+              {showCompletedAt && (
+                <td>{item.completed_at ? timeAgo(item.completed_at) : "-"}</td>
+              )}
+              <td>{item.last_announce ? timeAgo(item.last_announce) : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Pagination page={page} totalPages={totalPages} onChange={onPageChange} />
+    </>
+  );
+}
+
+function Pagination({
+  page,
+  totalPages,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  onChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="profile-activity__pagination">
+      <button
+        disabled={page <= 1}
+        onClick={() => onChange(page - 1)}
+        className="profile-activity__page-btn"
+      >
+        Previous
+      </button>
+      <span className="profile-activity__page-info">
+        Page {page} of {totalPages}
+      </span>
+      <button
+        disabled={page >= totalPages}
+        onClick={() => onChange(page + 1)}
+        className="profile-activity__page-btn"
+      >
+        Next
+      </button>
     </div>
   );
 }

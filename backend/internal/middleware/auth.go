@@ -50,6 +50,28 @@ func RequireAuth(validator SessionValidator) func(http.Handler) http.Handler {
 	}
 }
 
+// OptionalAuth is a middleware that attempts to extract and validate a Bearer token.
+// If a valid token is present, user info is set in the context. If no token is present
+// or the token is invalid, the request continues without authentication context.
+func OptionalAuth(validator SessionValidator) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := ExtractBearerToken(r)
+			if token != "" {
+				userID, perms, ok := validator.ValidateSession(token)
+				if ok {
+					ctx := context.WithValue(r.Context(), UserIDKey, userID)
+					ctx = context.WithValue(ctx, GroupIDKey, perms.GroupID)
+					ctx = context.WithValue(ctx, PermissionsKey, perms)
+					ctx = context.WithValue(ctx, AccessTokenKey, token)
+					r = r.WithContext(ctx)
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RequireAdmin is a middleware that checks the user has admin permissions.
 // Must be used after RequireAuth.
 func RequireAdmin(next http.Handler) http.Handler {
