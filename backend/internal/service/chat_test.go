@@ -127,19 +127,19 @@ func (r *mockChatMuteRepo) Delete(_ context.Context, userID int64) error {
 	return nil
 }
 
-func (r *mockChatMuteRepo) DeleteExpired(_ context.Context) (int64, error) {
+func (r *mockChatMuteRepo) DeleteExpired(_ context.Context) ([]int64, error) {
 	var kept []model.ChatMute
-	var count int64
+	var userIDs []int64
 	now := time.Now()
 	for _, m := range r.mutes {
 		if m.ExpiresAt.Before(now) || m.ExpiresAt.Equal(now) {
-			count++
+			userIDs = append(userIDs, m.UserID)
 		} else {
 			kept = append(kept, m)
 		}
 	}
 	r.mutes = kept
-	return count, nil
+	return userIDs, nil
 }
 
 // --- mock user repo for chat tests ---
@@ -482,12 +482,12 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 		CreatedAt: time.Now(),
 	})
 
-	cleaned, err := svc.CleanupExpiredMutes(ctx)
+	unmutedUsers, err := svc.CleanupExpiredMutes(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cleaned != 1 {
-		t.Errorf("expected 1 cleaned, got %d", cleaned)
+	if len(unmutedUsers) != 1 {
+		t.Errorf("expected 1 cleaned, got %d", len(unmutedUsers))
 	}
 	if len(muteRepo.mutes) != 1 {
 		t.Errorf("expected 1 remaining mute, got %d", len(muteRepo.mutes))

@@ -208,7 +208,7 @@ type ChatMuteRepository interface {
 	Create(ctx context.Context, mute *model.ChatMute) error
 	GetActiveMute(ctx context.Context, userID int64) (*model.ChatMute, error)
 	Delete(ctx context.Context, userID int64) error
-	DeleteExpired(ctx context.Context) (int64, error)
+	DeleteExpired(ctx context.Context) ([]int64, error)
 }
 
 // WarningRepository defines persistence operations for user warnings.

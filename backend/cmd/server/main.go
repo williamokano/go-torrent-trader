@@ -227,6 +227,7 @@ func run() int {
 		EmailSender:     emailSender,
 		StatsCache:      statsCache,
 		ChatSvc:         chatService,
+		SendToUser:      chatHub.SendToUser,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)

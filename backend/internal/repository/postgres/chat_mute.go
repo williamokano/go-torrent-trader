@@ -56,14 +56,20 @@ func (r *ChatMuteRepo) Delete(ctx context.Context, userID int64) error {
 	return nil
 }
 
-func (r *ChatMuteRepo) DeleteExpired(ctx context.Context) (int64, error) {
-	result, err := r.db.ExecContext(ctx, "DELETE FROM chat_mutes WHERE expires_at <= NOW()")
+func (r *ChatMuteRepo) DeleteExpired(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, "DELETE FROM chat_mutes WHERE expires_at <= NOW() RETURNING DISTINCT user_id")
 	if err != nil {
-		return 0, fmt.Errorf("delete expired chat mutes: %w", err)
+		return nil, fmt.Errorf("delete expired chat mutes: %w", err)
 	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("checking rows affected: %w", err)
+	defer func() { _ = rows.Close() }()
+
+	var userIDs []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("scan expired mute user_id: %w", err)
+		}
+		userIDs = append(userIDs, uid)
 	}
-	return n, nil
+	return userIDs, rows.Err()
 }

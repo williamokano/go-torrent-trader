@@ -212,7 +212,7 @@ func (s *ChatService) GetActiveMute(ctx context.Context, userID int64) (*model.C
 	return s.mutes.GetActiveMute(ctx, userID)
 }
 
-// CleanupExpiredMutes deletes expired mute records. Returns count deleted.
-func (s *ChatService) CleanupExpiredMutes(ctx context.Context) (int64, error) {
+// CleanupExpiredMutes deletes expired mute records. Returns user IDs that were unmuted.
+func (s *ChatService) CleanupExpiredMutes(ctx context.Context) ([]int64, error) {
 	return s.mutes.DeleteExpired(ctx)
 }
