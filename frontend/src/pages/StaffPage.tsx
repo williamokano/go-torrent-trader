@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
+import { WarningBadge } from "@/components/WarningBadge";
 import "./staff.css";
 
 interface StaffMember {
@@ -10,6 +11,7 @@ interface StaffMember {
   group_id: number;
   group_name: string;
   title: string | null;
+  warned: boolean;
 }
 
 interface StaffGroup {
@@ -123,6 +125,7 @@ export function StaffPage() {
                   >
                     {member.username}
                   </Link>
+                  <WarningBadge warned={member.warned} />
                   {member.title && (
                     <span className="staff__card-title">{member.title}</span>
                   )}

@@ -367,6 +367,7 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		"uploader_id":        uploaderID,
 		"anonymous":          t.Anonymous,
 		"uploader_name":   uploaderName,
+		"uploader_warned": t.UploaderWarned,
 		"seeders":         t.Seeders,
 		"leechers":        t.Leechers,
 		"times_completed": t.TimesCompleted,

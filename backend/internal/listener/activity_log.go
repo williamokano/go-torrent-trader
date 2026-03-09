@@ -148,6 +148,16 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	// Note: MessageSent is intentionally NOT logged to the activity log.
 	// Private messages must not appear in public logs or store content/metadata.
+
+	listen(event.WarningIssued, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.WarningIssuedEvent)
+		return fmt.Sprintf("%s issued %s warning to %s", e.Actor.Username, e.WarningType, e.Username), e.Actor
+	})
+
+	listen(event.WarningLifted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.WarningLiftedEvent)
+		return fmt.Sprintf("%s lifted warning from %s", e.Actor.Username, e.Username), e.Actor
+	})
 }
 
 func marshalMetadata(evt event.Event) *string {

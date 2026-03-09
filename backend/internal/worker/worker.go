@@ -14,6 +14,7 @@ const (
 	TaskSendEmail    = "email:send"
 	TaskCleanupPeers = "cleanup:peers"
 	TaskRecalcStats  = "stats:recalc"
+	// TaskRatioWarning is defined in ratio_warning.go
 )
 
 // NewClient creates an asynq client for enqueueing jobs.

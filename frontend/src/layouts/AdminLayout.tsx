@@ -39,6 +39,14 @@ export function AdminLayout() {
           Groups
         </NavLink>
         <NavLink
+          to="/admin/warnings"
+          className={({ isActive }) =>
+            `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`
+          }
+        >
+          Warnings
+        </NavLink>
+        <NavLink
           to="/admin/settings"
           className={({ isActive }) =>
             `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`

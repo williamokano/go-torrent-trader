@@ -19,6 +19,7 @@ type MemberView struct {
 	Downloaded int64   `json:"downloaded"`
 	Ratio      float64 `json:"ratio"`
 	Donor      bool    `json:"donor"`
+	Warned     bool    `json:"warned"`
 	CreatedAt  string  `json:"created_at"`
 }
 
@@ -29,6 +30,7 @@ type StaffView struct {
 	GroupID   int64   `json:"group_id"`
 	GroupName string  `json:"group_name"`
 	Title     *string `json:"title"`
+	Warned    bool    `json:"warned"`
 }
 
 // MemberService handles member/staff list business logic.
@@ -62,6 +64,7 @@ func (s *MemberService) ListMembers(ctx context.Context, opts repository.ListUse
 			Downloaded: u.Downloaded,
 			Ratio:      memberRatio(u.Uploaded, u.Downloaded),
 			Donor:      u.Donor,
+			Warned:     u.Warned,
 			CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 	}
@@ -86,6 +89,7 @@ func (s *MemberService) ListStaff(ctx context.Context) ([]StaffView, error) {
 			GroupID:   u.GroupID,
 			GroupName: groupNames[u.GroupID],
 			Title:     u.Title,
+			Warned:    u.Warned,
 		}
 	}
 

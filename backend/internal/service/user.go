@@ -50,6 +50,7 @@ type PublicProfile struct {
 	SeedingCount    int            `json:"seeding_count"`
 	LeechingCount   int            `json:"leeching_count"`
 	Donor           bool           `json:"donor"`
+	Warned          bool           `json:"warned"`
 	CreatedAt       string         `json:"created_at"`
 	InvitedByID     *int64         `json:"invited_by_id,omitempty"`
 	InvitedByName   *string        `json:"invited_by_name,omitempty"`
@@ -62,7 +63,6 @@ type OwnerProfile struct {
 	Email       string            `json:"email"`
 	Passkey     string            `json:"passkey"`
 	Invites     int               `json:"invites"`
-	Warned      bool              `json:"warned"`
 	LastLogin   *string           `json:"last_login"`
 	Permissions *model.Permissions `json:"permissions,omitempty"`
 }
@@ -216,6 +216,7 @@ func (s *UserService) buildPublicProfile(ctx context.Context, u *model.User) Pub
 		Downloaded: u.Downloaded,
 		Ratio:      calculateRatio(u.Uploaded, u.Downloaded),
 		Donor:      u.Donor,
+		Warned:     u.Warned,
 		CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		InvitedByID: u.InvitedBy,
 	}
@@ -262,7 +263,6 @@ func buildOwnerProfile(u *model.User, pub PublicProfile) *OwnerProfile {
 		Email:         u.Email,
 		Passkey:       derefString(u.Passkey),
 		Invites:       u.Invites,
-		Warned:        u.Warned,
 	}
 
 	if u.LastLogin != nil {

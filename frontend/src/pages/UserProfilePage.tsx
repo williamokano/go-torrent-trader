@@ -4,7 +4,21 @@ import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
+import { WarningBadge } from "@/components/WarningBadge";
 import "./profile.css";
+
+interface UserWarning {
+  id: number;
+  type: string;
+  reason: string;
+  status: string;
+  issued_by_name: string | null;
+  lifted_by_name: string | null;
+  lifted_reason: string | null;
+  expires_at: string | null;
+  created_at: string;
+  lifted_at: string | null;
+}
 
 interface PublicUser {
   id: number;
@@ -18,6 +32,7 @@ interface PublicUser {
   downloaded: number;
   ratio: number;
   donor: boolean;
+  warned: boolean;
   created_at: string;
   invited_by_id?: number;
   invited_by_name?: string;
@@ -74,6 +89,7 @@ export function UserProfilePage() {
   const [activityPage, setActivityPage] = useState(1);
   const [tabLoading, setTabLoading] = useState(false);
   const [tabError, setTabError] = useState<string | null>(null);
+  const [userWarnings, setUserWarnings] = useState<UserWarning[]>([]);
 
   const perPage = 25;
 
@@ -132,6 +148,30 @@ export function UserProfilePage() {
     profile &&
     currentUser &&
     (currentUser.id === profile.id || currentUser.isStaff);
+
+  // Fetch warnings for this user (owner sees own active, staff sees all)
+  useEffect(() => {
+    if (!profile || !currentUser) return;
+    if (currentUser.id !== profile.id && !currentUser.isStaff) return;
+
+    async function fetchWarnings() {
+      const token = getAccessToken();
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users/${profile!.id}/warnings`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setUserWarnings(data.warnings ?? []);
+        }
+      } catch {
+        // Silently fail — warnings are supplementary info
+      }
+    }
+
+    fetchWarnings();
+  }, [profile, currentUser]);
 
   const fetchUploads = useCallback(
     async (page: number) => {
@@ -257,7 +297,10 @@ export function UserProfilePage() {
           <div className="profile-avatar--initials">{initials}</div>
         )}
         <div className="profile-info">
-          <h1 className="profile-info__username">{profile.username}</h1>
+          <h1 className="profile-info__username">
+            {profile.username}
+            <WarningBadge warned={profile.warned} />
+          </h1>
           {profile.title && (
             <p className="profile-info__title">{profile.title}</p>
           )}
@@ -340,6 +383,67 @@ export function UserProfilePage() {
           <div className="profile-stat__value">{profile.leeching_count}</div>
         </div>
       </div>
+
+      {userWarnings.length > 0 && (
+        <div className="profile-warnings">
+          <h2 className="profile-warnings__title">
+            Warnings ({userWarnings.filter((w) => w.status === "active").length}{" "}
+            active)
+          </h2>
+          <table className="profile-warnings__table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Expires</th>
+                {currentUser?.isStaff && <th>Issued By</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {userWarnings.map((w) => (
+                <tr
+                  key={w.id}
+                  className={
+                    w.status === "active" ? "profile-warnings__row--active" : ""
+                  }
+                >
+                  <td>
+                    {w.type === "manual"
+                      ? "Manual"
+                      : w.type === "ratio_soft"
+                        ? "Ratio"
+                        : w.type === "ratio_ban"
+                          ? "Ratio Ban"
+                          : w.type}
+                  </td>
+                  <td className="profile-warnings__reason">
+                    {w.reason}
+                    {w.status === "lifted" && w.lifted_reason && (
+                      <div className="profile-warnings__lifted-info">
+                        Lifted by {w.lifted_by_name ?? "?"}: {w.lifted_reason}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className={`profile-warnings__status profile-warnings__status--${w.status}`}
+                    >
+                      {w.status}
+                    </span>
+                  </td>
+                  <td>{timeAgo(w.created_at)}</td>
+                  <td>{w.expires_at ? timeAgo(w.expires_at) : "—"}</td>
+                  {currentUser?.isStaff && (
+                    <td>{w.issued_by_name ?? "System"}</td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {profile.info && (
         <div className="profile-bio">

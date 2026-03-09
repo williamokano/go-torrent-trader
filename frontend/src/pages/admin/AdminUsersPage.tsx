@@ -8,6 +8,7 @@ import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { AdminUserEditModal } from "./AdminUserEditModal";
 import { formatBytes, timeAgo } from "@/utils/format";
+import { WarningBadge } from "@/components/WarningBadge";
 import "./admin-users.css";
 
 interface AdminUser {
@@ -234,6 +235,7 @@ export function AdminUsersPage() {
                 <tr key={user.id}>
                   <td>
                     <Link to={`/user/${user.id}`}>{user.username}</Link>
+                    <WarningBadge warned={user.warned} />
                   </td>
                   <td>{user.email}</td>
                   <td>{user.group_name}</td>

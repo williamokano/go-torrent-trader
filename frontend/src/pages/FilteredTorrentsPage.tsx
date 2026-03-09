@@ -4,6 +4,7 @@ import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { Pagination } from "@/components/Pagination";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { WarningBadge } from "@/components/WarningBadge";
 import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import "./browse.css";
@@ -132,9 +133,12 @@ export function FilteredTorrentsPage({
                   {t.anonymous ? (
                     <span className="browse__anonymous">Anonymous</span>
                   ) : (
-                    <Link to={`/user/${t.uploader_id}`}>
-                      {t.uploader_name ?? "Unknown"}
-                    </Link>
+                    <>
+                      <Link to={`/user/${t.uploader_id}`}>
+                        {t.uploader_name ?? "Unknown"}
+                      </Link>
+                      <WarningBadge warned={t.uploader_warned} />
+                    </>
                   )}
                 </td>
                 <td>{formatBytes(t.size ?? 0)}</td>

@@ -154,6 +154,9 @@ func run() int {
 	chatMessageRepo := postgres.NewChatMessageRepo(db)
 	chatService := service.NewChatService(chatMessageRepo, userRepo, eventBus)
 
+	warningRepo := postgres.NewWarningRepo(db)
+	warningService := service.NewWarningService(warningRepo, userRepo, messageRepo, eventBus)
+
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
@@ -179,6 +182,7 @@ func run() int {
 		SiteSettingsService: siteSettingsService,
 		BanService:          banService,
 		MessageService:      messageService,
+		WarningService:     warningService,
 		ChatService:        chatService,
 		ChatHub:            chatHub,
 		PeerRepo:            peerRepo,
@@ -194,9 +198,11 @@ func run() int {
 
 	// Start background worker (asynq server + scheduler)
 	workerDeps := &worker.WorkerDeps{
-		PeerRepo:    peerRepo,
-		TorrentRepo: torrentRepo,
-		DB:          db,
+		PeerRepo:        peerRepo,
+		TorrentRepo:     torrentRepo,
+		DB:              db,
+		WarningSvc:      warningService,
+		SiteSettingsSvc: siteSettingsService,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)
