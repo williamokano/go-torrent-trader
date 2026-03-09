@@ -16,6 +16,10 @@ export interface ChatContextValue {
   messages: ChatMessage[];
   connected: boolean;
   isStaff: boolean;
+  /** Whether the current user is muted in chat */
+  muted: boolean;
+  /** ISO timestamp when the mute expires */
+  muteExpiresAt: string | null;
   /** Whether the full-size shoutbox (home page) is currently mounted */
   mainChatVisible: boolean;
   setMainChatVisible: (visible: boolean) => void;
@@ -38,14 +42,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const toast = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [muteExpiresAt, setMuteExpiresAt] = useState<string | null>(null);
   const [mainChatVisible, setMainChatVisible] = useState(false);
+  const muteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingMoreRef = useRef(false);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
+  // Schedule a timer that auto-clears the mute when it expires.
+  const scheduleMuteExpiry = useCallback((expiresAt: string) => {
+    if (muteTimerRef.current) {
+      clearTimeout(muteTimerRef.current);
+      muteTimerRef.current = null;
+    }
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) {
+      setMuted(false);
+      setMuteExpiresAt(null);
+      return;
+    }
+    muteTimerRef.current = setTimeout(() => {
+      setMuted(false);
+      setMuteExpiresAt(null);
+    }, ms);
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) {
       chatSocket.disconnect();
+      setMuted(false);
+      setMuteExpiresAt(null);
       return;
     }
 
@@ -73,6 +100,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             prev.filter((m) => m.user_id !== event.user_id),
           );
           break;
+        case "mute":
+          setMuted(true);
+          setMuteExpiresAt(event.expires_at);
+          scheduleMuteExpiry(event.expires_at);
+          break;
+        case "unmute":
+          setMuted(false);
+          setMuteExpiresAt(null);
+          if (muteTimerRef.current) {
+            clearTimeout(muteTimerRef.current);
+            muteTimerRef.current = null;
+          }
+          break;
         case "error":
           toast.error(event.message);
           break;
@@ -81,10 +121,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     chatSocket.addListener(onEvent);
     chatSocket.connect();
+
+    // Check mute status via REST on mount (covers page refresh).
+    const token = getAccessToken();
+    if (token) {
+      fetch(`${getConfig().API_URL}/api/v1/chat/mute-status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((resp) => {
+          if (!resp.ok) return null;
+          return resp.json();
+        })
+        .then((data) => {
+          if (data?.muted) {
+            setMuted(true);
+            setMuteExpiresAt(data.expires_at);
+            scheduleMuteExpiry(data.expires_at);
+          }
+        })
+        .catch(() => {
+          // Ignore — WS mute event will cover this.
+        });
+    }
+
     return () => {
       chatSocket.removeListener(onEvent);
+      if (muteTimerRef.current) {
+        clearTimeout(muteTimerRef.current);
+        muteTimerRef.current = null;
+      }
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, scheduleMuteExpiry]);
 
   const sendMessage = useCallback((text: string) => {
     const trimmed = text.trim();
@@ -219,6 +286,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         messages,
         connected,
         isStaff: user?.isStaff ?? false,
+        muted,
+        muteExpiresAt,
         mainChatVisible,
         setMainChatVisible,
         sendMessage,

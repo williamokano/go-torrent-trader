@@ -3,8 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -128,6 +130,18 @@ func (h *ChatAdminHandler) HandleMuteUser(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Notify the muted user's WebSocket client(s) in real time.
+	mutePayload, err := json.Marshal(map[string]interface{}{
+		"type":       "mute",
+		"expires_at": mute.ExpiresAt.Format(time.RFC3339),
+		"reason":     mute.Reason,
+	})
+	if err != nil {
+		slog.Error("failed to marshal mute notification", "error", err)
+	} else {
+		h.hub.SendToUser(userID, mutePayload)
+	}
+
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"id":         mute.ID,
 		"user_id":    mute.UserID,
@@ -160,6 +174,16 @@ func (h *ChatAdminHandler) HandleUnmuteUser(w http.ResponseWriter, r *http.Reque
 		}
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to unmute user")
 		return
+	}
+
+	// Notify the unmuted user's WebSocket client(s) in real time.
+	unmutePayload, err := json.Marshal(map[string]interface{}{
+		"type": "unmute",
+	})
+	if err != nil {
+		slog.Error("failed to marshal unmute notification", "error", err)
+	} else {
+		h.hub.SendToUser(userID, unmutePayload)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

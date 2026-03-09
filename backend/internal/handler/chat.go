@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -50,6 +51,35 @@ func (h *ChatHandler) HandleHistory(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"messages": items,
+	})
+}
+
+// HandleMuteStatus handles GET /api/v1/chat/mute-status.
+// Returns the current mute status for the authenticated user.
+func (h *ChatHandler) HandleMuteStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	mute, err := h.chatSvc.GetActiveMute(r.Context(), userID)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to check mute status")
+		return
+	}
+
+	if mute == nil {
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"muted": false,
+		})
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"muted":      true,
+		"expires_at": mute.ExpiresAt.Format(time.RFC3339),
+		"reason":     mute.Reason,
 	})
 }
 

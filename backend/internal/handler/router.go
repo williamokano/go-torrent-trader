@@ -255,6 +255,7 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/chat", func(r chi.Router) {
 					r.Use(mw.RequireAuth(validator))
 					r.Get("/history", chat.HandleHistory)
+					r.Get("/mute-status", chat.HandleMuteStatus)
 					r.Delete("/{id}", chat.HandleDelete)
 				})
 			}

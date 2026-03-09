@@ -98,7 +98,10 @@ export function ChatModMenu({ userId, username }: ChatModMenuProps) {
           >
             View profile
           </Link>
-          <button className="chat-mod-menu__item" onClick={() => setConfirmDeleteAll(true)}>
+          <button
+            className="chat-mod-menu__item"
+            onClick={() => setConfirmDeleteAll(true)}
+          >
             Delete all messages
           </button>
           <button

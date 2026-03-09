@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { useChat } from "@/lib/useChat";
@@ -17,6 +17,8 @@ export function Chat() {
     messages,
     connected,
     isStaff,
+    muted,
+    muteExpiresAt,
     mainChatVisible,
     sendMessage,
     deleteMessage,
@@ -25,7 +27,32 @@ export function Chat() {
   const [collapsed, setCollapsed] = useState(true);
   const [input, setInput] = useState("");
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null);
+  const [muteRemainingText, setMuteRemainingText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Update mute remaining time display periodically.
+  useEffect(() => {
+    if (!muted || !muteExpiresAt) return;
+    const computeText = () => {
+      const ms = new Date(muteExpiresAt).getTime() - Date.now();
+      if (ms <= 0) return "";
+      const mins = Math.ceil(ms / 60000);
+      return mins === 1 ? "1 minute" : `${mins} minutes`;
+    };
+    // Use requestAnimationFrame to schedule the initial update outside the
+    // synchronous effect body, satisfying the set-state-in-effect lint rule.
+    const raf = requestAnimationFrame(() => {
+      setMuteRemainingText(computeText());
+    });
+    const interval = setInterval(() => {
+      setMuteRemainingText(computeText());
+    }, 30000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(interval);
+      setMuteRemainingText("");
+    };
+  }, [muted, muteExpiresAt]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -114,21 +141,26 @@ export function Chat() {
             <div ref={messagesEndRef} />
           </div>
 
+          {muted && muteRemainingText && (
+            <div className="chat__muted-notice">
+              You are muted. (expires in {muteRemainingText})
+            </div>
+          )}
           <div className="chat__input-area">
             <input
               className="chat__input"
               type="text"
-              placeholder="Type a message..."
+              placeholder={muted ? "You are muted" : "Type a message..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               maxLength={500}
-              disabled={!connected}
+              disabled={!connected || muted}
             />
             <button
               className="chat__send-btn"
               onClick={handleSend}
-              disabled={!connected || !input.trim()}
+              disabled={!connected || !input.trim() || muted}
             >
               Send
             </button>

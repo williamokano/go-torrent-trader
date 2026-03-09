@@ -61,6 +61,19 @@ class MockWebSocket {
 beforeEach(() => {
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
+  // Mock fetch for mute-status endpoint (default: not muted)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) => {
+      if (typeof url === "string" && url.includes("/chat/mute-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ muted: false }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }),
+  );
   // Reset auth state
   mockAuth.user = null;
   mockAuth.isAuthenticated = false;
@@ -368,6 +381,85 @@ describe("Chat", () => {
 
     await vi.waitFor(() => {
       expect(screen.queryByText("to be deleted")).toBeNull();
+    });
+  });
+
+  test("disables input and shows muted notice on mute event", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "alice",
+      isStaff: false,
+      isAdmin: false,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+
+    // Send mute event
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "mute",
+        expires_at: expiresAt,
+        reason: "spam",
+      }),
+    });
+
+    await vi.waitFor(() => {
+      const input = screen.getByPlaceholderText("You are muted");
+      expect(input).toBeDisabled();
+    });
+
+    expect(screen.getByText(/You are muted/)).toBeInTheDocument();
+  });
+
+  test("re-enables input on unmute event", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "alice",
+      isStaff: false,
+      isAdmin: false,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+
+    // First mute the user
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "mute",
+        expires_at: expiresAt,
+        reason: "spam",
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByPlaceholderText("You are muted")).toBeDisabled();
+    });
+
+    // Now unmute
+    ws.onmessage?.({
+      data: JSON.stringify({ type: "unmute" }),
+    });
+
+    await vi.waitFor(() => {
+      const input = screen.getByPlaceholderText("Type a message...");
+      expect(input).not.toBeDisabled();
     });
   });
 

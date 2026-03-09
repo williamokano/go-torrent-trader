@@ -21,9 +21,7 @@ describe("FormattingPage", () => {
 
   test("renders subtitle", () => {
     renderFormattingPage();
-    expect(
-      screen.getByText(/Use Markdown to format text/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Use Markdown to format text/)).toBeInTheDocument();
   });
 
   test("renders all section titles", () => {
