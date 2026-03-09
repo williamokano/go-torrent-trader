@@ -13,7 +13,9 @@ import (
 const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo, t.category_id,
 	c.name AS category_name,
 	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
-	t.visible, t.banned, t.free, t.silver, t.file_count, t.files, t.created_at, t.updated_at`
+	t.visible, t.banned, t.free, t.silver, t.file_count, t.files,
+	CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END AS uploader_name,
+	t.created_at, t.updated_at`
 
 // TorrentRepo implements repository.TorrentRepository using PostgreSQL.
 type TorrentRepo struct {
@@ -37,7 +39,8 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 		&t.CategoryID, &t.CategoryName,
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
-		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.CreatedAt, &t.UpdatedAt,
+		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.UploaderName,
+		&t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -46,12 +49,12 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 }
 
 func (r *TorrentRepo) GetByID(ctx context.Context, id int64) (*model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.id = $1", torrentColumns)
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id WHERE t.id = $1", torrentColumns)
 	return scanTorrent(r.db.QueryRowContext(ctx, query, id))
 }
 
 func (r *TorrentRepo) GetByInfoHash(ctx context.Context, infoHash []byte) (*model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.info_hash = $1", torrentColumns)
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id WHERE t.info_hash = $1", torrentColumns)
 	return scanTorrent(r.db.QueryRowContext(ctx, query, infoHash))
 }
 
@@ -196,7 +199,7 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	offset := (page - 1) * perPage
 
 	selectQuery := fmt.Sprintf(
-		"SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id %s ORDER BY %s LIMIT %s OFFSET %s",
+		"SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id %s ORDER BY %s LIMIT %s OFFSET %s",
 		torrentColumns, where, orderClause, nextArg(), nextArg(),
 	)
 	args = append(args, perPage, offset)
@@ -329,7 +332,7 @@ func (r *TorrentRepo) IncrementLeechers(ctx context.Context, id int64, delta int
 }
 
 func (r *TorrentRepo) ListByUploader(ctx context.Context, uploaderID int64, limit int) ([]model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id WHERE t.uploader_id = $1 AND t.visible = true AND t.banned = false ORDER BY t.created_at DESC LIMIT $2", torrentColumns)
+	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id WHERE t.uploader_id = $1 AND t.visible = true AND t.banned = false ORDER BY t.created_at DESC LIMIT $2", torrentColumns)
 	rows, err := r.db.QueryContext(ctx, query, uploaderID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("listing torrents by uploader: %w", err)

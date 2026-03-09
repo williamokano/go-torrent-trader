@@ -146,6 +146,7 @@ export function HomePage() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Uploader</th>
                 <th>Size</th>
                 <th>S</th>
                 <th>L</th>
@@ -162,6 +163,15 @@ export function HomePage() {
                     >
                       {t.name}
                     </Link>
+                  </td>
+                  <td>
+                    {t.anonymous ? (
+                      <span>Anonymous</span>
+                    ) : (
+                      <Link to={`/user/${t.uploader_id}`}>
+                        {t.uploader_name ?? "Unknown"}
+                      </Link>
+                    )}
                   </td>
                   <td>{formatBytes(t.size ?? 0)}</td>
                   <td>{t.seeders ?? 0}</td>

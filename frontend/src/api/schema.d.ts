@@ -460,6 +460,8 @@ export interface components {
       /** Format: int64 */
       uploader_id?: number;
       anonymous?: boolean;
+      /** @description Display name of the uploader ("Anonymous" when anonymous=true) */
+      uploader_name?: string;
       seeders?: number;
       leechers?: number;
       times_completed?: number;

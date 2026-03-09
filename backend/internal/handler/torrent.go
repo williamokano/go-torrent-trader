@@ -165,13 +165,6 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 
 	tResp := torrentResponse(torrent)
 
-	// Enrich with uploader info (unless anonymous)
-	if !torrent.Anonymous && h.userRepo != nil {
-		if uploader, err := h.userRepo.GetByID(r.Context(), torrent.UploaderID); err == nil {
-			tResp["uploader_name"] = uploader.Username
-		}
-	}
-
 	// Build category breadcrumb chain
 	if h.categoryRepo != nil {
 		tResp["category_path"] = h.buildCategoryPath(r.Context(), torrent.CategoryID)
@@ -349,6 +342,15 @@ func handleTorrentError(w http.ResponseWriter, err error) {
 }
 
 func torrentResponse(t *model.Torrent) map[string]interface{} {
+	uploaderName := t.UploaderName
+	if uploaderName == "" {
+		if t.Anonymous {
+			uploaderName = "Anonymous"
+		} else {
+			uploaderName = "Unknown"
+		}
+	}
+
 	resp := map[string]interface{}{
 		"id":              t.ID,
 		"name":            t.Name,
@@ -358,6 +360,7 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		"category_name":   t.CategoryName,
 		"uploader_id":     t.UploaderID,
 		"anonymous":       t.Anonymous,
+		"uploader_name":   uploaderName,
 		"seeders":         t.Seeders,
 		"leechers":        t.Leechers,
 		"times_completed": t.TimesCompleted,

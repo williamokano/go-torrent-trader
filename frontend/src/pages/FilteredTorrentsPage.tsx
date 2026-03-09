@@ -100,6 +100,7 @@ export function FilteredTorrentsPage({
             <tr>
               <th>Name</th>
               <th>Category</th>
+              <th>Uploader</th>
               <th>Size</th>
               <th>S</th>
               <th>L</th>
@@ -121,6 +122,15 @@ export function FilteredTorrentsPage({
                   </Link>
                 </td>
                 <td>{t.category_name ?? "Unknown"}</td>
+                <td>
+                  {t.anonymous ? (
+                    <span className="browse__anonymous">Anonymous</span>
+                  ) : (
+                    <Link to={`/user/${t.uploader_id}`}>
+                      {t.uploader_name ?? "Unknown"}
+                    </Link>
+                  )}
+                </td>
                 <td>{formatBytes(t.size ?? 0)}</td>
                 <td>{t.seeders ?? 0}</td>
                 <td>{t.leechers ?? 0}</td>
