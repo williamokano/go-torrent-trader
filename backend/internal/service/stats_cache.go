@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -24,17 +25,22 @@ type SiteStats struct {
 
 // StatsCache wraps the site stats query with a Redis cache layer.
 type StatsCache struct {
-	db    *sql.DB
-	redis *redis.Client
-	ttl   time.Duration
+	db      *sql.DB
+	redis   *redis.Client
+	ttl     time.Duration // TTL for request-driven cache writes (Get)
+	warmTTL time.Duration // TTL for background warm writes (Warm)
 }
 
 // NewStatsCache creates a StatsCache backed by the given Redis client and DB.
+// The ttl controls how long request-driven cache entries live. Background
+// warming via Warm() uses a longer TTL (1 hour) so the cache stays populated
+// between hourly worker runs.
 func NewStatsCache(db *sql.DB, redisClient *redis.Client, ttl time.Duration) *StatsCache {
 	return &StatsCache{
-		db:    db,
-		redis: redisClient,
-		ttl:   ttl,
+		db:      db,
+		redis:   redisClient,
+		ttl:     ttl,
+		warmTTL: 1 * time.Hour,
 	}
 }
 
@@ -47,12 +53,14 @@ func (c *StatsCache) Get(ctx context.Context) (*SiteStats, error) {
 		var stats SiteStats
 		if unmarshalErr := json.Unmarshal(data, &stats); unmarshalErr == nil {
 			return &stats, nil
-		} else {
-			slog.Warn("stats cache: failed to unmarshal cached value, falling through to DB", "error", unmarshalErr)
 		}
+		slog.Warn("stats cache: failed to unmarshal cached value, falling through to DB", "error", err)
+	} else if !errors.Is(err, redis.Nil) {
+		// Redis error (not a simple cache miss) — log and fall through to DB.
+		slog.Warn("stats cache: redis error, falling back to DB", "error", err)
 	}
 
-	// Cache miss (or unmarshal error) — query DB.
+	// Cache miss, unmarshal error, or Redis failure — query DB.
 	stats, err := c.queryDB(ctx)
 	if err != nil {
 		return nil, err
@@ -81,7 +89,7 @@ func (c *StatsCache) Warm(ctx context.Context) error {
 		return fmt.Errorf("stats cache warm marshal: %w", err)
 	}
 
-	if err := c.redis.Set(ctx, statsCacheKey, data, c.ttl).Err(); err != nil {
+	if err := c.redis.Set(ctx, statsCacheKey, data, c.warmTTL).Err(); err != nil {
 		return fmt.Errorf("stats cache warm redis set: %w", err)
 	}
 
