@@ -165,6 +165,7 @@ export function RootLayout() {
 
           <NavLink
             to="/news"
+            end={false}
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`
             }

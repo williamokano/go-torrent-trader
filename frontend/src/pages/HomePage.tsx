@@ -9,6 +9,7 @@ import { Shoutbox } from "@/components/Shoutbox";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { WarningBadge } from "@/components/WarningBadge";
 import type { Torrent } from "@/types/torrent";
+import type { NewsArticle } from "@/types/news";
 import "./home.css";
 import "./news.css";
 
@@ -16,14 +17,6 @@ interface SiteStats {
   users: number;
   torrents: number;
   peers: number;
-}
-
-interface NewsArticle {
-  id: number;
-  title: string;
-  body: string;
-  author_name: string | null;
-  created_at: string;
 }
 
 export function HomePage() {

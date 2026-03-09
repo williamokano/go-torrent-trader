@@ -55,13 +55,10 @@ func (h *NewsHandler) HandleAdminCreateNews(w http.ResponseWriter, r *http.Reque
 
 // HandleAdminListNews handles GET /api/v1/admin/news.
 func (h *NewsHandler) HandleAdminListNews(w http.ResponseWriter, r *http.Request) {
-	opts := repository.ListNewsOptions{}
-
-	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
-		opts.Page, _ = strconv.Atoi(pageStr)
-	}
-	if ppStr := r.URL.Query().Get("per_page"); ppStr != "" {
-		opts.PerPage, _ = strconv.Atoi(ppStr)
+	page, perPage := parsePagination(r)
+	opts := repository.ListNewsOptions{
+		Page:    page,
+		PerPage: perPage,
 	}
 
 	articles, total, err := h.news.List(r.Context(), opts)
@@ -143,15 +140,7 @@ func (h *NewsHandler) HandleAdminDeleteNews(w http.ResponseWriter, r *http.Reque
 
 // HandleListPublishedNews handles GET /api/v1/news.
 func (h *NewsHandler) HandleListPublishedNews(w http.ResponseWriter, r *http.Request) {
-	page := 1
-	perPage := 25
-
-	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
-		page, _ = strconv.Atoi(pageStr)
-	}
-	if ppStr := r.URL.Query().Get("per_page"); ppStr != "" {
-		perPage, _ = strconv.Atoi(ppStr)
-	}
+	page, perPage := parsePagination(r)
 
 	articles, total, err := h.news.ListPublished(r.Context(), page, perPage)
 	if err != nil {

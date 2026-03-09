@@ -3,15 +3,8 @@ import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
+import type { NewsArticle } from "@/types/news";
 import "./news.css";
-
-interface NewsArticle {
-  id: number;
-  title: string;
-  body: string;
-  author_name: string | null;
-  created_at: string;
-}
 
 const PER_PAGE = 10;
 const PREVIEW_LENGTH = 300;

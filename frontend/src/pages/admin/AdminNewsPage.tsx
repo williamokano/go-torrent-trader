@@ -4,18 +4,8 @@ import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
+import type { AdminNewsArticle } from "@/types/news";
 import "./admin-news.css";
-
-interface NewsArticle {
-  id: number;
-  title: string;
-  body: string;
-  author_id: number | null;
-  published: boolean;
-  created_at: string;
-  updated_at: string;
-  author_name: string | null;
-}
 
 const PER_PAGE = 25;
 
@@ -32,7 +22,7 @@ function StatusBadge({ published }: { published: boolean }) {
 export function AdminNewsPage() {
   const toast = useToast();
 
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [articles, setArticles] = useState<AdminNewsArticle[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -83,7 +73,7 @@ export function AdminNewsPage() {
     setShowModal(true);
   };
 
-  const openEdit = (article: NewsArticle) => {
+  const openEdit = (article: AdminNewsArticle) => {
     setEditingId(article.id);
     setFormTitle(article.title);
     setFormBody(article.body);
@@ -153,7 +143,7 @@ export function AdminNewsPage() {
         },
       );
 
-      if (res.ok || res.status === 204) {
+      if (res.ok) {
         toast.success("Article deleted");
         setDeletingId(null);
         fetchArticles();
@@ -202,7 +192,18 @@ export function AdminNewsPage() {
                   <td>
                     <StatusBadge published={a.published} />
                   </td>
-                  <td>{timeAgo(a.created_at)}</td>
+                  <td
+                    title={
+                      a.updated_at !== a.created_at
+                        ? `Updated ${timeAgo(a.updated_at)}`
+                        : undefined
+                    }
+                  >
+                    {timeAgo(a.created_at)}
+                    {a.updated_at !== a.created_at && (
+                      <span className="admin-news__edited"> (edited)</span>
+                    )}
+                  </td>
                   <td className="admin-news__actions">
                     <button
                       className="admin-news__edit-btn"

@@ -41,6 +41,15 @@ func (r *NewsRepo) GetByID(ctx context.Context, id int64) (*model.NewsArticle, e
 	return scanNewsArticle(r.db.QueryRowContext(ctx, query, id))
 }
 
+func (r *NewsRepo) GetPublishedByID(ctx context.Context, id int64) (*model.NewsArticle, error) {
+	query := `SELECT n.id, n.title, n.body, n.author_id, n.published, n.created_at, n.updated_at,
+		u.username AS author_name
+		FROM news n
+		LEFT JOIN users u ON u.id = n.author_id
+		WHERE n.id = $1 AND n.published = true`
+	return scanNewsArticle(r.db.QueryRowContext(ctx, query, id))
+}
+
 func (r *NewsRepo) Update(ctx context.Context, a *model.NewsArticle) error {
 	query := `UPDATE news SET title = $1, body = $2, published = $3, updated_at = NOW()
 		WHERE id = $4`

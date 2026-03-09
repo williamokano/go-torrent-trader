@@ -43,6 +43,17 @@ func (m *mockNewsRepo) GetByID(_ context.Context, id int64) (*model.NewsArticle,
 	return nil, sql.ErrNoRows
 }
 
+func (m *mockNewsRepo) GetPublishedByID(_ context.Context, id int64) (*model.NewsArticle, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.articles {
+		if a.ID == id && a.Published {
+			return a, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
 func (m *mockNewsRepo) Update(_ context.Context, a *model.NewsArticle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -192,6 +203,46 @@ func TestNewsService_Create_EmptyBody(t *testing.T) {
 	}, 1)
 	if !errors.Is(err, ErrInvalidNews) {
 		t.Errorf("expected ErrInvalidNews, got %v", err)
+	}
+}
+
+func TestNewsService_Create_TitleTooLong(t *testing.T) {
+	newsRepo := newMockNewsRepo()
+	userRepo := newMockNewsUserRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewNewsService(newsRepo, userRepo, bus)
+
+	longTitle := make([]byte, 501)
+	for i := range longTitle {
+		longTitle[i] = 'a'
+	}
+
+	_, err := svc.Create(context.Background(), CreateNewsRequest{
+		Title: string(longTitle),
+		Body:  "Some body",
+	}, 1)
+	if !errors.Is(err, ErrInvalidNews) {
+		t.Errorf("expected ErrInvalidNews for long title, got %v", err)
+	}
+}
+
+func TestNewsService_Create_BodyTooLong(t *testing.T) {
+	newsRepo := newMockNewsRepo()
+	userRepo := newMockNewsUserRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewNewsService(newsRepo, userRepo, bus)
+
+	longBody := make([]byte, 50001)
+	for i := range longBody {
+		longBody[i] = 'a'
+	}
+
+	_, err := svc.Create(context.Background(), CreateNewsRequest{
+		Title: "Valid Title",
+		Body:  string(longBody),
+	}, 1)
+	if !errors.Is(err, ErrInvalidNews) {
+		t.Errorf("expected ErrInvalidNews for long body, got %v", err)
 	}
 }
 

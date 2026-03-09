@@ -17,6 +17,11 @@ var (
 	ErrInvalidNews  = errors.New("invalid news article")
 )
 
+const (
+	maxNewsTitleLen = 500
+	maxNewsBodyLen  = 50000
+)
+
 // NewsService handles news article business logic.
 type NewsService struct {
 	news     repository.NewsRepository
@@ -46,10 +51,16 @@ func (s *NewsService) Create(ctx context.Context, req CreateNewsRequest, authorI
 	if title == "" {
 		return nil, fmt.Errorf("%w: title is required", ErrInvalidNews)
 	}
+	if len(title) > maxNewsTitleLen {
+		return nil, fmt.Errorf("%w: title must be at most %d characters", ErrInvalidNews, maxNewsTitleLen)
+	}
 
 	body := strings.TrimSpace(req.Body)
 	if body == "" {
 		return nil, fmt.Errorf("%w: body is required", ErrInvalidNews)
+	}
+	if len(body) > maxNewsBodyLen {
+		return nil, fmt.Errorf("%w: body must be at most %d characters", ErrInvalidNews, maxNewsBodyLen)
 	}
 
 	article := &model.NewsArticle{
@@ -97,10 +108,16 @@ func (s *NewsService) Update(ctx context.Context, id int64, req UpdateNewsReques
 	if title == "" {
 		return nil, fmt.Errorf("%w: title is required", ErrInvalidNews)
 	}
+	if len(title) > maxNewsTitleLen {
+		return nil, fmt.Errorf("%w: title must be at most %d characters", ErrInvalidNews, maxNewsTitleLen)
+	}
 
 	body := strings.TrimSpace(req.Body)
 	if body == "" {
 		return nil, fmt.Errorf("%w: body is required", ErrInvalidNews)
+	}
+	if len(body) > maxNewsBodyLen {
+		return nil, fmt.Errorf("%w: body must be at most %d characters", ErrInvalidNews, maxNewsBodyLen)
 	}
 
 	wasPublished := article.Published
@@ -148,15 +165,12 @@ func (s *NewsService) ListPublished(ctx context.Context, page, perPage int) ([]m
 
 // GetPublished returns a single published news article by ID.
 func (s *NewsService) GetPublished(ctx context.Context, id int64) (*model.NewsArticle, error) {
-	article, err := s.news.GetByID(ctx, id)
+	article, err := s.news.GetPublishedByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNewsNotFound
 		}
-		return nil, fmt.Errorf("get news article: %w", err)
-	}
-	if !article.Published {
-		return nil, ErrNewsNotFound
+		return nil, fmt.Errorf("get published news article: %w", err)
 	}
 	return article, nil
 }

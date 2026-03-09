@@ -156,19 +156,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "news",
-        element: (
-          <ProtectedRoute>
-            <NewsListPage />
-          </ProtectedRoute>
-        ),
+        element: <NewsListPage />,
       },
       {
         path: "news/:id",
-        element: (
-          <ProtectedRoute>
-            <NewsDetailPage />
-          </ProtectedRoute>
-        ),
+        element: <NewsDetailPage />,
       },
       {
         path: "members",

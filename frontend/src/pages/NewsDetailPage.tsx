@@ -2,15 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { formatDate } from "@/utils/format";
+import type { NewsArticle } from "@/types/news";
 import "./news.css";
-
-interface NewsArticle {
-  id: number;
-  title: string;
-  body: string;
-  author_name: string | null;
-  created_at: string;
-}
 
 export function NewsDetailPage() {
   const { id } = useParams<{ id: string }>();

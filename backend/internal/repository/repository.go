@@ -244,6 +244,7 @@ type ListReportsOptions struct {
 type NewsRepository interface {
 	Create(ctx context.Context, article *model.NewsArticle) error
 	GetByID(ctx context.Context, id int64) (*model.NewsArticle, error)
+	GetPublishedByID(ctx context.Context, id int64) (*model.NewsArticle, error)
 	Update(ctx context.Context, article *model.NewsArticle) error
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, opts ListNewsOptions) ([]model.NewsArticle, int64, error)
