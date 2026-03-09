@@ -13,7 +13,7 @@ export function WarningBadge({ warned }: WarningBadgeProps) {
 
   return (
     <span className="warning-badge" title="This user has an active warning">
-      !
+      ⚠️
     </span>
   );
 }
