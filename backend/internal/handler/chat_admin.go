@@ -126,6 +126,11 @@ func (h *ChatAdminHandler) HandleMuteUser(w http.ResponseWriter, r *http.Request
 			ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have permission")
 			return
 		}
+		if errors.Is(err, service.ErrInvalidChatMessage) {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		slog.Error("failed to mute user", "user_id", userID, "error", err)
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to mute user")
 		return
 	}
