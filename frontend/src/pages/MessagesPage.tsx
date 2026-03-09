@@ -49,7 +49,7 @@ export function MessagesPage() {
     searchParams.get("to") || "",
   );
   const [composeReceiverId, setComposeReceiverId] = useState<number | null>(
-    null,
+    searchParams.get("to_id") ? Number(searchParams.get("to_id")) : null,
   );
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
