@@ -661,6 +661,52 @@
 
 > **Note:** This is a research task. Start by documenting what fields the original TorrentTrader supports, then design the schema and UI. Low priority — current basic upload (name, category, description) works for MVP.
 
+#### BE-3.14: Show Uploader in Torrent Browse List [S]
+**As a** user
+**I want** to see who uploaded each torrent in the browse/list views
+**So that** I can identify trusted uploaders
+
+**Acceptance Criteria:**
+- Torrent list API response includes `uploader_name` (or "Anonymous" if `anonymous=true`)
+- Browse page table shows uploader column with link to profile
+- Home page latest torrents table shows uploader
+- Today's Torrents and Need Seed pages show uploader
+- Respect anonymous flag — never reveal uploader identity for anonymous uploads
+- Staff can optionally see the real uploader even for anonymous torrents (future enhancement)
+
+#### BE-3.15: Category Images [S]
+**As a** site operator
+**I want** categories to have associated images/icons
+**So that** torrent listings are visually identifiable by category
+
+**Acceptance Criteria:**
+- Add `image_url` nullable column to categories table (migration)
+- Admin category CRUD supports setting an image URL (or uploading to S3)
+- Categories API returns `image_url` field
+- Torrent browse/list views show category image next to category name
+- Torrent detail page shows category image in the breadcrumb
+- If no image is set, display a styled placeholder icon (generic file icon or first letter of category name)
+- Frontend: `CategoryIcon` component reusable across browse, detail, home page
+
+#### BE-3.16: User Torrent Activity on Profile [M]
+**As a** user
+**I want** to see my torrent activity on my profile page
+**So that** I can track what I've uploaded, downloaded, and am currently transferring
+
+**Acceptance Criteria:**
+- **Public (visible to everyone):**
+  - List of torrents uploaded by the user (paginated, respects anonymous flag)
+- **Private (visible only to profile owner and staff):**
+  - Torrents currently seeding (active peers where `seeder=true`)
+  - Torrents currently leeching (active peers where `seeder=false`)
+  - Download history: completed torrents with upload/download amounts per torrent
+- Backend endpoints:
+  - `GET /api/v1/users/{id}/torrents` — uploaded torrents (public, filtered by anonymous)
+  - `GET /api/v1/users/{id}/activity` — seeding/leeching/history (owner + staff only)
+- Activity response includes per-torrent stats: torrent name, uploaded bytes, downloaded bytes, ratio, seeder status, last announce
+- Frontend: tabs or sections on profile page (Uploads | Seeding | Leeching | History)
+- Staff view: can see any user's full activity (for moderation/cheating detection)
+
 ---
 
 ### Epic BE-4: Invitation System
