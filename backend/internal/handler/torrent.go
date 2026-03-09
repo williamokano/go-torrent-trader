@@ -351,6 +351,11 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		}
 	}
 
+	uploaderID := t.UploaderID
+	if t.Anonymous {
+		uploaderID = 0
+	}
+
 	resp := map[string]interface{}{
 		"id":              t.ID,
 		"name":            t.Name,
@@ -358,7 +363,7 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		"size":            t.Size,
 		"category_id":     t.CategoryID,
 		"category_name":   t.CategoryName,
-		"uploader_id":     t.UploaderID,
+		"uploader_id":     uploaderID,
 		"anonymous":       t.Anonymous,
 		"uploader_name":   uploaderName,
 		"seeders":         t.Seeders,

@@ -166,7 +166,7 @@ export function HomePage() {
                   </td>
                   <td>
                     {t.anonymous ? (
-                      <span>Anonymous</span>
+                      <span className="browse__anonymous">Anonymous</span>
                     ) : (
                       <Link to={`/user/${t.uploader_id}`}>
                         {t.uploader_name ?? "Unknown"}

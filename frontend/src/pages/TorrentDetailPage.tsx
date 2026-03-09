@@ -427,13 +427,9 @@ export function TorrentDetailPage() {
           <span className="torrent-detail__info-value">
             {torrent.anonymous ? (
               "Anonymous"
-            ) : (torrent as unknown as { uploader_name?: string })
-                .uploader_name ? (
+            ) : torrent.uploader_name ? (
               <Link to={`/user/${torrent.uploader_id}`}>
-                {
-                  (torrent as unknown as { uploader_name: string })
-                    .uploader_name
-                }
+                {torrent.uploader_name}
               </Link>
             ) : (
               "Unknown"
