@@ -49,6 +49,8 @@ interface ActivityItem {
   downloaded: number;
   ratio: number;
   seeder: boolean;
+  ip?: string;
+  port?: number;
   last_announce?: string;
   completed_at?: string;
 }
@@ -385,6 +387,7 @@ export function UserProfilePage() {
           ) : (
             <ActivityTable
               items={activity}
+              showPort={activeTab === "seeding" || activeTab === "leeching"}
               showCompletedAt={activeTab === "history"}
               page={activityPage}
               totalPages={activityTotalPages}
@@ -447,12 +450,14 @@ function UploadsTable({
 
 function ActivityTable({
   items,
+  showPort,
   showCompletedAt,
   page,
   totalPages,
   onPageChange,
 }: {
   items: ActivityItem[];
+  showPort: boolean;
   showCompletedAt: boolean;
   page: number;
   totalPages: number;
@@ -471,6 +476,8 @@ function ActivityTable({
             <th>Uploaded</th>
             <th>Downloaded</th>
             <th>Ratio</th>
+            {showPort && <th>IP</th>}
+            {showPort && <th>Port</th>}
             {showCompletedAt && <th>Completed</th>}
             <th>Last Announce</th>
           </tr>
@@ -486,6 +493,8 @@ function ActivityTable({
               <td>{formatBytes(item.uploaded)}</td>
               <td>{formatBytes(item.downloaded)}</td>
               <td>{formatRatio(item.ratio)}</td>
+              {showPort && <td>{item.ip ?? "-"}</td>}
+              {showPort && <td>{item.port ?? "-"}</td>}
               {showCompletedAt && (
                 <td>{item.completed_at ? timeAgo(item.completed_at) : "-"}</td>
               )}

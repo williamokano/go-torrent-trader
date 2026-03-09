@@ -150,6 +150,8 @@ func (h *UserActivityHandler) handleSeedingTab(w http.ResponseWriter, r *http.Re
 			"downloaded":    p.Downloaded,
 			"ratio":         safeRatio(p.Uploaded, p.Downloaded),
 			"seeder":        p.Seeder,
+			"ip":            p.IP,
+			"port":          p.Port,
 			"last_announce": p.LastAnnounce,
 		}
 	}
@@ -179,6 +181,8 @@ func (h *UserActivityHandler) handleLeechingTab(w http.ResponseWriter, r *http.R
 			"downloaded":    p.Downloaded,
 			"ratio":         safeRatio(p.Uploaded, p.Downloaded),
 			"seeder":        p.Seeder,
+			"ip":            p.IP,
+			"port":          p.Port,
 			"last_announce": p.LastAnnounce,
 		}
 	}
