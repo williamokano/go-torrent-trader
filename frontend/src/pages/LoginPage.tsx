@@ -14,20 +14,26 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [emailNotConfirmed, setEmailNotConfirmed] = useState(false);
 
   const from = (location.state as { from?: string })?.from || "/";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setIsSubmitting(true);
+    setEmailNotConfirmed(false);
 
     try {
       await login(username, password);
       navigate(from, { replace: true });
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Login failed. Please try again.",
-      );
+      const msg =
+        err instanceof Error ? err.message : "Login failed. Please try again.";
+      if (msg.toLowerCase().includes("confirm your email")) {
+        setEmailNotConfirmed(true);
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -37,6 +43,12 @@ export function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <h1 className="auth-card__title">Login</h1>
+        {emailNotConfirmed && (
+          <p className="auth-card__notice">
+            Please confirm your email address before logging in.{" "}
+            <Link to="/resend-confirmation">Resend confirmation email</Link>
+          </p>
+        )}
         <form className="auth-card__form" onSubmit={handleSubmit}>
           <Input
             label="Username"

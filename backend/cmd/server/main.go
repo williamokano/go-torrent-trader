@@ -102,6 +102,12 @@ func run() int {
 
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo, eventBus)
+
+	// Email confirmation
+	emailConfirmRepo := postgres.NewEmailConfirmationRepo(db)
+	authService.SetEmailConfirmationStore(emailConfirmRepo)
+	authService.SetRequireEmailConfirm(cfg.Site.RegistrationEmailConfirm)
+	authService.SetSiteName(cfg.Site.Name)
 	userService := service.NewUserService(userRepo, sessionStore, groupRepo, peerRepo, torrentRepo)
 	transferHistoryRepo := postgres.NewTransferHistoryRepo(db)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)

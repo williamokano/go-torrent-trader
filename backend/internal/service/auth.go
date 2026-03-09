@@ -28,6 +28,10 @@ var (
 	ErrInvalidInviteCode = errors.New("invalid or expired invite code")
 	ErrBannedEmail       = errors.New("email is banned")
 	ErrBannedIP          = errors.New("IP address is banned")
+	ErrEmailNotConfirmed       = errors.New("email not confirmed")
+	ErrInvalidConfirmToken     = errors.New("invalid or expired confirmation token")
+	ErrConfirmRateLimitExceed  = errors.New("too many confirmation email requests, please wait 5 minutes")
+	ErrAccountAlreadyConfirmed = errors.New("account is already confirmed")
 )
 
 // BanChecker checks whether an email or IP is banned.
@@ -85,9 +89,24 @@ type ResetPasswordRequest struct {
 }
 
 const (
-	resetTokenRateLimit = 3               // max reset requests per email per hour
-	resetTokenTTL       = 1 * time.Hour   // reset token expiry
+	resetTokenRateLimit      = 3               // max reset requests per email per hour
+	resetTokenTTL            = 1 * time.Hour   // reset token expiry
+	confirmTokenTTL          = 24 * time.Hour  // email confirmation token expiry
+	confirmResendCooldown    = 5 * time.Minute // minimum wait between resends
 )
+
+// RegisterResult holds the result of a registration attempt.
+type RegisterResult struct {
+	User                      *model.User   `json:"user,omitempty"`
+	Tokens                    *AuthTokens   `json:"tokens,omitempty"`
+	EmailConfirmationRequired bool          `json:"email_confirmation_required,omitempty"`
+	Message                   string        `json:"message,omitempty"`
+}
+
+// ResendConfirmationRequest holds input for resending a confirmation email.
+type ResendConfirmationRequest struct {
+	Email string `json:"email"`
+}
 
 // DefaultAccessTokenTTL is the default access token lifetime.
 const DefaultAccessTokenTTL = 1 * time.Hour
@@ -97,18 +116,21 @@ const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 
 // AuthService handles authentication business logic.
 type AuthService struct {
-	users           repository.UserRepository
-	groups          repository.GroupRepository
-	sessions        SessionStore
-	passwordResets  PasswordResetStore
-	email           EmailSender
-	siteBaseURL     string
-	accessTokenTTL  time.Duration
-	refreshTokenTTL time.Duration
-	eventBus        event.Bus
-	siteSettings    *SiteSettingsService
-	inviteService   *InviteService
-	banChecker      BanChecker
+	users              repository.UserRepository
+	groups             repository.GroupRepository
+	sessions           SessionStore
+	passwordResets     PasswordResetStore
+	emailConfirmations EmailConfirmationStore
+	email              EmailSender
+	siteName           string
+	siteBaseURL        string
+	accessTokenTTL     time.Duration
+	refreshTokenTTL    time.Duration
+	eventBus           event.Bus
+	siteSettings       *SiteSettingsService
+	inviteService      *InviteService
+	banChecker         BanChecker
+	requireEmailConfirm bool
 }
 
 // NewAuthService creates a new AuthService with default token TTLs.
@@ -168,23 +190,38 @@ func (s *AuthService) SetBanChecker(checker BanChecker) {
 	s.banChecker = checker
 }
 
-// Register creates a new user account and returns auth tokens.
-func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip string) (*model.User, *AuthTokens, error) {
+// SetEmailConfirmationStore sets the email confirmation store.
+func (s *AuthService) SetEmailConfirmationStore(store EmailConfirmationStore) {
+	s.emailConfirmations = store
+}
+
+// SetRequireEmailConfirm enables or disables email confirmation on registration.
+func (s *AuthService) SetRequireEmailConfirm(require bool) {
+	s.requireEmailConfirm = require
+}
+
+// SetSiteName sets the site name used in emails.
+func (s *AuthService) SetSiteName(name string) {
+	s.siteName = name
+}
+
+// Register creates a new user account and returns auth tokens (or confirmation required info).
+func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip string) (*RegisterResult, error) {
 	if err := validateRegistration(req); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Check bans before proceeding
 	if s.banChecker != nil {
 		if banned, err := s.banChecker.IsEmailBanned(ctx, req.Email); err != nil {
-			return nil, nil, fmt.Errorf("check email ban: %w", err)
+			return nil, fmt.Errorf("check email ban: %w", err)
 		} else if banned {
-			return nil, nil, ErrBannedEmail
+			return nil, ErrBannedEmail
 		}
 		if banned, err := s.banChecker.IsIPBanned(ctx, ip); err != nil {
-			return nil, nil, fmt.Errorf("check ip ban: %w", err)
+			return nil, fmt.Errorf("check ip ban: %w", err)
 		} else if banned {
-			return nil, nil, ErrBannedIP
+			return nil, ErrBannedIP
 		}
 	}
 
@@ -192,7 +229,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 	var validatedInvite *model.Invite
 	isFirstUser, err := s.isFirstUser(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("check first user: %w", err)
+		return nil, fmt.Errorf("check first user: %w", err)
 	}
 
 	// First user bypasses invite requirement (bootstrap)
@@ -200,14 +237,14 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		regMode := s.siteSettings.GetRegistrationMode(ctx)
 		if regMode == RegistrationModeInviteOnly {
 			if req.InviteCode == "" {
-				return nil, nil, ErrInviteRequired
+				return nil, ErrInviteRequired
 			}
 			if s.inviteService == nil {
-				return nil, nil, fmt.Errorf("invite service not configured")
+				return nil, fmt.Errorf("invite service not configured")
 			}
 			invite, err := s.inviteService.ValidateInvite(ctx, req.InviteCode)
 			if err != nil {
-				return nil, nil, ErrInvalidInviteCode
+				return nil, ErrInvalidInviteCode
 			}
 			validatedInvite = invite
 		}
@@ -216,15 +253,15 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 	// Fast-path uniqueness checks for better UX error messages.
 	// The DB unique constraint is the real safety net against races.
 	if existing, err := s.users.GetByUsername(ctx, req.Username); err == nil && existing != nil {
-		return nil, nil, ErrUsernameTaken
+		return nil, ErrUsernameTaken
 	}
 	if existing, err := s.users.GetByEmail(ctx, req.Email); err == nil && existing != nil {
-		return nil, nil, ErrEmailTaken
+		return nil, ErrEmailTaken
 	}
 
 	hash, err := HashPassword(req.Password)
 	if err != nil {
-		return nil, nil, fmt.Errorf("hash password: %w", err)
+		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
 	// Determine group: first user gets admin
@@ -236,9 +273,13 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 	// Generate passkey for tracker authentication (32-char hex)
 	passkeyFull, err := GenerateToken()
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate passkey: %w", err)
+		return nil, fmt.Errorf("generate passkey: %w", err)
 	}
 	passkey := passkeyFull[:32]
+
+	// When email confirmation is required, create user with enabled=false
+	// First user (admin bootstrap) always skips email confirmation
+	needsConfirmation := s.requireEmailConfirm && !isFirstUser
 
 	user := &model.User{
 		Username:       req.Username,
@@ -247,7 +288,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		PasswordScheme: "argon2id",
 		Passkey:        &passkey,
 		GroupID:        groupID,
-		Enabled:        true,
+		Enabled:        !needsConfirmation,
 		IP:             &ip,
 	}
 
@@ -262,13 +303,13 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
 			if strings.Contains(errMsg, "username") {
-				return nil, nil, ErrUsernameTaken
+				return nil, ErrUsernameTaken
 			}
 			if strings.Contains(errMsg, "email") {
-				return nil, nil, ErrEmailTaken
+				return nil, ErrEmailTaken
 			}
 		}
-		return nil, nil, fmt.Errorf("create user: %w", err)
+		return nil, fmt.Errorf("create user: %w", err)
 	}
 
 	// Redeem the invite now that the user is created
@@ -278,17 +319,31 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		}
 	}
 
-	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create session: %w", err)
-	}
-
 	s.eventBus.Publish(ctx, &event.UserRegisteredEvent{
 		Base:   event.NewBase(event.UserRegistered, event.Actor{ID: user.ID, Username: user.Username}),
 		UserID: user.ID,
 	})
 
-	return user, tokens, nil
+	// If email confirmation is required, send confirmation email instead of creating session
+	if needsConfirmation {
+		if err := s.sendConfirmationEmail(ctx, user); err != nil {
+			slog.Error("failed to send confirmation email", "user_id", user.ID, "error", err)
+		}
+		return &RegisterResult{
+			EmailConfirmationRequired: true,
+			Message:                   "Please check your email to confirm your account",
+		}, nil
+	}
+
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+
+	return &RegisterResult{
+		User:   user,
+		Tokens: tokens,
+	}, nil
 }
 
 // Login authenticates a user and returns auth tokens.
@@ -308,6 +363,13 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	}
 
 	if !user.Enabled {
+		// Check if user has a pending email confirmation
+		if s.emailConfirmations != nil {
+			latest, ecErr := s.emailConfirmations.GetLatestByUserID(ctx, user.ID)
+			if ecErr == nil && latest != nil && latest.ConfirmedAt == nil {
+				return nil, nil, ErrEmailNotConfirmed
+			}
+		}
 		return nil, nil, ErrInvalidCredentials
 	}
 
@@ -513,6 +575,135 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 
 	slog.Info("password reset completed", "user_id", pr.UserID)
 	return nil
+}
+
+// ConfirmEmail validates a confirmation token and enables the user account.
+func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
+	if token == "" {
+		return ErrInvalidConfirmToken
+	}
+
+	if s.emailConfirmations == nil {
+		return ErrInvalidConfirmToken
+	}
+
+	tokenHash := hashTokenBytes(token)
+
+	ec, err := s.emailConfirmations.ClaimByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return fmt.Errorf("claim confirmation token: %w", err)
+	}
+	if ec == nil {
+		return ErrInvalidConfirmToken
+	}
+
+	user, err := s.users.GetByID(ctx, ec.UserID)
+	if err != nil || user == nil {
+		return ErrInvalidConfirmToken
+	}
+
+	if user.Enabled {
+		// Already confirmed, idempotent success
+		return nil
+	}
+
+	user.Enabled = true
+	if err := s.users.Update(ctx, user); err != nil {
+		return fmt.Errorf("enable user: %w", err)
+	}
+
+	slog.Info("email confirmed", "user_id", ec.UserID)
+	return nil
+}
+
+// ResendConfirmation sends a new confirmation email to a user who hasn't confirmed yet.
+func (s *AuthService) ResendConfirmation(ctx context.Context, req ResendConfirmationRequest) error {
+	if req.Email == "" {
+		return nil
+	}
+
+	if s.emailConfirmations == nil {
+		return nil
+	}
+
+	user, err := s.users.GetByEmail(ctx, req.Email)
+	if err != nil || user == nil {
+		// Don't reveal whether the email exists
+		return nil
+	}
+
+	if user.Enabled {
+		return ErrAccountAlreadyConfirmed
+	}
+
+	// Rate limit: check latest confirmation was > 5 minutes ago
+	latest, err := s.emailConfirmations.GetLatestByUserID(ctx, user.ID)
+	if err != nil {
+		slog.Error("failed to get latest confirmation", "user_id", user.ID, "error", err)
+		return nil
+	}
+	if latest != nil && time.Since(latest.CreatedAt) < confirmResendCooldown {
+		return ErrConfirmRateLimitExceed
+	}
+
+	// Delete old tokens
+	if err := s.emailConfirmations.DeleteByUserID(ctx, user.ID); err != nil {
+		slog.Error("failed to delete old confirmations", "user_id", user.ID, "error", err)
+		return nil
+	}
+
+	if err := s.sendConfirmationEmail(ctx, user); err != nil {
+		slog.Error("failed to send confirmation email", "user_id", user.ID, "error", err)
+	}
+
+	return nil
+}
+
+// sendConfirmationEmail generates a token and sends a confirmation email.
+func (s *AuthService) sendConfirmationEmail(ctx context.Context, user *model.User) error {
+	if s.emailConfirmations == nil {
+		return fmt.Errorf("email confirmation store not configured")
+	}
+
+	rawToken, err := GenerateToken()
+	if err != nil {
+		return fmt.Errorf("generate confirmation token: %w", err)
+	}
+
+	tokenHash := hashTokenBytes(rawToken)
+
+	if err := s.emailConfirmations.Create(ctx, user.ID, tokenHash, time.Now().Add(confirmTokenTTL)); err != nil {
+		return fmt.Errorf("store confirmation token: %w", err)
+	}
+
+	confirmURL := fmt.Sprintf("%s/confirm-email?token=%s", s.siteBaseURL, rawToken)
+
+	siteName := s.siteName
+	if siteName == "" {
+		siteName = "TorrentTrader"
+	}
+
+	htmlBody := fmt.Sprintf(
+		`<h2>Confirm your email address</h2>
+<p>Welcome to %s! Please confirm your email by clicking the link below:</p>
+<p><a href="%s">Confirm Email</a></p>
+<p>This link expires in 24 hours.</p>
+<p>If you didn't create this account, ignore this email.</p>`,
+		siteName, confirmURL,
+	)
+
+	if err := s.email.Send(ctx, user.Email, "Confirm your email address", htmlBody); err != nil {
+		return fmt.Errorf("send confirmation email: %w", err)
+	}
+
+	slog.Info("confirmation email sent", "user_id", user.ID, "email", user.Email)
+	return nil
+}
+
+// hashTokenBytes returns the raw SHA-256 hash of a token string (as bytes for BYTEA storage).
+func hashTokenBytes(token string) []byte {
+	h := sha256.Sum256([]byte(token))
+	return h[:]
 }
 
 // hashToken returns the hex-encoded SHA-256 hash of a token string.

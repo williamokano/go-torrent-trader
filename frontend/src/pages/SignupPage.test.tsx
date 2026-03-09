@@ -205,7 +205,7 @@ describe("SignupPage", () => {
   });
 
   test("calls register on valid form submit", async () => {
-    mockRegister.mockResolvedValueOnce(undefined);
+    mockRegister.mockResolvedValueOnce({ emailConfirmationRequired: false });
     renderSignupPage();
     await waitFor(() => {
       expect(screen.getByLabelText("Username")).toBeInTheDocument();

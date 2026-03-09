@@ -129,7 +129,7 @@ func TestRegister_Success(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	user, tokens, err := svc.Register(context.Background(), RegisterRequest{
+	result, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
 		Password: "password123",
@@ -138,17 +138,17 @@ func TestRegister_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user.Username != "testuser" {
-		t.Errorf("expected username testuser, got %s", user.Username)
+	if result.User.Username != "testuser" {
+		t.Errorf("expected username testuser, got %s", result.User.Username)
 	}
-	if user.PasswordScheme != "argon2id" {
-		t.Errorf("expected argon2id scheme, got %s", user.PasswordScheme)
+	if result.User.PasswordScheme != "argon2id" {
+		t.Errorf("expected argon2id scheme, got %s", result.User.PasswordScheme)
 	}
-	if tokens.AccessToken == "" || tokens.RefreshToken == "" {
+	if result.Tokens.AccessToken == "" || result.Tokens.RefreshToken == "" {
 		t.Error("expected non-empty tokens")
 	}
-	if tokens.ExpiresIn != int64(DefaultAccessTokenTTL.Seconds()) {
-		t.Errorf("expected expires_in=%d, got %d", int64(DefaultAccessTokenTTL.Seconds()), tokens.ExpiresIn)
+	if result.Tokens.ExpiresIn != int64(DefaultAccessTokenTTL.Seconds()) {
+		t.Errorf("expected expires_in=%d, got %d", int64(DefaultAccessTokenTTL.Seconds()), result.Tokens.ExpiresIn)
 	}
 }
 
@@ -157,7 +157,7 @@ func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	user, _, err := svc.Register(context.Background(), RegisterRequest{
+	result, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "admin",
 		Email:    "admin@example.com",
 		Password: "password123",
@@ -166,8 +166,8 @@ func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user.GroupID != 1 {
-		t.Errorf("first user should get admin group (1), got %d", user.GroupID)
+	if result.User.GroupID != 1 {
+		t.Errorf("first user should get admin group (1), got %d", result.User.GroupID)
 	}
 }
 
@@ -177,14 +177,14 @@ func TestRegister_SecondUserGetsDefaultGroup(t *testing.T) {
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
 	// Register first user
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "admin",
 		Email:    "admin@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	// Register second user
-	user, _, err := svc.Register(context.Background(), RegisterRequest{
+	result, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "normaluser",
 		Email:    "normal@example.com",
 		Password: "password123",
@@ -193,8 +193,8 @@ func TestRegister_SecondUserGetsDefaultGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user.GroupID != 5 {
-		t.Errorf("second user should get default group (5), got %d", user.GroupID)
+	if result.User.GroupID != 5 {
+		t.Errorf("second user should get default group (5), got %d", result.User.GroupID)
 	}
 }
 
@@ -203,13 +203,13 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "dupe",
 		Email:    "dupe1@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	_, _, err := svc.Register(context.Background(), RegisterRequest{
+	_, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "dupe",
 		Email:    "dupe2@example.com",
 		Password: "password123",
@@ -225,13 +225,13 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "user1",
 		Email:    "same@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	_, _, err := svc.Register(context.Background(), RegisterRequest{
+	_, err := svc.Register(context.Background(), RegisterRequest{
 		Username: "user2",
 		Email:    "same@example.com",
 		Password: "password123",
@@ -261,7 +261,7 @@ func TestRegister_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := svc.Register(context.Background(), tt.req, "127.0.0.1")
+			_, err := svc.Register(context.Background(), tt.req, "127.0.0.1")
 			if !errors.Is(err, ErrValidationFailed) {
 				t.Errorf("expected ErrValidationFailed, got %v", err)
 			}
@@ -274,7 +274,7 @@ func TestLogin_Success(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "loginuser",
 		Email:    "login@example.com",
 		Password: "password123",
@@ -301,7 +301,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "loginuser",
 		Email:    "login@example.com",
 		Password: "password123",
@@ -337,12 +337,13 @@ func TestRefresh_Success(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
+	result, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "refreshuser",
 		Email:    "refresh@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
+	tokens := result.Tokens
 	newTokens, err := svc.Refresh(RefreshRequest{
 		RefreshToken: tokens.RefreshToken,
 	}, "127.0.0.1")
@@ -382,15 +383,15 @@ func TestLogout(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
+	result, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "logoutuser",
 		Email:    "logout@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	svc.Logout(tokens.AccessToken)
+	svc.Logout(result.Tokens.AccessToken)
 
-	if sessions.GetByAccessToken(tokens.AccessToken) != nil {
+	if sessions.GetByAccessToken(result.Tokens.AccessToken) != nil {
 		t.Error("session should be invalidated after logout")
 	}
 }
@@ -400,13 +401,13 @@ func TestGetCurrentUser(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	registered, _, _ := svc.Register(context.Background(), RegisterRequest{
+	result, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "meuser",
 		Email:    "me@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
-	user, err := svc.GetCurrentUser(context.Background(), registered.ID)
+	user, err := svc.GetCurrentUser(context.Background(), result.User.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -423,7 +424,7 @@ func TestForgotPassword_GeneratesToken(t *testing.T) {
 	svc.SetPasswordResetStore(store)
 
 	// Register a user
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "resetuser",
 		Email:    "reset@example.com",
 		Password: "password123",
@@ -477,7 +478,7 @@ func TestForgotPassword_RateLimit(t *testing.T) {
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "ratelimit",
 		Email:    "ratelimit@example.com",
 		Password: "password123",
@@ -514,12 +515,13 @@ func TestResetPassword_Success(t *testing.T) {
 	svc.SetPasswordResetStore(store)
 
 	// Register and login to create a session
-	_, tokens, _ := svc.Register(context.Background(), RegisterRequest{
+	result, _ := svc.Register(context.Background(), RegisterRequest{
 		Username: "resetpw",
 		Email:    "resetpw@example.com",
 		Password: "oldpassword1",
 	}, "127.0.0.1")
 
+	tokens := result.Tokens
 	// Verify the session exists
 	if sessions.GetByAccessToken(tokens.AccessToken) == nil {
 		t.Fatal("session should exist before reset")
@@ -604,7 +606,7 @@ func TestResetPassword_ExpiredToken(t *testing.T) {
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "expired",
 		Email:    "expired@example.com",
 		Password: "password123",
@@ -636,7 +638,7 @@ func TestResetPassword_UsedToken(t *testing.T) {
 	store := newTestPasswordResetStore()
 	svc.SetPasswordResetStore(store)
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "usedtoken",
 		Email:    "usedtoken@example.com",
 		Password: "password123",
@@ -685,7 +687,7 @@ func TestLogin_DisabledUser(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
 
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "disabled",
 		Email:    "disabled@example.com",
 		Password: "password123",

@@ -30,6 +30,9 @@ import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
 import { NeedSeedPage } from "@/pages/NeedSeedPage";
 import { TorrentPeersPage } from "@/pages/TorrentPeersPage";
+import { ConfirmEmailPage } from "@/pages/ConfirmEmailPage";
+import { ResendConfirmationPage } from "@/pages/ResendConfirmationPage";
+import { CheckEmailPage } from "@/pages/CheckEmailPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -188,6 +191,9 @@ export const router = createBrowserRouter([
       { path: "signup", element: <SignupPage /> },
       { path: "forgot-password", element: <ForgotPasswordPage /> },
       { path: "reset-password", element: <ResetPasswordPage /> },
+      { path: "confirm-email", element: <ConfirmEmailPage /> },
+      { path: "resend-confirmation", element: <ResendConfirmationPage /> },
+      { path: "check-email", element: <CheckEmailPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

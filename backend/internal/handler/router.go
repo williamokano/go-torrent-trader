@@ -105,6 +105,8 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Post("/refresh", auth.HandleRefresh)
 				r.Post("/forgot-password", auth.HandleForgotPassword)
 				r.Post("/reset-password", auth.HandleResetPassword)
+				r.Get("/confirm-email", auth.HandleConfirmEmail)
+				r.Post("/resend-confirmation", auth.HandleResendConfirmation)
 
 				// Public registration mode endpoint
 				if deps.SiteSettingsService != nil {

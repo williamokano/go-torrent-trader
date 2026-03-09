@@ -63,7 +63,7 @@ func TestForgotPassword_SendsEmail(t *testing.T) {
 	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), sender, "http://localhost:8080", event.NewInMemoryBus())
 
 	// Register a user
-	_, _, _ = svc.Register(context.Background(), RegisterRequest{
+	_, _ = svc.Register(context.Background(), RegisterRequest{
 		Username: "emailuser",
 		Email:    "emailuser@example.com",
 		Password: "password123",

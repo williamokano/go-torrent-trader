@@ -49,12 +49,12 @@ func TestAdminListUsers(t *testing.T) {
 
 	// Create some users via auth
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	_, _, _ = authSvc.Register(context.Background(), RegisterRequest{
+	_, _ = authSvc.Register(context.Background(), RegisterRequest{
 		Username: "alice",
 		Email:    "alice@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
-	_, _, _ = authSvc.Register(context.Background(), RegisterRequest{
+	_, _ = authSvc.Register(context.Background(), RegisterRequest{
 		Username: "bob",
 		Email:    "bob@example.com",
 		Password: "password123",
@@ -81,14 +81,14 @@ func TestAdminUpdateUser_ChangeGroup(t *testing.T) {
 	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "changeme",
 		Email:    "changeme@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	newGroupID := int64(1)
-	view, err := svc.UpdateUser(context.Background(), 99, user.ID, AdminUpdateUserRequest{
+	view, err := svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{
 		GroupID: &newGroupID,
 	})
 	if err != nil {
@@ -108,14 +108,14 @@ func TestAdminUpdateUser_InvalidGroup(t *testing.T) {
 	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "invalidgrp",
 		Email:    "invalidgrp@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	badGroupID := int64(999)
-	_, err := svc.UpdateUser(context.Background(), 99, user.ID, AdminUpdateUserRequest{
+	_, err := svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{
 		GroupID: &badGroupID,
 	})
 	if !errors.Is(err, ErrAdminGroupNotFound) {
@@ -140,14 +140,14 @@ func TestAdminUpdateUser_ToggleEnabled(t *testing.T) {
 	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
-	user, _, _ := authSvc.Register(context.Background(), RegisterRequest{
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
 		Username: "disableme",
 		Email:    "disableme@example.com",
 		Password: "password123",
 	}, "127.0.0.1")
 
 	disabled := false
-	view, err := svc.UpdateUser(context.Background(), 99, user.ID, AdminUpdateUserRequest{
+	view, err := svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{
 		Enabled: &disabled,
 	})
 	if err != nil {
