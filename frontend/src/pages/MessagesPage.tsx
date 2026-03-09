@@ -57,11 +57,12 @@ export function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
 
-  // Sync compose receiver from URL when navigating to ?tab=compose&to=username
+  // Sync compose receiver from URL when navigating to ?tab=compose&to=username&to_id=N
   const urlTo = searchParams.get("to") || "";
+  const urlToId = searchParams.get("to_id");
   if (tab === "compose" && urlTo && urlTo !== composeReceiver) {
     setComposeReceiver(urlTo);
-    setComposeReceiverId(null); // will be resolved by autocomplete
+    setComposeReceiverId(urlToId ? Number(urlToId) : null);
   }
 
   // Username autocomplete state

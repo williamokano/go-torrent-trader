@@ -147,7 +147,7 @@ export function UserProfilePage() {
             )}
             {!isOwnProfile && currentUser && (
               <Link
-                to={`/messages?tab=compose&to=${encodeURIComponent(profile.username)}`}
+                to={`/messages?tab=compose&to=${encodeURIComponent(profile.username)}&to_id=${profile.id}`}
                 className="profile-info__settings-link"
               >
                 Send Message
