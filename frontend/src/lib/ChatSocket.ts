@@ -23,7 +23,8 @@ export type ChatListener = (
     | { type: "backfill"; messages: ChatMessage[] }
     | { type: "message"; message: ChatMessage }
     | { type: "delete"; id: number }
-    | { type: "delete_user"; user_id: number },
+    | { type: "delete_user"; user_id: number }
+    | { type: "error"; message: string },
 ) => void;
 
 function getWebSocketURL(): string {
@@ -109,6 +110,9 @@ class ChatSocket {
             break;
           case "delete_user":
             this.emit({ type: "delete_user", user_id: data.user_id });
+            break;
+          case "error":
+            this.emit({ type: "error", message: data.message });
             break;
         }
       } catch {

@@ -73,6 +73,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             prev.filter((m) => m.user_id !== event.user_id),
           );
           break;
+        case "error":
+          toast.error(event.message);
+          break;
       }
     };
 

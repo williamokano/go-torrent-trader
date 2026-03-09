@@ -179,6 +179,13 @@ func (s *ChatService) MuteUser(ctx context.Context, userID, actorID int64, durat
 		return nil, fmt.Errorf("create chat mute: %w", err)
 	}
 
+	s.eventBus.Publish(ctx, &event.ChatUserMutedEvent{
+		Base:            event.NewBase(event.ChatUserMuted, event.Actor{ID: actorID}),
+		TargetUserID:    userID,
+		DurationMinutes: durationMinutes,
+		Reason:          mute.Reason,
+	})
+
 	return mute, nil
 }
 
@@ -191,6 +198,11 @@ func (s *ChatService) UnmuteUser(ctx context.Context, userID, actorID int64, per
 	if err := s.mutes.Delete(ctx, userID); err != nil {
 		return fmt.Errorf("unmute user: %w", err)
 	}
+
+	s.eventBus.Publish(ctx, &event.ChatUserUnmutedEvent{
+		Base:         event.NewBase(event.ChatUserUnmuted, event.Actor{ID: actorID}),
+		TargetUserID: userID,
+	})
 
 	return nil
 }
