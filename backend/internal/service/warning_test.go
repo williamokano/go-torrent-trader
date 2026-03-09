@@ -121,6 +121,25 @@ func (m *mockWarningRepo) GetUsersWithLowRatio(_ context.Context, _ float64, _ i
 	return nil, nil
 }
 
+func (m *mockWarningRepo) ResolveExpiredManualWarnings(_ context.Context) ([]int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	seen := map[int64]bool{}
+	var userIDs []int64
+	for _, w := range m.warnings {
+		if w.Type == model.WarningTypeManual && w.Status == model.WarningStatusActive && w.ExpiresAt != nil && w.ExpiresAt.Before(now) {
+			w.Status = model.WarningStatusResolved
+			w.UpdatedAt = now
+			if !seen[w.UserID] {
+				seen[w.UserID] = true
+				userIDs = append(userIDs, w.UserID)
+			}
+		}
+	}
+	return userIDs, nil
+}
+
 // --- mock user repo (minimal) ---
 
 type mockUserRepoForWarnings struct {
@@ -360,6 +379,14 @@ func TestIssueRatioWarning(t *testing.T) {
 	if !u.Warned {
 		t.Error("expected user to be warned")
 	}
+
+	// A PM notification should have been sent
+	if len(msgRepo.messages) != 1 {
+		t.Fatalf("expected 1 PM, got %d", len(msgRepo.messages))
+	}
+	if msgRepo.messages[0].ReceiverID != 1 {
+		t.Errorf("expected PM to user 1, got %d", msgRepo.messages[0].ReceiverID)
+	}
 }
 
 func TestEscalateRatioWarning(t *testing.T) {
@@ -374,6 +401,7 @@ func TestEscalateRatioWarning(t *testing.T) {
 	svc := NewWarningService(warnRepo, userRepo, msgRepo, bus)
 
 	w, _ := svc.IssueRatioWarning(context.Background(), 1, "low ratio")
+	pmCountBefore := len(msgRepo.messages)
 
 	err := svc.EscalateRatioWarning(context.Background(), w.ID, "Account disabled")
 	if err != nil {
@@ -390,6 +418,34 @@ func TestEscalateRatioWarning(t *testing.T) {
 	escalated, _ := warnRepo.GetByID(context.Background(), w.ID)
 	if escalated.Status != model.WarningStatusEscalated {
 		t.Errorf("expected status %q, got %q", model.WarningStatusEscalated, escalated.Status)
+	}
+
+	// A ban notification PM should have been sent
+	if len(msgRepo.messages) <= pmCountBefore {
+		t.Error("expected a PM to be sent on escalation/ban")
+	}
+}
+
+func TestEscalateRatioWarning_WrongType(t *testing.T) {
+	warnRepo := newMockWarningRepo()
+	userRepo := newMockUserRepoForWarnings()
+	msgRepo := newMockMessageRepoForWarnings()
+	bus := event.NewInMemoryBus()
+
+	admin := &model.User{ID: 1, Username: "admin", Enabled: true}
+	target := &model.User{ID: 2, Username: "user", Enabled: true}
+	userRepo.addUser(admin)
+	userRepo.addUser(target)
+
+	svc := NewWarningService(warnRepo, userRepo, msgRepo, bus)
+
+	// Issue a manual warning (not ratio_soft)
+	w, _ := svc.IssueManualWarning(context.Background(), 2, "manual warning", nil, 1)
+
+	// Escalating a manual warning should fail
+	err := svc.EscalateRatioWarning(context.Background(), w.ID, "should fail")
+	if err == nil {
+		t.Fatal("expected error escalating non-ratio_soft warning")
 	}
 }
 

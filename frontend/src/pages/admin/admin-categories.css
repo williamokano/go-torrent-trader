@@ -48,7 +48,6 @@
   color: var(--color-text-primary);
 }
 
-
 .admin-categories__edit-btn,
 .admin-categories__delete-btn {
   margin-right: var(--space-xs);

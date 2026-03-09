@@ -116,6 +116,9 @@ func (s *WarningService) IssueRatioWarning(ctx context.Context, userID int64, me
 		return nil, fmt.Errorf("update user warned flag: %w", err)
 	}
 
+	// Send PM notification to user
+	s.sendSystemPM(ctx, userID, "Ratio Warning", message)
+
 	// Publish event (system actor)
 	actor := event.Actor{ID: 0, Username: "System"}
 	s.eventBus.Publish(ctx, &event.WarningIssuedEvent{
@@ -136,6 +139,14 @@ func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int
 		return fmt.Errorf("get warning: %w", err)
 	}
 
+	if w.Type != model.WarningTypeRatioSoft {
+		return fmt.Errorf("%w: only ratio_soft warnings can be escalated", ErrInvalidWarning)
+	}
+
+	if w.Status != model.WarningStatusActive {
+		return fmt.Errorf("%w: warning is not active", ErrInvalidWarning)
+	}
+
 	// Mark old warning as escalated
 	w.Status = model.WarningStatusEscalated
 	now := time.Now()
@@ -149,6 +160,10 @@ func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int
 	if err != nil {
 		return fmt.Errorf("get user for ban: %w", err)
 	}
+
+	// Send PM with ban reason BEFORE disabling the account
+	s.sendSystemPM(ctx, w.UserID, "Account Disabled - Ratio Ban", banMessage)
+
 	user.Enabled = false
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("disable user: %w", err)
@@ -289,6 +304,21 @@ func ReplaceTemplateVars(msg string, vars map[string]string) string {
 	return msg
 }
 
+// ResolveExpiredManualWarnings resolves manual warnings past their expiration
+// and clears the warned flag on affected users with no remaining active warnings.
+func (s *WarningService) ResolveExpiredManualWarnings(ctx context.Context) (int, error) {
+	userIDs, err := s.warnings.ResolveExpiredManualWarnings(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, uid := range userIDs {
+		if clearErr := s.clearWarnedIfNone(ctx, uid); clearErr != nil {
+			return len(userIDs), fmt.Errorf("clear warned flag for user %d: %w", uid, clearErr)
+		}
+	}
+	return len(userIDs), nil
+}
+
 func (s *WarningService) clearWarnedIfNone(ctx context.Context, userID int64) error {
 	count, err := s.warnings.CountActiveByUser(ctx, userID)
 	if err != nil {
@@ -314,6 +344,19 @@ func (s *WarningService) sendPM(ctx context.Context, senderID, receiverID int64,
 	}
 	msg := &model.Message{
 		SenderID:   senderID,
+		ReceiverID: receiverID,
+		Subject:    subject,
+		Body:       body,
+	}
+	_ = s.messages.Create(ctx, msg)
+}
+
+// sendSystemPM sends a system-generated PM to a user. Uses the receiver as
+// sender (self-notification) because the messages table requires a valid FK
+// to users and there is no dedicated "system" user row.
+func (s *WarningService) sendSystemPM(ctx context.Context, receiverID int64, subject, body string) {
+	msg := &model.Message{
+		SenderID:   receiverID,
 		ReceiverID: receiverID,
 		Subject:    subject,
 		Body:       body,

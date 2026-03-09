@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
@@ -65,14 +65,26 @@ export function AdminWarningsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("active");
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Issue warning modal
   const [showIssueModal, setShowIssueModal] = useState(false);
-  const [issueUserId, setIssueUserId] = useState("");
+  const [issueUserId, setIssueUserId] = useState<number | null>(null);
+  const [issueUsername, setIssueUsername] = useState("");
   const [issueReason, setIssueReason] = useState("");
   const [issueExpiresAt, setIssueExpiresAt] = useState("");
   const [issuing, setIssuing] = useState(false);
+
+  // User autocomplete for issue modal
+  const [issueSuggestions, setIssueSuggestions] = useState<
+    Array<{ id: number; username: string }>
+  >([]);
+  const [showIssueSuggestions, setShowIssueSuggestions] = useState(false);
+  const [issueSuggestionLoading, setIssueSuggestionLoading] = useState(false);
+  const issueDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const issueSuggestionRef = useRef<HTMLDivElement>(null);
 
   // Lift warning modal
   const [liftingWarningId, setLiftingWarningId] = useState<number | null>(null);
@@ -107,16 +119,84 @@ export function AdminWarningsPage() {
     fetchWarnings();
   }, [fetchWarnings]);
 
+  // Debounce search input
+  useEffect(() => {
+    if (searchInput === searchQuery) return;
+    if (!searchInput.trim()) {
+      clearTimeout(debounceRef.current);
+      setSearchQuery("");
+      setPage(1);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setPage(1);
+    }, 250);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchInput, searchQuery]);
+
+  // Debounced username search for issue modal autocomplete
+  const searchIssueUsers = useCallback((query: string) => {
+    clearTimeout(issueDebounceRef.current);
+    if (query.length < 2) {
+      setIssueSuggestions([]);
+      setShowIssueSuggestions(false);
+      return;
+    }
+    setIssueSuggestionLoading(true);
+    issueDebounceRef.current = setTimeout(async () => {
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users?search=${encodeURIComponent(query)}&per_page=8`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setIssueSuggestions(
+            (data?.users ?? []).map((u: { id: number; username: string }) => ({
+              id: u.id,
+              username: u.username,
+            })),
+          );
+          setShowIssueSuggestions(true);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setIssueSuggestionLoading(false);
+      }
+    }, 250);
+  }, []);
+
+  // Close autocomplete when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        issueSuggestionRef.current &&
+        !issueSuggestionRef.current.contains(e.target as Node)
+      ) {
+        setShowIssueSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Clean up issue debounce on unmount
+  useEffect(() => {
+    return () => clearTimeout(issueDebounceRef.current);
+  }, []);
+
   const handleIssue = async (e: React.FormEvent) => {
     e.preventDefault();
-    const uid = parseInt(issueUserId, 10);
-    if (!uid || !issueReason.trim()) return;
+    if (!issueUserId || !issueReason.trim()) return;
 
     setIssuing(true);
     const token = getAccessToken();
     try {
       const body: Record<string, unknown> = {
-        user_id: uid,
+        user_id: issueUserId,
         reason: issueReason.trim(),
       };
       if (issueExpiresAt) {
@@ -135,7 +215,8 @@ export function AdminWarningsPage() {
       if (res.ok) {
         toast.success("Warning issued");
         setShowIssueModal(false);
-        setIssueUserId("");
+        setIssueUserId(null);
+        setIssueUsername("");
         setIssueReason("");
         setIssueExpiresAt("");
         fetchWarnings();
@@ -211,11 +292,8 @@ export function AdminWarningsPage() {
             id="warning-search"
             type="text"
             placeholder="Search by username"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
 
@@ -307,16 +385,54 @@ export function AdminWarningsPage() {
           >
             <h3>Issue Warning</h3>
             <form onSubmit={handleIssue}>
-              <div className="admin-warnings__modal-field">
-                <label htmlFor="issue-user-id">User ID</label>
-                <input
-                  id="issue-user-id"
-                  type="number"
-                  min="1"
-                  value={issueUserId}
-                  onChange={(e) => setIssueUserId(e.target.value)}
-                  required
-                />
+              <div
+                className="admin-warnings__modal-field"
+                ref={issueSuggestionRef}
+              >
+                <label htmlFor="issue-username">Username</label>
+                <div className="admin-warnings__autocomplete">
+                  <input
+                    id="issue-username"
+                    type="text"
+                    value={issueUsername}
+                    onChange={(e) => {
+                      setIssueUsername(e.target.value);
+                      setIssueUserId(null);
+                      searchIssueUsers(e.target.value);
+                    }}
+                    onFocus={() => {
+                      if (issueSuggestions.length > 0)
+                        setShowIssueSuggestions(true);
+                    }}
+                    required
+                    placeholder="Search username..."
+                    autoComplete="off"
+                  />
+                  {issueSuggestionLoading && (
+                    <span className="admin-warnings__autocomplete-loading">
+                      ...
+                    </span>
+                  )}
+                  {showIssueSuggestions && issueSuggestions.length > 0 && (
+                    <ul className="admin-warnings__autocomplete-list">
+                      {issueSuggestions.map((u) => (
+                        <li key={u.id}>
+                          <button
+                            type="button"
+                            className="admin-warnings__autocomplete-item"
+                            onClick={() => {
+                              setIssueUsername(u.username);
+                              setIssueUserId(u.id);
+                              setShowIssueSuggestions(false);
+                            }}
+                          >
+                            {u.username}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
               <div className="admin-warnings__modal-field">
                 <label htmlFor="issue-reason">Reason</label>

@@ -60,7 +60,7 @@ func (r *WarningRepo) ListByUser(ctx context.Context, userID int64, includeInact
 		LEFT JOIN users u ON u.id = w.user_id
 		LEFT JOIN users ib ON ib.id = w.issued_by
 		LEFT JOIN users lb ON lb.id = w.lifted_by
-		%s ORDER BY w.created_at DESC`, where)
+		%s ORDER BY CASE WHEN w.status = 'active' THEN 0 ELSE 1 END, w.created_at DESC`, where)
 
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
@@ -123,7 +123,7 @@ func (r *WarningRepo) ListAll(ctx context.Context, opts repository.ListWarningsO
 		LEFT JOIN users u ON u.id = w.user_id
 		LEFT JOIN users ib ON ib.id = w.issued_by
 		LEFT JOIN users lb ON lb.id = w.lifted_by
-		%s ORDER BY w.created_at DESC LIMIT $%d OFFSET $%d`,
+		%s ORDER BY CASE WHEN w.status = 'active' THEN 0 ELSE 1 END, w.created_at DESC LIMIT $%d OFFSET $%d`,
 		where, argIdx, argIdx+1)
 	args = append(args, perPage, offset)
 
@@ -145,7 +145,7 @@ func (r *WarningRepo) Update(ctx context.Context, w *model.Warning) error {
 	query := `UPDATE warnings SET
 		status = $1, lifted_at = $2, lifted_by = $3, lifted_reason = $4,
 		expires_at = $5, updated_at = NOW()
-		WHERE id = $6`
+		WHERE id = $6 AND status = 'active'`
 	res, err := r.db.ExecContext(ctx, query,
 		w.Status, w.LiftedAt, w.LiftedBy, w.LiftedReason,
 		w.ExpiresAt, w.ID,
@@ -225,6 +225,34 @@ func (r *WarningRepo) GetUsersWithLowRatio(ctx context.Context, threshold float6
 		return nil, fmt.Errorf("iterate users: %w", err)
 	}
 	return users, nil
+}
+
+func (r *WarningRepo) ResolveExpiredManualWarnings(ctx context.Context) ([]int64, error) {
+	query := `UPDATE warnings SET status = 'resolved', updated_at = NOW()
+		WHERE type = 'manual' AND status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW()
+		RETURNING user_id`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("resolve expired manual warnings: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	seen := map[int64]bool{}
+	var userIDs []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("scan resolved warning user_id: %w", err)
+		}
+		if !seen[uid] {
+			seen[uid] = true
+			userIDs = append(userIDs, uid)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate resolved warnings: %w", err)
+	}
+	return userIDs, nil
 }
 
 func scanWarning(row interface{ Scan(...any) error }) (*model.Warning, error) {
