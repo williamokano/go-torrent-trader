@@ -12,6 +12,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import { NfoViewer } from "@/components/NfoViewer";
+import { WarningBadge } from "@/components/WarningBadge";
 import { getConfig } from "@/config";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import "./torrent-detail.css";
@@ -434,9 +435,12 @@ export function TorrentDetailPage() {
             {torrent.anonymous ? (
               "Anonymous"
             ) : torrent.uploader_name ? (
-              <Link to={`/user/${torrent.uploader_id}`}>
-                {torrent.uploader_name}
-              </Link>
+              <>
+                <Link to={`/user/${torrent.uploader_id}`}>
+                  {torrent.uploader_name}
+                </Link>
+                <WarningBadge warned={torrent.uploader_warned} />
+              </>
             ) : (
               "Unknown"
             )}

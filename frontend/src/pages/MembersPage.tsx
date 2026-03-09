@@ -5,6 +5,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { Input } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { formatBytes, formatRatio, formatDate } from "@/utils/format";
+import { WarningBadge } from "@/components/WarningBadge";
 import "./members.css";
 
 interface MemberUser {
@@ -16,6 +17,7 @@ interface MemberUser {
   downloaded: number;
   ratio: number;
   donor: boolean;
+  warned: boolean;
   created_at: string;
 }
 
@@ -155,6 +157,7 @@ export function MembersPage() {
                   <Link className="members__username" to={`/user/${m.id}`}>
                     {m.username}
                   </Link>
+                  <WarningBadge warned={m.warned} />
                   {m.donor && (
                     <span className="members__donor-badge">Donor</span>
                   )}

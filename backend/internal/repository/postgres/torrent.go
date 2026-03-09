@@ -15,6 +15,7 @@ const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo,
 	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
 	t.visible, t.banned, t.free, t.silver, t.file_count, t.files,
 	CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END AS uploader_name,
+	CASE WHEN t.anonymous THEN false ELSE COALESCE(u.warned, false) END AS uploader_warned,
 	t.created_at, t.updated_at`
 
 // TorrentRepo implements repository.TorrentRepository using PostgreSQL.
@@ -40,7 +41,7 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
 		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.UploaderName,
-		&t.CreatedAt, &t.UpdatedAt,
+		&t.UploaderWarned, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err

@@ -4,6 +4,7 @@ import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
+import { WarningBadge } from "@/components/WarningBadge";
 import "./profile.css";
 
 interface UserWarning {
@@ -30,6 +31,7 @@ interface PublicUser {
   downloaded: number;
   ratio: number;
   donor: boolean;
+  warned: boolean;
   created_at: string;
   invited_by_id?: number;
   invited_by_name?: string;
@@ -294,7 +296,10 @@ export function UserProfilePage() {
           <div className="profile-avatar--initials">{initials}</div>
         )}
         <div className="profile-info">
-          <h1 className="profile-info__username">{profile.username}</h1>
+          <h1 className="profile-info__username">
+            {profile.username}
+            <WarningBadge warned={profile.warned} />
+          </h1>
           {profile.title && (
             <p className="profile-info__title">{profile.title}</p>
           )}

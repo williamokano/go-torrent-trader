@@ -6,6 +6,7 @@ import { useAuth } from "@/features/auth";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import { Shoutbox } from "@/components/Shoutbox";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { WarningBadge } from "@/components/WarningBadge";
 import type { Torrent } from "@/types/torrent";
 import "./home.css";
 
@@ -176,9 +177,12 @@ export function HomePage() {
                     {t.anonymous ? (
                       <span className="browse__anonymous">Anonymous</span>
                     ) : (
-                      <Link to={`/user/${t.uploader_id}`}>
-                        {t.uploader_name ?? "Unknown"}
-                      </Link>
+                      <>
+                        <Link to={`/user/${t.uploader_id}`}>
+                          {t.uploader_name ?? "Unknown"}
+                        </Link>
+                        <WarningBadge warned={t.uploader_warned} />
+                      </>
                     )}
                   </td>
                   <td>{formatBytes(t.size ?? 0)}</td>

@@ -464,6 +464,8 @@ export interface components {
       anonymous?: boolean;
       /** @description Display name of the uploader ("Anonymous" when anonymous=true) */
       uploader_name?: string;
+      /** @description Whether the uploader has an active warning (false when anonymous=true) */
+      uploader_warned?: boolean;
       seeders?: number;
       leechers?: number;
       times_completed?: number;
