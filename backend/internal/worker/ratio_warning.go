@@ -113,13 +113,6 @@ func NewRatioWarningHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq
 			}
 		}
 
-		// Resolve expired manual warnings
-		if resolved, err := deps.WarningSvc.ResolveExpiredManualWarnings(ctx); err != nil {
-			slog.Error("ratio warning: failed to resolve expired manual warnings", "error", err)
-		} else if resolved > 0 {
-			slog.Info("ratio warning: resolved expired manual warnings", "count", resolved)
-		}
-
 		return nil
 	}
 }
