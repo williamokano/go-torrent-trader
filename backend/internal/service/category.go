@@ -40,10 +40,11 @@ func (s *CategoryService) List(ctx context.Context) ([]model.Category, error) {
 
 // CreateCategoryRequest holds the input for creating a category.
 type CreateCategoryRequest struct {
-	Name      string `json:"name"`
-	Slug      string `json:"slug"`
-	ParentID  *int64 `json:"parent_id"`
-	SortOrder int    `json:"sort_order"`
+	Name      string  `json:"name"`
+	Slug      string  `json:"slug"`
+	ParentID  *int64  `json:"parent_id"`
+	ImageURL  *string `json:"image_url"`
+	SortOrder int     `json:"sort_order"`
 }
 
 // Create creates a new category.
@@ -62,6 +63,7 @@ func (s *CategoryService) Create(ctx context.Context, req CreateCategoryRequest)
 		Name:      name,
 		Slug:      slug,
 		ParentID:  req.ParentID,
+		ImageURL:  req.ImageURL,
 		SortOrder: req.SortOrder,
 	}
 
@@ -73,10 +75,11 @@ func (s *CategoryService) Create(ctx context.Context, req CreateCategoryRequest)
 
 // UpdateCategoryRequest holds the input for updating a category.
 type UpdateCategoryRequest struct {
-	Name      string `json:"name"`
-	Slug      string `json:"slug"`
-	ParentID  *int64 `json:"parent_id"`
-	SortOrder int    `json:"sort_order"`
+	Name      string  `json:"name"`
+	Slug      string  `json:"slug"`
+	ParentID  *int64  `json:"parent_id"`
+	ImageURL  *string `json:"image_url"`
+	SortOrder int     `json:"sort_order"`
 }
 
 // Update updates an existing category.
@@ -99,6 +102,7 @@ func (s *CategoryService) Update(ctx context.Context, id int64, req UpdateCatego
 	cat.Name = name
 	cat.Slug = slug
 	cat.ParentID = req.ParentID
+	cat.ImageURL = req.ImageURL
 	cat.SortOrder = req.SortOrder
 
 	if err := s.categories.Update(ctx, cat); err != nil {

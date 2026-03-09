@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import "./admin-categories.css";
 
 interface Category {
@@ -12,6 +13,7 @@ interface Category {
   name: string;
   slug: string;
   parent_id: number | null;
+  image_url: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -21,6 +23,7 @@ interface CategoryFormData {
   name: string;
   slug: string;
   parent_id: string;
+  image_url: string;
   sort_order: string;
 }
 
@@ -28,6 +31,7 @@ const emptyForm: CategoryFormData = {
   name: "",
   slug: "",
   parent_id: "",
+  image_url: "",
   sort_order: "0",
 };
 
@@ -75,6 +79,7 @@ export function AdminCategoriesPage() {
       name: cat.name,
       slug: cat.slug,
       parent_id: cat.parent_id != null ? String(cat.parent_id) : "",
+      image_url: cat.image_url ?? "",
       sort_order: String(cat.sort_order),
     });
     setModalOpen(true);
@@ -93,6 +98,7 @@ export function AdminCategoriesPage() {
       name: form.name,
       slug: form.slug,
       parent_id: form.parent_id ? Number(form.parent_id) : null,
+      image_url: form.image_url.trim() || null,
       sort_order: Number(form.sort_order) || 0,
     };
 
@@ -185,6 +191,7 @@ export function AdminCategoriesPage() {
         <table className="admin-categories__table">
           <thead>
             <tr>
+              <th>Image</th>
               <th>Name</th>
               <th>Slug</th>
               <th>Parent</th>
@@ -195,6 +202,13 @@ export function AdminCategoriesPage() {
           <tbody>
             {categories.map((cat) => (
               <tr key={cat.id}>
+                <td>
+                  <CategoryIcon
+                    name={cat.name}
+                    imageUrl={cat.image_url}
+                    size="md"
+                  />
+                </td>
                 <td>{cat.name}</td>
                 <td>{cat.slug}</td>
                 <td className="admin-categories__parent">
@@ -247,6 +261,21 @@ export function AdminCategoriesPage() {
             value={form.parent_id}
             onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
           />
+          <Input
+            label="Image URL"
+            value={form.image_url}
+            placeholder="https://example.com/icon.png"
+            onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+          />
+          {form.image_url.trim() && (
+            <div className="admin-categories__image-preview">
+              <CategoryIcon
+                name={form.name || "?"}
+                imageUrl={form.image_url.trim()}
+                size="lg"
+              />
+            </div>
+          )}
           <Input
             label="Sort Order"
             type="number"

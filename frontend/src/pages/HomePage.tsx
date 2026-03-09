@@ -5,6 +5,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import { Shoutbox } from "@/components/Shoutbox";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import type { Torrent } from "@/types/torrent";
 import "./home.css";
 
@@ -145,6 +146,7 @@ export function HomePage() {
           <table className="home__latest-table">
             <thead>
               <tr>
+                <th>Cat</th>
                 <th>Name</th>
                 <th>Uploader</th>
                 <th>Size</th>
@@ -156,6 +158,15 @@ export function HomePage() {
             <tbody>
               {latestTorrents.map((t) => (
                 <tr key={t.id}>
+                  <td>
+                    <CategoryIcon
+                      name={t.category_name ?? "?"}
+                      imageUrl={
+                        (t as unknown as { category_image_url?: string })
+                          .category_image_url
+                      }
+                    />
+                  </td>
                   <td>
                     <Link
                       className="home__torrent-link"

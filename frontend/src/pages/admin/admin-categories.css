@@ -132,6 +132,12 @@
   font-size: var(--text-sm);
 }
 
+.admin-categories__image-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 .admin-categories__error {
   color: var(--color-danger, #dc3545);
   font-size: var(--text-sm);

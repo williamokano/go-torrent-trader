@@ -1,0 +1,41 @@
+.category-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.category-icon--img {
+  object-fit: cover;
+}
+
+.category-icon--placeholder {
+  background-color: var(--color-bg-tertiary, #374151);
+  color: var(--color-text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* Sizes */
+.category-icon--sm {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
+.category-icon--md {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.category-icon--lg {
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  line-height: 1;
+}

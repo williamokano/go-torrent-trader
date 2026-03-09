@@ -8,6 +8,7 @@ import { Pagination } from "@/components/Pagination";
 import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import { buildCategoryOptions } from "@/utils/categories";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import "./browse.css";
 
 const SORT_OPTIONS = [
@@ -210,10 +211,10 @@ export function BrowsePage() {
         <table className="browse__table">
           <thead>
             <tr>
+              <th title="Category">Cat.</th>
               <th onClick={() => handleSort("name")}>
                 Name{sortIndicator("name")}
               </th>
-              <th>Category</th>
               <th>Uploader</th>
               <th onClick={() => handleSort("size")}>
                 Size{sortIndicator("size")}
@@ -243,7 +244,12 @@ export function BrowsePage() {
                     {t.name}
                   </Link>
                 </td>
-                <td>{t.category_name ?? "Unknown"}</td>
+                <td>
+                  <CategoryIcon
+                    name={t.category_name ?? "?"}
+                    imageUrl={t.category_image_url}
+                  />
+                </td>
                 <td>
                   {t.anonymous ? (
                     <span className="browse__anonymous">Anonymous</span>
