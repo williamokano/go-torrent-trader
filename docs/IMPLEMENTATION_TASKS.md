@@ -661,7 +661,7 @@
 
 > **Note:** This is a research task. Start by documenting what fields the original TorrentTrader supports, then design the schema and UI. Low priority — current basic upload (name, category, description) works for MVP.
 
-#### BE-3.14: Show Uploader in Torrent Browse List [S]
+#### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user
 **I want** to see who uploaded each torrent in the browse/list views
 **So that** I can identify trusted uploaders
@@ -674,7 +674,7 @@
 - Respect anonymous flag — never reveal uploader identity for anonymous uploads
 - Staff can optionally see the real uploader even for anonymous torrents (future enhancement)
 
-#### BE-3.15: Category Images [S]
+#### BE-3.15: Category Images [S] [DONE]
 **As a** site operator
 **I want** categories to have associated images/icons
 **So that** torrent listings are visually identifiable by category
@@ -688,7 +688,7 @@
 - If no image is set, display a styled placeholder icon (generic file icon or first letter of category name)
 - Frontend: `CategoryIcon` component reusable across browse, detail, home page
 
-#### BE-3.16: User Torrent Activity on Profile [M]
+#### BE-3.16: User Torrent Activity on Profile [M] [DONE]
 **As a** user
 **I want** to see my torrent activity on my profile page
 **So that** I can track what I've uploaded, downloaded, and am currently transferring
