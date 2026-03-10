@@ -767,32 +767,45 @@
 **I want** to browse forum categories and topics
 **So that** I can participate in discussions
 
+**Architecture:** phpBB-style two-level structure. Forum Categories are display groups, Forums are where topics live. No sub-forums.
+
+**Schema:**
+- `forum_categories` (id, name, sort_order, created_at) — display-only groupings
+- `forums` (id, category_id FK, name, description, sort_order, topic_count, post_count, last_post_id, min_group_level, created_at) — denormalized counts for performance
+- `forum_topics` (id, forum_id FK, user_id FK, title, pinned, locked, post_count, view_count, last_post_id, last_post_at, created_at, updated_at)
+- `forum_posts` (id, topic_id FK, user_id FK, body (Markdown), reply_to_post_id, edited_at, edited_by, created_at)
+
+**Access Control:**
+- `can_forum` flag on users table — global privilege flag (same pattern as can_download/can_upload/can_chat). Integrates with existing restriction system (admin can suspend, tiered escalation can auto-restrict). Added via migration.
+- `min_group_level` on forums table — controls which groups can see/post in specific forums. Matches TorrentTrader's class-based access.
+- Access check: user has `can_forum=true` AND user's group level >= forum's `min_group_level`.
+
 **Acceptance Criteria:**
-- Forum categories -> Forums -> Topics -> Posts hierarchy
-- Forum index: list all forums with topic count, post count, last post info
-- Forum view: list topics (paginated, 20/page), sticky first, then by last post
-- Topic view: list posts (paginated, 20/page), with user info per post
+- Forum Categories → Forums → Topics → Posts hierarchy (two-level, no sub-forums)
+- Forum index: list all forum categories with their forums, showing topic_count, post_count, last post info per forum
+- Forum view: list topics (paginated, 20/page), pinned first, then by last_post_at
+- Topic view: list posts (paginated, 20/page), flat display sorted by date, with user info per post
 - Read tracking: track last read post per topic per user
 - Unread indicators on forums and topics
-- Permission: minclassread per forum, guest_read flag
+- Permission: `can_forum` user flag + `min_group_level` per forum
 - View count per topic (increment on view)
 - "Mark all read" bulk action
 
-#### BE-5.2: Create Topics & Threaded Replies [M]
+#### BE-5.2: Create Topics & Post Replies [M]
 **As a** user
-**I want** to create topics and reply to specific posts
-**So that** conversations have clear context and threading
+**I want** to create topics and reply to them
+**So that** I can participate in discussions
 
 **Acceptance Criteria:**
-- Create topic: subject (max 200 chars) + body (Markdown)
-- **Reply to topic** (flat): adds post at the end of the thread
-- **Reply to specific post** (threaded): adds post with `reply_to_post_id` reference
-  - Response includes quoted snippet of parent post (auto-generated)
-  - API returns `reply_to` field so frontend can render threading or flat view
-  - Does NOT force tree-view - frontend decides how to display (flat with quote, indented, etc.)
-- Permission: minclasswrite per forum
-- Updates topic's lastpost reference
-- Forum-banned users cannot post
+- Create topic: title (max 200 chars) + body (Markdown)
+- **Posts are flat** (not threaded trees), sorted by date
+- `reply_to_post_id` is for quoting context only — does NOT create a tree structure
+  - Response includes quoted snippet of referenced post (auto-generated)
+  - Frontend renders flat with inline quote block, not indented threading
+- Denormalized count updates: increment forum.post_count, forum.topic_count (on new topic), topic.post_count; update forum.last_post_id, topic.last_post_id, topic.last_post_at
+- Permission: `can_forum` user flag + `min_group_level` per forum
+- Updates topic's last_post_id and last_post_at
+- Users without `can_forum` cannot post
 - **@mention support**: `@username` in post body
   - Auto-linked to user profile in rendered output
   - Triggers notification (see BE-5.6)
@@ -803,24 +816,25 @@
 **So that** content can be corrected or removed
 
 **Acceptance Criteria:**
-- Edit: author or edit_forum permission, tracks editedby and editedat
+- Edit: author or moderator can edit; tracks `edited_at` and `edited_by` fields on forum_posts
 - Edit history: store previous version (at least last revision, for mod review)
-- Delete post: delete_forum permission, cannot delete if only post in topic
-- Delete topic: delete_forum permission, deletes all posts and read tracking
-- Soft delete option: post body replaced with "[deleted]" but record preserved (for threading integrity)
+- Delete post: moderator permission required, cannot delete if only post in topic (delete the topic instead)
+- Delete topic: moderator permission required, deletes all posts and read tracking; decrements forum.topic_count and forum.post_count
+- Author can edit own posts; moderators can edit/delete any post
 
 #### BE-5.4: Moderation Tools [S]
 **As a** moderator
-**I want** to lock, sticky, move, and rename topics
+**I want** to lock, pin, move, and rename topics
 **So that** I can keep the forum organized
 
 **Acceptance Criteria:**
-- Lock/unlock: prevents new replies
-- Sticky/unsticky: pins to top of forum
-- Move: change topic's forum (validates destination permissions)
-- Rename: change topic subject
-- All require edit_forum or delete_forum permission
-- Merge topics: combine two topics into one (advanced, optional)
+- Lock/unlock: sets `locked` flag on forum_topics, prevents new replies
+- Pin/unpin: sets `pinned` flag on forum_topics, pins to top of forum list
+- Move: change topic's forum_id (validates destination exists, updates denormalized counts on both source and destination forums)
+- Rename: change topic title
+- Delete topic: removes topic and all posts, updates denormalized counts
+- All moderation actions require `can_forum` + moderator/admin role
+- Access check includes `min_group_level` on destination forum for move operations
 
 #### BE-5.5: Forum Search [S]
 **As a** user
@@ -828,10 +842,10 @@
 **So that** I can find past discussions
 
 **Acceptance Criteria:**
-- Full-text search on post body AND topic subject (Postgres tsvector)
+- Full-text search on forum_posts.body AND forum_topics.title using PostgreSQL tsvector (same pattern as torrent search with `:*` prefix matching)
 - Results: post snippet with keyword highlighting, topic title, forum name, author, date
 - Paginated (50 results per page)
-- Respects forum read permissions
+- Respects forum access: only returns results from forums where user's group level >= `min_group_level`
 - Filter by: forum, author, date range
 
 #### BE-5.6: Notification Infrastructure [M]
@@ -1062,10 +1076,11 @@
 **So that** the forum stays organized
 
 **Acceptance Criteria:**
-- CRUD for forum categories
-- CRUD for forums (name, description, read/write permissions, guest access)
-- Reorder forums and categories
-- Forum-ban individual users
+- CRUD for `forum_categories` (name, sort_order)
+- CRUD for `forums` (name, description, category_id, sort_order, min_group_level)
+- Set `min_group_level` per forum to control which user groups can access
+- Reorder forums and categories via sort_order field
+- Toggle user `can_forum` flag via admin user management (integrates with existing privilege flags)
 
 #### BE-8.6: Logs & Monitoring [S] [DONE — activity log with filtering + pagination, public at /log]
 **As an** admin
@@ -1582,9 +1597,12 @@
 **I want** to browse forum categories and forums
 **So that** I can find discussions
 
+**Architecture:** Displays the two-level structure: forum_categories as display groups, forums listed under each category. No sub-forums.
+
 **Acceptance Criteria:**
-- Categories with collapsible forum lists
-- Per-forum: topic count, post count, last post info
+- Forum categories displayed as sections, each containing its forums
+- Per-forum: topic_count, post_count, last post info (from denormalized fields)
+- Forums hidden if user's group level < forum's `min_group_level`
 - Unread indicators (bold for forums with new posts)
 - "Mark all read" button
 - Responsive layout
@@ -1595,25 +1613,27 @@
 **So that** I can find interesting discussions
 
 **Acceptance Criteria:**
-- Sticky topics pinned to top
-- Status icons: locked, sticky, hot (many replies)
-- Sorting: last post, creation date, replies
-- Pagination
+- Pinned topics shown at top (using `pinned` flag from forum_topics)
+- Status icons: locked, pinned, hot (many replies)
+- Sorting: last_post_at (default), creation date, post_count
+- Pagination (20/page)
 - Unread indicator per topic
-- New topic button
+- New topic button (hidden if user lacks `can_forum` or group level < forum's `min_group_level`)
 
 #### FE-3.3: Topic View [L]
 **As a** user
 **I want** to read and participate in a topic
 **So that** I can discuss with other users
 
+**Architecture:** Posts are flat (not threaded), sorted by date. `reply_to_post_id` renders as an inline quote block, not as tree indentation.
+
 **Acceptance Criteria:**
-- Posts displayed with user info sidebar (avatar, role, join date, post count)
-- Quoting: click "quote" to insert quoted text into reply editor
-- Reply editor: Markdown/BBCode with toolbar and preview
+- Posts displayed flat, sorted by created_at, with user info sidebar (avatar, role, join date, post count)
+- Quoting: click "quote" to insert quoted text into reply editor (sets `reply_to_post_id`)
+- Reply editor: Markdown with toolbar and preview (consistent with rest of app — no BBCode)
 - @mention autocomplete in editor
-- Pagination for long topics
-- Reply-to threading: visual indication of which post is being replied to
+- Pagination for long topics (20 posts/page)
+- Quote context: if post has `reply_to_post_id`, show inline quote block referencing the original post
 - Edit/delete buttons (for own posts or moderators)
 - Subscribe/unsubscribe toggle
 
@@ -1623,10 +1643,11 @@
 **So that** I can find past discussions
 
 **Acceptance Criteria:**
-- Search by keyword
+- Full-text search by keyword (backed by PostgreSQL tsvector, same pattern as torrent search)
 - Filter by forum, author, date range
-- Results show post snippet with highlighted keywords
-- Click through to post in topic
+- Results show post snippet with highlighted keywords, topic title, forum name
+- Click through to post in topic (deep link to correct page/post)
+- Only shows results from forums the user has access to (group level >= min_group_level)
 
 #### FE-3.5: Forum Moderation Tools [M]
 **As a** moderator
@@ -1634,13 +1655,13 @@
 **So that** the forum stays organized
 
 **Acceptance Criteria:**
-- Lock/unlock topic
-- Sticky/unsticky topic
-- Move topic to different forum
-- Delete topic (with confirmation)
-- Delete individual posts
-- Merge topics (select target topic)
+- Lock/unlock topic (toggles `locked` flag)
+- Pin/unpin topic (toggles `pinned` flag)
+- Move topic to different forum (dropdown of available forums, respects `min_group_level`)
+- Delete topic (with confirmation, updates denormalized counts)
+- Delete individual posts (with confirmation)
 - All actions available inline (not separate admin page)
+- Actions only visible to users with moderator/admin role + `can_forum`
 
 ---
 
@@ -1982,12 +2003,21 @@
 **I want** to migrate forum content
 **So that** community history is preserved
 
+**Schema Mapping:**
+- TorrentTrader `forumcats` → `forum_categories` (id, name, sort_order)
+- TorrentTrader `forums` → `forums` (with category_id mapping, min_group_level from group ID mapping)
+- TorrentTrader `topics` → `forum_topics` (pinned, locked flags, denormalized counts)
+- TorrentTrader `posts` → `forum_posts` (body converted from BBCode→Markdown via MT-1.5)
+
 **Acceptance Criteria:**
-- Forum structure: `forumcats` -> `forum_forums` -> `forum_topics` -> `forum_posts`
-- Preserve: post content, timestamps, edit history, topic metadata (locked, sticky, moved)
-- Read tracking: `forum_readposts` migrated (or reset - user choice via flag)
+- Forum categories: TorrentTrader forumcats → forum_categories
+- Forums: TorrentTrader forums → forums, with category_id FK and min_group_level mapped from group IDs
+- Topics: TorrentTrader topics → forum_topics, preserving locked/pinned/view_count, recomputing denormalized counts (post_count, last_post_id, last_post_at)
+- Posts: TorrentTrader posts → forum_posts, body converted BBCode→Markdown (dependency: MT-1.5)
+- Preserve: timestamps, edit history (edited_at, edited_by), topic metadata
+- Read tracking: migrated or reset (user choice via flag)
 - Shoutbox messages: migrate to new chat history table
-- Content conversion: BBCode -> Markdown (via MT-1.5)
+- Recompute all denormalized counts (forum.topic_count, forum.post_count, forum.last_post_id) after migration
 
 #### MT-1.4: Social Data Migration [M]
 **As a** site operator
