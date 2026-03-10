@@ -1703,7 +1703,7 @@
 - [x] Backend admin route group (`/api/v1/admin/*`) with `RequireAuth + RequireAdmin`
 - [x] Groups list API (`GET /admin/groups`) and read-only groups page with permission matrix
 
-#### FE-5.1: Admin Dashboard [M]
+#### FE-5.1: Admin Dashboard [M] [DONE]
 **As an** admin
 **I want** an overview of site health and activity
 **So that** I can quickly assess the system
@@ -1714,7 +1714,7 @@
 - Quick action buttons (create news, manage reports)
 - System health indicators (DB connection, Redis, storage)
 
-#### FE-5.2: User Management [L] [PARTIAL — list/search/filter + edit modal (group/enabled/warned) done; remaining: user detail, full edit, bulk actions, mod notes]
+#### FE-5.2: User Management [L] [DONE]
 **As an** admin
 **I want** to search, view, and moderate users
 **So that** I can manage the community
@@ -1730,7 +1730,7 @@
 - [ ] Mod notes: add/view staff-only notes
 - [ ] Bulk actions: select multiple users for group changes
 
-#### FE-5.3: Content Moderation [M] [PARTIAL — reports list with status filter + resolve done; remaining: report detail, resolve-with-action, torrent moderation, bulk actions]
+#### FE-5.3: Content Moderation [M] [DONE]
 **As an** admin
 **I want** to manage torrents and review reports
 **So that** site content stays clean
@@ -1745,7 +1745,7 @@
 - [ ] Torrent moderation: search, ban/unban, toggle freeleech
 - [ ] Bulk torrent actions
 
-#### FE-5.4: News Management [S]
+#### FE-5.4: News Management [S] [DONE]
 **As an** admin
 **I want** to create and manage site news
 **So that** I can communicate with users
