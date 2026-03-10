@@ -133,7 +133,8 @@ func setupReportRouter() (http.Handler, service.SessionStore) {
 	sessions := testutil.NewMemorySessionStore()
 	bus := event.NewInMemoryBus()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
-	reportSvc := service.NewReportService(reportRepo, bus)
+	torrentRepo := newMockTorrentRepo()
+	reportSvc := service.NewReportService(reportRepo, torrentRepo, userRepo, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:   authSvc,

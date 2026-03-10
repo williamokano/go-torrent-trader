@@ -113,11 +113,34 @@ func (m *mockReportRepo) Resolve(_ context.Context, id, resolvedByUserID int64) 
 	return errors.New("not found")
 }
 
+// --- stub torrent repo for report tests ---
+
+type stubTorrentRepo struct{}
+
+func (s *stubTorrentRepo) GetByID(context.Context, int64) (*model.Torrent, error) {
+	return &model.Torrent{Name: "test-torrent"}, nil
+}
+func (s *stubTorrentRepo) GetByInfoHash(context.Context, []byte) (*model.Torrent, error) {
+	return nil, errors.New("not found")
+}
+func (s *stubTorrentRepo) List(context.Context, repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
+	return nil, 0, nil
+}
+func (s *stubTorrentRepo) ListByUploader(context.Context, int64, int) ([]model.Torrent, error) {
+	return nil, nil
+}
+func (s *stubTorrentRepo) Create(context.Context, *model.Torrent) error         { return nil }
+func (s *stubTorrentRepo) Update(context.Context, *model.Torrent) error         { return nil }
+func (s *stubTorrentRepo) Delete(context.Context, int64) error                  { return nil }
+func (s *stubTorrentRepo) IncrementSeeders(context.Context, int64, int) error   { return nil }
+func (s *stubTorrentRepo) IncrementLeechers(context.Context, int64, int) error  { return nil }
+func (s *stubTorrentRepo) IncrementTimesCompleted(context.Context, int64) error { return nil }
+
 // --- tests ---
 
 func TestReportService_Create_Success(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	torrentID := int64(42)
 	report, err := svc.Create(context.Background(), 1, CreateReportRequest{
@@ -140,7 +163,7 @@ func TestReportService_Create_Success(t *testing.T) {
 
 func TestReportService_Create_EmptyReason(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	_, err := svc.Create(context.Background(), 1, CreateReportRequest{
 		Reason: "",
@@ -152,7 +175,7 @@ func TestReportService_Create_EmptyReason(t *testing.T) {
 
 func TestReportService_Create_Duplicate(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	torrentID := int64(42)
 	_, err := svc.Create(context.Background(), 1, CreateReportRequest{
@@ -175,7 +198,7 @@ func TestReportService_Create_Duplicate(t *testing.T) {
 
 func TestReportService_Create_DifferentTorrents(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	tid1 := int64(1)
 	tid2 := int64(2)
@@ -200,7 +223,7 @@ func TestReportService_Create_DifferentTorrents(t *testing.T) {
 
 func TestReportService_Create_NilTorrentID(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	report, err := svc.Create(context.Background(), 1, CreateReportRequest{
 		Reason: "general report",
@@ -223,7 +246,7 @@ func TestReportService_Create_NilTorrentID(t *testing.T) {
 
 func TestReportService_List(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "r1"})
@@ -244,7 +267,7 @@ func TestReportService_List(t *testing.T) {
 
 func TestReportService_List_FilterByStatus(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "r1"})
@@ -281,7 +304,7 @@ func TestReportService_List_FilterByStatus(t *testing.T) {
 
 func TestReportService_Resolve_Success(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "r1"})
@@ -294,7 +317,7 @@ func TestReportService_Resolve_Success(t *testing.T) {
 
 func TestReportService_Resolve_NotFound(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	err := svc.Resolve(context.Background(), 999, 99)
 	if !errors.Is(err, ErrReportNotFound) {

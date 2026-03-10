@@ -93,22 +93,29 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.TorrentReported, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentReportedEvent)
-		return fmt.Sprintf("%s reported torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
+		actor := resolveActor(userRepo, e.Actor)
+		torrentName := nameOrID("torrent", e.TorrentName, e.TorrentID)
+		return fmt.Sprintf("%s reported %s", actor, torrentName), e.Actor
 	})
 
 	listen(event.ReportResolved, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ReportResolvedEvent)
-		return fmt.Sprintf("%s resolved report #%d", e.Actor.Username, e.ReportID), e.Actor
+		actor := resolveActor(userRepo, e.Actor)
+		return fmt.Sprintf("%s resolved report #%d", actor, e.ReportID), e.Actor
 	})
 
 	listen(event.CommentCreated, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.CommentCreatedEvent)
-		return fmt.Sprintf("%s commented on torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
+		actor := resolveActor(userRepo, e.Actor)
+		torrentName := nameOrID("torrent", e.TorrentName, e.TorrentID)
+		return fmt.Sprintf("%s commented on %s", actor, torrentName), e.Actor
 	})
 
 	listen(event.CommentDeleted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.CommentDeletedEvent)
-		return fmt.Sprintf("%s deleted comment on torrent #%d", e.Actor.Username, e.TorrentID), e.Actor
+		actor := resolveActor(userRepo, e.Actor)
+		torrentName := nameOrID("torrent", e.TorrentName, e.TorrentID)
+		return fmt.Sprintf("%s deleted comment on %s", actor, torrentName), e.Actor
 	})
 
 	listen(event.ReseedRequested, func(evt event.Event) (string, event.Actor) {
@@ -118,12 +125,16 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.InviteCreated, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.InviteCreatedEvent)
-		return fmt.Sprintf("%s created invite #%d", e.Actor.Username, e.InviteID), e.Actor
+		return fmt.Sprintf("%s created an invite", e.Actor.Username), e.Actor
 	})
 
 	listen(event.InviteRedeemed, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.InviteRedeemedEvent)
-		return fmt.Sprintf("invite #%d was redeemed by user #%d", e.InviteID, e.InviteeID), e.Actor
+		invitee := e.InviteeUsername
+		if invitee == "" {
+			invitee = resolveUsername(userRepo, e.InviteeID)
+		}
+		return fmt.Sprintf("%s redeemed an invite", invitee), e.Actor
 	})
 
 	listen(event.RegistrationModeChanged, func(evt event.Event) (string, event.Actor) {
@@ -166,14 +177,16 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.ChatUserMuted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ChatUserMutedEvent)
-		username := resolveUsername(userRepo, e.TargetUserID)
-		return fmt.Sprintf("%s muted in chat for %d minutes", username, e.DurationMinutes), e.Actor
+		actor := resolveActor(userRepo, e.Actor)
+		target := resolveUsername(userRepo, e.TargetUserID)
+		return fmt.Sprintf("%s muted %s in chat for %d minutes", actor, target, e.DurationMinutes), e.Actor
 	})
 
 	listen(event.ChatUserUnmuted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ChatUserUnmutedEvent)
-		username := resolveUsername(userRepo, e.TargetUserID)
-		return fmt.Sprintf("%s unmuted in chat", username), e.Actor
+		actor := resolveActor(userRepo, e.Actor)
+		target := resolveUsername(userRepo, e.TargetUserID)
+		return fmt.Sprintf("%s unmuted %s in chat", actor, target), e.Actor
 	})
 
 	listen(event.NewsPublished, func(evt event.Event) (string, event.Actor) {
@@ -182,12 +195,30 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 	})
 }
 
+// resolveUsername looks up a username by user ID, falling back to "User #ID" on error.
 func resolveUsername(userRepo repository.UserRepository, userID int64) string {
 	user, err := userRepo.GetByID(context.Background(), userID)
 	if err != nil || user == nil {
 		return fmt.Sprintf("User #%d", userID)
 	}
 	return user.Username
+}
+
+// resolveActor returns the actor's username, looking it up from the repo if not
+// already populated in the event.
+func resolveActor(userRepo repository.UserRepository, actor event.Actor) string {
+	if actor.Username != "" {
+		return actor.Username
+	}
+	return resolveUsername(userRepo, actor.ID)
+}
+
+// nameOrID returns the name if non-empty, otherwise a fallback like "torrent #42".
+func nameOrID(kind, name string, id int64) string {
+	if name != "" {
+		return name
+	}
+	return fmt.Sprintf("%s #%d", kind, id)
 }
 
 func marshalMetadata(evt event.Event) *string {

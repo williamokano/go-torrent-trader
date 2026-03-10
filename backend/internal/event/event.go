@@ -154,8 +154,9 @@ type TorrentDeletedEvent struct {
 
 type TorrentReportedEvent struct {
 	Base
-	TorrentID int64  `json:"torrent_id"`
-	Reason    string `json:"reason"`
+	TorrentID   int64  `json:"torrent_id"`
+	TorrentName string `json:"torrent_name"`
+	Reason      string `json:"reason"`
 }
 
 type ReportResolvedEvent struct {
@@ -165,14 +166,16 @@ type ReportResolvedEvent struct {
 
 type CommentCreatedEvent struct {
 	Base
-	CommentID int64 `json:"comment_id"`
-	TorrentID int64 `json:"torrent_id"`
+	CommentID   int64  `json:"comment_id"`
+	TorrentID   int64  `json:"torrent_id"`
+	TorrentName string `json:"torrent_name"`
 }
 
 type CommentDeletedEvent struct {
 	Base
-	CommentID int64 `json:"comment_id"`
-	TorrentID int64 `json:"torrent_id"`
+	CommentID   int64  `json:"comment_id"`
+	TorrentID   int64  `json:"torrent_id"`
+	TorrentName string `json:"torrent_name"`
 }
 
 type ReseedRequestedEvent struct {
@@ -190,9 +193,10 @@ type InviteCreatedEvent struct {
 
 type InviteRedeemedEvent struct {
 	Base
-	InviteID  int64  `json:"invite_id"`
-	InviteeID int64  `json:"invitee_id"`
-	Token     string `json:"token"`
+	InviteID        int64  `json:"invite_id"`
+	InviteeID       int64  `json:"invitee_id"`
+	InviteeUsername string `json:"invitee_username"`
+	Token           string `json:"token"`
 }
 
 type RegistrationModeChangedEvent struct {

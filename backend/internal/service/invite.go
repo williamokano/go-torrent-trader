@@ -106,11 +106,16 @@ func (s *InviteService) RedeemInvite(ctx context.Context, token string, inviteeI
 		return nil, fmt.Errorf("redeem invite: %w", err)
 	}
 
+	var inviteeUsername string
+	if invitee, err := s.users.GetByID(ctx, inviteeID); err == nil {
+		inviteeUsername = invitee.Username
+	}
 	s.eventBus.Publish(ctx, &event.InviteRedeemedEvent{
-		Base:      event.NewBase(event.InviteRedeemed, event.Actor{ID: inviteeID}),
-		InviteID:  invite.ID,
-		InviteeID: inviteeID,
-		Token:     token,
+		Base:            event.NewBase(event.InviteRedeemed, event.Actor{ID: inviteeID, Username: inviteeUsername}),
+		InviteID:        invite.ID,
+		InviteeID:       inviteeID,
+		InviteeUsername: inviteeUsername,
+		Token:           token,
 	})
 
 	return invite, nil
