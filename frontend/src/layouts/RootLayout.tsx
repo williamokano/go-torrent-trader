@@ -99,6 +99,7 @@ export function RootLayout() {
   return (
     <div className="root-layout">
       <header className="header">
+        <div className="header__inner">
         <NavLink to="/" className="header__brand">
           TorrentTrader
         </NavLink>
@@ -314,6 +315,7 @@ export function RootLayout() {
               </NavLink>
             </>
           )}
+        </div>
         </div>
       </header>
 
