@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -169,6 +170,169 @@ func TestAdminListGroups(t *testing.T) {
 	}
 	if len(groups) != 2 {
 		t.Errorf("expected 2 groups, got %d", len(groups))
+	}
+}
+
+func newAdminServiceWithDeps(t *testing.T) (*AdminService, *mockUserRepo, *mockAdminGroupRepo, *memorySessionStore, *noopSender) {
+	t.Helper()
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	sessions := newTestSessionStore()
+	emailSender := &noopSender{}
+	bus := event.NewInMemoryBus()
+
+	svc := NewAdminService(userRepo, groupRepo, bus)
+	svc.SetSessionStore(sessions)
+	svc.SetEmailSender(emailSender)
+
+	return svc, userRepo, groupRepo, sessions, emailSender
+}
+
+func createTestUserForAdmin(t *testing.T, userRepo *mockUserRepo, groupID int64) *model.User {
+	t.Helper()
+	user := &model.User{
+		Username:     fmt.Sprintf("user%d", time.Now().UnixNano()),
+		Email:        fmt.Sprintf("user%d@test.com", time.Now().UnixNano()),
+		PasswordHash: "$argon2id$v=19$m=65536,t=1,p=4$fake$fakehash",
+		GroupID:      groupID,
+		Enabled:      true,
+		CreatedAt:    time.Now(),
+	}
+	if err := userRepo.Create(context.Background(), user); err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+	return user
+}
+
+func TestAdminResetPassword_AutoGenerate(t *testing.T) {
+	svc, userRepo, _, sessions, emailSender := newAdminServiceWithDeps(t)
+
+	// Create admin (group 1, level 100) and target user (group 5, level 20)
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	// Create a session for the target so we can verify it's deleted
+	_ = sessions.Create(&Session{
+		UserID:           target.ID,
+		AccessToken:      "target-token",
+		RefreshToken:     "target-refresh",
+		ExpiresAt:        time.Now().Add(time.Hour),
+		RefreshExpiresAt: time.Now().Add(24 * time.Hour),
+	})
+
+	newPass, err := svc.ResetPassword(context.Background(), admin.ID, target.ID, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(newPass) != 16 {
+		t.Errorf("expected 16-char auto-generated password, got %d chars", len(newPass))
+	}
+
+	// Verify session was invalidated
+	if sessions.GetByAccessToken("target-token") != nil {
+		t.Error("expected target session to be deleted")
+	}
+
+	// Verify email was sent
+	if emailSender.SendCount != 1 {
+		t.Errorf("expected 1 email sent, got %d", emailSender.SendCount)
+	}
+	if emailSender.LastTo != target.Email {
+		t.Errorf("expected email to %s, got %s", target.Email, emailSender.LastTo)
+	}
+
+	// Verify password actually works
+	ok, err := VerifyPassword(newPass, target.PasswordHash)
+	if err != nil {
+		t.Fatalf("verify password: %v", err)
+	}
+	if !ok {
+		t.Error("new password does not verify")
+	}
+}
+
+func TestAdminResetPassword_WithPassword(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	newPass, err := svc.ResetPassword(context.Background(), admin.ID, target.ID, "MyNewPassword123!")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newPass != "MyNewPassword123!" {
+		t.Errorf("expected provided password, got %s", newPass)
+	}
+
+	ok, err := VerifyPassword("MyNewPassword123!", target.PasswordHash)
+	if err != nil {
+		t.Fatalf("verify password: %v", err)
+	}
+	if !ok {
+		t.Error("provided password does not verify")
+	}
+}
+
+func TestAdminResetPassword_InsufficientLevel(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+
+	// Both users in the same group (level 20)
+	user1 := createTestUserForAdmin(t, userRepo, 5)
+	user2 := createTestUserForAdmin(t, userRepo, 5)
+
+	_, err := svc.ResetPassword(context.Background(), user1.ID, user2.ID, "newpass")
+	if !errors.Is(err, ErrAdminInsufficientLevel) {
+		t.Errorf("expected ErrAdminInsufficientLevel, got %v", err)
+	}
+}
+
+func TestAdminResetPassword_UserNotFound(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+
+	_, err := svc.ResetPassword(context.Background(), admin.ID, 9999, "newpass")
+	if !errors.Is(err, ErrAdminUserNotFound) {
+		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
+	}
+}
+
+func TestAdminResetPasskey(t *testing.T) {
+	svc, userRepo, _, _, emailSender := newAdminServiceWithDeps(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	newPasskey, err := svc.ResetPasskey(context.Background(), admin.ID, target.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(newPasskey) != 32 {
+		t.Errorf("expected 32-char passkey, got %d chars", len(newPasskey))
+	}
+
+	// Verify passkey was updated on the user
+	updated, _ := userRepo.GetByID(context.Background(), target.ID)
+	if updated.Passkey == nil || *updated.Passkey != newPasskey {
+		t.Error("passkey not updated on user")
+	}
+
+	// Verify email sent
+	if emailSender.SendCount != 1 {
+		t.Errorf("expected 1 email sent, got %d", emailSender.SendCount)
+	}
+}
+
+func TestAdminResetPasskey_InsufficientLevel(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+
+	user1 := createTestUserForAdmin(t, userRepo, 5)
+	user2 := createTestUserForAdmin(t, userRepo, 5)
+
+	_, err := svc.ResetPasskey(context.Background(), user1.ID, user2.ID)
+	if !errors.Is(err, ErrAdminInsufficientLevel) {
+		t.Errorf("expected ErrAdminInsufficientLevel, got %v", err)
 	}
 }
 

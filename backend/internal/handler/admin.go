@@ -105,6 +105,83 @@ func (h *AdminHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// HandleResetPassword handles PUT /api/v1/admin/users/{id}/reset-password.
+func (h *AdminHandler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	var req struct {
+		NewPassword *string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Allow empty body — treat as auto-generate
+		req.NewPassword = nil
+	}
+
+	password := ""
+	if req.NewPassword != nil {
+		password = *req.NewPassword
+	}
+
+	newPass, err := h.admin.ResetPassword(r.Context(), actorID, id, password)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrAdminUserNotFound):
+			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
+		case errors.Is(err, service.ErrAdminInsufficientLevel):
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions to reset this user's password")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to reset password")
+		}
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"new_password": newPass,
+	})
+}
+
+// HandleResetPasskey handles PUT /api/v1/admin/users/{id}/reset-passkey.
+func (h *AdminHandler) HandleResetPasskey(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	newPasskey, err := h.admin.ResetPasskey(r.Context(), actorID, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrAdminUserNotFound):
+			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
+		case errors.Is(err, service.ErrAdminInsufficientLevel):
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions to reset this user's passkey")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to reset passkey")
+		}
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"new_passkey": newPasskey,
+	})
+}
+
 // HandleListGroups handles GET /api/v1/admin/groups.
 func (h *AdminHandler) HandleListGroups(w http.ResponseWriter, r *http.Request) {
 	groups, err := h.admin.ListGroups(r.Context())
