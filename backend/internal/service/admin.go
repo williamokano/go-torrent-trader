@@ -44,9 +44,10 @@ type AdminUserView struct {
 	Invites     int     `json:"invites"`
 	CanDownload bool    `json:"can_download"`
 	CanUpload   bool    `json:"can_upload"`
-	CanChat     bool    `json:"can_chat"`
-	CreatedAt   string  `json:"created_at"`
-	LastAccess  *string `json:"last_access"`
+	CanChat        bool    `json:"can_chat"`
+	DisabledUntil  *string `json:"disabled_until"`
+	CreatedAt      string  `json:"created_at"`
+	LastAccess     *string `json:"last_access"`
 }
 
 // AdminUserDetailView extends AdminUserView with additional detail data.
@@ -489,6 +490,10 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		CanUpload:   u.CanUpload,
 		CanChat:     u.CanChat,
 		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+	if u.DisabledUntil != nil {
+		du := u.DisabledUntil.Format("2006-01-02T15:04:05Z")
+		view.DisabledUntil = &du
 	}
 	if u.LastAccess != nil {
 		la := u.LastAccess.Format("2006-01-02T15:04:05Z")

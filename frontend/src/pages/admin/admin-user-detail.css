@@ -34,6 +34,15 @@
   opacity: 0.85;
 }
 
+.admin-user-detail__banned-badge {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-danger, #dc3545);
+  color: white;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .admin-user-detail__back {
   color: var(--color-accent);
   text-decoration: none;

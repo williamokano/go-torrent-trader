@@ -66,6 +66,7 @@ interface UserDetail {
   can_download: boolean;
   can_upload: boolean;
   can_chat: boolean;
+  disabled_until: string | null;
   created_at: string;
   last_access: string | null;
   ratio: number;
@@ -532,13 +533,17 @@ export function AdminUserDetailPage() {
             {user.last_access ? timeAgo(user.last_access) : "Never"}
           </span>
         </h1>
-        {user.enabled && (
+        {user.enabled ? (
           <button
             className="admin-user-detail__ban-btn"
             onClick={() => setBanModalOpen(true)}
           >
             Ban User
           </button>
+        ) : (
+          <span className="admin-user-detail__banned-badge">
+            Banned{user.disabled_until ? ` (until ${timeAgo(user.disabled_until)})` : " (permanent)"}
+          </span>
         )}
       </div>
 
