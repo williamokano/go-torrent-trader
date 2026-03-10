@@ -291,16 +291,81 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// HandleEditPost handles PUT /api/v1/forums/posts/{id} — edit a post.
+func (h *ForumHandler) HandleEditPost(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	postID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || postID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid post ID")
+		return
+	}
+
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	post, err := h.forumSvc.EditPost(r.Context(), postID, userID, perms, body.Body)
+	if err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"post": postResponse(post),
+	})
+}
+
+// HandleDeletePost handles DELETE /api/v1/forums/posts/{id} — delete a post.
+func (h *ForumHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	postID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || postID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid post ID")
+		return
+	}
+
+	if err := h.forumSvc.DeletePost(r.Context(), postID, userID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleForumError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrForumNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "forum not found")
 	case errors.Is(err, service.ErrTopicNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "topic not found")
+	case errors.Is(err, service.ErrPostNotFound):
+		ErrorResponse(w, http.StatusNotFound, "not_found", "post not found")
 	case errors.Is(err, service.ErrTopicLocked):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "topic is locked")
 	case errors.Is(err, service.ErrForumAccessDenied):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have access to this forum")
+	case errors.Is(err, service.ErrPostEditDenied):
+		ErrorResponse(w, http.StatusForbidden, "forbidden", "not authorized to edit this post")
+	case errors.Is(err, service.ErrPostDeleteDenied):
+		ErrorResponse(w, http.StatusForbidden, "forbidden", "not authorized to delete this post")
+	case errors.Is(err, service.ErrCannotDeleteFirstPost):
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "cannot delete the first post of a topic; delete the topic instead")
 	case errors.Is(err, service.ErrInvalidTopic):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	case errors.Is(err, service.ErrInvalidPost):

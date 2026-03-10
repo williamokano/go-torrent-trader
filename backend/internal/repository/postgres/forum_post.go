@@ -96,6 +96,19 @@ func (r *ForumPostRepo) Create(ctx context.Context, post *model.ForumPost) error
 	).Scan(&post.ID, &post.CreatedAt)
 }
 
+func (r *ForumPostRepo) Update(ctx context.Context, post *model.ForumPost) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_posts SET body = $1, edited_at = NOW(), edited_by = $2 WHERE id = $3",
+		post.Body, post.EditedBy, post.ID,
+	)
+	return err
+}
+
+func (r *ForumPostRepo) Delete(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM forum_posts WHERE id = $1", id)
+	return err
+}
+
 func (r *ForumPostRepo) CountByUser(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
@@ -196,4 +209,12 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 		results = append(results, sr)
 	}
 	return results, total, rows.Err()
+}
+
+func (r *ForumPostRepo) GetFirstPostIDByTopic(ctx context.Context, topicID int64) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		"SELECT id FROM forum_posts WHERE topic_id = $1 ORDER BY id ASC LIMIT 1", topicID,
+	).Scan(&id)
+	return id, err
 }

@@ -22,8 +22,11 @@ type mockHandlerForumPostRepo struct{}
 func (m *mockHandlerForumPostRepo) GetByID(_ context.Context, _ int64) (*model.ForumPost, error) { return nil, nil }
 func (m *mockHandlerForumPostRepo) ListByTopic(_ context.Context, _ int64, _, _ int) ([]model.ForumPost, int64, error) { return nil, 0, nil }
 func (m *mockHandlerForumPostRepo) Create(_ context.Context, post *model.ForumPost) error { post.ID = 1; post.CreatedAt = time.Now(); return nil }
+func (m *mockHandlerForumPostRepo) Update(_ context.Context, _ *model.ForumPost) error { return nil }
+func (m *mockHandlerForumPostRepo) Delete(_ context.Context, _ int64) error { return nil }
 func (m *mockHandlerForumPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockHandlerForumPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return nil, 0, nil }
+func (m *mockHandlerForumPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) { return 0, nil }
 
 func withForumAuth(r *http.Request, userID int64, perms model.Permissions) *http.Request {
 	ctx := context.WithValue(r.Context(), middleware.UserIDKey, userID)
@@ -155,13 +158,86 @@ func TestHandleForumError(t *testing.T) {
 	tests := []struct{ err error; expected int }{
 		{service.ErrForumNotFound, http.StatusNotFound},
 		{service.ErrTopicNotFound, http.StatusNotFound},
+		{service.ErrPostNotFound, http.StatusNotFound},
 		{service.ErrTopicLocked, http.StatusForbidden},
 		{service.ErrForumAccessDenied, http.StatusForbidden},
+		{service.ErrPostEditDenied, http.StatusForbidden},
+		{service.ErrPostDeleteDenied, http.StatusForbidden},
+		{service.ErrCannotDeleteFirstPost, http.StatusBadRequest},
+		{service.ErrInvalidPost, http.StatusBadRequest},
 		{service.ErrInvalidReply, http.StatusBadRequest},
 	}
 	for _, tc := range tests {
 		w := httptest.NewRecorder()
 		handleForumError(w, tc.err)
 		if w.Code != tc.expected { t.Errorf("for %v: expected %d, got %d", tc.err, tc.expected, w.Code) }
+	}
+}
+
+func TestHandleEditPost_Unauthorized(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("PUT", "/api/v1/forums/posts/1", strings.NewReader(`{"body":"b"}`))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleEditPost(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleEditPost_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("PUT", "/api/v1/forums/posts/abc", strings.NewReader(`{"body":"b"}`))
+	req = withForumAuth(req, 1, model.Permissions{Level: 5})
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleEditPost(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleEditPost_BadJSON(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("PUT", "/api/v1/forums/posts/1", strings.NewReader("{bad"))
+	req = withForumAuth(req, 1, model.Permissions{Level: 5})
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleEditPost(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleDeletePost_Unauthorized(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("DELETE", "/api/v1/forums/posts/1", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleDeletePost(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleDeletePost_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("DELETE", "/api/v1/forums/posts/abc", nil)
+	req = withForumAuth(req, 1, model.Permissions{Level: 5})
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleDeletePost(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }

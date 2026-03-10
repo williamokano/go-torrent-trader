@@ -15,14 +15,18 @@ import (
 )
 
 var (
-	ErrForumNotFound     = errors.New("forum not found")
-	ErrTopicNotFound     = errors.New("topic not found")
-	ErrTopicLocked       = errors.New("topic is locked")
-	ErrForumAccessDenied = errors.New("forum access denied")
-	ErrInvalidTopic      = errors.New("invalid topic")
-	ErrInvalidPost       = errors.New("invalid post")
-	ErrInvalidReply      = errors.New("invalid reply reference")
-	ErrInvalidSearch     = errors.New("invalid search query")
+	ErrForumNotFound         = errors.New("forum not found")
+	ErrTopicNotFound         = errors.New("topic not found")
+	ErrTopicLocked           = errors.New("topic is locked")
+	ErrForumAccessDenied     = errors.New("forum access denied")
+	ErrInvalidTopic          = errors.New("invalid topic")
+	ErrInvalidPost           = errors.New("invalid post")
+	ErrInvalidReply          = errors.New("invalid reply reference")
+	ErrInvalidSearch         = errors.New("invalid search query")
+	ErrPostNotFound          = errors.New("post not found")
+	ErrPostEditDenied        = errors.New("not authorized to edit this post")
+	ErrPostDeleteDenied      = errors.New("not authorized to delete this post")
+	ErrCannotDeleteFirstPost = errors.New("cannot delete the first post of a topic; delete the topic instead")
 )
 
 const viewCountDebounce = 15 * time.Minute
@@ -282,4 +286,129 @@ func (s *ForumService) Search(ctx context.Context, query string, perms model.Per
 		perPage = 100
 	}
 	return s.posts.Search(ctx, query, forumID, perms.Level, page, perPage)
+}
+
+// EditPost updates a forum post body. Only the post author or staff can edit.
+func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64, perms model.Permissions, body string) (*model.ForumPost, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil, fmt.Errorf("%w: body cannot be empty", ErrInvalidPost)
+	}
+
+	post, err := s.posts.GetByID(ctx, postID)
+	if err != nil {
+		return nil, ErrPostNotFound
+	}
+
+	// Authorization: post author or staff
+	if post.UserID != userID && !perms.IsStaff() {
+		return nil, ErrPostEditDenied
+	}
+
+	// Check forum access via topic
+	topic, err := s.topics.GetByID(ctx, post.TopicID)
+	if err != nil {
+		return nil, ErrTopicNotFound
+	}
+	forum, err := s.forums.GetByID(ctx, topic.ForumID)
+	if err != nil {
+		return nil, ErrForumNotFound
+	}
+	if forum.MinGroupLevel > perms.Level {
+		return nil, ErrForumAccessDenied
+	}
+
+	post.Body = body
+	post.EditedBy = &userID
+	if err := s.posts.Update(ctx, post); err != nil {
+		return nil, fmt.Errorf("update post: %w", err)
+	}
+
+	// Re-fetch to get updated edited_at and denormalized fields
+	updated, err := s.posts.GetByID(ctx, postID)
+	if err != nil {
+		return post, nil
+	}
+	return updated, nil
+}
+
+// DeletePost deletes a forum post and updates topic/forum counters.
+// The first post of a topic cannot be deleted — the topic must be deleted instead.
+func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int64, perms model.Permissions) error {
+	post, err := s.posts.GetByID(ctx, postID)
+	if err != nil {
+		return ErrPostNotFound
+	}
+
+	// Authorization: post author or staff
+	if post.UserID != userID && !perms.IsStaff() {
+		return ErrPostDeleteDenied
+	}
+
+	// Check if this is the first post in the topic
+	firstPostID, err := s.posts.GetFirstPostIDByTopic(ctx, post.TopicID)
+	if err != nil {
+		return fmt.Errorf("get first post: %w", err)
+	}
+	if post.ID == firstPostID {
+		return ErrCannotDeleteFirstPost
+	}
+
+	// Get topic for forum ID (needed for counter updates)
+	topic, err := s.topics.GetByID(ctx, post.TopicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+
+	if s.db != nil {
+		return repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM forum_posts WHERE id = $1", post.ID); err != nil {
+				return fmt.Errorf("delete post: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = post_count - 1 WHERE id = $1", post.TopicID); err != nil {
+				return fmt.Errorf("decrement topic post count: %w", err)
+			}
+			// Recalculate topic last_post
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forum_topics SET
+					last_post_id = (SELECT id FROM forum_posts WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1),
+					last_post_at = (SELECT created_at FROM forum_posts WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1),
+					updated_at = NOW()
+				WHERE id = $1`, post.TopicID); err != nil {
+				return fmt.Errorf("recalculate topic last post: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE forums SET post_count = post_count - 1 WHERE id = $1", topic.ForumID); err != nil {
+				return fmt.Errorf("decrement forum post count: %w", err)
+			}
+			// Recalculate forum last_post
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forums SET last_post_id = (
+					SELECT p.id FROM forum_posts p
+					JOIN forum_topics t ON t.id = p.topic_id
+					WHERE t.forum_id = $1
+					ORDER BY p.created_at DESC LIMIT 1
+				) WHERE id = $1`, topic.ForumID); err != nil {
+				return fmt.Errorf("recalculate forum last post: %w", err)
+			}
+			return nil
+		})
+	}
+
+	// Non-transactional path (used in tests with nil db)
+	if err := s.posts.Delete(ctx, post.ID); err != nil {
+		return fmt.Errorf("delete post: %w", err)
+	}
+	if err := s.topics.IncrementPostCount(ctx, post.TopicID, -1); err != nil {
+		return fmt.Errorf("decrement topic post count: %w", err)
+	}
+	if err := s.topics.RecalculateLastPost(ctx, post.TopicID); err != nil {
+		return fmt.Errorf("recalculate topic last post: %w", err)
+	}
+	if err := s.forums.IncrementPostCount(ctx, topic.ForumID, -1); err != nil {
+		return fmt.Errorf("decrement forum post count: %w", err)
+	}
+	if err := s.forums.RecalculateLastPost(ctx, topic.ForumID); err != nil {
+		return fmt.Errorf("recalculate forum last post: %w", err)
+	}
+	return nil
 }

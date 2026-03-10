@@ -292,6 +292,8 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Post("/{id}/topics", forums.HandleCreateTopic)
 					r.Get("/topics/{id}", forums.HandleGetTopic)
 					r.Post("/topics/{id}/posts", forums.HandleCreatePost)
+					r.Put("/posts/{id}", forums.HandleEditPost)
+					r.Delete("/posts/{id}", forums.HandleDeletePost)
 				})
 			}
 

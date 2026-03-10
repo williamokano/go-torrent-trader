@@ -94,3 +94,14 @@ func (r *ForumRepo) UpdateLastPost(ctx context.Context, forumID int64, postID in
 	_, err := r.db.ExecContext(ctx, "UPDATE forums SET last_post_id = $1 WHERE id = $2", postID, forumID)
 	return err
 }
+
+func (r *ForumRepo) RecalculateLastPost(ctx context.Context, forumID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE forums SET last_post_id = (
+			SELECT p.id FROM forum_posts p
+			JOIN forum_topics t ON t.id = p.topic_id
+			WHERE t.forum_id = $1
+			ORDER BY p.created_at DESC LIMIT 1
+		) WHERE id = $1`, forumID)
+	return err
+}
