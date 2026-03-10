@@ -269,20 +269,12 @@ func NewRouter(deps *Deps) chi.Router {
 				})
 			}
 
-			// Report endpoints
+			// Report endpoints (user-facing: submit a report)
 			if deps.ReportService != nil {
 				reports := NewReportHandler(deps.ReportService)
 				r.Route("/reports", func(r chi.Router) {
 					authMiddleware(r)
-					// Any authenticated user can submit a report
 					r.Post("/", reports.HandleCreate)
-
-					// Admin-only endpoints
-					r.Group(func(r chi.Router) {
-						r.Use(mw.RequireAdmin)
-						r.Get("/", reports.HandleList)
-						r.Put("/{id}/resolve", reports.HandleResolve)
-					})
 				})
 			}
 
@@ -313,6 +305,13 @@ func NewRouter(deps *Deps) chi.Router {
 							torrentAdmin := NewTorrentAdminHandler(deps.TorrentService)
 							r.Delete("/torrents/{id}", torrentAdmin.HandleDeleteTorrent)
 						}
+					}
+
+					// Report management endpoints (admin)
+					if deps.ReportService != nil {
+						reports := NewReportHandler(deps.ReportService)
+						r.Get("/reports", reports.HandleList)
+						r.Put("/reports/{id}/resolve", reports.HandleResolve)
 					}
 
 					// Warning management endpoints

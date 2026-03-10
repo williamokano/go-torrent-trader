@@ -49,7 +49,7 @@ export function AdminReportsPage() {
 
     try {
       const res = await fetch(
-        `${getConfig().API_URL}/api/v1/reports?${params}`,
+        `${getConfig().API_URL}/api/v1/admin/reports?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -91,7 +91,7 @@ export function AdminReportsPage() {
     const token = getAccessToken();
     try {
       const res = await fetch(
-        `${getConfig().API_URL}/api/v1/reports/${resolvingReport.id}/resolve`,
+        `${getConfig().API_URL}/api/v1/admin/reports/${resolvingReport.id}/resolve`,
         {
           method: "PUT",
           headers: {
