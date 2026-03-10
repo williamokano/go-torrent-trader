@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createBrowserRouter } from "react-router-dom";
 import { RootLayout } from "@/layouts/RootLayout";
 import { AdminLayout } from "@/layouts/AdminLayout";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
@@ -37,6 +37,7 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { FAQPage } from "@/pages/FAQPage";
 import { RulesPage } from "@/pages/RulesPage";
 import { FormattingPage } from "@/pages/FormattingPage";
+import { AdminDashboardPage } from "@/pages/admin/AdminDashboardPage";
 import { AdminChatMutesPage } from "@/pages/admin/AdminChatMutesPage";
 import { AdminNewsPage } from "@/pages/admin/AdminNewsPage";
 import { NewsListPage } from "@/pages/NewsListPage";
@@ -144,7 +145,7 @@ export const router = createBrowserRouter([
           </AdminRoute>
         ),
         children: [
-          { index: true, element: <Navigate to="users" replace /> },
+          { index: true, element: <AdminDashboardPage /> },
           { path: "users", element: <AdminUsersPage /> },
           { path: "reports", element: <AdminReportsPage /> },
           { path: "categories", element: <AdminCategoriesPage /> },

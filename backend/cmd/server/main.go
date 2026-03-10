@@ -184,6 +184,7 @@ func run() int {
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
+	dashboardRepo := postgres.NewDashboardRepo(db)
 
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
@@ -217,6 +218,7 @@ func run() int {
 		UserRepo:            userRepo,
 		CategoryRepo:        categoryRepo,
 		TransferHistoryRepo: transferHistoryRepo,
+		DashboardRepo:       dashboardRepo,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,

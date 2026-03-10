@@ -265,3 +265,23 @@ type ListNewsOptions struct {
 	Page      int
 	PerPage   int
 }
+
+// DashboardStats holds aggregated counts for the admin dashboard.
+type DashboardStats struct {
+	UsersTotal     int64
+	UsersToday     int64
+	UsersWeek      int64
+	TorrentsTotal  int64
+	TorrentsToday  int64
+	PeersTotal     int64
+	PeersSeeders   int64
+	PeersLeechers  int64
+	PendingReports int64
+	ActiveWarnings int64
+	ActiveMutes    int64
+}
+
+// DashboardRepository defines read operations for the admin dashboard.
+type DashboardRepository interface {
+	GetStats(ctx context.Context) (*DashboardStats, error)
+}
