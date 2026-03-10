@@ -33,10 +33,11 @@ const (
 	revalidateEveryN = 5
 
 	// Default rate limit settings (used if site settings unavailable).
-	defaultRateLimitWindowSecs = 10
-	defaultRateLimitMaxMsgs    = 10
-	defaultSpamStrikeCount     = 3
-	defaultSpamMuteMinutes     = 5
+	defaultRateLimitWindowSecs  = 10
+	defaultRateLimitMaxMsgs     = 10
+	defaultSpamStrikeCount      = 3
+	defaultSpamMuteMinutes      = 5
+	defaultStrikeResetSeconds   = 60
 )
 
 // ChatClient represents a connected WebSocket client.
@@ -68,12 +69,13 @@ type ChatBroadcast struct {
 
 // chatSpamSettings holds the anti-spam configuration loaded from site settings.
 type chatSpamSettings struct {
-	rateLimitWindow  time.Duration
-	rateLimitMaxMsgs int
-	spamStrikeCount  int
-	spamMuteMinutes  int
-	rateLimitMessage string
-	spamMuteMessage  string
+	rateLimitWindow    time.Duration
+	rateLimitMaxMsgs   int
+	spamStrikeCount    int
+	spamMuteMinutes    int
+	strikeResetSeconds int
+	rateLimitMessage   string
+	spamMuteMessage    string
 }
 
 // ChatHub manages WebSocket connections for the shoutbox.
@@ -120,17 +122,19 @@ func (h *ChatHub) loadSpamSettings() {
 	maxMsgs := h.siteSettingsSvc.GetInt(ctx, service.SettingChatRateLimitMax, defaultRateLimitMaxMsgs)
 	strikeCount := h.siteSettingsSvc.GetInt(ctx, service.SettingChatSpamStrikeCount, defaultSpamStrikeCount)
 	muteMinutes := h.siteSettingsSvc.GetInt(ctx, service.SettingChatSpamMuteMinutes, defaultSpamMuteMinutes)
+	strikeReset := h.siteSettingsSvc.GetInt(ctx, service.SettingChatStrikeResetSeconds, defaultStrikeResetSeconds)
 	rateLimitMsg := h.siteSettingsSvc.GetString(ctx, service.SettingChatRateLimitMessage, "Slow down! You are sending messages too fast.")
 	spamMuteMsg := h.siteSettingsSvc.GetString(ctx, service.SettingChatSpamMuteMessage, "You have been automatically muted for flooding the chat.")
 
 	h.settingsMu.Lock()
 	h.spamSettings = chatSpamSettings{
-		rateLimitWindow:  time.Duration(windowSecs) * time.Second,
-		rateLimitMaxMsgs: maxMsgs,
-		spamStrikeCount:  strikeCount,
-		spamMuteMinutes:  muteMinutes,
-		rateLimitMessage: rateLimitMsg,
-		spamMuteMessage:  spamMuteMsg,
+		rateLimitWindow:    time.Duration(windowSecs) * time.Second,
+		rateLimitMaxMsgs:   maxMsgs,
+		spamStrikeCount:    strikeCount,
+		spamMuteMinutes:    muteMinutes,
+		strikeResetSeconds: strikeReset,
+		rateLimitMessage:   rateLimitMsg,
+		spamMuteMessage:    spamMuteMsg,
 	}
 	h.settingsMu.Unlock()
 
@@ -159,6 +163,7 @@ func (h *ChatHub) Run() {
 			service.SettingChatRateLimitMax,
 			service.SettingChatSpamStrikeCount,
 			service.SettingChatSpamMuteMinutes,
+			service.SettingChatStrikeResetSeconds,
 			service.SettingChatRateLimitMessage,
 			service.SettingChatSpamMuteMessage:
 			slog.Info("chat setting changed, reloading", "key", e.Key)
@@ -486,8 +491,8 @@ func (c *ChatClient) readPump() {
 			continue
 		}
 
-		// Reset strikes only after 60 seconds of no violations.
-		if c.strikeCount > 0 && now.Sub(c.lastStrikeTime) > 60*time.Second {
+		// Reset strikes only after the configured cool-down period of no violations.
+		if c.strikeCount > 0 && now.Sub(c.lastStrikeTime) > time.Duration(settings.strikeResetSeconds)*time.Second {
 			c.strikeCount = 0
 		}
 

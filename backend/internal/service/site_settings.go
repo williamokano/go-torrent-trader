@@ -25,8 +25,9 @@ const (
 	SettingChatRateLimitMax     = "chat_rate_limit_max"
 	SettingChatSpamStrikeCount  = "chat_spam_strike_count"
 	SettingChatSpamMuteMinutes  = "chat_spam_mute_minutes"
-	SettingChatRateLimitMessage = "chat_rate_limit_message"
-	SettingChatSpamMuteMessage  = "chat_spam_mute_message"
+	SettingChatStrikeResetSeconds = "chat_strike_reset_seconds"
+	SettingChatRateLimitMessage   = "chat_rate_limit_message"
+	SettingChatSpamMuteMessage    = "chat_spam_mute_message"
 )
 
 // SiteSettingsService handles site settings business logic.

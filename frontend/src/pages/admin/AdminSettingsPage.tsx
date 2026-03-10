@@ -92,6 +92,12 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     type: "number",
   },
   {
+    key: "chat_strike_reset_seconds",
+    label: "Chat Strike Reset Cooldown (seconds)",
+    description: "Strikes reset to zero after this many seconds of no rate limit violations. Prevents strikes from accumulating across long gaps of normal behavior.",
+    type: "number",
+  },
+  {
     key: "chat_rate_limit_message",
     label: "Chat Rate Limit Message",
     description: "Message shown to the user when they hit the rate limit. Displayed as a toast notification.",
