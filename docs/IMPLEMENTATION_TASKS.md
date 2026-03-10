@@ -903,7 +903,7 @@
   - If mentioned user is offline: in-app notification + optional email
 - **Scalability**: if running multiple instances, use Redis pub/sub to broadcast messages across instances
 
-#### BE-6.2: Chat Moderation [S]
+#### BE-6.2: Chat Moderation [S] [DONE]
 **As a** moderator
 **I want** to delete chat messages
 **So that** I can remove inappropriate content
@@ -913,7 +913,7 @@
 - Broadcast deletion to all connected clients (message disappears in real-time)
 - Logged with moderator info
 
-#### BE-6.3: Chat History [S]
+#### BE-6.3: Chat History [S] [DONE]
 **As a** user
 **I want** to view older chat messages
 **So that** I can catch up on conversations I missed
@@ -1029,7 +1029,7 @@
 - [ ] Bulk actions: ban multiple, delete multiple
 - [ ] View all freeleech torrents, all banned torrents
 
-#### BE-8.4: News Management [S]
+#### BE-8.4: News Management [S] [DONE]
 **As an** admin
 **I want** to post and manage site news
 **So that** I can communicate with users
@@ -1182,7 +1182,7 @@
 - Auto-ban: users who didn't improve within warning period
 - PM sent for each action (via background job)
 
-#### BE-9.3: Cache Site Stats Query [S]
+#### BE-9.3: Cache Site Stats Query [S] [DONE]
 **As a** tracker operator
 **I want** the site stats query to be cached
 **So that** the footer polling from every client doesn't hammer the database
@@ -1779,7 +1779,7 @@
 
 ### Epic FE-6: Static/Info Pages [S]
 
-#### FE-6.1: FAQ Page [S]
+#### FE-6.1: FAQ Page [S] [DONE]
 **As a** user
 **I want** to read frequently asked questions
 **So that** I can find answers without asking staff
@@ -1788,7 +1788,7 @@
 - Static content page with collapsible Q&A sections
 - Content stored as a React component or Markdown file (not in DB)
 
-#### FE-6.2: Rules Page [S]
+#### FE-6.2: Rules Page [S] [DONE]
 **As a** user
 **I want** to read the site rules
 **So that** I know what's expected
@@ -1798,7 +1798,7 @@
 - Numbered rules with sections
 - Content stored as a React component or Markdown file (not in DB)
 
-#### FE-6.3: Markdown Formatting Reference [S]
+#### FE-6.3: Markdown Formatting Reference [S] [DONE]
 **As a** user
 **I want** a formatting reference
 **So that** I can format my posts and descriptions correctly
