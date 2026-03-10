@@ -58,6 +58,7 @@ type PublicProfile struct {
 	CanDownload     bool           `json:"can_download"`
 	CanUpload       bool           `json:"can_upload"`
 	CanChat         bool           `json:"can_chat"`
+	CanForum        bool           `json:"can_forum"`
 }
 
 // OwnerProfile extends PublicProfile with fields only visible to the profile owner.
@@ -223,6 +224,7 @@ func (s *UserService) buildPublicProfile(ctx context.Context, u *model.User) Pub
 		CanDownload: u.CanDownload,
 		CanUpload:   u.CanUpload,
 		CanChat:     u.CanChat,
+		CanForum:    u.CanForum,
 		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		InvitedByID: u.InvitedBy,
 	}

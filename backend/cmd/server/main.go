@@ -206,6 +206,12 @@ func run() int {
 	memberService := service.NewMemberService(userRepo, groupRepo)
 	dashboardRepo := postgres.NewDashboardRepo(db)
 
+	forumCategoryRepo := postgres.NewForumCategoryRepo(db)
+	forumRepo := postgres.NewForumRepo(db)
+	forumTopicRepo := postgres.NewForumTopicRepo(db)
+	forumPostRepo := postgres.NewForumPostRepo(db)
+	forumService := service.NewForumService(db, forumCategoryRepo, forumRepo, forumTopicRepo, forumPostRepo, userRepo)
+
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
@@ -233,6 +239,7 @@ func run() int {
 		WarningService:     warningService,
 		NewsService:        newsService,
 		RestrictionService: restrictionService,
+		ForumService:       forumService,
 		ChatService:        chatService,
 		ChatHub:            chatHub,
 		PeerRepo:            peerRepo,

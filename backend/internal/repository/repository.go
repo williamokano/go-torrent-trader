@@ -290,6 +290,39 @@ type RestrictionRepository interface {
 	HasActiveByType(ctx context.Context, userID int64, restrictionType string) (bool, error)
 }
 
+// ForumCategoryRepository defines persistence operations for forum categories.
+type ForumCategoryRepository interface {
+	List(ctx context.Context) ([]model.ForumCategory, error)
+}
+
+// ForumRepository defines persistence operations for forums.
+type ForumRepository interface {
+	GetByID(ctx context.Context, id int64) (*model.Forum, error)
+	ListByCategory(ctx context.Context, categoryID int64) ([]model.Forum, error)
+	List(ctx context.Context) ([]model.Forum, error)
+	IncrementTopicCount(ctx context.Context, id int64, delta int) error
+	IncrementPostCount(ctx context.Context, id int64, delta int) error
+	UpdateLastPost(ctx context.Context, forumID int64, postID int64) error
+}
+
+// ForumTopicRepository defines persistence operations for forum topics.
+type ForumTopicRepository interface {
+	GetByID(ctx context.Context, id int64) (*model.ForumTopic, error)
+	ListByForum(ctx context.Context, forumID int64, page, perPage int) ([]model.ForumTopic, int64, error)
+	Create(ctx context.Context, topic *model.ForumTopic) error
+	IncrementViewCount(ctx context.Context, id int64) error
+	IncrementPostCount(ctx context.Context, id int64, delta int) error
+	UpdateLastPost(ctx context.Context, topicID int64, postID int64, postAt time.Time) error
+}
+
+// ForumPostRepository defines persistence operations for forum posts.
+type ForumPostRepository interface {
+	GetByID(ctx context.Context, id int64) (*model.ForumPost, error)
+	ListByTopic(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error)
+	Create(ctx context.Context, post *model.ForumPost) error
+	CountByUser(ctx context.Context, userID int64) (int, error)
+}
+
 // DashboardStats holds aggregated counts for the admin dashboard.
 type DashboardStats struct {
 	UsersTotal     int64
