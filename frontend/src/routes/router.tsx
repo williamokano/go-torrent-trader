@@ -44,6 +44,10 @@ import { AdminUserDetailPage } from "@/pages/admin/AdminUserDetailPage";
 import { AdminTorrentsPage } from "@/pages/admin/AdminTorrentsPage";
 import { NewsListPage } from "@/pages/NewsListPage";
 import { NewsDetailPage } from "@/pages/NewsDetailPage";
+import { ForumIndexPage } from "@/pages/ForumIndexPage";
+import { ForumTopicListPage } from "@/pages/ForumTopicListPage";
+import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
+import { ForumNewTopicPage } from "@/pages/ForumNewTopicPage";
 
 export const router = createBrowserRouter([
   {
@@ -160,6 +164,38 @@ export const router = createBrowserRouter([
           { path: "settings", element: <AdminSettingsPage /> },
           { path: "bans", element: <AdminBansPage /> },
         ],
+      },
+      {
+        path: "forums",
+        element: (
+          <ProtectedRoute>
+            <ForumIndexPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "forums/:id",
+        element: (
+          <ProtectedRoute>
+            <ForumTopicListPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "forums/:id/new",
+        element: (
+          <ProtectedRoute>
+            <ForumNewTopicPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "forums/topics/:id",
+        element: (
+          <ProtectedRoute>
+            <ForumTopicViewPage />
+          </ProtectedRoute>
+        ),
       },
       {
         path: "news",

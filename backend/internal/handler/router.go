@@ -34,6 +34,7 @@ type Deps struct {
 	WarningService      *service.WarningService
 	NewsService         *service.NewsService
 	RestrictionService  *service.RestrictionService
+	ForumService        *service.ForumService
 	ChatHub             *ChatHub
 	PeerRepo             repository.PeerRepository
 	UserRepo             repository.UserRepository
@@ -276,6 +277,20 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/reports", func(r chi.Router) {
 					authMiddleware(r)
 					r.Post("/", reports.HandleCreate)
+				})
+			}
+
+			// Forum endpoints
+			if deps.ForumService != nil {
+				forums := NewForumHandler(deps.ForumService)
+				r.Route("/forums", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/", forums.HandleListForums)
+					r.Get("/{id}", forums.HandleGetForum)
+					r.Get("/{id}/topics", forums.HandleListTopics)
+					r.Post("/{id}/topics", forums.HandleCreateTopic)
+					r.Get("/topics/{id}", forums.HandleGetTopic)
+					r.Post("/topics/{id}/posts", forums.HandleCreatePost)
 				})
 			}
 
