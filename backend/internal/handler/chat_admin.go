@@ -25,6 +25,67 @@ func NewChatAdminHandler(chatSvc *service.ChatService, hub *ChatHub) *ChatAdminH
 	return &ChatAdminHandler{chatSvc: chatSvc, hub: hub}
 }
 
+// HandleListActiveMutes handles GET /api/v1/admin/chat/mutes.
+func (h *ChatAdminHandler) HandleListActiveMutes(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	page := 1
+	perPage := 25
+	if v := r.URL.Query().Get("page"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if v := r.URL.Query().Get("per_page"); v != "" {
+		if pp, err := strconv.Atoi(v); err == nil && pp > 0 && pp <= 100 {
+			perPage = pp
+		}
+	}
+
+	mutes, total, err := h.chatSvc.ListActiveMutes(r.Context(), page, perPage, perms)
+	if err != nil {
+		if errors.Is(err, service.ErrForbidden) {
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have permission")
+			return
+		}
+		slog.Error("failed to list active mutes", "error", err)
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list mutes")
+		return
+	}
+
+	type muteResponse struct {
+		ID          int64   `json:"id"`
+		UserID      int64   `json:"user_id"`
+		Username    string  `json:"username"`
+		MutedBy     *int64  `json:"muted_by"`
+		MutedByName *string `json:"muted_by_name"`
+		Reason      string  `json:"reason"`
+		ExpiresAt   string  `json:"expires_at"`
+		CreatedAt   string  `json:"created_at"`
+	}
+
+	items := make([]muteResponse, 0, len(mutes))
+	for _, m := range mutes {
+		items = append(items, muteResponse{
+			ID:          m.ID,
+			UserID:      m.UserID,
+			Username:    m.Username,
+			MutedBy:     m.MutedBy,
+			MutedByName: m.MutedByName,
+			Reason:      m.Reason,
+			ExpiresAt:   m.ExpiresAt.Format(time.RFC3339),
+			CreatedAt:   m.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"mutes":    items,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
+	})
+}
+
 // HandleDeleteMessage handles DELETE /api/v1/admin/chat/messages/{id}.
 func (h *ChatAdminHandler) HandleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	actorID, ok := middleware.UserIDFromContext(r.Context())

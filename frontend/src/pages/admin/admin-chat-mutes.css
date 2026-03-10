@@ -1,0 +1,53 @@
+.admin-chat-mutes__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-chat-mutes__table th,
+.admin-chat-mutes__table td {
+  text-align: left;
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.admin-chat-mutes__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-chat-mutes__table td {
+  color: var(--color-text-primary);
+}
+
+.admin-chat-mutes__reason-cell {
+  max-width: 300px;
+}
+
+.admin-chat-mutes__unmute-btn {
+  padding: 2px 8px;
+  background-color: var(--color-danger, #dc3545);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.admin-chat-mutes__unmute-btn:hover {
+  opacity: 0.85;
+}
+
+.admin-chat-mutes__unmute-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-chat-mutes__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-lg);
+}

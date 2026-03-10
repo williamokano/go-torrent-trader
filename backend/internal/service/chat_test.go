@@ -127,6 +127,10 @@ func (r *mockChatMuteRepo) Delete(_ context.Context, userID int64) error {
 	return nil
 }
 
+func (r *mockChatMuteRepo) ListActive(_ context.Context, _, _ int) ([]repository.ChatMuteWithNames, int64, error) {
+	return nil, 0, nil
+}
+
 func (r *mockChatMuteRepo) DeleteExpired(_ context.Context) ([]int64, error) {
 	var kept []model.ChatMute
 	var userIDs []int64

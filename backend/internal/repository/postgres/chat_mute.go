@@ -48,6 +48,51 @@ func (r *ChatMuteRepo) GetActiveMute(ctx context.Context, userID int64) (*model.
 	return &m, nil
 }
 
+func (r *ChatMuteRepo) ListActive(ctx context.Context, page, perPage int) ([]repository.ChatMuteWithNames, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 25
+	}
+	offset := (page - 1) * perPage
+
+	var total int64
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM chat_mutes WHERE expires_at > NOW()").Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count active chat mutes: %w", err)
+	}
+
+	query := `SELECT cm.id, cm.user_id, cm.muted_by, cm.reason, cm.expires_at, cm.created_at,
+			u.username,
+			mb.username AS muted_by_name
+		FROM chat_mutes cm
+		JOIN users u ON u.id = cm.user_id
+		LEFT JOIN users mb ON mb.id = cm.muted_by
+		WHERE cm.expires_at > NOW()
+		ORDER BY cm.expires_at DESC
+		LIMIT $1 OFFSET $2`
+
+	rows, err := r.db.QueryContext(ctx, query, perPage, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list active chat mutes: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var mutes []repository.ChatMuteWithNames
+	for rows.Next() {
+		var m repository.ChatMuteWithNames
+		if err := rows.Scan(
+			&m.ID, &m.UserID, &m.MutedBy, &m.Reason, &m.ExpiresAt, &m.CreatedAt,
+			&m.Username, &m.MutedByName,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan active chat mute: %w", err)
+		}
+		mutes = append(mutes, m)
+	}
+	return mutes, total, rows.Err()
+}
+
 func (r *ChatMuteRepo) Delete(ctx context.Context, userID int64) error {
 	_, err := r.db.ExecContext(ctx, "DELETE FROM chat_mutes WHERE user_id = $1", userID)
 	if err != nil {

@@ -243,6 +243,14 @@ func (s *ChatService) GetActiveMute(ctx context.Context, userID int64) (*model.C
 	return s.mutes.GetActiveMute(ctx, userID)
 }
 
+// ListActiveMutes returns paginated active mutes with user info. Staff only.
+func (s *ChatService) ListActiveMutes(ctx context.Context, page, perPage int, perms model.Permissions) ([]repository.ChatMuteWithNames, int64, error) {
+	if !perms.IsStaff() {
+		return nil, 0, ErrForbidden
+	}
+	return s.mutes.ListActive(ctx, page, perPage)
+}
+
 // CleanupExpiredMutes deletes expired mute records. Returns user IDs that were unmuted.
 func (s *ChatService) CleanupExpiredMutes(ctx context.Context) ([]int64, error) {
 	return s.mutes.DeleteExpired(ctx)

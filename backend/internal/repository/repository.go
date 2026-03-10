@@ -207,8 +207,16 @@ type ChatMessageRepository interface {
 type ChatMuteRepository interface {
 	Create(ctx context.Context, mute *model.ChatMute) error
 	GetActiveMute(ctx context.Context, userID int64) (*model.ChatMute, error)
+	ListActive(ctx context.Context, page, perPage int) ([]ChatMuteWithNames, int64, error)
 	Delete(ctx context.Context, userID int64) error
 	DeleteExpired(ctx context.Context) ([]int64, error)
+}
+
+// ChatMuteWithNames is a chat mute with resolved user and staff names.
+type ChatMuteWithNames struct {
+	model.ChatMute
+	Username    string
+	MutedByName *string
 }
 
 // WarningRepository defines persistence operations for user warnings.

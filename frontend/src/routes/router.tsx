@@ -37,6 +37,7 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { FAQPage } from "@/pages/FAQPage";
 import { RulesPage } from "@/pages/RulesPage";
 import { FormattingPage } from "@/pages/FormattingPage";
+import { AdminChatMutesPage } from "@/pages/admin/AdminChatMutesPage";
 import { AdminNewsPage } from "@/pages/admin/AdminNewsPage";
 import { NewsListPage } from "@/pages/NewsListPage";
 import { NewsDetailPage } from "@/pages/NewsDetailPage";
@@ -149,6 +150,7 @@ export const router = createBrowserRouter([
           { path: "categories", element: <AdminCategoriesPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
           { path: "warnings", element: <AdminWarningsPage /> },
+          { path: "chat-mutes", element: <AdminChatMutesPage /> },
           { path: "news", element: <AdminNewsPage /> },
           { path: "settings", element: <AdminSettingsPage /> },
           { path: "bans", element: <AdminBansPage /> },
