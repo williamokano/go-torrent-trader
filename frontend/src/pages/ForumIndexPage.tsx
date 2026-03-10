@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { timeAgo } from "@/utils/format";
@@ -27,6 +27,8 @@ export function ForumIndexPage() {
   const [categories, setCategories] = useState<CategoryData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,28 @@ export function ForumIndexPage() {
   return (
     <div className="forums-page">
       <h1>Forums</h1>
+
+      <form
+        className="forums-page__search-bar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (searchQuery.trim()) {
+            navigate(
+              `/forums/search?q=${encodeURIComponent(searchQuery.trim())}`,
+            );
+          }
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search forums..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <button type="submit" className="btn btn--primary">
+          Search
+        </button>
+      </form>
 
       {categories.length === 0 && (
         <p className="forum-empty">No forums available.</p>
