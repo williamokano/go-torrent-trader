@@ -168,6 +168,11 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.ChatUserUnmutedEvent)
 		return fmt.Sprintf("User #%d unmuted in chat", e.TargetUserID), e.Actor
 	})
+
+	listen(event.NewsPublished, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.NewsPublishedEvent)
+		return fmt.Sprintf("%s published news: %s", e.Actor.Username, e.Title), e.Actor
+	})
 }
 
 func marshalMetadata(evt event.Event) *string {

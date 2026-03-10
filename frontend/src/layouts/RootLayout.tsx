@@ -164,6 +164,17 @@ export function RootLayout() {
           </Dropdown>
 
           <NavLink
+            to="/news"
+            end={false}
+            className={({ isActive }) =>
+              `header__nav-link${isActive ? " header__nav-link--active" : ""}`
+            }
+            onClick={closeMenu}
+          >
+            News
+          </NavLink>
+
+          <NavLink
             to="/forums"
             className={({ isActive }) =>
               `header__nav-link${isActive ? " header__nav-link--active" : ""}`

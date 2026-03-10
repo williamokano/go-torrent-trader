@@ -32,6 +32,7 @@ type Deps struct {
 	MessageService      *service.MessageService
 	ChatService         *service.ChatService
 	WarningService      *service.WarningService
+	NewsService         *service.NewsService
 	ChatHub             *ChatHub
 	PeerRepo             repository.PeerRepository
 	UserRepo             repository.UserRepository
@@ -83,6 +84,13 @@ func NewRouter(deps *Deps) chi.Router {
 		if deps != nil && deps.TorrentService != nil && deps.UserRepo != nil && deps.RSSConfig != nil {
 			rssHandler := NewRSSHandler(deps.TorrentService, deps.UserRepo, *deps.RSSConfig)
 			r.Get("/rss", rssHandler.HandleRSS)
+		}
+
+		// Public news endpoints (no auth required)
+		if deps != nil && deps.NewsService != nil {
+			newsHandler := NewNewsHandler(deps.NewsService)
+			r.Get("/news", newsHandler.HandleListPublishedNews)
+			r.Get("/news/{id}", newsHandler.HandleGetPublishedNews)
 		}
 
 		if deps != nil && deps.AuthService != nil {
@@ -324,6 +332,15 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Post("/categories", catAdmin.HandleCreateCategory)
 						r.Put("/categories/{id}", catAdmin.HandleUpdateCategory)
 						r.Delete("/categories/{id}", catAdmin.HandleDeleteCategory)
+					}
+
+					// News management endpoints
+					if deps.NewsService != nil {
+						newsAdmin := NewNewsHandler(deps.NewsService)
+						r.Post("/news", newsAdmin.HandleAdminCreateNews)
+						r.Get("/news", newsAdmin.HandleAdminListNews)
+						r.Put("/news/{id}", newsAdmin.HandleAdminUpdateNews)
+						r.Delete("/news/{id}", newsAdmin.HandleAdminDeleteNews)
 					}
 				})
 

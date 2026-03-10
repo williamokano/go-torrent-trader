@@ -2,13 +2,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api";
 import { getAccessToken } from "@/features/auth/token";
+import { getConfig } from "@/config";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import { Shoutbox } from "@/components/Shoutbox";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { WarningBadge } from "@/components/WarningBadge";
 import type { Torrent } from "@/types/torrent";
+import type { NewsArticle } from "@/types/news";
 import "./home.css";
+import "./news.css";
 
 interface SiteStats {
   users: number;
@@ -24,6 +27,7 @@ export function HomePage() {
   const [latestTorrents, setLatestTorrents] = useState<Torrent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [latestNews, setLatestNews] = useState<NewsArticle[]>([]);
 
   // Fetch site stats (public endpoint)
   useEffect(() => {
@@ -46,6 +50,31 @@ export function HomePage() {
     }
 
     fetchStats();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch latest news
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchNews() {
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/news?per_page=3`,
+        );
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          setLatestNews(data.articles ?? []);
+        }
+      } catch {
+        // Non-critical; silently ignore
+      }
+    }
+
+    fetchNews();
     return () => {
       cancelled = true;
     };
@@ -134,6 +163,30 @@ export function HomePage() {
           </div>
         ) : null}
       </section>
+
+      {latestNews.length > 0 && (
+        <section aria-label="Latest news">
+          <h2 className="home__section-title">Latest News</h2>
+          <div className="home__news-list">
+            {latestNews.map((n) => (
+              <div key={n.id} className="home__news-item">
+                <h3 className="home__news-item-title">
+                  <Link to={`/news/${n.id}`}>{n.title}</Link>
+                </h3>
+                <div className="home__news-item-meta">
+                  {n.author_name ?? "Unknown"} &middot; {timeAgo(n.created_at)}
+                </div>
+                <p className="home__news-item-preview">
+                  {n.body.length > 200 ? n.body.slice(0, 200) + "..." : n.body}
+                </p>
+                <Link to={`/news/${n.id}`} className="home__news-read-more">
+                  Read more
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section aria-label="Latest torrents">
         <h2 className="home__section-title">Latest Torrents</h2>
