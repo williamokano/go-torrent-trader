@@ -210,7 +210,7 @@ func run() int {
 	forumRepo := postgres.NewForumRepo(db)
 	forumTopicRepo := postgres.NewForumTopicRepo(db)
 	forumPostRepo := postgres.NewForumPostRepo(db)
-	forumService := service.NewForumService(forumCategoryRepo, forumRepo, forumTopicRepo, forumPostRepo, userRepo)
+	forumService := service.NewForumService(db, forumCategoryRepo, forumRepo, forumTopicRepo, forumPostRepo, userRepo)
 
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()

@@ -114,6 +114,7 @@ func (h *ForumHandler) HandleListTopics(w http.ResponseWriter, r *http.Request) 
 
 // HandleGetTopic handles GET /api/v1/forums/topics/{id} — get topic with posts.
 func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserIDFromContext(r.Context())
 	perms := middleware.PermissionsFromContext(r.Context())
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -131,7 +132,7 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 		perPage, _ = strconv.Atoi(pp)
 	}
 
-	topic, err := h.forumSvc.GetTopic(r.Context(), topicID, perms)
+	topic, err := h.forumSvc.GetTopic(r.Context(), topicID, userID, perms)
 	if err != nil {
 		handleForumError(w, err)
 		return
@@ -241,6 +242,8 @@ func handleForumError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrInvalidTopic):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	case errors.Is(err, service.ErrInvalidPost):
+	case errors.Is(err, service.ErrInvalidReply):
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
