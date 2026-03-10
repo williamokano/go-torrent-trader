@@ -7,6 +7,15 @@ export function AdminLayout() {
       <nav className="admin-layout__sidebar">
         <h2 className="admin-layout__sidebar-title">Admin</h2>
         <NavLink
+          to="/admin"
+          end
+          className={({ isActive }) =>
+            `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`
+          }
+        >
+          Dashboard
+        </NavLink>
+        <NavLink
           to="/admin/users"
           className={({ isActive }) =>
             `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`

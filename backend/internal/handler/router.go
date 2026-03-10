@@ -293,6 +293,10 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireAdmin)
 
+					if deps.DB != nil && deps.ActivityLogService != nil {
+						r.Get("/dashboard", HandleDashboard(deps.DB, deps.ActivityLogService))
+					}
+
 					if deps.AdminService != nil {
 						admin := NewAdminHandler(deps.AdminService)
 						r.Get("/users", admin.HandleListUsers)
