@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { timeAgo } from "@/utils/format";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { Pagination } from "@/components/Pagination";
 import type { NewsArticle } from "@/types/news";
 import "./news.css";
 
 const PER_PAGE = 10;
-const PREVIEW_LENGTH = 300;
 
 export function NewsListPage() {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -59,11 +59,9 @@ export function NewsListPage() {
                   <span>By {a.author_name ?? "Unknown"}</span>
                   <span>{timeAgo(a.created_at)}</span>
                 </div>
-                <p className="news__article-preview">
-                  {a.body.length > PREVIEW_LENGTH
-                    ? a.body.slice(0, PREVIEW_LENGTH) + "..."
-                    : a.body}
-                </p>
+                <div className="news__article-preview">
+                  <MarkdownRenderer content={a.body} />
+                </div>
                 <Link to={`/news/${a.id}`} className="news__read-more">
                   Read more
                 </Link>

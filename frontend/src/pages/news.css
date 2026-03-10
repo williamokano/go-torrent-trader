@@ -58,10 +58,20 @@
 }
 
 .news__article-preview {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  line-height: 1.6;
   margin-bottom: var(--space-sm);
+  max-height: 8em;
+  overflow: hidden;
+  position: relative;
+}
+
+.news__article-preview::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2em;
+  background: linear-gradient(transparent, var(--color-bg-primary));
 }
 
 .news__read-more {
