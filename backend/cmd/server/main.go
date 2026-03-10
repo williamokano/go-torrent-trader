@@ -159,6 +159,7 @@ func run() int {
 	// Wire site settings + invite service into auth service for registration mode checks
 	authService.SetSiteSettings(siteSettingsService)
 	authService.SetInviteService(inviteService)
+	trackerService.SetSiteSettings(siteSettingsService)
 
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)

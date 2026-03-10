@@ -174,6 +174,10 @@ func mapAnnounceError(err error) string {
 		return "torrent is banned"
 	case errors.Is(err, service.ErrUserDisabled):
 		return "account is disabled"
+	case errors.Is(err, service.ErrTooManyPeers):
+		return "Too many peers on this torrent"
+	case errors.Is(err, service.ErrTooManyConns):
+		return "Too many connections"
 	default:
 		return "internal server error"
 	}

@@ -29,6 +29,10 @@ const (
 	SettingChatRateLimitMessage   = "chat_rate_limit_message"
 	SettingChatSpamMuteMessage    = "chat_spam_mute_message"
 
+	// Tracker connection limit settings keys.
+	SettingTrackerMaxPeersPerTorrent = "tracker_max_peers_per_torrent"
+	SettingTrackerMaxPeersPerUser    = "tracker_max_peers_per_user"
+
 	// Warning escalation settings keys.
 	SettingWarningEscalationEnabled = "warning_escalation_enabled"
 	SettingWarningCountRestrict     = "warning_count_restrict"

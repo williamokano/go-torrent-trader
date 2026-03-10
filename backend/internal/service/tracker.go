@@ -16,10 +16,12 @@ import (
 )
 
 var (
-	ErrInvalidPasskey      = errors.New("invalid passkey")
-	ErrTorrentBanned       = errors.New("torrent is banned")
-	ErrUserDisabled        = errors.New("user account is disabled")
-	ErrDownloadSuspended   = errors.New("download privilege suspended")
+	ErrInvalidPasskey    = errors.New("invalid passkey")
+	ErrTorrentBanned     = errors.New("torrent is banned")
+	ErrUserDisabled      = errors.New("user account is disabled")
+	ErrDownloadSuspended = errors.New("download privilege suspended")
+	ErrTooManyPeers      = errors.New("too many peers on this torrent")
+	ErrTooManyConns      = errors.New("too many connections")
 )
 
 const (
@@ -73,6 +75,7 @@ type TrackerService struct {
 	torrents        repository.TorrentRepository
 	peers           repository.PeerRepository
 	transferHistory repository.TransferHistoryRepository
+	siteSettings    *SiteSettingsService
 }
 
 // NewTrackerService creates a new TrackerService.
@@ -86,6 +89,11 @@ func NewTrackerService(
 		torrents: torrents,
 		peers:    peers,
 	}
+}
+
+// SetSiteSettings sets the site settings service for connection limit enforcement.
+func (s *TrackerService) SetSiteSettings(ss *SiteSettingsService) {
+	s.siteSettings = ss
 }
 
 // SetTransferHistoryRepo sets the transfer history repository for recording completions.
@@ -121,6 +129,31 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// Look up existing peer by the exact peer_id for delta calculation.
 	// A user can have multiple peers (seedbox + home PC), each with a unique peer_id.
 	existingPeer, _ := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
+
+	// Connection limits: only enforce for NEW peers (not updates to existing ones).
+	if existingPeer == nil && req.Event != EventStopped && s.siteSettings != nil {
+		maxPerTorrent := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerTorrent, 50)
+		if maxPerTorrent > 0 {
+			torrentPeerCount, err := s.peers.CountByTorrent(ctx, torrent.ID)
+			if err != nil {
+				return nil, fmt.Errorf("count peers by torrent: %w", err)
+			}
+			if torrentPeerCount >= maxPerTorrent {
+				return nil, ErrTooManyPeers
+			}
+		}
+
+		maxPerUser := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerUser, 100)
+		if maxPerUser > 0 {
+			userPeerCount, err := s.peers.CountTotalByUser(ctx, user.ID)
+			if err != nil {
+				return nil, fmt.Errorf("count peers by user: %w", err)
+			}
+			if userPeerCount >= maxPerUser {
+				return nil, ErrTooManyConns
+			}
+		}
+	}
 
 	// Calculate upload/download deltas for user stats.
 	var uploadDelta, downloadDelta int64
