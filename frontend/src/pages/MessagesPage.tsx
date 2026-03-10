@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { Pagination } from "@/components/Pagination";
 import { useChat } from "@/lib/useChat";
 import { formatDate } from "@/utils/format";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./messages.css";
 
 interface Message {
@@ -327,21 +328,19 @@ export function MessagesPage() {
           <div className="messages__detail-meta">
             <span>
               From:{" "}
-              <Link
-                to={`/user/${selectedMessage.sender_id}`}
+              <UsernameDisplay
+                userId={selectedMessage.sender_id}
+                username={selectedMessage.sender_username}
                 className="messages__user-link"
-              >
-                {selectedMessage.sender_username}
-              </Link>
+              />
             </span>
             <span>
               To:{" "}
-              <Link
-                to={`/user/${selectedMessage.receiver_id}`}
+              <UsernameDisplay
+                userId={selectedMessage.receiver_id}
+                username={selectedMessage.receiver_username}
                 className="messages__user-link"
-              >
-                {selectedMessage.receiver_username}
-              </Link>
+              />
             </span>
             <span>{formatDate(selectedMessage.created_at)}</span>
           </div>
@@ -542,14 +541,11 @@ export function MessagesPage() {
                       }
                     >
                       <td>
-                        <Link
-                          to={`/user/${tab === "inbox" ? msg.sender_id : msg.receiver_id}`}
+                        <UsernameDisplay
+                          userId={tab === "inbox" ? msg.sender_id : msg.receiver_id}
+                          username={tab === "inbox" ? msg.sender_username : msg.receiver_username}
                           className="messages__user-link"
-                        >
-                          {tab === "inbox"
-                            ? msg.sender_username
-                            : msg.receiver_username}
-                        </Link>
+                        />
                       </td>
                       <td>
                         <button

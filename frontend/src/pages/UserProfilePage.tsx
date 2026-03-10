@@ -4,7 +4,7 @@ import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
-import { WarningBadge } from "@/components/WarningBadge";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./profile.css";
 
 interface UserWarning {
@@ -301,8 +301,12 @@ export function UserProfilePage() {
         )}
         <div className="profile-info">
           <h1 className="profile-info__username">
-            {profile.username}
-            <WarningBadge warned={profile.warned} />
+            <UsernameDisplay
+              userId={profile.id}
+              username={profile.username}
+              warned={profile.warned}
+              noLink
+            />
           </h1>
           {profile.title && (
             <p className="profile-info__title">{profile.title}</p>
@@ -317,12 +321,13 @@ export function UserProfilePage() {
             <span className="profile-info__joined">
               Joined {formatDate(profile.created_at)}
             </span>
-            {profile.invited_by_name && (
+            {profile.invited_by_name && profile.invited_by_id && (
               <span className="profile-info__invited-by">
                 Invited by{" "}
-                <Link to={`/user/${profile.invited_by_id}`}>
-                  {profile.invited_by_name}
-                </Link>
+                <UsernameDisplay
+                  userId={profile.invited_by_id}
+                  username={profile.invited_by_name}
+                />
               </span>
             )}
             {isOwnProfile && (

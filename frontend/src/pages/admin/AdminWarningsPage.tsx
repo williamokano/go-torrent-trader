@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./admin-warnings.css";
 
 interface Warning {
@@ -328,7 +328,10 @@ export function AdminWarningsPage() {
               {warnings.map((w) => (
                 <tr key={w.id}>
                   <td>
-                    <Link to={`/user/${w.user_id}`}>{w.username}</Link>
+                    <UsernameDisplay
+                      userId={w.user_id}
+                      username={w.username}
+                    />
                   </td>
                   <td>{warningTypeLabel(w.type)}</td>
                   <td className="admin-warnings__reason-cell" title={w.reason}>

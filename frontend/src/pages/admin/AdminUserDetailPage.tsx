@@ -4,7 +4,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { formatBytes, timeAgo } from "@/utils/format";
-import { WarningBadge } from "@/components/WarningBadge";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { Modal } from "@/components/modal/Modal";
 import { Textarea, Input, Checkbox, Select } from "@/components/form";
@@ -479,8 +479,12 @@ export function AdminUserDetailPage() {
           &larr; Back to Users
         </Link>
         <h1>
-          {user.username}
-          <WarningBadge warned={user.warned} />
+          <UsernameDisplay
+            userId={user.id}
+            username={user.username}
+            warned={user.warned}
+            noLink
+          />
           <span className="admin-user-detail__header-meta">
             {user.group_name} &middot; Joined {timeAgo(user.created_at)}{" "}
             &middot; Last active{" "}
@@ -899,7 +903,10 @@ export function AdminUserDetailPage() {
               <div key={note.id} className="admin-user-detail__note">
                 <div className="admin-user-detail__note-header">
                   <span className="admin-user-detail__note-author">
-                    {note.author_username}
+                    <UsernameDisplay
+                      userId={note.author_id}
+                      username={note.author_username}
+                    />
                   </span>
                   <span className="admin-user-detail__note-date">
                     {timeAgo(note.created_at)}

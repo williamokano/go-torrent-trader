@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { CommentsSection } from "@/components/CommentsSection";
 import { ToastProvider } from "@/components/toast";
 import { AuthContext } from "@/features/auth/AuthContextDef";
@@ -88,11 +89,13 @@ function renderComments(
   authContext: AuthContextValue = makeAuthContext(),
 ) {
   return render(
-    <AuthContext.Provider value={authContext}>
-      <ToastProvider>
-        <CommentsSection torrentId={torrentId} />
-      </ToastProvider>
-    </AuthContext.Provider>,
+    <MemoryRouter>
+      <AuthContext.Provider value={authContext}>
+        <ToastProvider>
+          <CommentsSection torrentId={torrentId} />
+        </ToastProvider>
+      </AuthContext.Provider>
+    </MemoryRouter>,
   );
 }
 

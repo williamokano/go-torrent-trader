@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { Input } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { formatBytes, formatRatio, formatDate } from "@/utils/format";
-import { WarningBadge } from "@/components/WarningBadge";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./members.css";
 
 interface MemberUser {
@@ -154,10 +154,12 @@ export function MembersPage() {
             {members.map((m) => (
               <tr key={m.id}>
                 <td>
-                  <Link className="members__username" to={`/user/${m.id}`}>
-                    {m.username}
-                  </Link>
-                  <WarningBadge warned={m.warned} />
+                  <UsernameDisplay
+                    userId={m.id}
+                    username={m.username}
+                    warned={m.warned}
+                    className="members__username"
+                  />
                   {m.donor && (
                     <span className="members__donor-badge">Donor</span>
                   )}
