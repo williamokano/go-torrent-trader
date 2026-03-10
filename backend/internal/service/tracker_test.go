@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -260,6 +261,28 @@ func (m *trackerMockPeerRepo) Delete(_ context.Context, torrentID, userID int64,
 func (m *trackerMockPeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) {
 	return 0, 0, nil
 }
+func (m *trackerMockPeerRepo) CountByTorrent(_ context.Context, torrentID int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, p := range m.peers {
+		if p.TorrentID == torrentID {
+			count++
+		}
+	}
+	return count, nil
+}
+func (m *trackerMockPeerRepo) CountTotalByUser(_ context.Context, userID int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, p := range m.peers {
+		if p.UserID == userID {
+			count++
+		}
+	}
+	return count, nil
+}
 func (m *trackerMockPeerRepo) DeleteStale(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
@@ -313,6 +336,18 @@ func setupTracker() (*TrackerService, *trackerMockUserRepo, *trackerMockTorrentR
 	})
 
 	svc := NewTrackerService(userRepo, torrentRepo, peerRepo)
+	return svc, userRepo, torrentRepo, peerRepo
+}
+
+func setupTrackerWithSettings(settings map[string]string) (*TrackerService, *trackerMockUserRepo, *trackerMockTorrentRepo, *trackerMockPeerRepo) {
+	svc, userRepo, torrentRepo, peerRepo := setupTracker()
+	settingsRepo := newMockSiteSettingsRepo()
+	for k, v := range settings {
+		settingsRepo.settings[k] = &model.SiteSetting{Key: k, Value: v}
+	}
+	bus := event.NewInMemoryBus()
+	siteSettings := NewSiteSettingsService(settingsRepo, bus)
+	svc.SetSiteSettings(siteSettings)
 	return svc, userRepo, torrentRepo, peerRepo
 }
 
@@ -719,5 +754,199 @@ func TestBuildCompactPeerList_RespectsMaxPeers(t *testing.T) {
 	// Should be capped at 50 peers * 6 bytes = 300 bytes.
 	if len(result) != 300 {
 		t.Fatalf("expected 300 bytes, got %d", len(result))
+	}
+}
+
+func TestAnnounce_MaxPeersPerTorrent_RejectsNewPeer(t *testing.T) {
+	svc, _, _, peerRepo := setupTrackerWithSettings(map[string]string{
+		SettingTrackerMaxPeersPerTorrent: "2",
+	})
+
+	// Pre-fill 2 peers on the torrent from other users.
+	peerRepo.mu.Lock()
+	for i := 0; i < 2; i++ {
+		pid := make([]byte, 20)
+		pid[0] = byte(i + 200)
+		peerRepo.peers = append(peerRepo.peers, &model.Peer{
+			ID:        int64(i + 1),
+			TorrentID: 1,
+			UserID:    int64(i + 10),
+			PeerID:    pid,
+			IP:        "10.0.0.1",
+			Port:      6881,
+		})
+	}
+	peerRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if !errors.Is(err, ErrTooManyPeers) {
+		t.Errorf("expected ErrTooManyPeers, got %v", err)
+	}
+}
+
+func TestAnnounce_MaxPeersPerTorrent_AllowsExistingPeer(t *testing.T) {
+	svc, _, _, peerRepo := setupTrackerWithSettings(map[string]string{
+		SettingTrackerMaxPeersPerTorrent: "1",
+	})
+
+	// Pre-fill this exact peer so it's an update, not a new peer.
+	peerRepo.mu.Lock()
+	peerRepo.peers = append(peerRepo.peers, &model.Peer{
+		ID:        1,
+		TorrentID: 1,
+		UserID:    1,
+		PeerID:    testPeerID(),
+		IP:        "192.168.1.1",
+		Port:      6881,
+		Seeder:    false,
+	})
+	peerRepo.mu.Unlock()
+
+	// Regular announce (update) should succeed even though limit is 1 and 1 peer exists.
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:    testPasskey(),
+		InfoHash:   testInfoHash(),
+		PeerID:     testPeerID(),
+		IP:         "192.168.1.1",
+		Port:       6881,
+		Uploaded:   100,
+		Downloaded: 50,
+		Left:       500,
+		Event:      EventEmpty,
+	})
+
+	if err != nil {
+		t.Errorf("expected existing peer update to succeed, got %v", err)
+	}
+}
+
+func TestAnnounce_MaxPeersPerUser_RejectsNewPeer(t *testing.T) {
+	svc, _, torrentRepo, peerRepo := setupTrackerWithSettings(map[string]string{
+		SettingTrackerMaxPeersPerUser: "2",
+	})
+
+	// Add a second torrent for the user's other peers.
+	otherInfoHash := make([]byte, 20)
+	for i := range otherInfoHash {
+		otherInfoHash[i] = byte(i + 50)
+	}
+	torrentRepo.addTorrent(&model.Torrent{
+		ID:       2,
+		InfoHash: otherInfoHash,
+	})
+
+	// Pre-fill 2 peers for user 1 on different torrents.
+	peerRepo.mu.Lock()
+	for i := 0; i < 2; i++ {
+		pid := make([]byte, 20)
+		pid[0] = byte(i + 200)
+		peerRepo.peers = append(peerRepo.peers, &model.Peer{
+			ID:        int64(i + 1),
+			TorrentID: int64(i + 2), // different torrents
+			UserID:    1,
+			PeerID:    pid,
+			IP:        "10.0.0.1",
+			Port:      6881,
+		})
+	}
+	peerRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if !errors.Is(err, ErrTooManyConns) {
+		t.Errorf("expected ErrTooManyConns, got %v", err)
+	}
+}
+
+func TestAnnounce_ConnectionLimits_StoppedEventBypassesLimits(t *testing.T) {
+	svc, _, _, peerRepo := setupTrackerWithSettings(map[string]string{
+		SettingTrackerMaxPeersPerTorrent: "1",
+		SettingTrackerMaxPeersPerUser:    "1",
+	})
+
+	// Pre-fill this peer so it can be stopped.
+	peerRepo.mu.Lock()
+	peerRepo.peers = append(peerRepo.peers, &model.Peer{
+		ID:        1,
+		TorrentID: 1,
+		UserID:    1,
+		PeerID:    testPeerID(),
+		IP:        "192.168.1.1",
+		Port:      6881,
+		Seeder:    false,
+	})
+	peerRepo.mu.Unlock()
+
+	// Stopped event should never be blocked by connection limits.
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     500,
+		Event:    EventStopped,
+	})
+
+	if err != nil {
+		t.Errorf("stopped event should not be blocked by limits, got %v", err)
+	}
+}
+
+func TestAnnounce_ConnectionLimits_ZeroDisablesLimit(t *testing.T) {
+	svc, _, _, _ := setupTrackerWithSettings(map[string]string{
+		SettingTrackerMaxPeersPerTorrent: "0",
+		SettingTrackerMaxPeersPerUser:    "0",
+	})
+
+	// Should succeed with limits disabled (set to 0).
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected success with limits disabled, got %v", err)
+	}
+}
+
+func TestAnnounce_ConnectionLimits_NoSettingsUsesDefaults(t *testing.T) {
+	// Without site settings service, limits are not enforced.
+	svc, _, _, _ := setupTracker()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected success without site settings, got %v", err)
 	}
 }

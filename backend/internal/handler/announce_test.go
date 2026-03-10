@@ -151,6 +151,12 @@ func (r *announcePeerRepo) Upsert(_ context.Context, peer *model.Peer) error {
 func (r *announcePeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) {
 	return 0, 0, nil
 }
+func (r *announcePeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
+func (r *announcePeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
 
 func (r *announcePeerRepo) Delete(_ context.Context, torrentID, userID int64, peerID []byte) error {
 	r.mu.Lock()

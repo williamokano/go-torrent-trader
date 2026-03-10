@@ -109,6 +109,21 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     description: "Reason recorded when a user is auto-muted for spam. Visible to staff in the mute record.",
     type: "text",
   },
+  // Tracker connection limits
+  {
+    key: "tracker_max_peers_per_torrent",
+    label: "Max Peers Per Torrent",
+    description:
+      "Maximum number of peers allowed on a single torrent. New peers are rejected once this limit is reached. Set to 0 to disable. Default: 50.",
+    type: "number",
+  },
+  {
+    key: "tracker_max_peers_per_user",
+    label: "Max Peers Per User",
+    description:
+      "Maximum number of concurrent peers a single user can have across all torrents. New peers are rejected once this limit is reached. Set to 0 to disable. Default: 100.",
+    type: "number",
+  },
   // Warning escalation
   {
     key: "warning_escalation_enabled",
