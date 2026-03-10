@@ -106,6 +106,24 @@
   font-weight: 600;
 }
 
+/* News preview */
+.home__news-item-preview {
+  margin-bottom: var(--space-sm);
+  max-height: 8em;
+  overflow: hidden;
+  position: relative;
+}
+
+.home__news-item-preview::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2em;
+  background: linear-gradient(transparent, var(--color-bg-primary));
+}
+
 /* Responsive */
 @media (max-width: 767px) {
   .home__stats {
