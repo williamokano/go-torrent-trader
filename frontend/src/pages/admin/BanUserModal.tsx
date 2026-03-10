@@ -6,6 +6,7 @@ import "@/components/modal/modal.css";
 interface BanUserModalProps {
   isOpen: boolean;
   username: string;
+  email?: string;
   onConfirm: (data: {
     reason: string;
     ban_ip: boolean;
@@ -16,17 +17,24 @@ interface BanUserModalProps {
   loading?: boolean;
 }
 
-export function BanUserModal({
-  isOpen,
+/**
+ * Inner component that mounts/unmounts based on isOpen,
+ * so state is naturally reset when the modal closes and reopens.
+ */
+function BanUserModalContent({
   username,
+  email,
   onConfirm,
   onCancel,
   loading = false,
-}: BanUserModalProps) {
+}: Omit<BanUserModalProps, "isOpen">) {
   const [reason, setReason] = useState("");
   const [banIP, setBanIP] = useState(false);
   const [banEmail, setBanEmail] = useState(false);
   const [durationDays, setDurationDays] = useState("");
+
+  const emailDomain = email?.split("@")[1] || "";
+  const emailPattern = emailDomain ? `*@${emailDomain}` : "";
 
   const handleConfirm = () => {
     if (!reason.trim()) return;
@@ -38,16 +46,8 @@ export function BanUserModal({
     });
   };
 
-  const handleCancel = () => {
-    setReason("");
-    setBanIP(false);
-    setBanEmail(false);
-    setDurationDays("");
-    onCancel();
-  };
-
   return (
-    <Modal isOpen={isOpen} onClose={handleCancel} title={`Ban ${username}`}>
+    <Modal isOpen={true} onClose={onCancel} title={`Ban ${username}`}>
       <div className="modal-body">
         <Textarea
           label="Reason (required)"
@@ -65,10 +65,25 @@ export function BanUserModal({
         </div>
         <div style={{ marginTop: "var(--space-sm)" }}>
           <Checkbox
-            label="Also ban email domain"
+            label={
+              banEmail && emailPattern
+                ? `Also ban email domain (will ban ${emailPattern})`
+                : "Also ban email domain"
+            }
             checked={banEmail}
             onChange={(e) => setBanEmail(e.target.checked)}
           />
+          {banEmail && emailPattern && (
+            <p
+              style={{
+                margin: "var(--space-xs) 0 0 var(--space-lg)",
+                fontSize: "0.85em",
+                color: "var(--color-warning, #e67e22)",
+              }}
+            >
+              This will block all future registrations from {emailPattern}
+            </p>
+          )}
         </div>
         <div style={{ marginTop: "var(--space-md)" }}>
           <Input
@@ -84,7 +99,7 @@ export function BanUserModal({
       <div className="modal-footer">
         <button
           className="modal-btn modal-btn--secondary"
-          onClick={handleCancel}
+          onClick={onCancel}
           disabled={loading}
         >
           Cancel
@@ -99,4 +114,9 @@ export function BanUserModal({
       </div>
     </Modal>
   );
+}
+
+export function BanUserModal({ isOpen, ...rest }: BanUserModalProps) {
+  if (!isOpen) return null;
+  return <BanUserModalContent {...rest} />;
 }

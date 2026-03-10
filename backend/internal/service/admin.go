@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -669,30 +670,93 @@ type QuickBanRequest struct {
 }
 
 var ErrAdminBanReasonRequired = fmt.Errorf("ban reason is required")
+var ErrCannotBanSelf = fmt.Errorf("cannot ban yourself")
+var ErrInvalidBanDuration = fmt.Errorf("duration must be positive")
+var ErrCommonEmailProvider = fmt.Errorf("cannot ban common email provider domain. Ban the specific email address instead")
 
-// QuickBanUser performs a full ban in a single operation: sends PM, disables user,
-// creates warning, optionally bans IP/email, invalidates sessions.
-func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64, req QuickBanRequest) error {
+// commonEmailProviders is a set of popular email domains that should never be
+// domain-banned because it would block legitimate users at scale.
+var commonEmailProviders = map[string]bool{
+	"gmail.com":       true,
+	"yahoo.com":       true,
+	"outlook.com":     true,
+	"hotmail.com":     true,
+	"icloud.com":      true,
+	"protonmail.com":  true,
+	"aol.com":         true,
+	"mail.com":        true,
+	"zoho.com":        true,
+	"yandex.com":      true,
+}
+
+// QuickBanResult holds detailed results of the quick ban operation.
+type QuickBanResult struct {
+	Banned       bool   `json:"banned"`
+	IPBanned     bool   `json:"ip_banned"`
+	EmailBanned  bool   `json:"email_banned"`
+	EmailPattern string `json:"email_pattern,omitempty"`
+	DurationDays *int   `json:"duration_days,omitempty"`
+	Message      string `json:"message"`
+}
+
+// QuickBanUser performs a full ban in a single operation: disables user first
+// (the critical operation), then sends PM, creates warning, optionally bans
+// IP/email, and invalidates sessions.
+func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64, req QuickBanRequest) (*QuickBanResult, error) {
 	if req.Reason == "" {
-		return ErrAdminBanReasonRequired
+		return nil, ErrAdminBanReasonRequired
+	}
+
+	// Cannot ban yourself
+	if actorID == targetID {
+		return nil, ErrCannotBanSelf
+	}
+
+	// Validate duration if provided
+	if req.DurationDays != nil && *req.DurationDays <= 0 {
+		return nil, ErrInvalidBanDuration
 	}
 
 	actor, err := s.users.GetByID(ctx, actorID)
 	if err != nil {
-		return fmt.Errorf("load actor: %w", err)
+		return nil, fmt.Errorf("load actor: %w", err)
 	}
 
 	target, err := s.users.GetByID(ctx, targetID)
 	if err != nil {
-		return ErrAdminUserNotFound
+		return nil, ErrAdminUserNotFound
 	}
 
 	// Group-level check: actor must have higher group level than target
 	if err := s.assertHigherLevel(ctx, actor, target); err != nil {
-		return err
+		return nil, err
 	}
 
-	// 1. Send PM to user with ban reason BEFORE disabling
+	// Check common email provider BEFORE making any changes
+	if req.BanEmail {
+		domain := splitEmail(target.Email)
+		if domain != "" && commonEmailProviders[strings.ToLower(domain)] {
+			return nil, ErrCommonEmailProvider
+		}
+	}
+
+	result := &QuickBanResult{
+		DurationDays: req.DurationDays,
+	}
+
+	// 1. Disable the user FIRST (the critical operation)
+	target.Enabled = false
+	if req.DurationDays != nil && *req.DurationDays > 0 {
+		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
+		target.DisabledUntil = &until
+	}
+
+	if err := s.users.Update(ctx, target); err != nil {
+		return nil, fmt.Errorf("disable user: %w", err)
+	}
+	result.Banned = true
+
+	// 2. Send PM to user with ban reason (notification, not a prerequisite)
 	if s.messages != nil {
 		durationText := "permanent"
 		if req.DurationDays != nil {
@@ -705,20 +769,9 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 			Subject:    "Account Banned",
 			Body:       body,
 		}
-		_ = s.messages.Create(ctx, msg)
-	}
-
-	// 2. Disable the user
-	target.Enabled = false
-
-	// 7. Set disabled_until for temporary bans
-	if req.DurationDays != nil && *req.DurationDays > 0 {
-		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
-		target.DisabledUntil = &until
-	}
-
-	if err := s.users.Update(ctx, target); err != nil {
-		return fmt.Errorf("disable user: %w", err)
+		if err := s.messages.Create(ctx, msg); err != nil {
+			slog.Error("quick ban: failed to send ban PM", "user_id", targetID, "error", err)
+		}
 	}
 
 	// 3. Create a warning record
@@ -748,21 +801,27 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 				Reason:  &reason,
 			}); err != nil {
 				slog.Error("quick ban: failed to ban IP", "ip", ip, "error", err)
+			} else {
+				result.IPBanned = true
 			}
 		}
+		// If IP is nil, result.IPBanned stays false
 	}
 
 	// 5. Ban email domain if requested
 	if req.BanEmail && s.bans != nil {
-		parts := splitEmail(target.Email)
-		if parts != "" {
-			pattern := "*@" + parts
+		domain := splitEmail(target.Email)
+		if domain != "" {
+			pattern := "*@" + domain
 			reason := fmt.Sprintf("Quick ban of %s: %s", target.Username, req.Reason)
 			if err := s.bans.BanEmail(ctx, actorID, actor.Username, &model.BannedEmail{
 				Pattern: pattern,
 				Reason:  &reason,
 			}); err != nil {
 				slog.Error("quick ban: failed to ban email domain", "pattern", pattern, "error", err)
+			} else {
+				result.EmailBanned = true
+				result.EmailPattern = pattern
 			}
 		}
 	}
@@ -772,7 +831,7 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 		s.sessions.DeleteByUserID(targetID)
 	}
 
-	// 8. Publish event
+	// 7. Publish event
 	evtActor := event.Actor{ID: actorID, Username: actor.Username}
 	s.eventBus.Publish(ctx, &event.UserQuickBannedEvent{
 		Base:         event.NewBase(event.UserQuickBanned, evtActor),
@@ -784,7 +843,8 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 		DurationDays: req.DurationDays,
 	})
 
-	return nil
+	result.Message = "User banned successfully"
+	return result, nil
 }
 
 // splitEmail extracts the domain from an email address.
@@ -802,40 +862,36 @@ func splitEmail(email string) string {
 // ReEnableExpiredBans re-enables users whose disabled_until has passed.
 // Returns the number of users re-enabled.
 func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
-	// We need to list users who are disabled and have a disabled_until in the past.
-	// Since UserRepository doesn't have a dedicated method for this, we use the List
-	// method with enabled=false and then filter.
+	now := time.Now()
 	disabled := false
 	users, _, err := s.users.List(ctx, repository.ListUsersOptions{
-		Enabled: &disabled,
-		PerPage: 1000,
-		Page:    1,
+		Enabled:             &disabled,
+		DisabledUntilBefore: &now,
+		PerPage:             1000,
+		Page:                1,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("list disabled users: %w", err)
+		return 0, fmt.Errorf("list expired temp bans: %w", err)
 	}
 
-	now := time.Now()
 	count := 0
 	for i := range users {
 		u := &users[i]
-		if u.DisabledUntil != nil && u.DisabledUntil.Before(now) {
-			u.Enabled = true
-			u.DisabledUntil = nil
-			if err := s.users.Update(ctx, u); err != nil {
-				slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)
-				continue
-			}
-			count++
-
-			// Publish unban event
-			systemActor := event.Actor{ID: 0, Username: "System"}
-			s.eventBus.Publish(ctx, &event.UserUnbannedEvent{
-				Base:     event.NewBase(event.UserUnbanned, systemActor),
-				UserID:   u.ID,
-				Username: u.Username,
-			})
+		u.Enabled = true
+		u.DisabledUntil = nil
+		if err := s.users.Update(ctx, u); err != nil {
+			slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)
+			continue
 		}
+		count++
+
+		// Publish unban event
+		systemActor := event.Actor{ID: 0, Username: "System"}
+		s.eventBus.Publish(ctx, &event.UserUnbannedEvent{
+			Base:     event.NewBase(event.UserUnbanned, systemActor),
+			UserID:   u.ID,
+			Username: u.Username,
+		})
 	}
 
 	return count, nil

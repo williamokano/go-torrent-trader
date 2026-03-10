@@ -24,13 +24,14 @@ type UserRepository interface {
 
 // ListUsersOptions holds filtering and pagination options for listing users.
 type ListUsersOptions struct {
-	Search    string
-	GroupID   *int64
-	Enabled   *bool
-	SortBy    string // username, created_at, uploaded, downloaded
-	SortOrder string // asc, desc
-	Page      int
-	PerPage   int
+	Search              string
+	GroupID             *int64
+	Enabled             *bool
+	DisabledUntilBefore *time.Time // Filter users whose disabled_until IS NOT NULL AND < this time
+	SortBy              string     // username, created_at, uploaded, downloaded
+	SortOrder           string     // asc, desc
+	Page                int
+	PerPage             int
 }
 
 // TorrentRepository defines persistence operations for torrents.

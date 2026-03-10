@@ -485,7 +485,12 @@ export function AdminUserDetailPage() {
         },
       );
       if (res.ok) {
-        toast.success("User banned successfully");
+        const result = await res.json().catch(() => null);
+        const parts: string[] = ["User banned"];
+        if (result?.ip_banned) parts.push("IP banned");
+        if (result?.email_banned)
+          parts.push(`email domain banned (${result.email_pattern})`);
+        toast.success(parts.join(", "));
         setBanModalOpen(false);
         fetchUser();
       } else {
@@ -1041,6 +1046,7 @@ export function AdminUserDetailPage() {
       <BanUserModal
         isOpen={banModalOpen}
         username={user.username}
+        email={user.email}
         onConfirm={handleBan}
         onCancel={() => setBanModalOpen(false)}
         loading={banning}

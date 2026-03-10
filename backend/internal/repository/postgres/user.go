@@ -142,6 +142,11 @@ func (r *UserRepo) List(ctx context.Context, opts repository.ListUsersOptions) (
 		args = append(args, *opts.Enabled)
 		argIdx++
 	}
+	if opts.DisabledUntilBefore != nil {
+		where += fmt.Sprintf(" AND disabled_until IS NOT NULL AND disabled_until < $%d", argIdx)
+		args = append(args, *opts.DisabledUntilBefore)
+		argIdx++
+	}
 
 	// Count
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users %s", where)

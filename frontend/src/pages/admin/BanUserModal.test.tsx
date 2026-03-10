@@ -160,4 +160,69 @@ describe("BanUserModal", () => {
     fireEvent.click(screen.getByText("Cancel"));
     expect(onCancel).toHaveBeenCalled();
   });
+
+  test("resets state when isOpen changes to false", () => {
+    const onConfirm = vi.fn();
+    const { rerender } = render(
+      <BanUserModal
+        isOpen={true}
+        username="testuser"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Fill in some state
+    const textarea = screen.getByPlaceholderText(
+      "Why is this user being banned?",
+    );
+    fireEvent.change(textarea, { target: { value: "Bad behavior" } });
+    fireEvent.click(screen.getByLabelText("Also ban IP address"));
+
+    // Close the modal
+    rerender(
+      <BanUserModal
+        isOpen={false}
+        username="testuser"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Reopen the modal
+    rerender(
+      <BanUserModal
+        isOpen={true}
+        username="testuser"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // State should be reset
+    const newTextarea = screen.getByPlaceholderText(
+      "Why is this user being banned?",
+    );
+    expect(newTextarea).toHaveValue("");
+    expect(screen.getByLabelText("Also ban IP address")).not.toBeChecked();
+    expect(screen.getByText("Ban User")).toBeDisabled();
+  });
+
+  test("shows domain warning when ban email is checked", () => {
+    render(
+      <BanUserModal
+        isOpen={true}
+        username="testuser"
+        email="baduser@evil.com"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/Also ban email domain/));
+
+    expect(
+      screen.getByText(/will block all future registrations from \*@evil\.com/),
+    ).toBeInTheDocument();
+  });
 });

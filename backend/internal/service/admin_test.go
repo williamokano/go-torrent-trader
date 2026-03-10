@@ -806,11 +806,17 @@ func TestQuickBanUser_Basic(t *testing.T) {
 		RefreshExpiresAt: time.Now().Add(24 * time.Hour),
 	})
 
-	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+	result, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
 		Reason: "Spamming torrents",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Banned {
+		t.Error("expected Banned to be true")
+	}
+	if result.Message != "User banned successfully" {
+		t.Errorf("unexpected message: %s", result.Message)
 	}
 
 	// Verify user is disabled
@@ -851,13 +857,22 @@ func TestQuickBanUser_WithIPAndEmailBan(t *testing.T) {
 	target.Email = "baduser@evil.com"
 	_ = userRepo.Update(context.Background(), target)
 
-	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+	result, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
 		Reason:   "Malicious activity",
 		BanIP:    true,
 		BanEmail: true,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IPBanned {
+		t.Error("expected IPBanned to be true")
+	}
+	if !result.EmailBanned {
+		t.Error("expected EmailBanned to be true")
+	}
+	if result.EmailPattern != "*@evil.com" {
+		t.Errorf("expected EmailPattern *@evil.com, got %s", result.EmailPattern)
 	}
 
 	// Verify IP ban was created
@@ -884,7 +899,7 @@ func TestQuickBanUser_TemporaryBan(t *testing.T) {
 	target := createTestUserForAdmin(t, userRepo, 5)
 
 	days := 7
-	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+	_, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
 		Reason:       "Minor infraction",
 		DurationDays: &days,
 	})
@@ -915,7 +930,7 @@ func TestQuickBanUser_InsufficientLevel(t *testing.T) {
 	user1 := createTestUserForAdmin(t, userRepo, 5)
 	user2 := createTestUserForAdmin(t, userRepo, 5)
 
-	err := svc.QuickBanUser(context.Background(), user1.ID, user2.ID, QuickBanRequest{
+	_, err := svc.QuickBanUser(context.Background(), user1.ID, user2.ID, QuickBanRequest{
 		Reason: "test",
 	})
 	if !errors.Is(err, ErrAdminInsufficientLevel) {
@@ -929,7 +944,7 @@ func TestQuickBanUser_EmptyReason(t *testing.T) {
 	admin := createTestUserForAdmin(t, userRepo, 1)
 	target := createTestUserForAdmin(t, userRepo, 5)
 
-	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+	_, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
 		Reason: "",
 	})
 	if !errors.Is(err, ErrAdminBanReasonRequired) {
@@ -942,11 +957,91 @@ func TestQuickBanUser_TargetNotFound(t *testing.T) {
 
 	admin := createTestUserForAdmin(t, userRepo, 1)
 
-	err := svc.QuickBanUser(context.Background(), admin.ID, 9999, QuickBanRequest{
+	_, err := svc.QuickBanUser(context.Background(), admin.ID, 9999, QuickBanRequest{
 		Reason: "test",
 	})
 	if !errors.Is(err, ErrAdminUserNotFound) {
 		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
+	}
+}
+
+func TestQuickBanUser_CannotBanSelf(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+
+	_, err := svc.QuickBanUser(context.Background(), admin.ID, admin.ID, QuickBanRequest{
+		Reason: "test",
+	})
+	if !errors.Is(err, ErrCannotBanSelf) {
+		t.Errorf("expected ErrCannotBanSelf, got %v", err)
+	}
+}
+
+func TestQuickBanUser_InvalidDuration(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	zeroDays := 0
+	_, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason:       "test",
+		DurationDays: &zeroDays,
+	})
+	if !errors.Is(err, ErrInvalidBanDuration) {
+		t.Errorf("expected ErrInvalidBanDuration, got %v", err)
+	}
+
+	negativeDays := -5
+	_, err = svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason:       "test",
+		DurationDays: &negativeDays,
+	})
+	if !errors.Is(err, ErrInvalidBanDuration) {
+		t.Errorf("expected ErrInvalidBanDuration for negative, got %v", err)
+	}
+}
+
+func TestQuickBanUser_CommonEmailProviderBlocked(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+	target.Email = "baduser@gmail.com"
+	_ = userRepo.Update(context.Background(), target)
+
+	_, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason:   "test",
+		BanEmail: true,
+	})
+	if !errors.Is(err, ErrCommonEmailProvider) {
+		t.Errorf("expected ErrCommonEmailProvider, got %v", err)
+	}
+
+	// Verify user was NOT disabled (no side effects on validation error)
+	updated, _ := userRepo.GetByID(context.Background(), target.ID)
+	if !updated.Enabled {
+		t.Error("expected user to still be enabled after common provider rejection")
+	}
+}
+
+func TestQuickBanUser_IPBannedFalseWhenNoIP(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+	// target.IP is nil by default
+
+	result, err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason: "test",
+		BanIP:  true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IPBanned {
+		t.Error("expected IPBanned to be false when user has no IP")
 	}
 }
 

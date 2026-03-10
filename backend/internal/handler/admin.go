@@ -331,7 +331,8 @@ func (h *AdminHandler) HandleQuickBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.admin.QuickBanUser(r.Context(), actorID, id, req); err != nil {
+	result, err := h.admin.QuickBanUser(r.Context(), actorID, id, req)
+	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrAdminUserNotFound):
 			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
@@ -339,15 +340,19 @@ func (h *AdminHandler) HandleQuickBan(w http.ResponseWriter, r *http.Request) {
 			ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions to ban this user")
 		case errors.Is(err, service.ErrAdminBanReasonRequired):
 			ErrorResponse(w, http.StatusBadRequest, "bad_request", "ban reason is required")
+		case errors.Is(err, service.ErrCannotBanSelf):
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "cannot ban yourself")
+		case errors.Is(err, service.ErrInvalidBanDuration):
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "duration must be positive")
+		case errors.Is(err, service.ErrCommonEmailProvider):
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 		default:
 			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to ban user")
 		}
 		return
 	}
 
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"message": "user banned successfully",
-	})
+	JSON(w, http.StatusOK, result)
 }
 
 // HandleListTorrents handles GET /api/v1/admin/torrents.
