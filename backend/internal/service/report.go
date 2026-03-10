@@ -123,6 +123,9 @@ func (s *ReportService) List(ctx context.Context, opts repository.ListReportsOpt
 
 // Resolve marks a report as resolved.
 func (s *ReportService) Resolve(ctx context.Context, reportID, resolvedByUserID int64) error {
+	// Fetch report for context before resolving
+	report, _ := s.reports.GetByID(ctx, reportID)
+
 	if err := s.reports.Resolve(ctx, reportID, resolvedByUserID); err != nil {
 		return ErrReportNotFound
 	}
@@ -132,9 +135,17 @@ func (s *ReportService) Resolve(ctx context.Context, reportID, resolvedByUserID 
 	if resolver != nil {
 		resolverUsername = resolver.Username
 	}
+	var torrentName string
+	if report != nil && report.TorrentID != nil && s.torrentSvc != nil {
+		if t, err := s.torrentSvc.GetByID(ctx, *report.TorrentID); err == nil {
+			torrentName = t.Name
+		}
+	}
 	s.eventBus.Publish(ctx, &event.ReportResolvedEvent{
-		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID, Username: resolverUsername}),
-		ReportID: reportID,
+		Base:        event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID, Username: resolverUsername}),
+		ReportID:    reportID,
+		TorrentName: torrentName,
+		Action:      "resolve",
 	})
 
 	return nil
@@ -184,9 +195,29 @@ func (s *ReportService) ResolveWithAction(ctx context.Context, reportID, resolve
 		return ErrReportNotFound
 	}
 
+	resolverUser, _ := s.users.GetByID(ctx, resolvedByUserID)
+	var resolverName string
+	if resolverUser != nil {
+		resolverName = resolverUser.Username
+	}
+	var torrentName string
+	if report.TorrentID != nil && s.torrentSvc != nil {
+		if t, err := s.torrentSvc.GetByID(ctx, *report.TorrentID); err == nil {
+			torrentName = t.Name
+		}
+	}
+	actionStr := "resolve"
+	switch action {
+	case ResolveAndWarn:
+		actionStr = "warn"
+	case ResolveAndDelete:
+		actionStr = "delete"
+	}
 	s.eventBus.Publish(ctx, &event.ReportResolvedEvent{
-		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID}),
-		ReportID: reportID,
+		Base:        event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID, Username: resolverName}),
+		ReportID:    reportID,
+		TorrentName: torrentName,
+		Action:      actionStr,
 	})
 
 	return nil

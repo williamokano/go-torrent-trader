@@ -163,7 +163,9 @@ type TorrentReportedEvent struct {
 
 type ReportResolvedEvent struct {
 	Base
-	ReportID int64 `json:"report_id"`
+	ReportID    int64  `json:"report_id"`
+	TorrentName string `json:"torrent_name"`
+	Action      string `json:"action"` // "resolve", "warn", "delete"
 }
 
 type CommentCreatedEvent struct {

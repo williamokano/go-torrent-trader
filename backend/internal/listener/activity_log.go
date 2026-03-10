@@ -101,7 +101,15 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 	listen(event.ReportResolved, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ReportResolvedEvent)
 		actor := resolveActor(userRepo, e.Actor)
-		return fmt.Sprintf("%s resolved report #%d", actor, e.ReportID), e.Actor
+		target := nameOrID("report", e.TorrentName, e.ReportID)
+		actionDesc := "resolved"
+		switch e.Action {
+		case "warn":
+			actionDesc = "resolved & warned uploader of"
+		case "delete":
+			actionDesc = "resolved & deleted"
+		}
+		return fmt.Sprintf("%s %s %s", actor, actionDesc, target), e.Actor
 	})
 
 	listen(event.CommentCreated, func(evt event.Event) (string, event.Actor) {
