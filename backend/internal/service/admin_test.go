@@ -336,6 +336,43 @@ func TestAdminResetPasskey_InsufficientLevel(t *testing.T) {
 	}
 }
 
+func TestAdminResetPassword_SameLevelAdmins(t *testing.T) {
+	svc, userRepo, groupRepo, _, _ := newAdminServiceWithDeps(t)
+
+	// Add a second admin group at the same level (100) as Administrator
+	groupRepo.groups = append(groupRepo.groups, &model.Group{
+		ID: 2, Name: "SysOp", Slug: "sysop", Level: 100, IsAdmin: true,
+	})
+
+	// Create two admins in different groups but same level
+	admin1 := createTestUserForAdmin(t, userRepo, 1) // Administrator, level 100
+	admin2 := createTestUserForAdmin(t, userRepo, 2) // SysOp, level 100
+
+	// admin1 trying to reset admin2's password should fail (equal level)
+	_, err := svc.ResetPassword(context.Background(), admin1.ID, admin2.ID, "newpass123")
+	if !errors.Is(err, ErrAdminInsufficientLevel) {
+		t.Errorf("expected ErrAdminInsufficientLevel when resetting same-level admin, got %v", err)
+	}
+
+	// admin2 trying to reset admin1's password should also fail
+	_, err = svc.ResetPasskey(context.Background(), admin2.ID, admin1.ID)
+	if !errors.Is(err, ErrAdminInsufficientLevel) {
+		t.Errorf("expected ErrAdminInsufficientLevel when resetting same-level admin passkey, got %v", err)
+	}
+}
+
+func TestAdminResetPassword_TooShort(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	_, err := svc.ResetPassword(context.Background(), admin.ID, target.ID, "short")
+	if !errors.Is(err, ErrAdminPasswordTooShort) {
+		t.Errorf("expected ErrAdminPasswordTooShort, got %v", err)
+	}
+}
+
 func TestAdminListUsers_WithLastAccess(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()

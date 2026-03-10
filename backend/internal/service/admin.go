@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 	"math/big"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
+
+var ErrAdminPasswordTooShort = fmt.Errorf("password must be at least 8 characters")
 
 var (
 	ErrAdminUserNotFound      = fmt.Errorf("user not found")
@@ -295,6 +298,11 @@ func (s *AdminService) ResetPassword(ctx context.Context, actorID, userID int64,
 		return "", err
 	}
 
+	// Validate password length if admin-supplied
+	if newPassword != "" && len(newPassword) < 8 {
+		return "", ErrAdminPasswordTooShort
+	}
+
 	// Generate random password if not provided
 	if newPassword == "" {
 		generated, genErr := generateRandomPassword(16)
@@ -325,7 +333,9 @@ func (s *AdminService) ResetPassword(ctx context.Context, actorID, userID int64,
 			"<p>Hello %s,</p><p>Your password has been reset by an administrator. Your new password is:</p><pre>%s</pre><p>Please log in and change it immediately.</p>",
 			target.Username, newPassword,
 		)
-		_ = s.email.Send(ctx, target.Email, "Your password has been reset", body)
+		if err := s.email.Send(ctx, target.Email, "Your password has been reset", body); err != nil {
+			slog.Warn("failed to send password reset email", "user_id", target.ID, "email", target.Email, "error", err)
+		}
 	}
 
 	// Publish event
@@ -367,13 +377,19 @@ func (s *AdminService) ResetPasskey(ctx context.Context, actorID, userID int64) 
 		return "", fmt.Errorf("update passkey: %w", err)
 	}
 
+	// NOTE: We intentionally do NOT invalidate web sessions here. The passkey is
+	// used solely for tracker authentication (announce URLs in .torrent files), not
+	// for web login. Resetting it should not log the user out of the website.
+
 	// Send email notification (best-effort)
 	if s.email != nil {
 		body := fmt.Sprintf(
 			"<p>Hello %s,</p><p>Your passkey has been reset by an administrator. All your existing .torrent files are now invalid and must be re-downloaded.</p><p>Your new passkey is:</p><pre>%s</pre>",
 			target.Username, passkey,
 		)
-		_ = s.email.Send(ctx, target.Email, "Your passkey has been reset", body)
+		if err := s.email.Send(ctx, target.Email, "Your passkey has been reset", body); err != nil {
+			slog.Warn("failed to send passkey reset email", "user_id", target.ID, "email", target.Email, "error", err)
+		}
 	}
 
 	// Publish event

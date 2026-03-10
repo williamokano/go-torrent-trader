@@ -14,20 +14,7 @@ import (
 )
 
 func setupAdminRouter() (http.Handler, service.SessionStore) {
-	userRepo := newMockUserRepo()
-	groupRepo := &mockGroupRepo{}
-	sessions := testutil.NewMemorySessionStore()
-	bus := event.NewInMemoryBus()
-	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupRepo, bus)
-	adminSvc := service.NewAdminService(userRepo, groupRepo, bus)
-	adminSvc.SetSessionStore(sessions)
-	adminSvc.SetEmailSender(&testutil.NoopSender{})
-
-	router := handler.NewRouter(&handler.Deps{
-		AuthService:  authSvc,
-		SessionStore: sessions,
-		AdminService: adminSvc,
-	})
+	router, sessions, _ := setupAdminRouterWithRepo()
 	return router, sessions
 }
 
@@ -285,6 +272,28 @@ func TestHandleResetPassword_NonAdmin(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleResetPassword_TooShort(t *testing.T) {
+	router, sessions, _ := setupAdminRouterWithRepo()
+
+	registerAndGetToken(t, router)
+	registerAndGetToken(t, router)
+
+	adminToken := createSessionWithGroup(sessions, 1, 1)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"new_password": "short",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/users/2/reset-password", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d; body: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -139,6 +139,8 @@ func (h *AdminHandler) HandleResetPassword(w http.ResponseWriter, r *http.Reques
 			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
 		case errors.Is(err, service.ErrAdminInsufficientLevel):
 			ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions to reset this user's password")
+		case errors.Is(err, service.ErrAdminPasswordTooShort):
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "password must be at least 8 characters")
 		default:
 			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to reset password")
 		}
