@@ -461,6 +461,47 @@ func TestChatService_MuteUnmute(t *testing.T) {
 	})
 }
 
+func TestChatService_SystemMuteUser(t *testing.T) {
+	svc, _, _ := newTestChatService()
+	ctx := context.Background()
+
+	t.Run("auto-mutes user without staff permissions", func(t *testing.T) {
+		mute, err := svc.SystemMuteUser(ctx, 1, 5, "Automatic mute: chat spam/flooding")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if mute.UserID != 1 {
+			t.Errorf("expected user_id 1, got %d", mute.UserID)
+		}
+		if mute.MutedBy != 0 {
+			t.Errorf("expected muted_by 0 (system), got %d", mute.MutedBy)
+		}
+		if mute.Reason != "Automatic mute: chat spam/flooding" {
+			t.Errorf("unexpected reason: %q", mute.Reason)
+		}
+
+		// Verify user is actually muted
+		_, err = svc.SendMessage(ctx, 1, "should fail")
+		if !errors.Is(err, ErrChatMuted) {
+			t.Errorf("expected ErrChatMuted after system mute, got %v", err)
+		}
+	})
+
+	t.Run("rejects zero duration", func(t *testing.T) {
+		_, err := svc.SystemMuteUser(ctx, 2, 0, "test")
+		if err == nil {
+			t.Error("expected error for zero duration")
+		}
+	})
+
+	t.Run("rejects negative duration", func(t *testing.T) {
+		_, err := svc.SystemMuteUser(ctx, 2, -1, "test")
+		if err == nil {
+			t.Error("expected error for negative duration")
+		}
+	})
+}
+
 func TestChatService_CleanupExpiredMutes(t *testing.T) {
 	svc, _, muteRepo := newTestChatService()
 	ctx := context.Background()

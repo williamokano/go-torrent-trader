@@ -189,6 +189,37 @@ func (s *ChatService) MuteUser(ctx context.Context, userID, actorID int64, durat
 	return mute, nil
 }
 
+// SystemMuteUser mutes a user without requiring staff permissions.
+// Used for automated actions like anti-spam. Uses actorID=0 (system).
+func (s *ChatService) SystemMuteUser(ctx context.Context, userID int64, durationMinutes int, reason string) (*model.ChatMute, error) {
+	if durationMinutes <= 0 {
+		return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidChatMessage)
+	}
+	if durationMinutes > maxMuteDurationMinutes {
+		return nil, fmt.Errorf("%w: duration cannot exceed %d minutes (30 days)", ErrInvalidChatMessage, maxMuteDurationMinutes)
+	}
+
+	mute := &model.ChatMute{
+		UserID:    userID,
+		MutedBy:   0, // system
+		Reason:    strings.TrimSpace(reason),
+		ExpiresAt: time.Now().Add(time.Duration(durationMinutes) * time.Minute),
+	}
+
+	if err := s.mutes.Create(ctx, mute); err != nil {
+		return nil, fmt.Errorf("create chat mute: %w", err)
+	}
+
+	s.eventBus.Publish(ctx, &event.ChatUserMutedEvent{
+		Base:            event.NewBase(event.ChatUserMuted, event.Actor{ID: 0, Username: "system"}),
+		TargetUserID:    userID,
+		DurationMinutes: durationMinutes,
+		Reason:          mute.Reason,
+	})
+
+	return mute, nil
+}
+
 // UnmuteUser removes all mutes for a user. Staff only.
 func (s *ChatService) UnmuteUser(ctx context.Context, userID, actorID int64, perms model.Permissions) error {
 	if !perms.IsStaff() {

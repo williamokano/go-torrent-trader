@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -18,6 +19,12 @@ const (
 
 	// RegistrationModeInviteOnly requires an invite code to register.
 	RegistrationModeInviteOnly = "invite_only"
+
+	// Chat anti-spam settings keys.
+	SettingChatRateLimitWindow  = "chat_rate_limit_window"
+	SettingChatRateLimitMax     = "chat_rate_limit_max"
+	SettingChatSpamStrikeCount  = "chat_spam_strike_count"
+	SettingChatSpamMuteMinutes  = "chat_spam_mute_minutes"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -78,4 +85,17 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	}
 
 	return nil
+}
+
+// GetInt returns a site setting parsed as an integer, or the fallback if not found or not a valid int.
+func (s *SiteSettingsService) GetInt(ctx context.Context, key string, fallback int) int {
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil || setting == nil {
+		return fallback
+	}
+	v, err := strconv.Atoi(setting.Value)
+	if err != nil {
+		return fallback
+	}
+	return v
 }

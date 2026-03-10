@@ -28,12 +28,14 @@ const (
 	// Maximum message size allowed from peer (10 KB).
 	maxMessageSize = 10 * 1024
 
-	// Rate limiting: max messages per window per client.
-	rateLimitWindow   = 10 * time.Second
-	rateLimitMaxMsgs  = 10 // 10 messages per 10 seconds = ~1/sec sustained
-
 	// Re-validate session token every N messages.
 	revalidateEveryN = 5
+
+	// Default rate limit settings (used if site settings unavailable).
+	defaultRateLimitWindowSecs = 10
+	defaultRateLimitMaxMsgs    = 10
+	defaultSpamStrikeCount     = 3
+	defaultSpamMuteMinutes     = 5
 )
 
 // ChatClient represents a connected WebSocket client.
@@ -47,6 +49,7 @@ type ChatClient struct {
 	send        chan []byte       // Buffered channel of outbound messages.
 	lastMsg     time.Time         // Rate limiting: time of last sent message.
 	msgCount    int               // Rate limiting: messages in current window.
+	strikeCount int               // Anti-spam: consecutive rate limit violations.
 }
 
 // closeConn safely closes the WebSocket connection exactly once.
@@ -61,11 +64,23 @@ type ChatBroadcast struct {
 	Data []byte
 }
 
+// chatSpamSettings holds the anti-spam configuration loaded from site settings.
+type chatSpamSettings struct {
+	rateLimitWindow  time.Duration
+	rateLimitMaxMsgs int
+	spamStrikeCount  int
+	spamMuteMinutes  int
+}
+
 // ChatHub manages WebSocket connections for the shoutbox.
 type ChatHub struct {
-	chatSvc      *service.ChatService
-	sessionStore service.SessionStore
+	chatSvc        *service.ChatService
+	sessionStore   service.SessionStore
+	siteSettingsSvc *service.SiteSettingsService
 	allowedOrigins []string
+
+	spamSettings chatSpamSettings
+	settingsMu   sync.RWMutex
 
 	clients    map[*ChatClient]struct{}
 	broadcast  chan ChatBroadcast
@@ -75,22 +90,65 @@ type ChatHub struct {
 }
 
 // NewChatHub creates a new ChatHub.
-func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore, allowedOrigins []string) *ChatHub {
-	return &ChatHub{
-		chatSvc:        chatSvc,
-		sessionStore:   sessionStore,
-		allowedOrigins: allowedOrigins,
-		clients:        make(map[*ChatClient]struct{}),
-		broadcast:      make(chan ChatBroadcast, 256),
-		register:       make(chan *ChatClient, 64),
-		unregister:     make(chan *ChatClient, 64),
+func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore, siteSettingsSvc *service.SiteSettingsService, allowedOrigins []string) *ChatHub {
+	h := &ChatHub{
+		chatSvc:         chatSvc,
+		sessionStore:    sessionStore,
+		siteSettingsSvc: siteSettingsSvc,
+		allowedOrigins:  allowedOrigins,
+		clients:         make(map[*ChatClient]struct{}),
+		broadcast:       make(chan ChatBroadcast, 256),
+		register:        make(chan *ChatClient, 64),
+		unregister:      make(chan *ChatClient, 64),
 	}
+	h.loadSpamSettings()
+	return h
+}
+
+// loadSpamSettings reads anti-spam configuration from site settings.
+func (h *ChatHub) loadSpamSettings() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	windowSecs := h.siteSettingsSvc.GetInt(ctx, service.SettingChatRateLimitWindow, defaultRateLimitWindowSecs)
+	maxMsgs := h.siteSettingsSvc.GetInt(ctx, service.SettingChatRateLimitMax, defaultRateLimitMaxMsgs)
+	strikeCount := h.siteSettingsSvc.GetInt(ctx, service.SettingChatSpamStrikeCount, defaultSpamStrikeCount)
+	muteMinutes := h.siteSettingsSvc.GetInt(ctx, service.SettingChatSpamMuteMinutes, defaultSpamMuteMinutes)
+
+	h.settingsMu.Lock()
+	h.spamSettings = chatSpamSettings{
+		rateLimitWindow:  time.Duration(windowSecs) * time.Second,
+		rateLimitMaxMsgs: maxMsgs,
+		spamStrikeCount:  strikeCount,
+		spamMuteMinutes:  muteMinutes,
+	}
+	h.settingsMu.Unlock()
+
+	slog.Info("chat anti-spam settings loaded",
+		"rate_limit_window_secs", windowSecs,
+		"rate_limit_max_msgs", maxMsgs,
+		"spam_strike_count", strikeCount,
+		"spam_mute_minutes", muteMinutes,
+	)
+}
+
+// getSpamSettings returns a snapshot of the current anti-spam settings.
+func (h *ChatHub) getSpamSettings() chatSpamSettings {
+	h.settingsMu.RLock()
+	defer h.settingsMu.RUnlock()
+	return h.spamSettings
 }
 
 // Run starts the hub event loop. Should be called in a goroutine.
 func (h *ChatHub) Run() {
+	settingsReloadTicker := time.NewTicker(5 * time.Minute)
+	defer settingsReloadTicker.Stop()
+
 	for {
 		select {
+		case <-settingsReloadTicker.C:
+			h.loadSpamSettings()
+
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = struct{}{}
@@ -374,24 +432,41 @@ func (c *ChatClient) readPump() {
 			}
 		}
 
-		// Rate limiting.
+		// Rate limiting with anti-spam strike tracking.
+		settings := c.hub.getSpamSettings()
 		now := time.Now()
-		if now.Sub(c.lastMsg) > rateLimitWindow {
+		if now.Sub(c.lastMsg) > settings.rateLimitWindow {
 			c.msgCount = 0
 			c.lastMsg = now
 		}
 		c.msgCount++
-		if c.msgCount > rateLimitMaxMsgs {
-			errPayload, _ := json.Marshal(map[string]interface{}{
-				"type":    "error",
-				"message": "rate limit exceeded, slow down",
-			})
-			select {
-			case c.send <- errPayload:
-			default:
+		if c.msgCount > settings.rateLimitMaxMsgs {
+			c.strikeCount++
+			slog.Debug("chat rate limit exceeded",
+				"user_id", c.userID,
+				"strike", c.strikeCount,
+				"threshold", settings.spamStrikeCount,
+			)
+
+			// Check if strikes exceed threshold for auto-mute.
+			if c.strikeCount >= settings.spamStrikeCount {
+				c.strikeCount = 0
+				c.hub.autoMuteUser(c, settings.spamMuteMinutes)
+			} else {
+				errPayload, _ := json.Marshal(map[string]interface{}{
+					"type":    "error",
+					"message": "rate limit exceeded, slow down",
+				})
+				select {
+				case c.send <- errPayload:
+				default:
+				}
 			}
 			continue
 		}
+
+		// Message passed rate limit — reset strikes.
+		c.strikeCount = 0
 
 		c.hub.handleIncomingMessage(c, incoming.Text)
 	}
@@ -426,6 +501,39 @@ func (c *ChatClient) writePump() {
 			}
 		}
 	}
+}
+
+// autoMuteUser automatically mutes a user for spam/flooding and notifies them via WebSocket.
+func (h *ChatHub) autoMuteUser(client *ChatClient, durationMinutes int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	reason := "Automatic mute: chat spam/flooding"
+	mute, err := h.chatSvc.SystemMuteUser(ctx, client.userID, durationMinutes, reason)
+	if err != nil {
+		slog.Error("failed to auto-mute user for spam",
+			"user_id", client.userID,
+			"error", err,
+		)
+		return
+	}
+
+	slog.Info("user auto-muted for chat spam",
+		"user_id", client.userID,
+		"duration_minutes", durationMinutes,
+	)
+
+	// Send mute notification to all of this user's connected clients.
+	mutePayload, err := json.Marshal(map[string]interface{}{
+		"type":       "mute",
+		"expires_at": mute.ExpiresAt.Format(time.RFC3339),
+		"reason":     mute.Reason,
+	})
+	if err != nil {
+		slog.Error("failed to marshal auto-mute notification", "error", err)
+		return
+	}
+	h.SendToUser(client.userID, mutePayload)
 }
 
 func (h *ChatHub) handleIncomingMessage(client *ChatClient, text string) {
