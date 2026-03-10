@@ -141,7 +141,7 @@ func run() int {
 	}, eventBus, reseedRequestRepo)
 
 	reportRepo := postgres.NewReportRepo(db)
-	reportService := service.NewReportService(reportRepo, eventBus)
+	reportService := service.NewReportService(reportRepo, torrentRepo, userRepo, eventBus)
 
 	commentRepo := postgres.NewCommentRepo(db)
 	ratingRepo := postgres.NewRatingRepo(db)

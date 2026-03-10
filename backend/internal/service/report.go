@@ -25,12 +25,14 @@ type CreateReportRequest struct {
 // ReportService handles report business logic.
 type ReportService struct {
 	reports  repository.ReportRepository
+	torrents repository.TorrentRepository
+	users    repository.UserRepository
 	eventBus event.Bus
 }
 
 // NewReportService creates a new ReportService.
-func NewReportService(reports repository.ReportRepository, bus event.Bus) *ReportService {
-	return &ReportService{reports: reports, eventBus: bus}
+func NewReportService(reports repository.ReportRepository, torrents repository.TorrentRepository, users repository.UserRepository, bus event.Bus) *ReportService {
+	return &ReportService{reports: reports, torrents: torrents, users: users, eventBus: bus}
 }
 
 // Create submits a new report. One report per user per torrent is enforced.
@@ -59,10 +61,20 @@ func (s *ReportService) Create(ctx context.Context, reporterID int64, req Create
 	}
 
 	if req.TorrentID != nil {
+		var torrentName string
+		if t, err := s.torrents.GetByID(ctx, *req.TorrentID); err == nil {
+			torrentName = t.Name
+		}
+		reporter, _ := s.users.GetByID(ctx, reporterID)
+		var reporterUsername string
+		if reporter != nil {
+			reporterUsername = reporter.Username
+		}
 		s.eventBus.Publish(ctx, &event.TorrentReportedEvent{
-			Base:      event.NewBase(event.TorrentReported, event.Actor{ID: reporterID}),
-			TorrentID: *req.TorrentID,
-			Reason:    req.Reason,
+			Base:        event.NewBase(event.TorrentReported, event.Actor{ID: reporterID, Username: reporterUsername}),
+			TorrentID:   *req.TorrentID,
+			TorrentName: torrentName,
+			Reason:      req.Reason,
 		})
 	}
 
@@ -89,8 +101,13 @@ func (s *ReportService) Resolve(ctx context.Context, reportID, resolvedByUserID 
 		return ErrReportNotFound
 	}
 
+	resolver, _ := s.users.GetByID(ctx, resolvedByUserID)
+	var resolverUsername string
+	if resolver != nil {
+		resolverUsername = resolver.Username
+	}
 	s.eventBus.Publish(ctx, &event.ReportResolvedEvent{
-		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID}),
+		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID, Username: resolverUsername}),
 		ReportID: reportID,
 	})
 

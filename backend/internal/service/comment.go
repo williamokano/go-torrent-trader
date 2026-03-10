@@ -69,10 +69,15 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 		return nil, fmt.Errorf("get created comment: %w", err)
 	}
 
+	var torrentName string
+	if t, err := s.torrents.GetByID(ctx, torrentID); err == nil {
+		torrentName = t.Name
+	}
 	s.eventBus.Publish(ctx, &event.CommentCreatedEvent{
-		Base:      event.NewBase(event.CommentCreated, event.Actor{ID: userID}),
-		CommentID: created.ID,
-		TorrentID: torrentID,
+		Base:        event.NewBase(event.CommentCreated, event.Actor{ID: userID, Username: created.Username}),
+		CommentID:   created.ID,
+		TorrentID:   torrentID,
+		TorrentName: torrentName,
 	})
 
 	return created, nil
@@ -141,10 +146,15 @@ func (s *CommentService) DeleteComment(ctx context.Context, commentID, actorID i
 		return fmt.Errorf("delete comment: %w", err)
 	}
 
+	var torrentName string
+	if t, err := s.torrents.GetByID(ctx, comment.TorrentID); err == nil {
+		torrentName = t.Name
+	}
 	s.eventBus.Publish(ctx, &event.CommentDeletedEvent{
-		Base:      event.NewBase(event.CommentDeleted, event.Actor{ID: actorID}),
-		CommentID: commentID,
-		TorrentID: comment.TorrentID,
+		Base:        event.NewBase(event.CommentDeleted, event.Actor{ID: actorID}),
+		CommentID:   commentID,
+		TorrentID:   comment.TorrentID,
+		TorrentName: torrentName,
 	})
 
 	return nil

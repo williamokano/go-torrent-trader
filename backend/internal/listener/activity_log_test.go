@@ -144,7 +144,7 @@ func TestListener_MultipleEventTypes(t *testing.T) {
 	events := []event.Event{
 		&event.TorrentDeletedEvent{Base: event.NewBase(event.TorrentDeleted, event.Actor{ID: 2, Username: "admin"}), TorrentID: 5, TorrentName: "deleted.torrent"},
 		&event.ReportResolvedEvent{Base: event.NewBase(event.ReportResolved, event.Actor{ID: 3, Username: "mod"}), ReportID: 7},
-		&event.CommentCreatedEvent{Base: event.NewBase(event.CommentCreated, event.Actor{ID: 1, Username: "bob"}), CommentID: 10, TorrentID: 5},
+		&event.CommentCreatedEvent{Base: event.NewBase(event.CommentCreated, event.Actor{ID: 1, Username: "bob"}), CommentID: 10, TorrentID: 5, TorrentName: "Ubuntu 22.04"},
 	}
 
 	for _, evt := range events {
