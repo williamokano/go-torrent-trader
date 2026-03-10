@@ -304,8 +304,8 @@ func handleForumError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrInvalidTopic):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	case errors.Is(err, service.ErrInvalidPost):
-	case errors.Is(err, service.ErrInvalidReply):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+	case errors.Is(err, service.ErrInvalidReply):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")

@@ -266,6 +266,9 @@ func (s *ForumService) Search(ctx context.Context, query string, perms model.Per
 	if query == "" {
 		return nil, 0, fmt.Errorf("%w: query cannot be empty", ErrInvalidSearch)
 	}
+	if utf8.RuneCountInString(query) < 2 {
+		return nil, 0, fmt.Errorf("%w: query must be at least 2 characters", ErrInvalidSearch)
+	}
 	if utf8.RuneCountInString(query) > 200 {
 		return nil, 0, fmt.Errorf("%w: query too long", ErrInvalidSearch)
 	}

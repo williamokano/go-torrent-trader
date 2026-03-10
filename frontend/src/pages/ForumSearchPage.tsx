@@ -49,8 +49,16 @@ export function ForumSearchPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [forums, setForums] = useState<ForumOption[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   // Fetch forum list for the filter dropdown
   useEffect(() => {
@@ -91,6 +99,7 @@ export function ForumSearchPage() {
     }
     setLoading(true);
     setSearched(true);
+    setError(null);
     try {
       const token = getAccessToken();
       const params = new URLSearchParams({
@@ -113,6 +122,7 @@ export function ForumSearchPage() {
     } catch {
       setResults([]);
       setTotal(0);
+      setError("Search failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -196,6 +206,15 @@ export function ForumSearchPage() {
           Search
         </button>
       </form>
+
+      {error && (
+        <p
+          className="forum-search-page__error"
+          style={{ color: "var(--color-error, #d32f2f)" }}
+        >
+          {error}
+        </p>
+      )}
 
       {loading && (
         <div className="forum-search-page__loading">Searching...</div>

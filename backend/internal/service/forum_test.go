@@ -178,6 +178,11 @@ func TestForumService_Search_EmptyQuery(t *testing.T) {
 	if _, _, err := svc.Search(context.Background(), "   ", model.Permissions{Level: 5}, nil, 1, 25); !errors.Is(err, ErrInvalidSearch) { t.Errorf("expected ErrInvalidSearch for whitespace-only query, got %v", err) }
 }
 
+func TestForumService_Search_QueryTooShort(t *testing.T) {
+	svc := NewForumService(nil, nil, nil, nil, nil, nil)
+	if _, _, err := svc.Search(context.Background(), "a", model.Permissions{Level: 5}, nil, 1, 25); !errors.Is(err, ErrInvalidSearch) { t.Errorf("expected ErrInvalidSearch for single-char query, got %v", err) }
+}
+
 func TestForumService_Search_QueryTooLong(t *testing.T) {
 	svc := NewForumService(nil, nil, nil, nil, nil, nil)
 	longQuery := strings.Repeat("a", 201)

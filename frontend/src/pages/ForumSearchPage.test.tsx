@@ -189,6 +189,28 @@ describe("ForumSearchPage", () => {
     });
   });
 
+  test("shows error message when search fails", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/forums/search")) {
+        return Promise.resolve({ ok: false });
+      }
+      if (url.includes("/api/v1/forums")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(FORUMS_RESPONSE),
+        });
+      }
+      return Promise.resolve({ ok: false });
+    });
+
+    renderPage("/forums/search?q=test");
+    await waitFor(() => {
+      expect(
+        screen.getByText("Search failed. Please try again."),
+      ).toBeInTheDocument();
+    });
+  });
+
   test("renders forum filter dropdown", async () => {
     renderPage();
     await waitFor(() => {

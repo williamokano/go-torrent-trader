@@ -135,7 +135,7 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 
 	// Build conditions for the WHERE clause.
 	conditions := []string{
-		"(p.search_vector @@ to_tsquery('english', $1) OR t.search_vector @@ to_tsquery('english', $1))",
+		"(p.search_vector @@ to_tsquery('english', $1) OR (t.search_vector @@ to_tsquery('english', $1) AND p.id = (SELECT MIN(fp.id) FROM forum_posts fp WHERE fp.topic_id = t.id)))",
 		fmt.Sprintf("f.min_group_level <= $%d", 2),
 	}
 	args := []any{tsQuery, maxGroupLevel}
@@ -175,7 +175,7 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 		JOIN forums f ON f.id = t.forum_id
 		JOIN users u ON u.id = p.user_id
 		WHERE %s
-		ORDER BY ts_rank(p.search_vector, to_tsquery('english', $1)) DESC, p.created_at DESC
+		ORDER BY GREATEST(ts_rank(p.search_vector, to_tsquery('english', $1)), ts_rank(t.search_vector, to_tsquery('english', $1))) DESC, p.created_at DESC
 		LIMIT $%d OFFSET $%d`, whereClause, limitArg, offsetArg)
 
 	rows, err := r.db.QueryContext(ctx, dataQuery, args...)
