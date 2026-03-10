@@ -141,7 +141,7 @@ func TestHandleSearchForum_InvalidForumID(t *testing.T) {
 }
 
 func TestHandleSearchForum_Success(t *testing.T) {
-	forumSvc := service.NewForumService(nil, nil, nil, nil, &mockHandlerForumPostRepo{}, nil)
+	forumSvc := service.NewForumService(nil, nil, nil, nil, &mockHandlerForumPostRepo{}, nil, nil)
 	h := NewForumHandler(forumSvc)
 	req := httptest.NewRequest("GET", "/api/v1/forums/search?q=hello&page=1&per_page=10", nil)
 	req = withForumAuth(req, 1, model.Permissions{Level: 5})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -348,9 +349,18 @@ func (h *ForumHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// actorFromRequest builds an event.Actor from the request context.
+// Username is not available in the middleware context, so only ID is set.
+// Event listeners can look up the username from the user repository if needed.
+func actorFromRequest(r *http.Request) event.Actor {
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	return event.Actor{ID: userID}
+}
+
 // HandleLockTopic handles POST /api/v1/forums/topics/{id}/lock — lock a topic.
 func (h *ForumHandler) HandleLockTopic(w http.ResponseWriter, r *http.Request) {
 	perms := middleware.PermissionsFromContext(r.Context())
+	actor := actorFromRequest(r)
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || topicID <= 0 {
@@ -358,7 +368,7 @@ func (h *ForumHandler) HandleLockTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.forumSvc.LockTopic(r.Context(), topicID, perms); err != nil {
+	if err := h.forumSvc.LockTopic(r.Context(), topicID, perms, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -369,6 +379,7 @@ func (h *ForumHandler) HandleLockTopic(w http.ResponseWriter, r *http.Request) {
 // HandleUnlockTopic handles POST /api/v1/forums/topics/{id}/unlock — unlock a topic.
 func (h *ForumHandler) HandleUnlockTopic(w http.ResponseWriter, r *http.Request) {
 	perms := middleware.PermissionsFromContext(r.Context())
+	actor := actorFromRequest(r)
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || topicID <= 0 {
@@ -376,7 +387,7 @@ func (h *ForumHandler) HandleUnlockTopic(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.forumSvc.UnlockTopic(r.Context(), topicID, perms); err != nil {
+	if err := h.forumSvc.UnlockTopic(r.Context(), topicID, perms, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -387,6 +398,7 @@ func (h *ForumHandler) HandleUnlockTopic(w http.ResponseWriter, r *http.Request)
 // HandlePinTopic handles POST /api/v1/forums/topics/{id}/pin — pin a topic.
 func (h *ForumHandler) HandlePinTopic(w http.ResponseWriter, r *http.Request) {
 	perms := middleware.PermissionsFromContext(r.Context())
+	actor := actorFromRequest(r)
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || topicID <= 0 {
@@ -394,7 +406,7 @@ func (h *ForumHandler) HandlePinTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.forumSvc.PinTopic(r.Context(), topicID, perms); err != nil {
+	if err := h.forumSvc.PinTopic(r.Context(), topicID, perms, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -405,6 +417,7 @@ func (h *ForumHandler) HandlePinTopic(w http.ResponseWriter, r *http.Request) {
 // HandleUnpinTopic handles POST /api/v1/forums/topics/{id}/unpin — unpin a topic.
 func (h *ForumHandler) HandleUnpinTopic(w http.ResponseWriter, r *http.Request) {
 	perms := middleware.PermissionsFromContext(r.Context())
+	actor := actorFromRequest(r)
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || topicID <= 0 {
@@ -412,7 +425,7 @@ func (h *ForumHandler) HandleUnpinTopic(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.forumSvc.UnpinTopic(r.Context(), topicID, perms); err != nil {
+	if err := h.forumSvc.UnpinTopic(r.Context(), topicID, perms, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -438,7 +451,9 @@ func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.forumSvc.RenameTopic(r.Context(), topicID, perms, body.Title); err != nil {
+	actor := actorFromRequest(r)
+
+	if err := h.forumSvc.RenameTopic(r.Context(), topicID, perms, body.Title, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -468,7 +483,9 @@ func (h *ForumHandler) HandleMoveTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID); err != nil {
+	actor := actorFromRequest(r)
+
+	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -486,7 +503,9 @@ func (h *ForumHandler) HandleDeleteTopic(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.forumSvc.DeleteTopic(r.Context(), topicID, perms); err != nil {
+	actor := actorFromRequest(r)
+
+	if err := h.forumSvc.DeleteTopic(r.Context(), topicID, perms, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}

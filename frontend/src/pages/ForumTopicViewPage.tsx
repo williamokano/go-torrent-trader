@@ -279,6 +279,7 @@ export function ForumTopicViewPage() {
 
   const modAction = async (url: string, method: string, body?: object) => {
     setModLoading(true);
+    setError(null);
     try {
       const token = getAccessToken();
       const res = await fetch(`${getConfig().API_URL}${url}`, {
@@ -377,18 +378,18 @@ export function ForumTopicViewPage() {
       },
     );
     if (ok) {
+      setShowMoveModal(false);
       await fetchTopic();
     }
-    setShowMoveModal(false);
   };
 
   const handleDelete = async () => {
     if (!topic) return;
     const ok = await modAction(`/api/v1/forums/topics/${topic.id}`, "DELETE");
     if (ok) {
+      setShowDeleteConfirm(false);
       navigate(`/forums/${topic.forum_id}`);
     }
-    setShowDeleteConfirm(false);
   };
 
   if (loading) return <div className="topic-view-page">Loading topic...</div>;
