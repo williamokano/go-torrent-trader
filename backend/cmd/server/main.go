@@ -166,6 +166,7 @@ func run() int {
 	listener.RegisterActivityLogListeners(eventBus, activityLogService, userRepo)
 	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
+
 	banRepo := postgres.NewBanRepo(db)
 	banService := service.NewBanService(banRepo, eventBus)
 	authService.SetBanChecker(banService)
@@ -182,6 +183,9 @@ func run() int {
 
 	restrictionRepo := postgres.NewRestrictionRepo(db)
 	restrictionService := service.NewRestrictionService(restrictionRepo, userRepo, eventBus)
+
+	// Warning escalation listener — auto-restrict or ban based on manual warning count.
+	listener.RegisterWarningEscalationListener(eventBus, siteSettingsService, warningRepo, restrictionService, userRepo, activityLogService)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	adminService.SetSessionStore(sessionStore)

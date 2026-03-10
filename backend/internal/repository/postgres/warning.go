@@ -172,6 +172,15 @@ func (r *WarningRepo) CountActiveByUser(ctx context.Context, userID int64) (int,
 	return count, nil
 }
 
+func (r *WarningRepo) CountActiveManualByUser(ctx context.Context, userID int64) (int, error) {
+	var count int
+	query := `SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND status = 'active' AND type = 'manual'`
+	if err := r.db.QueryRowContext(ctx, query, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count active manual warnings: %w", err)
+	}
+	return count, nil
+}
+
 func (r *WarningRepo) GetActiveRatioWarning(ctx context.Context, userID int64) (*model.Warning, error) {
 	query := `SELECT w.id, w.user_id, w.type, w.reason, w.issued_by, w.status,
 		w.lifted_at, w.lifted_by, w.lifted_reason, w.expires_at, w.created_at, w.updated_at,

@@ -105,6 +105,18 @@ func (m *mockWarningRepo) CountActiveByUser(_ context.Context, userID int64) (in
 	return count, nil
 }
 
+func (m *mockWarningRepo) CountActiveManualByUser(_ context.Context, userID int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, w := range m.warnings {
+		if w.UserID == userID && w.Status == model.WarningStatusActive && w.Type == model.WarningTypeManual {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *mockWarningRepo) GetActiveRatioWarning(_ context.Context, userID int64) (*model.Warning, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -28,6 +28,13 @@ const (
 	SettingChatStrikeResetSeconds = "chat_strike_reset_seconds"
 	SettingChatRateLimitMessage   = "chat_rate_limit_message"
 	SettingChatSpamMuteMessage    = "chat_spam_mute_message"
+
+	// Warning escalation settings keys.
+	SettingWarningEscalationEnabled = "warning_escalation_enabled"
+	SettingWarningCountRestrict     = "warning_count_restrict"
+	SettingWarningCountBan          = "warning_count_ban"
+	SettingWarningRestrictType      = "warning_restrict_type"
+	SettingWarningRestrictDays      = "warning_restrict_days"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -107,6 +114,22 @@ func (s *SiteSettingsService) GetString(ctx context.Context, key string, fallbac
 		return fallback
 	}
 	return setting.Value
+}
+
+// GetBool returns a site setting parsed as a boolean, or the fallback if not found.
+// Truthy values: "true", "1", "yes". Everything else is falsy.
+func (s *SiteSettingsService) GetBool(ctx context.Context, key string, fallback bool) bool {
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil || setting == nil || setting.Value == "" {
+		return fallback
+	}
+	switch setting.Value {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	}
+	return fallback
 }
 
 // GetInt returns a site setting parsed as an integer, or the fallback if not found or not a valid int.

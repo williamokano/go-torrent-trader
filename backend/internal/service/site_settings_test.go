@@ -147,6 +147,52 @@ func TestSiteSettingsService_GetAll(t *testing.T) {
 	}
 }
 
+func TestSiteSettingsService_GetBool(t *testing.T) {
+	repo := newMockSiteSettingsRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewSiteSettingsService(repo, bus)
+	ctx := context.Background()
+
+	t.Run("returns fallback when key missing", func(t *testing.T) {
+		got := svc.GetBool(ctx, "nonexistent", true)
+		if !got {
+			t.Error("expected true (fallback)")
+		}
+	})
+
+	t.Run("returns true for true", func(t *testing.T) {
+		_ = repo.Set(ctx, "test_bool", "true")
+		got := svc.GetBool(ctx, "test_bool", false)
+		if !got {
+			t.Error("expected true")
+		}
+	})
+
+	t.Run("returns true for 1", func(t *testing.T) {
+		_ = repo.Set(ctx, "test_bool_one", "1")
+		got := svc.GetBool(ctx, "test_bool_one", false)
+		if !got {
+			t.Error("expected true for '1'")
+		}
+	})
+
+	t.Run("returns false for false", func(t *testing.T) {
+		_ = repo.Set(ctx, "test_bool_false", "false")
+		got := svc.GetBool(ctx, "test_bool_false", true)
+		if got {
+			t.Error("expected false")
+		}
+	})
+
+	t.Run("returns fallback for unrecognized value", func(t *testing.T) {
+		_ = repo.Set(ctx, "test_bool_bad", "maybe")
+		got := svc.GetBool(ctx, "test_bool_bad", true)
+		if !got {
+			t.Error("expected fallback true for unrecognized value")
+		}
+	})
+}
+
 func TestSiteSettingsService_GetInt(t *testing.T) {
 	repo := newMockSiteSettingsRepo()
 	bus := event.NewInMemoryBus()

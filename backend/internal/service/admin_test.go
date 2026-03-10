@@ -657,6 +657,16 @@ func (m *mockWarningRepoForAdmin) CountActiveByUser(_ context.Context, userID in
 	return count, nil
 }
 
+func (m *mockWarningRepoForAdmin) CountActiveManualByUser(_ context.Context, userID int64) (int, error) {
+	count := 0
+	for _, w := range m.warnings {
+		if w.UserID == userID && w.Status == model.WarningStatusActive && w.Type == model.WarningTypeManual {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *mockWarningRepoForAdmin) GetActiveRatioWarning(_ context.Context, _ int64) (*model.Warning, error) {
 	return nil, errors.New("not found")
 }
