@@ -270,10 +270,10 @@ export function AdminUserEditModal({
           </div>
 
           {/* Current passkey (read-only) */}
-          {user.passkey && (
+          {(generatedPasskey || user.passkey) && (
             <div style={{ marginBottom: "var(--space-md)" }}>
               <label style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--color-text-muted)" }}>
-                Current Passkey
+                Passkey
               </label>
               <code
                 style={{
@@ -288,7 +288,7 @@ export function AdminUserEditModal({
                   userSelect: "all",
                 }}
               >
-                {user.passkey}
+                {generatedPasskey ?? user.passkey}
               </code>
             </div>
           )}
@@ -334,21 +334,6 @@ export function AdminUserEditModal({
             </div>
           )}
 
-          {/* Show generated passkey */}
-          {generatedPasskey && (
-            <div className="admin-users__generated-value">
-              <label>New Passkey:</label>
-              <div className="admin-users__copyable">
-                <code>{generatedPasskey}</code>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(generatedPasskey)}
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-          )}
 
           <div className="admin-users__modal-actions">
             <button
