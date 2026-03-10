@@ -56,6 +56,8 @@ type PeerRepository interface {
 	ListByUserSeeding(ctx context.Context, userID int64, page, perPage int) ([]PeerWithTorrent, int64, error)
 	ListByUserLeeching(ctx context.Context, userID int64, page, perPage int) ([]PeerWithTorrent, int64, error)
 	CountByUser(ctx context.Context, userID int64) (seeding int, leeching int, err error)
+	CountByTorrent(ctx context.Context, torrentID int64) (int, error)
+	CountTotalByUser(ctx context.Context, userID int64) (int, error)
 	Upsert(ctx context.Context, peer *model.Peer) error
 	Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error
 	DeleteStale(ctx context.Context, before time.Time) (int64, error)

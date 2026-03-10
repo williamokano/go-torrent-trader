@@ -40,6 +40,12 @@ func (m *mockActivityPeerRepo) ListByTorrent(context.Context, int64, int) ([]mod
 func (m *mockActivityPeerRepo) CountByUser(context.Context, int64) (int, int, error) {
 	return 0, 0, nil
 }
+func (m *mockActivityPeerRepo) CountByTorrent(context.Context, int64) (int, error) {
+	return 0, nil
+}
+func (m *mockActivityPeerRepo) CountTotalByUser(context.Context, int64) (int, error) {
+	return 0, nil
+}
 func (m *mockActivityPeerRepo) Upsert(context.Context, *model.Peer) error { return nil }
 func (m *mockActivityPeerRepo) Delete(context.Context, int64, int64, []byte) error {
 	return nil

@@ -141,6 +141,24 @@ func (r *PeerRepo) CountByUser(ctx context.Context, userID int64) (int, int, err
 	return seeding, leeching, nil
 }
 
+func (r *PeerRepo) CountByTorrent(ctx context.Context, torrentID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peers WHERE torrent_id = $1`, torrentID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting peers by torrent: %w", err)
+	}
+	return count, nil
+}
+
+func (r *PeerRepo) CountTotalByUser(ctx context.Context, userID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peers WHERE user_id = $1`, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting total peers by user: %w", err)
+	}
+	return count, nil
+}
+
 func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 	query := `INSERT INTO peers (
 		torrent_id, user_id, peer_id, ip, port, uploaded, downloaded,

@@ -37,6 +37,12 @@ func (m *mockPeerRepo) Delete(_ context.Context, _, _ int64, _ []byte) error {
 func (m *mockPeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) {
 	return 0, 0, nil
 }
+func (m *mockPeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
+func (m *mockPeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
 func (m *mockPeerRepo) DeleteStale(_ context.Context, before time.Time) (int64, error) {
 	m.deleteStaleCall = &before
 	return m.deleteStaleCount, m.deleteStaleErr
