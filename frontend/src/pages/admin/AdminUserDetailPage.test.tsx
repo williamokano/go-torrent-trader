@@ -315,4 +315,23 @@ describe("AdminUserDetailPage", () => {
     expect(screen.getByText("Donor")).toBeInTheDocument();
     expect(screen.getByText("Parked")).toBeInTheDocument();
   });
+
+  test("shows Ban User button for enabled users", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Ban User")).toBeInTheDocument();
+    });
+  });
+
+  test("hides Ban User button for disabled users", async () => {
+    mockFetchResponses({ enabled: false });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Ban User")).not.toBeInTheDocument();
+  });
 });

@@ -8,6 +8,7 @@ import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { Modal } from "@/components/modal/Modal";
 import { Textarea, Input, Checkbox, Select } from "@/components/form";
+import { BanUserModal } from "@/pages/admin/BanUserModal";
 import "./admin-user-detail.css";
 
 interface ModNote {
@@ -65,6 +66,7 @@ interface UserDetail {
   can_download: boolean;
   can_upload: boolean;
   can_chat: boolean;
+  disabled_until: string | null;
   created_at: string;
   last_access: string | null;
   ratio: number;
@@ -85,6 +87,8 @@ export function AdminUserDetailPage() {
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
+  const [banModalOpen, setBanModalOpen] = useState(false);
+  const [banning, setBanning] = useState(false);
 
   // Edit form state
   const [editUsername, setEditUsername] = useState("");
@@ -461,6 +465,44 @@ export function AdminUserDetailPage() {
     setLiftingRestrictionId(null);
   };
 
+  const handleBan = async (data: {
+    reason: string;
+    ban_ip: boolean;
+    ban_email: boolean;
+    duration_days: number | null;
+  }) => {
+    setBanning(true);
+    const token = getAccessToken();
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/users/${id}/ban`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(data),
+        },
+      );
+      if (res.ok) {
+        const result = await res.json().catch(() => null);
+        const parts: string[] = ["User banned"];
+        if (result?.ip_banned) parts.push("IP banned");
+        if (result?.email_banned)
+          parts.push(`email domain banned (${result.email_pattern})`);
+        toast.success(parts.join(", "));
+        setBanModalOpen(false);
+        fetchUser();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || "Failed to ban user");
+      }
+    } finally {
+      setBanning(false);
+    }
+  };
+
   const formatRatio = (ratio: number) => {
     if (ratio === -1) return "Inf";
     if (ratio === 0) return "0.00";
@@ -491,6 +533,18 @@ export function AdminUserDetailPage() {
             {user.last_access ? timeAgo(user.last_access) : "Never"}
           </span>
         </h1>
+        {user.enabled ? (
+          <button
+            className="admin-user-detail__ban-btn"
+            onClick={() => setBanModalOpen(true)}
+          >
+            Ban User
+          </button>
+        ) : (
+          <span className="admin-user-detail__banned-badge">
+            Banned{user.disabled_until ? ` (until ${timeAgo(user.disabled_until)})` : " (permanent)"}
+          </span>
+        )}
       </div>
 
       {/* Edit Profile Form */}
@@ -992,6 +1046,15 @@ export function AdminUserDetailPage() {
         danger
         onConfirm={handleLiftRestriction}
         onCancel={() => setLiftingRestrictionId(null)}
+      />
+
+      <BanUserModal
+        isOpen={banModalOpen}
+        username={user.username}
+        email={user.email}
+        onConfirm={handleBan}
+        onCancel={() => setBanModalOpen(false)}
+        loading={banning}
       />
     </div>
   );

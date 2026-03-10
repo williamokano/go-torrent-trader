@@ -298,6 +298,7 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Put("/users/{id}", admin.HandleUpdateUser)
 						r.Put("/users/{id}/reset-password", admin.HandleResetPassword)
 						r.Put("/users/{id}/reset-passkey", admin.HandleResetPasskey)
+						r.Post("/users/{id}/ban", admin.HandleQuickBan)
 						r.Post("/users/{id}/notes", admin.HandleCreateModNote)
 						r.Delete("/notes/{id}", admin.HandleDeleteModNote)
 						r.Get("/groups", admin.HandleListGroups)

@@ -30,7 +30,16 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 			}
 		}
 
-		// 2. Clean up expired chat mutes and notify users via WebSocket
+		// 2. Re-enable users whose temporary bans have expired
+		if deps.AdminSvc != nil {
+			if reEnabled, err := deps.AdminSvc.ReEnableExpiredBans(ctx); err != nil {
+				slog.Error("maintenance: failed to re-enable expired bans", "error", err)
+			} else if reEnabled > 0 {
+				slog.Info("maintenance: re-enabled expired bans", "count", reEnabled)
+			}
+		}
+
+		// 3. Clean up expired chat mutes and notify users via WebSocket
 		if deps.ChatSvc != nil {
 			unmutedUsers, err := deps.ChatSvc.CleanupExpiredMutes(ctx)
 			if err != nil {

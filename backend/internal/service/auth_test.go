@@ -100,11 +100,19 @@ func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta
 	return errors.New("not found")
 }
 
-func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
+func (m *mockUserRepo) List(_ context.Context, opts repository.ListUsersOptions) ([]model.User, int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []model.User
 	for _, u := range m.users {
+		if opts.Enabled != nil && u.Enabled != *opts.Enabled {
+			continue
+		}
+		if opts.DisabledUntilBefore != nil {
+			if u.DisabledUntil == nil || !u.DisabledUntil.Before(*opts.DisabledUntilBefore) {
+				continue
+			}
+		}
 		result = append(result, *u)
 	}
 	return result, int64(len(result)), nil
