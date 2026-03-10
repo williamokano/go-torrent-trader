@@ -26,6 +26,7 @@ interface AdminUser {
   warned: boolean;
   donor: boolean;
   parked: boolean;
+  passkey: string | null;
   invites: number;
   created_at: string;
   last_access: string | null;

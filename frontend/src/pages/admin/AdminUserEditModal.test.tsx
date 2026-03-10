@@ -34,6 +34,7 @@ const testUser = {
   warned: false,
   donor: false,
   parked: false,
+  passkey: "abc123def456",
   invites: 0,
 };
 

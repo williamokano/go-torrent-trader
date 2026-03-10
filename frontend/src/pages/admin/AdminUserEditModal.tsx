@@ -23,6 +23,7 @@ interface AdminUser {
   warned: boolean;
   donor: boolean;
   parked: boolean;
+  passkey: string | null;
   invites: number;
 }
 
@@ -267,6 +268,30 @@ export function AdminUserEditModal({
               onChange={(e) => setParked(e.target.checked)}
             />
           </div>
+
+          {/* Current passkey (read-only) */}
+          {user.passkey && (
+            <div style={{ marginBottom: "var(--space-md)" }}>
+              <label style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--color-text-muted)" }}>
+                Current Passkey
+              </label>
+              <code
+                style={{
+                  display: "block",
+                  marginTop: "var(--space-xs)",
+                  padding: "var(--space-xs) var(--space-sm)",
+                  backgroundColor: "var(--color-bg-tertiary)",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: "var(--text-sm)",
+                  fontFamily: "monospace",
+                  wordBreak: "break-all",
+                  userSelect: "all",
+                }}
+              >
+                {user.passkey}
+              </code>
+            </div>
+          )}
 
           {/* Reset actions */}
           <div className="admin-users__reset-actions">

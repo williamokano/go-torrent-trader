@@ -36,6 +36,7 @@ type AdminUserView struct {
 	Warned     bool    `json:"warned"`
 	Donor      bool    `json:"donor"`
 	Parked     bool    `json:"parked"`
+	Passkey    *string `json:"passkey"`
 	Invites    int     `json:"invites"`
 	CreatedAt  string  `json:"created_at"`
 	LastAccess *string `json:"last_access"`
@@ -119,6 +120,7 @@ func (s *AdminService) ListUsers(ctx context.Context, opts repository.ListUsersO
 			Warned:     u.Warned,
 			Donor:      u.Donor,
 			Parked:     u.Parked,
+			Passkey:    u.Passkey,
 			Invites:    u.Invites,
 			CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
@@ -260,6 +262,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		Warned:     user.Warned,
 		Donor:      user.Donor,
 		Parked:     user.Parked,
+		Passkey:    user.Passkey,
 		Invites:    user.Invites,
 		CreatedAt:  user.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
