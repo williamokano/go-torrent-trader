@@ -188,6 +188,9 @@ func run() int {
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
+	// Wire PM notification listener — pushes real-time unread count via WebSocket.
+	listener.RegisterPMNotificationListener(eventBus, messageRepo, chatHub.SendToUser)
+
 	deps := &handler.Deps{
 		DB:             db,
 		StatsCache:     statsCache,

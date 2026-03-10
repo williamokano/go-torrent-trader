@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/themes";
 import { useAuth } from "@/features/auth";
@@ -6,6 +6,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { formatNumber } from "@/utils/format";
 import { Chat } from "@/components/Chat";
+import { useChat } from "@/lib/useChat";
 import "./RootLayout.css";
 
 function Dropdown({
@@ -52,24 +53,28 @@ export function RootLayout() {
   const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
 
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { pmUnreadCount, setPmUnreadCount, connected } = useChat();
+  const prevConnectedRef = useRef(connected);
 
+  // Fetch unread count on mount and on WS reconnection (laptop sleep, network blip).
   useEffect(() => {
     if (!isAuthenticated) return;
-    function fetchUnread() {
-      const token = getAccessToken();
-      if (!token) return;
-      fetch(`${getConfig().API_URL}/api/v1/messages/unread-count`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((r) => r.json())
-        .then((d) => setUnreadCount(d?.unread_count ?? 0))
-        .catch(() => {});
-    }
-    fetchUnread();
-    const interval = setInterval(fetchUnread, 30_000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+
+    const wasConnected = prevConnectedRef.current;
+    prevConnectedRef.current = connected;
+
+    // Skip when disconnecting — only fetch on reconnection (false→true) or initial mount.
+    if (!connected && wasConnected) return;
+
+    const token = getAccessToken();
+    if (!token) return;
+    fetch(`${getConfig().API_URL}/api/v1/messages/unread-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setPmUnreadCount(d?.unread_count ?? 0))
+      .catch(() => {});
+  }, [isAuthenticated, setPmUnreadCount, connected]);
 
   const [siteStats, setSiteStats] = useState<{
     users: number;
@@ -270,8 +275,8 @@ export function RootLayout() {
                 title="Messages"
               >
                 <span className="header__mail-icon">&#9993;</span>
-                {unreadCount > 0 && (
-                  <span className="header__mail-badge">{unreadCount}</span>
+                {pmUnreadCount > 0 && (
+                  <span className="header__mail-badge">{pmUnreadCount}</span>
                 )}
               </Link>
               <Link to={`/user/${user?.id}`} className="header__username-link">

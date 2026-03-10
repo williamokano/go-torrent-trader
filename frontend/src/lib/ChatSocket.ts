@@ -16,6 +16,7 @@ type WSMessage =
   | { type: "delete_user"; user_id: number }
   | { type: "mute"; expires_at: string; reason: string }
   | { type: "unmute" }
+  | { type: "pm_notification"; unread_count: number }
   | { type: "error"; message: string };
 
 export type ChatListener = (
@@ -28,6 +29,7 @@ export type ChatListener = (
     | { type: "delete_user"; user_id: number }
     | { type: "mute"; expires_at: string; reason: string }
     | { type: "unmute" }
+    | { type: "pm_notification"; unread_count: number }
     | { type: "error"; message: string },
 ) => void;
 
@@ -124,6 +126,12 @@ class ChatSocket {
             break;
           case "unmute":
             this.emit({ type: "unmute" });
+            break;
+          case "pm_notification":
+            this.emit({
+              type: "pm_notification",
+              unread_count: data.unread_count,
+            });
             break;
           case "error":
             this.emit({ type: "error", message: data.message });

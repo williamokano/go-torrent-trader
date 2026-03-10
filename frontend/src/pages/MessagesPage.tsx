@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { Pagination } from "@/components/Pagination";
+import { useChat } from "@/lib/useChat";
 import { formatDate } from "@/utils/format";
 import "./messages.css";
 
@@ -28,6 +29,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export function MessagesPage() {
+  const { setPmUnreadCount } = useChat();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: Tab = (searchParams.get("tab") as Tab) || "inbox";
   const selectedMsgId = searchParams.get("msg")
@@ -120,12 +122,14 @@ export function MessagesPage() {
       );
       if (res.ok) {
         const data = await res.json();
-        setUnreadCount(data?.unread_count ?? 0);
+        const count = data?.unread_count ?? 0;
+        setUnreadCount(count);
+        setPmUnreadCount(count);
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [setPmUnreadCount]);
 
   const fetchMessages = useCallback(async () => {
     if (tab === "compose") return;

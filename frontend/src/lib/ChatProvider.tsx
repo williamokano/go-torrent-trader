@@ -23,6 +23,10 @@ export interface ChatContextValue {
   /** Whether the full-size shoutbox (home page) is currently mounted */
   mainChatVisible: boolean;
   setMainChatVisible: (visible: boolean) => void;
+  /** Unread private message count, updated in real-time via WebSocket */
+  pmUnreadCount: number;
+  /** Manually set the PM unread count (e.g. after reading messages) */
+  setPmUnreadCount: (count: number) => void;
   sendMessage: (text: string) => void;
   deleteMessage: (id: number) => Promise<void>;
   deleteUserMessages: (userId: number) => Promise<void>;
@@ -45,6 +49,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [muted, setMuted] = useState(false);
   const [muteExpiresAt, setMuteExpiresAt] = useState<string | null>(null);
   const [mainChatVisible, setMainChatVisible] = useState(false);
+  const [pmUnreadCount, setPmUnreadCount] = useState(0);
   const muteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingMoreRef = useRef(false);
   const messagesRef = useRef(messages);
@@ -112,6 +117,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             clearTimeout(muteTimerRef.current);
             muteTimerRef.current = null;
           }
+          break;
+        case "pm_notification":
+          setPmUnreadCount(event.unread_count);
           break;
         case "error":
           toast.error(event.message);
@@ -290,6 +298,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         muteExpiresAt,
         mainChatVisible,
         setMainChatVisible,
+        pmUnreadCount,
+        setPmUnreadCount,
         sendMessage,
         deleteMessage,
         deleteUserMessages,
