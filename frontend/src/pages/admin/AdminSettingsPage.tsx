@@ -109,6 +109,52 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     description: "Reason recorded when a user is auto-muted for spam. Visible to staff in the mute record.",
     type: "text",
   },
+  // Warning escalation
+  {
+    key: "warning_escalation_enabled",
+    label: "Warning Escalation Enabled",
+    description:
+      "Master toggle for automatic warning escalation. When enabled, accumulating manual warnings can trigger privilege restrictions or account bans.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "warning_count_restrict",
+    label: "Warnings Before Restriction",
+    description:
+      "Number of active manual warnings before the user's privileges are automatically restricted.",
+    type: "number",
+  },
+  {
+    key: "warning_count_ban",
+    label: "Warnings Before Ban",
+    description:
+      "Number of active manual warnings before the user's account is automatically disabled. Must be greater than the restriction threshold.",
+    type: "number",
+  },
+  {
+    key: "warning_restrict_type",
+    label: "Restriction Type",
+    description:
+      "Which privilege to restrict when the warning count reaches the restriction threshold.",
+    type: "select",
+    options: [
+      { value: "download", label: "Download" },
+      { value: "upload", label: "Upload" },
+      { value: "chat", label: "Chat" },
+      { value: "all", label: "All" },
+    ],
+  },
+  {
+    key: "warning_restrict_days",
+    label: "Restriction Duration (days)",
+    description:
+      "How many days the automatic privilege restriction lasts. After this period, the restriction is lifted automatically by the maintenance job.",
+    type: "number",
+  },
 ];
 
 function getSettingDef(key: string): SettingConfig {
