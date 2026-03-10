@@ -418,6 +418,12 @@
   border-color: var(--color-border, #ccc);
 }
 
+.forum-post__error {
+  color: #dc3545;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
 .forum-empty {
   text-align: center;
   padding: 2rem;

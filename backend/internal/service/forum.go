@@ -305,11 +305,28 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 		return nil, ErrPostEditDenied
 	}
 
+	// can_forum check: non-staff users with can_forum=false cannot edit posts
+	if !perms.IsStaff() {
+		user, userErr := s.users.GetByID(ctx, userID)
+		if userErr != nil {
+			return nil, fmt.Errorf("get user: %w", userErr)
+		}
+		if !user.CanForum {
+			return nil, ErrForumAccessDenied
+		}
+	}
+
 	// Check forum access via topic
 	topic, err := s.topics.GetByID(ctx, post.TopicID)
 	if err != nil {
 		return nil, ErrTopicNotFound
 	}
+
+	// Locked topic check: non-staff cannot edit in locked topics
+	if topic.Locked && !perms.IsStaff() {
+		return nil, ErrTopicLocked
+	}
+
 	forum, err := s.forums.GetByID(ctx, topic.ForumID)
 	if err != nil {
 		return nil, ErrForumNotFound
@@ -345,6 +362,17 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 		return ErrPostDeleteDenied
 	}
 
+	// can_forum check: non-staff users with can_forum=false cannot delete posts
+	if !perms.IsStaff() {
+		user, userErr := s.users.GetByID(ctx, userID)
+		if userErr != nil {
+			return fmt.Errorf("get user: %w", userErr)
+		}
+		if !user.CanForum {
+			return ErrForumAccessDenied
+		}
+	}
+
 	// Check if this is the first post in the topic
 	firstPostID, err := s.posts.GetFirstPostIDByTopic(ctx, post.TopicID)
 	if err != nil {
@@ -354,10 +382,24 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 		return ErrCannotDeleteFirstPost
 	}
 
-	// Get topic for forum ID (needed for counter updates)
+	// Get topic for forum ID (needed for counter updates and locked check)
 	topic, err := s.topics.GetByID(ctx, post.TopicID)
 	if err != nil {
 		return ErrTopicNotFound
+	}
+
+	// Locked topic check: non-staff cannot delete in locked topics
+	if topic.Locked && !perms.IsStaff() {
+		return ErrTopicLocked
+	}
+
+	// Forum access check (MinGroupLevel)
+	forum, err := s.forums.GetByID(ctx, topic.ForumID)
+	if err != nil {
+		return ErrForumNotFound
+	}
+	if forum.MinGroupLevel > perms.Level {
+		return ErrForumAccessDenied
 	}
 
 	if s.db != nil {
@@ -365,29 +407,35 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 			if _, err := tx.ExecContext(ctx, "DELETE FROM forum_posts WHERE id = $1", post.ID); err != nil {
 				return fmt.Errorf("delete post: %w", err)
 			}
-			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = post_count - 1 WHERE id = $1", post.TopicID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = GREATEST(post_count - 1, 0) WHERE id = $1", post.TopicID); err != nil {
 				return fmt.Errorf("decrement topic post count: %w", err)
 			}
-			// Recalculate topic last_post
+			// Recalculate topic last_post using a single atomic subquery
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE forum_topics SET
-					last_post_id = (SELECT id FROM forum_posts WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1),
-					last_post_at = (SELECT created_at FROM forum_posts WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1),
+					last_post_id = sub.id,
+					last_post_at = sub.created_at,
 					updated_at = NOW()
-				WHERE id = $1`, post.TopicID); err != nil {
+				FROM (
+					SELECT id, created_at FROM forum_posts
+					WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1
+				) sub
+				WHERE forum_topics.id = $1`, post.TopicID); err != nil {
 				return fmt.Errorf("recalculate topic last post: %w", err)
 			}
-			if _, err := tx.ExecContext(ctx, "UPDATE forums SET post_count = post_count - 1 WHERE id = $1", topic.ForumID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE forums SET post_count = GREATEST(post_count - 1, 0) WHERE id = $1", topic.ForumID); err != nil {
 				return fmt.Errorf("decrement forum post count: %w", err)
 			}
-			// Recalculate forum last_post
+			// Recalculate forum last_post using a single atomic subquery
 			if _, err := tx.ExecContext(ctx, `
-				UPDATE forums SET last_post_id = (
+				UPDATE forums SET last_post_id = sub.id
+				FROM (
 					SELECT p.id FROM forum_posts p
 					JOIN forum_topics t ON t.id = p.topic_id
 					WHERE t.forum_id = $1
 					ORDER BY p.created_at DESC LIMIT 1
-				) WHERE id = $1`, topic.ForumID); err != nil {
+				) sub
+				WHERE forums.id = $1`, topic.ForumID); err != nil {
 				return fmt.Errorf("recalculate forum last post: %w", err)
 			}
 			return nil

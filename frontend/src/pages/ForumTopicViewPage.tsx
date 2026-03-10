@@ -67,6 +67,7 @@ export function ForumTopicViewPage() {
 
   const [deletePostId, setDeletePostId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchTopic = useCallback(async () => {
     setLoading(true);
@@ -221,6 +222,7 @@ export function ForumTopicViewPage() {
   const handleConfirmDelete = async () => {
     if (!deletePostId) return;
     setDeleteError(null);
+    setDeleting(true);
 
     try {
       const token = getAccessToken();
@@ -243,10 +245,13 @@ export function ForumTopicViewPage() {
       }
 
       setPosts((prev) => prev.filter((p) => p.id !== deletePostId));
+      setTotal((prev) => prev - 1);
       setDeletePostId(null);
     } catch (err) {
       setDeleteError((err as Error).message);
       setDeletePostId(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -314,9 +319,7 @@ export function ForumTopicViewPage() {
                     placeholder="Edit your post... (Markdown supported)"
                   />
                   {editError && (
-                    <div style={{ color: "red", marginBottom: "0.5rem" }}>
-                      {editError}
-                    </div>
+                    <div className="forum-post__error">{editError}</div>
                   )}
                   <div className="forum-post__actions">
                     <button
@@ -385,7 +388,9 @@ export function ForumTopicViewPage() {
       />
 
       {deleteError && (
-        <div style={{ color: "red", margin: "1rem 0" }}>{deleteError}</div>
+        <div className="forum-post__error" style={{ margin: "1rem 0" }}>
+          {deleteError}
+        </div>
       )}
 
       <ConfirmModal
@@ -394,6 +399,7 @@ export function ForumTopicViewPage() {
         message="Are you sure you want to delete this post? This action cannot be undone."
         confirmLabel="Delete"
         danger
+        loading={deleting}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeletePostId(null)}
       />
@@ -420,9 +426,7 @@ export function ForumTopicViewPage() {
             required
           />
           {submitError && (
-            <div style={{ color: "red", marginBottom: "0.5rem" }}>
-              {submitError}
-            </div>
+            <div className="forum-post__error">{submitError}</div>
           )}
           <div className="forum-reply__actions">
             <button
