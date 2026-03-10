@@ -6,7 +6,8 @@ import { useToast } from "@/components/toast";
 import { formatBytes, timeAgo } from "@/utils/format";
 import { WarningBadge } from "@/components/WarningBadge";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
-import { Textarea, Input, Checkbox } from "@/components/form";
+import { Modal } from "@/components/modal/Modal";
+import { Textarea, Input, Checkbox, Select } from "@/components/form";
 import "./admin-user-detail.css";
 
 interface ModNote {
@@ -39,6 +40,11 @@ interface Restriction {
   created_at: string;
 }
 
+interface GroupOption {
+  value: string;
+  label: string;
+}
+
 interface UserDetail {
   id: number;
   username: string;
@@ -54,6 +60,7 @@ interface UserDetail {
   warned: boolean;
   donor: boolean;
   parked: boolean;
+  passkey: string | null;
   invites: number;
   can_download: boolean;
   can_upload: boolean;
@@ -79,6 +86,36 @@ export function AdminUserDetailPage() {
   const [addingNote, setAddingNote] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
 
+  // Edit form state
+  const [editUsername, setEditUsername] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editAvatar, setEditAvatar] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editInfo, setEditInfo] = useState("");
+  const [editGroupId, setEditGroupId] = useState("");
+  const [editUploaded, setEditUploaded] = useState("");
+  const [editDownloaded, setEditDownloaded] = useState("");
+  const [editInvites, setEditInvites] = useState("");
+  const [editEnabled, setEditEnabled] = useState(true);
+  const [editWarned, setEditWarned] = useState(false);
+  const [editDonor, setEditDonor] = useState(false);
+  const [editParked, setEditParked] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [groups, setGroups] = useState<GroupOption[]>([]);
+
+  // Password reset state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(
+    null,
+  );
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  // Passkey reset state
+  const [showPasskeyConfirm, setShowPasskeyConfirm] = useState(false);
+  const [generatedPasskey, setGeneratedPasskey] = useState<string | null>(null);
+  const [resettingPasskey, setResettingPasskey] = useState(false);
+
   // Restriction state
   const [restrictions, setRestrictions] = useState<Restriction[]>([]);
   const [restrictionReason, setRestrictionReason] = useState("");
@@ -90,6 +127,22 @@ export function AdminUserDetailPage() {
   const [liftingRestrictionId, setLiftingRestrictionId] = useState<
     number | null
   >(null);
+
+  const populateEditForm = useCallback((u: UserDetail) => {
+    setEditUsername(u.username);
+    setEditEmail(u.email);
+    setEditAvatar(u.avatar ?? "");
+    setEditTitle(u.title ?? "");
+    setEditInfo(u.info ?? "");
+    setEditGroupId(String(u.group_id));
+    setEditUploaded(String(u.uploaded));
+    setEditDownloaded(String(u.downloaded));
+    setEditInvites(String(u.invites));
+    setEditEnabled(u.enabled);
+    setEditWarned(u.warned);
+    setEditDonor(u.donor);
+    setEditParked(u.parked);
+  }, []);
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
@@ -104,6 +157,7 @@ export function AdminUserDetailPage() {
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        populateEditForm(data.user);
       } else if (res.status === 404) {
         navigate("/admin/users");
         toastRef.current.error("User not found");
@@ -111,7 +165,7 @@ export function AdminUserDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, navigate]);
+  }, [id, navigate, populateEditForm]);
 
   const fetchRestrictions = useCallback(async () => {
     const token = getAccessToken();
@@ -127,10 +181,139 @@ export function AdminUserDetailPage() {
     }
   }, [id]);
 
+  const fetchGroups = useCallback(async () => {
+    const token = getAccessToken();
+    const res = await fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setGroups(
+        (data.groups ?? []).map((g: { id: number; name: string }) => ({
+          value: String(g.id),
+          label: g.name,
+        })),
+      );
+    }
+  }, []);
+
   useEffect(() => {
     fetchUser();
     fetchRestrictions();
-  }, [fetchUser, fetchRestrictions]);
+    fetchGroups();
+  }, [fetchUser, fetchRestrictions, fetchGroups]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const token = getAccessToken();
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/users/${id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            username: editUsername,
+            email: editEmail,
+            avatar: editAvatar || null,
+            title: editTitle || null,
+            info: editInfo || null,
+            group_id: Number(editGroupId),
+            uploaded: Number(editUploaded),
+            downloaded: Number(editDownloaded),
+            invites: Number(editInvites),
+            enabled: editEnabled,
+            warned: editWarned,
+            donor: editDonor,
+            parked: editParked,
+          }),
+        },
+      );
+      if (res.ok) {
+        toast.success("User updated successfully");
+        fetchUser();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error?.message ?? "Failed to update user");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    setResettingPassword(true);
+    try {
+      const token = getAccessToken();
+      const body: Record<string, string> = {};
+      if (newPassword.trim()) {
+        body.new_password = newPassword.trim();
+      }
+
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/users/${id}/reset-password`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        setGeneratedPassword(data.new_password);
+        setShowPasswordModal(false);
+        toast.success("Password reset successfully");
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error?.message ?? "Failed to reset password");
+      }
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  const handleResetPasskey = async () => {
+    setResettingPasskey(true);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/users/${id}/reset-passkey`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        setGeneratedPasskey(data.new_passkey);
+        setShowPasskeyConfirm(false);
+        toast.success("Passkey reset successfully");
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error?.message ?? "Failed to reset passkey");
+      }
+    } finally {
+      setResettingPasskey(false);
+    }
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => toast.success("Copied to clipboard"),
+      () => toast.error("Failed to copy"),
+    );
+  };
 
   const handleAddNote = async () => {
     if (!newNote.trim()) return;
@@ -287,7 +470,7 @@ export function AdminUserDetailPage() {
   if (loading) return <p>Loading...</p>;
   if (!user) return <p>User not found.</p>;
 
-  const activeRestrictions = restrictions.filter((r) => !r.lifted_at);
+  const displayPasskey = generatedPasskey ?? user.passkey;
 
   return (
     <div className="admin-user-detail">
@@ -298,72 +481,176 @@ export function AdminUserDetailPage() {
         <h1>
           {user.username}
           <WarningBadge warned={user.warned} />
+          <span className="admin-user-detail__header-meta">
+            {user.group_name} &middot; Joined {timeAgo(user.created_at)}{" "}
+            &middot; Last active{" "}
+            {user.last_access ? timeAgo(user.last_access) : "Never"}
+          </span>
         </h1>
       </div>
 
-      {/* Profile Info */}
-      <div className="admin-user-detail__grid">
-        <div className="admin-user-detail__card">
-          <h2>Profile</h2>
-          <dl className="admin-user-detail__dl">
-            <dt>Email</dt>
-            <dd>{user.email}</dd>
-            <dt>Group</dt>
-            <dd>{user.group_name}</dd>
-            <dt>Title</dt>
-            <dd>{user.title || "None"}</dd>
-            <dt>Bio</dt>
-            <dd>{user.info || "None"}</dd>
-            <dt>Status</dt>
-            <dd>
-              {!user.enabled && (
-                <span className="admin-user-detail__badge admin-user-detail__badge--disabled">
-                  Disabled
-                </span>
-              )}
-              {user.enabled && !user.warned && (
-                <span className="admin-user-detail__badge admin-user-detail__badge--enabled">
-                  Active
-                </span>
-              )}
-              {user.warned && (
-                <span className="admin-user-detail__badge admin-user-detail__badge--warned">
-                  Warned
-                </span>
-              )}
-              {user.donor && (
-                <span className="admin-user-detail__badge admin-user-detail__badge--donor">
-                  Donor
-                </span>
-              )}
-              {user.parked && (
-                <span className="admin-user-detail__badge admin-user-detail__badge--parked">
-                  Parked
-                </span>
-              )}
-            </dd>
-            <dt>Joined</dt>
-            <dd>{timeAgo(user.created_at)}</dd>
-            <dt>Last Active</dt>
-            <dd>{user.last_access ? timeAgo(user.last_access) : "Never"}</dd>
-          </dl>
-        </div>
+      {/* Edit Profile Form */}
+      <div className="admin-user-detail__card">
+        <h2>Edit Profile</h2>
+        <form onSubmit={handleSaveProfile}>
+          <div className="admin-user-detail__form-row">
+            <div className="admin-user-detail__form-field">
+              <Input
+                label="Username"
+                value={editUsername}
+                onChange={(e) => setEditUsername(e.target.value)}
+              />
+            </div>
+            <div className="admin-user-detail__form-field">
+              <Input
+                label="Email"
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+              />
+            </div>
+            <div className="admin-user-detail__form-field">
+              <Select
+                label="Group"
+                options={groups}
+                value={editGroupId}
+                onChange={(e) => setEditGroupId(e.target.value)}
+              />
+            </div>
+          </div>
 
-        <div className="admin-user-detail__card">
-          <h2>Stats</h2>
-          <dl className="admin-user-detail__dl">
-            <dt>Uploaded</dt>
-            <dd>{formatBytes(user.uploaded)}</dd>
-            <dt>Downloaded</dt>
-            <dd>{formatBytes(user.downloaded)}</dd>
-            <dt>Ratio</dt>
-            <dd>{formatRatio(user.ratio)}</dd>
-            <dt>Invites</dt>
-            <dd>{user.invites}</dd>
-            <dt>Active Warnings</dt>
-            <dd>{user.warnings_count}</dd>
-          </dl>
-        </div>
+          <Input
+            label="Avatar URL"
+            value={editAvatar}
+            onChange={(e) => setEditAvatar(e.target.value)}
+            placeholder="https://..."
+          />
+          <Input
+            label="Title"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+          />
+          <Textarea
+            label="Info / Bio"
+            value={editInfo}
+            onChange={(e) => setEditInfo(e.target.value)}
+          />
+
+          <div className="admin-user-detail__form-row">
+            <div className="admin-user-detail__form-field">
+              <Input
+                label="Uploaded (bytes)"
+                type="number"
+                value={editUploaded}
+                onChange={(e) => setEditUploaded(e.target.value)}
+              />
+            </div>
+            <div className="admin-user-detail__form-field">
+              <Input
+                label="Downloaded (bytes)"
+                type="number"
+                value={editDownloaded}
+                onChange={(e) => setEditDownloaded(e.target.value)}
+              />
+            </div>
+            <div className="admin-user-detail__form-field">
+              <Input
+                label="Invites"
+                type="number"
+                value={editInvites}
+                onChange={(e) => setEditInvites(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="admin-user-detail__form-flags">
+            <Checkbox
+              label="Enabled"
+              checked={editEnabled}
+              onChange={(e) => setEditEnabled(e.target.checked)}
+            />
+            <Checkbox
+              label="Warned"
+              checked={editWarned}
+              onChange={(e) => setEditWarned(e.target.checked)}
+            />
+            <Checkbox
+              label="Donor"
+              checked={editDonor}
+              onChange={(e) => setEditDonor(e.target.checked)}
+            />
+            <Checkbox
+              label="Parked"
+              checked={editParked}
+              onChange={(e) => setEditParked(e.target.checked)}
+            />
+          </div>
+
+          {/* Passkey display */}
+          {displayPasskey && (
+            <div className="admin-user-detail__passkey">
+              <label>Passkey</label>
+              <code>{displayPasskey}</code>
+            </div>
+          )}
+
+          {/* Generated password display */}
+          {generatedPassword && (
+            <div className="admin-user-detail__generated-value">
+              <label>New Password:</label>
+              <div className="admin-user-detail__copyable">
+                <code>{generatedPassword}</code>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(generatedPassword)}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Stats summary (read-only) */}
+          <div className="admin-user-detail__stats-summary">
+            <span>
+              Ratio: <strong>{formatRatio(user.ratio)}</strong>
+            </span>
+            <span>
+              Active Warnings: <strong>{user.warnings_count}</strong>
+            </span>
+          </div>
+
+          <div className="admin-user-detail__form-actions">
+            <button
+              type="submit"
+              className="admin-user-detail__save-btn"
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+            <button
+              type="button"
+              className="admin-user-detail__reset-btn"
+              onClick={() => {
+                setNewPassword("");
+                setGeneratedPassword(null);
+                setShowPasswordModal(true);
+              }}
+            >
+              Reset Password
+            </button>
+            <button
+              type="button"
+              className="admin-user-detail__reset-btn admin-user-detail__reset-btn--danger"
+              onClick={() => {
+                setGeneratedPasskey(null);
+                setShowPasskeyConfirm(true);
+              }}
+            >
+              Reset Passkey
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* Privilege Restrictions */}
@@ -546,7 +833,7 @@ export function AdminUserDetailPage() {
             </table>
           </>
         )}
-        {activeRestrictions.length === 0 && restrictions.length === 0 && (
+        {restrictions.length === 0 && (
           <p className="admin-user-detail__empty">No restrictions.</p>
         )}
       </div>
@@ -624,6 +911,55 @@ export function AdminUserDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Reset Password Modal */}
+      <Modal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        title={`Reset Password for ${user.username}`}
+      >
+        <div className="admin-user-detail__modal-form">
+          <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+            Leave empty to generate a random password. The user will be logged
+            out of all sessions.
+          </p>
+          <Input
+            label="New Password (optional)"
+            type="text"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Leave blank to auto-generate"
+          />
+          <div className="admin-user-detail__modal-actions">
+            <button
+              type="button"
+              className="admin-user-detail__cancel-btn"
+              onClick={() => setShowPasswordModal(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="admin-user-detail__save-btn"
+              disabled={resettingPassword}
+              onClick={handleResetPassword}
+            >
+              {resettingPassword ? "Resetting..." : "Reset Password"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Reset Passkey Confirm Modal */}
+      <ConfirmModal
+        isOpen={showPasskeyConfirm}
+        title={`Reset Passkey for ${user.username}`}
+        message="This will invalidate all existing .torrent files for this user. They will need to re-download all their torrent files. Continue?"
+        confirmLabel={resettingPasskey ? "Resetting..." : "Reset Passkey"}
+        danger
+        onConfirm={handleResetPasskey}
+        onCancel={() => setShowPasskeyConfirm(false)}
+      />
 
       <ConfirmModal
         isOpen={deletingNoteId !== null}
