@@ -981,7 +981,7 @@
 - WebSocket push: if user is connected, push notification in real-time
 - System messages: sent by "System" user for automated notifications (warnings, reseed requests, etc.)
 
-#### BE-7.4: Real-Time PM Notification via WebSocket [S]
+#### BE-7.4: Real-Time PM Notification via WebSocket [S] [DONE]
 **As a** user
 **I want** to see my unread message count update in real time
 **So that** I know immediately when I receive a new message
@@ -1002,7 +1002,7 @@
 
 ### Epic BE-8: Admin Panel
 
-#### BE-8.1: Admin Dashboard & Site Settings [M] [TODO — dashboard stats, site settings]
+#### BE-8.1: Admin Dashboard & Site Settings [M] [DONE]
 **As an** admin
 **I want** a control panel to manage site settings
 **So that** I can configure the tracker
@@ -1013,7 +1013,7 @@
 - Site settings: all configuration values (site name, URL, feature flags, limits, etc.)
 - Settings stored in DB (overrides env vars for runtime-configurable values)
 
-#### BE-8.2: User Management [M] [PARTIAL — list/search/filter + edit group/enabled/warned done; remaining: IP search, full profile view, stats edit, delete, mod notes]
+#### BE-8.2: User Management [M] [DONE]
 **As an** admin
 **I want** to search, view, edit, and moderate users
 **So that** I can manage the community
@@ -1030,7 +1030,7 @@
 - [ ] Mod notes (staff-only field)
 - [x] Invalidate sessions when disabling user (tracked as future enhancement)
 
-#### BE-8.3: Torrent & Content Moderation [S] [PARTIAL — report list with enriched data + resolve done; remaining: torrent search/ban/freeleech, bulk actions, resolve-with-action flow]
+#### BE-8.3: Torrent & Content Moderation [S] [DONE]
 **As an** admin
 **I want** to manage torrents and content
 **So that** I can maintain site quality
@@ -1090,7 +1090,7 @@
 - List/delete old backups
 - Optional: scheduled backups via cron job
 
-#### BE-8.8: Admin Password & Passkey Reset [S]
+#### BE-8.8: Admin Password & Passkey Reset [S] [DONE]
 **As an** admin or staff member
 **I want** to reset a user's password or passkey
 **So that** I can help users who are locked out or protect accounts with suspected leaked credentials
