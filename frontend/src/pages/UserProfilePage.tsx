@@ -38,6 +38,9 @@ interface PublicUser {
   invited_by_name?: string;
   seeding_count: number;
   leeching_count: number;
+  can_download: boolean;
+  can_upload: boolean;
+  can_chat: boolean;
   recent_uploads?: Array<{
     id: number;
     name: string;
@@ -384,26 +387,26 @@ export function UserProfilePage() {
         </div>
       </div>
 
-      {isOwnProfile &&
-        currentUser &&
-        (currentUser.can_download === false ||
-          currentUser.can_upload === false ||
-          currentUser.can_chat === false) && (
+      {(isOwnProfile || currentUser?.isStaff) &&
+        profile &&
+        (profile.can_download === false ||
+          profile.can_upload === false ||
+          profile.can_chat === false) && (
           <div className="profile-restrictions">
             <h2 className="profile-restrictions__title">Active Restrictions</h2>
-            {currentUser.can_download === false && (
+            {profile.can_download === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
-                Your download privileges are currently suspended.
+                {isOwnProfile ? "Your" : "This user's"} download privileges are currently suspended.
               </p>
             )}
-            {currentUser.can_upload === false && (
+            {profile.can_upload === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
-                Your upload privileges are currently suspended.
+                {isOwnProfile ? "Your" : "This user's"} upload privileges are currently suspended.
               </p>
             )}
-            {currentUser.can_chat === false && (
+            {profile.can_chat === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
-                Your chat privileges are currently suspended.
+                {isOwnProfile ? "Your" : "This user's"} chat privileges are currently suspended.
               </p>
             )}
           </div>
