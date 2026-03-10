@@ -77,7 +77,17 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 		return fmt.Errorf("set setting %q: %w", key, err)
 	}
 
-	// Publish event for registration mode changes
+	// Publish generic setting changed event for all consumers
+	if oldValue != value {
+		s.eventBus.Publish(ctx, &event.SiteSettingChangedEvent{
+			Base:     event.NewBase(event.SiteSettingChanged, actor),
+			Key:      key,
+			OldValue: oldValue,
+			NewValue: value,
+		})
+	}
+
+	// Publish specific event for registration mode changes (backward compat)
 	if key == SettingRegistrationMode && oldValue != value {
 		s.eventBus.Publish(ctx, &event.RegistrationModeChangedEvent{
 			Base:    event.NewBase(event.RegistrationModeChanged, actor),

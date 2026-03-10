@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -77,9 +78,10 @@ type chatSpamSettings struct {
 // ChatHub manages WebSocket connections for the shoutbox.
 type ChatHub struct {
 	chatSvc        *service.ChatService
-	sessionStore   service.SessionStore
+	sessionStore    service.SessionStore
 	siteSettingsSvc *service.SiteSettingsService
-	allowedOrigins []string
+	eventBus        event.Bus
+	allowedOrigins  []string
 
 	spamSettings chatSpamSettings
 	settingsMu   sync.RWMutex
@@ -92,11 +94,12 @@ type ChatHub struct {
 }
 
 // NewChatHub creates a new ChatHub.
-func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore, siteSettingsSvc *service.SiteSettingsService, allowedOrigins []string) *ChatHub {
+func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore, siteSettingsSvc *service.SiteSettingsService, eventBus event.Bus, allowedOrigins []string) *ChatHub {
 	h := &ChatHub{
 		chatSvc:         chatSvc,
 		sessionStore:    sessionStore,
 		siteSettingsSvc: siteSettingsSvc,
+		eventBus:        eventBus,
 		allowedOrigins:  allowedOrigins,
 		clients:         make(map[*ChatClient]struct{}),
 		broadcast:       make(chan ChatBroadcast, 256),
@@ -147,14 +150,24 @@ func (h *ChatHub) getSpamSettings() chatSpamSettings {
 
 // Run starts the hub event loop. Should be called in a goroutine.
 func (h *ChatHub) Run() {
-	settingsReloadTicker := time.NewTicker(5 * time.Minute)
-	defer settingsReloadTicker.Stop()
+	// Subscribe to site setting changes for real-time config updates.
+	h.eventBus.Subscribe(event.SiteSettingChanged, func(_ context.Context, evt event.Event) error {
+		e := evt.(*event.SiteSettingChangedEvent)
+		switch e.Key {
+		case service.SettingChatRateLimitWindow,
+			service.SettingChatRateLimitMax,
+			service.SettingChatSpamStrikeCount,
+			service.SettingChatSpamMuteMinutes,
+			service.SettingChatRateLimitMessage,
+			service.SettingChatSpamMuteMessage:
+			slog.Info("chat setting changed, reloading", "key", e.Key)
+			h.loadSpamSettings()
+		}
+		return nil
+	})
 
 	for {
 		select {
-		case <-settingsReloadTicker.C:
-			h.loadSpamSettings()
-
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = struct{}{}
