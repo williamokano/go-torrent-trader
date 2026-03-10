@@ -41,6 +41,8 @@ const (
 	WarningLifted           Type = "warning_lifted"
 	NewsPublished           Type = "news_published"
 	SiteSettingChanged      Type = "site_setting_changed"
+	PasswordReset           Type = "password_reset"
+	PasskeyReset            Type = "passkey_reset"
 )
 
 // Event is the base interface for all domain events.
@@ -281,4 +283,16 @@ type SiteSettingChangedEvent struct {
 	Key      string `json:"key"`
 	OldValue string `json:"old_value"`
 	NewValue string `json:"new_value"`
+}
+
+type PasswordResetEvent struct {
+	Base
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+}
+
+type PasskeyResetEvent struct {
+	Base
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
 }

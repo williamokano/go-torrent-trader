@@ -2,16 +2,22 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"log/slog"
+	"math/big"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
+var ErrAdminPasswordTooShort = fmt.Errorf("password must be at least 8 characters")
+
 var (
-	ErrAdminUserNotFound  = fmt.Errorf("user not found")
-	ErrAdminGroupNotFound = fmt.Errorf("group not found")
+	ErrAdminUserNotFound      = fmt.Errorf("user not found")
+	ErrAdminGroupNotFound     = fmt.Errorf("group not found")
+	ErrAdminInsufficientLevel = fmt.Errorf("insufficient group level to perform this action")
 )
 
 // AdminUserView is the user representation returned by admin endpoints.
@@ -30,6 +36,7 @@ type AdminUserView struct {
 	Warned     bool    `json:"warned"`
 	Donor      bool    `json:"donor"`
 	Parked     bool    `json:"parked"`
+	Passkey    *string `json:"passkey"`
 	Invites    int     `json:"invites"`
 	CreatedAt  string  `json:"created_at"`
 	LastAccess *string `json:"last_access"`
@@ -56,12 +63,24 @@ type AdminUpdateUserRequest struct {
 type AdminService struct {
 	users    repository.UserRepository
 	groups   repository.GroupRepository
+	sessions SessionStore
+	email    EmailSender
 	eventBus event.Bus
 }
 
 // NewAdminService creates a new AdminService.
 func NewAdminService(users repository.UserRepository, groups repository.GroupRepository, bus event.Bus) *AdminService {
 	return &AdminService{users: users, groups: groups, eventBus: bus}
+}
+
+// SetSessionStore sets the session store for session invalidation.
+func (s *AdminService) SetSessionStore(sessions SessionStore) {
+	s.sessions = sessions
+}
+
+// SetEmailSender sets the email sender for notifications.
+func (s *AdminService) SetEmailSender(email EmailSender) {
+	s.email = email
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -101,6 +120,7 @@ func (s *AdminService) ListUsers(ctx context.Context, opts repository.ListUsersO
 			Warned:     u.Warned,
 			Donor:      u.Donor,
 			Parked:     u.Parked,
+			Passkey:    u.Passkey,
 			Invites:    u.Invites,
 			CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
@@ -242,6 +262,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		Warned:     user.Warned,
 		Donor:      user.Donor,
 		Parked:     user.Parked,
+		Passkey:    user.Passkey,
 		Invites:    user.Invites,
 		CreatedAt:  user.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
@@ -259,6 +280,162 @@ func (s *AdminService) actorFromUserID(ctx context.Context, userID int64) event.
 		actor.Username = u.Username
 	}
 	return actor
+}
+
+// ResetPassword resets the password for a user. If newPassword is empty, a random
+// 16-char password is generated. Returns the (cleartext) password so the admin can
+// share it manually if the notification email fails.
+func (s *AdminService) ResetPassword(ctx context.Context, actorID, userID int64, newPassword string) (string, error) {
+	actor, err := s.users.GetByID(ctx, actorID)
+	if err != nil {
+		return "", fmt.Errorf("load actor: %w", err)
+	}
+
+	target, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return "", ErrAdminUserNotFound
+	}
+
+	// Group-level check: actor must be in a higher-level group than the target
+	if err := s.assertHigherLevel(ctx, actor, target); err != nil {
+		return "", err
+	}
+
+	// Validate password length if admin-supplied
+	if newPassword != "" && len(newPassword) < 8 {
+		return "", ErrAdminPasswordTooShort
+	}
+
+	// Generate random password if not provided
+	if newPassword == "" {
+		generated, genErr := generateRandomPassword(16)
+		if genErr != nil {
+			return "", fmt.Errorf("generate password: %w", genErr)
+		}
+		newPassword = generated
+	}
+
+	hash, err := HashPassword(newPassword)
+	if err != nil {
+		return "", fmt.Errorf("hash password: %w", err)
+	}
+
+	target.PasswordHash = hash
+	if err := s.users.Update(ctx, target); err != nil {
+		return "", fmt.Errorf("update user: %w", err)
+	}
+
+	// Invalidate all sessions
+	if s.sessions != nil {
+		s.sessions.DeleteByUserID(userID)
+	}
+
+	// Send email notification (best-effort)
+	if s.email != nil {
+		body := fmt.Sprintf(
+			"<p>Hello %s,</p><p>Your password has been reset by an administrator. Your new password is:</p><pre>%s</pre><p>Please log in and change it immediately.</p>",
+			target.Username, newPassword,
+		)
+		if err := s.email.Send(ctx, target.Email, "Your password has been reset", body); err != nil {
+			slog.Warn("failed to send password reset email", "user_id", target.ID, "email", target.Email, "error", err)
+		}
+	}
+
+	// Publish event
+	evtActor := event.Actor{ID: actorID, Username: actor.Username}
+	s.eventBus.Publish(ctx, &event.PasswordResetEvent{
+		Base:     event.NewBase(event.PasswordReset, evtActor),
+		UserID:   target.ID,
+		Username: target.Username,
+	})
+
+	return newPassword, nil
+}
+
+// ResetPasskey generates a new passkey for a user. Returns the new passkey.
+func (s *AdminService) ResetPasskey(ctx context.Context, actorID, userID int64) (string, error) {
+	actor, err := s.users.GetByID(ctx, actorID)
+	if err != nil {
+		return "", fmt.Errorf("load actor: %w", err)
+	}
+
+	target, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return "", ErrAdminUserNotFound
+	}
+
+	// Group-level check
+	if err := s.assertHigherLevel(ctx, actor, target); err != nil {
+		return "", err
+	}
+
+	token, err := GenerateToken()
+	if err != nil {
+		return "", fmt.Errorf("generate passkey: %w", err)
+	}
+	passkey := token[:32]
+	target.Passkey = &passkey
+
+	if err := s.users.Update(ctx, target); err != nil {
+		return "", fmt.Errorf("update passkey: %w", err)
+	}
+
+	// NOTE: We intentionally do NOT invalidate web sessions here. The passkey is
+	// used solely for tracker authentication (announce URLs in .torrent files), not
+	// for web login. Resetting it should not log the user out of the website.
+
+	// Send email notification (best-effort)
+	if s.email != nil {
+		body := fmt.Sprintf(
+			"<p>Hello %s,</p><p>Your passkey has been reset by an administrator. All your existing .torrent files are now invalid and must be re-downloaded.</p><p>Your new passkey is:</p><pre>%s</pre>",
+			target.Username, passkey,
+		)
+		if err := s.email.Send(ctx, target.Email, "Your passkey has been reset", body); err != nil {
+			slog.Warn("failed to send passkey reset email", "user_id", target.ID, "email", target.Email, "error", err)
+		}
+	}
+
+	// Publish event
+	evtActor := event.Actor{ID: actorID, Username: actor.Username}
+	s.eventBus.Publish(ctx, &event.PasskeyResetEvent{
+		Base:     event.NewBase(event.PasskeyReset, evtActor),
+		UserID:   target.ID,
+		Username: target.Username,
+	})
+
+	return passkey, nil
+}
+
+// assertHigherLevel verifies the actor's group level is strictly higher than
+// the target's. This prevents staff from resetting passwords of admins, etc.
+func (s *AdminService) assertHigherLevel(ctx context.Context, actor, target *model.User) error {
+	actorGroup, err := s.groups.GetByID(ctx, actor.GroupID)
+	if err != nil {
+		return fmt.Errorf("load actor group: %w", err)
+	}
+	targetGroup, err := s.groups.GetByID(ctx, target.GroupID)
+	if err != nil {
+		return fmt.Errorf("load target group: %w", err)
+	}
+	if actorGroup.Level <= targetGroup.Level && actor.ID != target.ID {
+		return ErrAdminInsufficientLevel
+	}
+	return nil
+}
+
+// generateRandomPassword creates a random password of the given length using
+// alphanumeric characters plus a small set of symbols.
+func generateRandomPassword(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*"
+	result := make([]byte, length)
+	for i := range result {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = charset[n.Int64()]
+	}
+	return string(result), nil
 }
 
 // ListGroups returns all groups ordered by level.

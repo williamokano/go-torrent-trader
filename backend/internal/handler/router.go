@@ -302,6 +302,8 @@ func NewRouter(deps *Deps) chi.Router {
 						admin := NewAdminHandler(deps.AdminService)
 						r.Get("/users", admin.HandleListUsers)
 						r.Put("/users/{id}", admin.HandleUpdateUser)
+						r.Put("/users/{id}/reset-password", admin.HandleResetPassword)
+						r.Put("/users/{id}/reset-passkey", admin.HandleResetPasskey)
 						r.Get("/groups", admin.HandleListGroups)
 					}
 

@@ -181,6 +181,8 @@ func run() int {
 	newsService := service.NewNewsService(newsRepo, userRepo, eventBus)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
+	adminService.SetSessionStore(sessionStore)
+	adminService.SetEmailSender(emailSender)
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)

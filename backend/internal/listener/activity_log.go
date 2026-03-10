@@ -193,6 +193,16 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.NewsPublishedEvent)
 		return fmt.Sprintf("%s published news: %s", e.Actor.Username, e.Title), e.Actor
 	})
+
+	listen(event.PasswordReset, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.PasswordResetEvent)
+		return fmt.Sprintf("%s reset password for %s", e.Actor.Username, e.Username), e.Actor
+	})
+
+	listen(event.PasskeyReset, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.PasskeyResetEvent)
+		return fmt.Sprintf("%s reset passkey for %s", e.Actor.Username, e.Username), e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.
