@@ -163,7 +163,7 @@ func run() int {
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
-	listener.RegisterActivityLogListeners(eventBus, activityLogService)
+	listener.RegisterActivityLogListeners(eventBus, activityLogService, userRepo)
 	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
 	banRepo := postgres.NewBanRepo(db)

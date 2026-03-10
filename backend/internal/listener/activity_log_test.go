@@ -2,6 +2,7 @@ package listener
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -61,11 +62,37 @@ func (m *mockActivityLogRepo) List(_ context.Context, opts repository.ListActivi
 	return filtered[start:end], total, nil
 }
 
+type mockUserRepo struct{}
+
+func (r *mockUserRepo) GetByID(_ context.Context, id int64) (*model.User, error) {
+	return &model.User{ID: id, Username: fmt.Sprintf("user%d", id)}, nil
+}
+func (r *mockUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepo) GetByPasskey(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepo) Count(context.Context) (int64, error) { return 0, nil }
+func (r *mockUserRepo) Create(context.Context, *model.User) error { return nil }
+func (r *mockUserRepo) Update(context.Context, *model.User) error { return nil }
+func (r *mockUserRepo) IncrementStats(context.Context, int64, int64, int64) error {
+	return nil
+}
+func (r *mockUserRepo) List(context.Context, repository.ListUsersOptions) ([]model.User, int64, error) {
+	return nil, 0, nil
+}
+func (r *mockUserRepo) ListStaff(context.Context) ([]model.User, error) { return nil, nil }
+func (r *mockUserRepo) UpdateLastAccess(context.Context, int64) error   { return nil }
+
 func setup() (*mockActivityLogRepo, event.Bus) {
 	repo := &mockActivityLogRepo{}
 	svc := service.NewActivityLogService(repo)
 	bus := event.NewInMemoryBus()
-	RegisterActivityLogListeners(bus, svc)
+	RegisterActivityLogListeners(bus, svc, &mockUserRepo{})
 	return repo, bus
 }
 
