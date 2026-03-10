@@ -143,7 +143,7 @@ func (s *RestrictionService) GetActiveRestrictions(ctx context.Context) ([]model
 // ResolveExpired lifts expired restrictions and restores user flags.
 // Called by the maintenance job.
 func (s *RestrictionService) ResolveExpired(ctx context.Context) (int, error) {
-	expired, err := s.restrictions.DeleteExpired(ctx)
+	expired, err := s.restrictions.LiftExpired(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -177,17 +177,9 @@ func (s *RestrictionService) ResolveExpired(ctx context.Context) (int, error) {
 // restoreUserFlagIfNone checks if there are remaining active restrictions of
 // the given type for the user. If not, sets the flag back to true.
 func (s *RestrictionService) restoreUserFlagIfNone(ctx context.Context, userID int64, restrictionType string) error {
-	active, err := s.restrictions.ListByUser(ctx, userID)
+	hasActive, err := s.restrictions.HasActiveByType(ctx, userID, restrictionType)
 	if err != nil {
-		return fmt.Errorf("list user restrictions: %w", err)
-	}
-
-	hasActive := false
-	for _, r := range active {
-		if r.RestrictionType == restrictionType && r.LiftedAt == nil {
-			hasActive = true
-			break
-		}
+		return fmt.Errorf("check active restrictions: %w", err)
 	}
 
 	if !hasActive {

@@ -215,7 +215,7 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 	listen(event.RestrictionApplied, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.RestrictionAppliedEvent)
 		actor := resolveActor(userRepo, e.Actor)
-		return fmt.Sprintf("%s restricted %s privilege for %s: %s", actor, e.RestrictionType, e.Username, e.Reason), e.Actor
+		return fmt.Sprintf("%s restricted %s privilege for %s", actor, e.RestrictionType, e.Username), e.Actor
 	})
 
 	listen(event.RestrictionLifted, func(evt event.Event) (string, event.Actor) {

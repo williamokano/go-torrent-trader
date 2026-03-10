@@ -297,9 +297,12 @@ func setupTracker() (*TrackerService, *trackerMockUserRepo, *trackerMockTorrentR
 
 	pk := testPasskey()
 	userRepo.addUser(&model.User{
-		ID:      1,
-		Enabled: true,
-		Passkey: &pk,
+		ID:          1,
+		Enabled:     true,
+		Passkey:     &pk,
+		CanDownload: true,
+		CanUpload:   true,
+		CanChat:     true,
 	})
 
 	torrentRepo.addTorrent(&model.Torrent{
@@ -474,6 +477,51 @@ func TestAnnounce_DisabledUser(t *testing.T) {
 
 	if !errors.Is(err, ErrUserDisabled) {
 		t.Errorf("expected ErrUserDisabled, got %v", err)
+	}
+}
+
+func TestAnnounce_DownloadSuspended_Leeching(t *testing.T) {
+	svc, userRepo, _, _ := setupTracker()
+
+	userRepo.mu.Lock()
+	userRepo.users[0].CanDownload = false
+	userRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000, // still leeching
+		Event:    EventStarted,
+	})
+
+	if !errors.Is(err, ErrDownloadSuspended) {
+		t.Errorf("expected ErrDownloadSuspended, got %v", err)
+	}
+}
+
+func TestAnnounce_DownloadSuspended_SeedingAllowed(t *testing.T) {
+	svc, userRepo, _, _ := setupTracker()
+
+	userRepo.mu.Lock()
+	userRepo.users[0].CanDownload = false
+	userRepo.mu.Unlock()
+
+	// Seeding (Left=0) should still be allowed even with download restriction.
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     0, // seeding
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("seeding should be allowed even with download restriction, got: %v", err)
 	}
 }
 

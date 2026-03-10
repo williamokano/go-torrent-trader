@@ -200,7 +200,7 @@ func setupAnnounceRouter() http.Handler {
 	pk := announcePasskey()
 	userRepo := &announceUserRepo{
 		users: []*model.User{
-			{ID: 1, Enabled: true, Passkey: &pk},
+			{ID: 1, Enabled: true, Passkey: &pk, CanDownload: true, CanUpload: true, CanChat: true},
 		},
 	}
 	torrentRepo := &announceTorrentRepo{

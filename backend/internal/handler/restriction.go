@@ -45,6 +45,11 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if actorID == userID {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "cannot restrict yourself")
+		return
+	}
+
 	var req setRestrictionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
@@ -60,8 +65,12 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
 		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 		if err != nil {
-			ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid expires_at format (use RFC3339)")
-			return
+			// Fall back to datetime-local format (e.g. "2026-03-10T15:30") and assume UTC.
+			t, err = time.ParseInLocation("2006-01-02T15:04", *req.ExpiresAt, time.UTC)
+			if err != nil {
+				ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid expires_at format (use RFC3339 or datetime-local)")
+				return
+			}
 		}
 		expiresAt = &t
 	}

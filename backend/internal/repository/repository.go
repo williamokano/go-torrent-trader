@@ -282,7 +282,8 @@ type RestrictionRepository interface {
 	ListByUser(ctx context.Context, userID int64) ([]model.Restriction, error)
 	ListActive(ctx context.Context) ([]model.Restriction, error)
 	Lift(ctx context.Context, id int64, liftedBy *int64) error
-	DeleteExpired(ctx context.Context) ([]model.Restriction, error)
+	LiftExpired(ctx context.Context) ([]model.Restriction, error)
+	HasActiveByType(ctx context.Context, userID int64, restrictionType string) (bool, error)
 }
 
 // DashboardStats holds aggregated counts for the admin dashboard.

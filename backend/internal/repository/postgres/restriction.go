@@ -138,9 +138,20 @@ func (r *RestrictionRepo) Lift(ctx context.Context, id int64, liftedBy *int64) e
 	return nil
 }
 
-// DeleteExpired lifts all restrictions past their expiry and returns them so the
+// HasActiveByType checks whether a user has any active (un-lifted) restriction
+// of the given type without loading all records.
+func (r *RestrictionRepo) HasActiveByType(ctx context.Context, userID int64, restrictionType string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM user_restrictions WHERE user_id = $1 AND restriction_type = $2 AND lifted_at IS NULL)`
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, query, userID, restrictionType).Scan(&exists); err != nil {
+		return false, fmt.Errorf("has active by type: %w", err)
+	}
+	return exists, nil
+}
+
+// LiftExpired lifts all restrictions past their expiry and returns them so the
 // caller can update user flags.
-func (r *RestrictionRepo) DeleteExpired(ctx context.Context) ([]model.Restriction, error) {
+func (r *RestrictionRepo) LiftExpired(ctx context.Context) ([]model.Restriction, error) {
 	query := `UPDATE user_restrictions
 		SET lifted_at = NOW()
 		WHERE lifted_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()
