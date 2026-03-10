@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -101,6 +102,8 @@ type AdminService struct {
 	modNotes repository.ModNoteRepository
 	torrents repository.TorrentRepository
 	warnings repository.WarningRepository
+	messages repository.MessageRepository
+	bans     *BanService
 }
 
 // NewAdminService creates a new AdminService.
@@ -131,6 +134,16 @@ func (s *AdminService) SetTorrentRepo(repo repository.TorrentRepository) {
 // SetWarningRepo sets the warning repository for user detail views.
 func (s *AdminService) SetWarningRepo(repo repository.WarningRepository) {
 	s.warnings = repo
+}
+
+// SetMessageRepo sets the message repository for sending PMs.
+func (s *AdminService) SetMessageRepo(repo repository.MessageRepository) {
+	s.messages = repo
+}
+
+// SetBanService sets the ban service for IP/email bans.
+func (s *AdminService) SetBanService(bans *BanService) {
+	s.bans = bans
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -645,6 +658,187 @@ func generateRandomPassword(length int) (string, error) {
 		result[i] = charset[n.Int64()]
 	}
 	return string(result), nil
+}
+
+// QuickBanRequest holds the parameters for the quick ban action.
+type QuickBanRequest struct {
+	Reason       string `json:"reason"`
+	BanIP        bool   `json:"ban_ip"`
+	BanEmail     bool   `json:"ban_email"`
+	DurationDays *int   `json:"duration_days"`
+}
+
+var ErrAdminBanReasonRequired = fmt.Errorf("ban reason is required")
+
+// QuickBanUser performs a full ban in a single operation: sends PM, disables user,
+// creates warning, optionally bans IP/email, invalidates sessions.
+func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64, req QuickBanRequest) error {
+	if req.Reason == "" {
+		return ErrAdminBanReasonRequired
+	}
+
+	actor, err := s.users.GetByID(ctx, actorID)
+	if err != nil {
+		return fmt.Errorf("load actor: %w", err)
+	}
+
+	target, err := s.users.GetByID(ctx, targetID)
+	if err != nil {
+		return ErrAdminUserNotFound
+	}
+
+	// Group-level check: actor must have higher group level than target
+	if err := s.assertHigherLevel(ctx, actor, target); err != nil {
+		return err
+	}
+
+	// 1. Send PM to user with ban reason BEFORE disabling
+	if s.messages != nil {
+		durationText := "permanent"
+		if req.DurationDays != nil {
+			durationText = fmt.Sprintf("%d days", *req.DurationDays)
+		}
+		body := fmt.Sprintf("Your account has been banned (%s).\n\nReason: %s", durationText, req.Reason)
+		msg := &model.Message{
+			SenderID:   actorID,
+			ReceiverID: targetID,
+			Subject:    "Account Banned",
+			Body:       body,
+		}
+		_ = s.messages.Create(ctx, msg)
+	}
+
+	// 2. Disable the user
+	target.Enabled = false
+
+	// 7. Set disabled_until for temporary bans
+	if req.DurationDays != nil && *req.DurationDays > 0 {
+		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
+		target.DisabledUntil = &until
+	}
+
+	if err := s.users.Update(ctx, target); err != nil {
+		return fmt.Errorf("disable user: %w", err)
+	}
+
+	// 3. Create a warning record
+	if s.warnings != nil {
+		w := &model.Warning{
+			UserID:   targetID,
+			Type:     model.WarningTypeManual,
+			Reason:   req.Reason,
+			IssuedBy: &actorID,
+			Status:   model.WarningStatusEscalated,
+		}
+		if err := s.warnings.Create(ctx, w); err != nil {
+			slog.Error("quick ban: failed to create warning", "user_id", targetID, "error", err)
+		}
+	}
+
+	// 4. Ban IP if requested
+	if req.BanIP && s.bans != nil {
+		ip := ""
+		if target.IP != nil {
+			ip = *target.IP
+		}
+		if ip != "" {
+			reason := fmt.Sprintf("Quick ban of %s: %s", target.Username, req.Reason)
+			if err := s.bans.BanIP(ctx, actorID, actor.Username, &model.BannedIP{
+				IPRange: ip,
+				Reason:  &reason,
+			}); err != nil {
+				slog.Error("quick ban: failed to ban IP", "ip", ip, "error", err)
+			}
+		}
+	}
+
+	// 5. Ban email domain if requested
+	if req.BanEmail && s.bans != nil {
+		parts := splitEmail(target.Email)
+		if parts != "" {
+			pattern := "*@" + parts
+			reason := fmt.Sprintf("Quick ban of %s: %s", target.Username, req.Reason)
+			if err := s.bans.BanEmail(ctx, actorID, actor.Username, &model.BannedEmail{
+				Pattern: pattern,
+				Reason:  &reason,
+			}); err != nil {
+				slog.Error("quick ban: failed to ban email domain", "pattern", pattern, "error", err)
+			}
+		}
+	}
+
+	// 6. Invalidate all sessions
+	if s.sessions != nil {
+		s.sessions.DeleteByUserID(targetID)
+	}
+
+	// 8. Publish event
+	evtActor := event.Actor{ID: actorID, Username: actor.Username}
+	s.eventBus.Publish(ctx, &event.UserQuickBannedEvent{
+		Base:         event.NewBase(event.UserQuickBanned, evtActor),
+		UserID:       targetID,
+		Username:     target.Username,
+		Reason:       req.Reason,
+		BanIP:        req.BanIP,
+		BanEmail:     req.BanEmail,
+		DurationDays: req.DurationDays,
+	})
+
+	return nil
+}
+
+// splitEmail extracts the domain from an email address.
+func splitEmail(email string) string {
+	at := len(email) - 1
+	for at >= 0 && email[at] != '@' {
+		at--
+	}
+	if at < 0 || at == len(email)-1 {
+		return ""
+	}
+	return email[at+1:]
+}
+
+// ReEnableExpiredBans re-enables users whose disabled_until has passed.
+// Returns the number of users re-enabled.
+func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
+	// We need to list users who are disabled and have a disabled_until in the past.
+	// Since UserRepository doesn't have a dedicated method for this, we use the List
+	// method with enabled=false and then filter.
+	disabled := false
+	users, _, err := s.users.List(ctx, repository.ListUsersOptions{
+		Enabled: &disabled,
+		PerPage: 1000,
+		Page:    1,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("list disabled users: %w", err)
+	}
+
+	now := time.Now()
+	count := 0
+	for i := range users {
+		u := &users[i]
+		if u.DisabledUntil != nil && u.DisabledUntil.Before(now) {
+			u.Enabled = true
+			u.DisabledUntil = nil
+			if err := s.users.Update(ctx, u); err != nil {
+				slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)
+				continue
+			}
+			count++
+
+			// Publish unban event
+			systemActor := event.Actor{ID: 0, Username: "System"}
+			s.eventBus.Publish(ctx, &event.UserUnbannedEvent{
+				Base:     event.NewBase(event.UserUnbanned, systemActor),
+				UserID:   u.ID,
+				Username: u.Username,
+			})
+		}
+	}
+
+	return count, nil
 }
 
 // ListGroups returns all groups ordered by level.

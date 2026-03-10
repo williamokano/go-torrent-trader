@@ -607,6 +607,408 @@ func TestAdminCreateModNote_TooLong(t *testing.T) {
 	}
 }
 
+// mockWarningRepoForAdmin is a simplified warning repo mock for admin tests.
+type mockWarningRepoForAdmin struct {
+	warnings []*model.Warning
+	nextID   int64
+}
+
+func newMockWarningRepoForAdmin() *mockWarningRepoForAdmin {
+	return &mockWarningRepoForAdmin{nextID: 1}
+}
+
+func (m *mockWarningRepoForAdmin) Create(_ context.Context, w *model.Warning) error {
+	w.ID = m.nextID
+	m.nextID++
+	w.CreatedAt = time.Now()
+	w.UpdatedAt = time.Now()
+	m.warnings = append(m.warnings, w)
+	return nil
+}
+
+func (m *mockWarningRepoForAdmin) GetByID(_ context.Context, id int64) (*model.Warning, error) {
+	for _, w := range m.warnings {
+		if w.ID == id {
+			return w, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (m *mockWarningRepoForAdmin) ListByUser(_ context.Context, _ int64, _ bool) ([]model.Warning, error) {
+	return nil, nil
+}
+
+func (m *mockWarningRepoForAdmin) ListAll(_ context.Context, _ repository.ListWarningsOptions) ([]model.Warning, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockWarningRepoForAdmin) Update(_ context.Context, _ *model.Warning) error {
+	return nil
+}
+
+func (m *mockWarningRepoForAdmin) CountActiveByUser(_ context.Context, userID int64) (int, error) {
+	count := 0
+	for _, w := range m.warnings {
+		if w.UserID == userID && w.Status == model.WarningStatusActive {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockWarningRepoForAdmin) GetActiveRatioWarning(_ context.Context, _ int64) (*model.Warning, error) {
+	return nil, errors.New("not found")
+}
+
+func (m *mockWarningRepoForAdmin) GetUsersWithLowRatio(_ context.Context, _ float64, _ int64) ([]model.User, error) {
+	return nil, nil
+}
+
+func (m *mockWarningRepoForAdmin) ResolveExpiredManualWarnings(_ context.Context) ([]int64, error) {
+	return nil, nil
+}
+
+// mockMessageRepoForAdmin is a simplified message repo mock for admin tests.
+type mockMessageRepoForAdmin struct {
+	messages []*model.Message
+	nextID   int64
+}
+
+func newMockMessageRepoForAdmin() *mockMessageRepoForAdmin {
+	return &mockMessageRepoForAdmin{nextID: 1}
+}
+
+func (m *mockMessageRepoForAdmin) Create(_ context.Context, msg *model.Message) error {
+	msg.ID = m.nextID
+	m.nextID++
+	m.messages = append(m.messages, msg)
+	return nil
+}
+
+func (m *mockMessageRepoForAdmin) GetByID(_ context.Context, _ int64) (*model.Message, error) {
+	return nil, errors.New("not found")
+}
+
+func (m *mockMessageRepoForAdmin) ListInbox(_ context.Context, _ int64, _, _ int) ([]model.Message, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockMessageRepoForAdmin) ListOutbox(_ context.Context, _ int64, _, _ int) ([]model.Message, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockMessageRepoForAdmin) MarkAsRead(_ context.Context, _, _ int64) error {
+	return nil
+}
+
+func (m *mockMessageRepoForAdmin) DeleteForUser(_ context.Context, _, _ int64) error {
+	return nil
+}
+
+func (m *mockMessageRepoForAdmin) CountUnread(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
+
+// mockBanRepoForAdmin is a simplified ban repo mock for admin tests.
+type mockBanRepoForAdmin struct {
+	emailBans []*model.BannedEmail
+	ipBans    []*model.BannedIP
+	nextID    int64
+}
+
+func newMockBanRepoForAdmin() *mockBanRepoForAdmin {
+	return &mockBanRepoForAdmin{nextID: 1}
+}
+
+func (m *mockBanRepoForAdmin) CreateEmailBan(_ context.Context, ban *model.BannedEmail) error {
+	ban.ID = m.nextID
+	m.nextID++
+	m.emailBans = append(m.emailBans, ban)
+	return nil
+}
+
+func (m *mockBanRepoForAdmin) DeleteEmailBan(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (m *mockBanRepoForAdmin) ListEmailBans(_ context.Context) ([]model.BannedEmail, error) {
+	var result []model.BannedEmail
+	for _, b := range m.emailBans {
+		result = append(result, *b)
+	}
+	return result, nil
+}
+
+func (m *mockBanRepoForAdmin) IsEmailBanned(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockBanRepoForAdmin) CreateIPBan(_ context.Context, ban *model.BannedIP) error {
+	ban.ID = m.nextID
+	m.nextID++
+	m.ipBans = append(m.ipBans, ban)
+	return nil
+}
+
+func (m *mockBanRepoForAdmin) DeleteIPBan(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (m *mockBanRepoForAdmin) ListIPBans(_ context.Context) ([]model.BannedIP, error) {
+	var result []model.BannedIP
+	for _, b := range m.ipBans {
+		result = append(result, *b)
+	}
+	return result, nil
+}
+
+func (m *mockBanRepoForAdmin) IsIPBanned(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func newAdminServiceForBanTests(t *testing.T) (*AdminService, *mockUserRepo, *mockBanRepoForAdmin, *mockWarningRepoForAdmin, *mockMessageRepoForAdmin, *memorySessionStore) {
+	t.Helper()
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	sessions := newTestSessionStore()
+	warningRepo := newMockWarningRepoForAdmin()
+	messageRepo := newMockMessageRepoForAdmin()
+	banRepo := newMockBanRepoForAdmin()
+	bus := event.NewInMemoryBus()
+
+	svc := NewAdminService(userRepo, groupRepo, bus)
+	svc.SetSessionStore(sessions)
+	svc.SetWarningRepo(warningRepo)
+	svc.SetMessageRepo(messageRepo)
+
+	banSvc := NewBanService(banRepo, bus)
+	svc.SetBanService(banSvc)
+
+	return svc, userRepo, banRepo, warningRepo, messageRepo, sessions
+}
+
+func TestQuickBanUser_Basic(t *testing.T) {
+	svc, userRepo, _, warningRepo, messageRepo, sessions := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1) // level 100
+	target := createTestUserForAdmin(t, userRepo, 5) // level 20
+	ip := "192.168.1.100"
+	target.IP = &ip
+	_ = userRepo.Update(context.Background(), target)
+
+	// Create a session for the target
+	_ = sessions.Create(&Session{
+		UserID:           target.ID,
+		AccessToken:      "target-token",
+		RefreshToken:     "target-refresh",
+		ExpiresAt:        time.Now().Add(time.Hour),
+		RefreshExpiresAt: time.Now().Add(24 * time.Hour),
+	})
+
+	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason: "Spamming torrents",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify user is disabled
+	updated, _ := userRepo.GetByID(context.Background(), target.ID)
+	if updated.Enabled {
+		t.Error("expected user to be disabled")
+	}
+
+	// Verify PM was sent
+	if len(messageRepo.messages) != 1 {
+		t.Fatalf("expected 1 PM, got %d", len(messageRepo.messages))
+	}
+	if messageRepo.messages[0].ReceiverID != target.ID {
+		t.Error("PM should be sent to the target user")
+	}
+
+	// Verify warning was created
+	if len(warningRepo.warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(warningRepo.warnings))
+	}
+	if warningRepo.warnings[0].Status != model.WarningStatusEscalated {
+		t.Error("expected escalated warning status")
+	}
+
+	// Verify session was invalidated
+	if sessions.GetByAccessToken("target-token") != nil {
+		t.Error("expected target session to be deleted")
+	}
+}
+
+func TestQuickBanUser_WithIPAndEmailBan(t *testing.T) {
+	svc, userRepo, banRepo, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+	ip := "10.0.0.1"
+	target.IP = &ip
+	target.Email = "baduser@evil.com"
+	_ = userRepo.Update(context.Background(), target)
+
+	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason:   "Malicious activity",
+		BanIP:    true,
+		BanEmail: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify IP ban was created
+	if len(banRepo.ipBans) != 1 {
+		t.Fatalf("expected 1 IP ban, got %d", len(banRepo.ipBans))
+	}
+	if banRepo.ipBans[0].IPRange != "10.0.0.1" {
+		t.Errorf("expected IP 10.0.0.1, got %s", banRepo.ipBans[0].IPRange)
+	}
+
+	// Verify email ban was created
+	if len(banRepo.emailBans) != 1 {
+		t.Fatalf("expected 1 email ban, got %d", len(banRepo.emailBans))
+	}
+	if banRepo.emailBans[0].Pattern != "*@evil.com" {
+		t.Errorf("expected *@evil.com, got %s", banRepo.emailBans[0].Pattern)
+	}
+}
+
+func TestQuickBanUser_TemporaryBan(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	days := 7
+	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason:       "Minor infraction",
+		DurationDays: &days,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated, _ := userRepo.GetByID(context.Background(), target.ID)
+	if updated.Enabled {
+		t.Error("expected user to be disabled")
+	}
+	if updated.DisabledUntil == nil {
+		t.Fatal("expected disabled_until to be set")
+	}
+
+	// Should be approximately 7 days from now
+	expected := time.Now().Add(7 * 24 * time.Hour)
+	diff := updated.DisabledUntil.Sub(expected)
+	if diff > time.Minute || diff < -time.Minute {
+		t.Errorf("expected disabled_until ~7 days from now, got %v", updated.DisabledUntil)
+	}
+}
+
+func TestQuickBanUser_InsufficientLevel(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	// Both same level
+	user1 := createTestUserForAdmin(t, userRepo, 5)
+	user2 := createTestUserForAdmin(t, userRepo, 5)
+
+	err := svc.QuickBanUser(context.Background(), user1.ID, user2.ID, QuickBanRequest{
+		Reason: "test",
+	})
+	if !errors.Is(err, ErrAdminInsufficientLevel) {
+		t.Errorf("expected ErrAdminInsufficientLevel, got %v", err)
+	}
+}
+
+func TestQuickBanUser_EmptyReason(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+
+	err := svc.QuickBanUser(context.Background(), admin.ID, target.ID, QuickBanRequest{
+		Reason: "",
+	})
+	if !errors.Is(err, ErrAdminBanReasonRequired) {
+		t.Errorf("expected ErrAdminBanReasonRequired, got %v", err)
+	}
+}
+
+func TestQuickBanUser_TargetNotFound(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+
+	err := svc.QuickBanUser(context.Background(), admin.ID, 9999, QuickBanRequest{
+		Reason: "test",
+	})
+	if !errors.Is(err, ErrAdminUserNotFound) {
+		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
+	}
+}
+
+func TestReEnableExpiredBans(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+
+	// Create a user with an expired ban
+	target := createTestUserForAdmin(t, userRepo, 5)
+	target.Enabled = false
+	past := time.Now().Add(-1 * time.Hour)
+	target.DisabledUntil = &past
+	_ = userRepo.Update(context.Background(), target)
+
+	// Create a user with a future ban (should not be re-enabled)
+	future := time.Now().Add(24 * time.Hour)
+	target2 := createTestUserForAdmin(t, userRepo, 5)
+	target2.Enabled = false
+	target2.DisabledUntil = &future
+	_ = userRepo.Update(context.Background(), target2)
+
+	count, err := svc.ReEnableExpiredBans(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 re-enabled, got %d", count)
+	}
+
+	updated, _ := userRepo.GetByID(context.Background(), target.ID)
+	if !updated.Enabled {
+		t.Error("expected user to be re-enabled")
+	}
+	if updated.DisabledUntil != nil {
+		t.Error("expected disabled_until to be cleared")
+	}
+
+	// target2 should still be disabled
+	updated2, _ := userRepo.GetByID(context.Background(), target2.ID)
+	if updated2.Enabled {
+		t.Error("expected target2 to still be disabled")
+	}
+}
+
+func TestSplitEmail(t *testing.T) {
+	tests := []struct {
+		email    string
+		expected string
+	}{
+		{"user@example.com", "example.com"},
+		{"test@domain.co.uk", "domain.co.uk"},
+		{"noemail", ""},
+		{"@", ""},
+		{"user@", ""},
+	}
+	for _, tt := range tests {
+		got := splitEmail(tt.email)
+		if got != tt.expected {
+			t.Errorf("splitEmail(%q) = %q, want %q", tt.email, got, tt.expected)
+		}
+	}
+}
+
 func TestAdminListUsers_WithLastAccess(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()

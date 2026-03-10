@@ -197,7 +197,7 @@ func (r *WarningRepo) GetUsersWithLowRatio(ctx context.Context, threshold float6
 	query := `SELECT id, username, email, password_hash, password_scheme, passkey,
 		group_id, uploaded, downloaded, avatar, title, info,
 		enabled, parked, ip, last_login, last_access, invites,
-		warned, warn_until, donor, invited_by, created_at, updated_at
+		warned, warn_until, donor, invited_by, disabled_until, created_at, updated_at
 		FROM users
 		WHERE enabled = true
 		  AND downloaded > $1
@@ -215,7 +215,7 @@ func (r *WarningRepo) GetUsersWithLowRatio(ctx context.Context, threshold float6
 			&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.PasswordScheme, &u.Passkey,
 			&u.GroupID, &u.Uploaded, &u.Downloaded, &u.Avatar, &u.Title, &u.Info,
 			&u.Enabled, &u.Parked, &u.IP, &u.LastLogin, &u.LastAccess, &u.Invites,
-			&u.Warned, &u.WarnUntil, &u.Donor, &u.InvitedBy, &u.CreatedAt, &u.UpdatedAt,
+			&u.Warned, &u.WarnUntil, &u.Donor, &u.InvitedBy, &u.DisabledUntil, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}

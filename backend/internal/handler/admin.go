@@ -311,6 +311,45 @@ func (h *AdminHandler) HandleDeleteModNote(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// HandleQuickBan handles POST /api/v1/admin/users/{id}/ban.
+func (h *AdminHandler) HandleQuickBan(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	var req service.QuickBanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	if err := h.admin.QuickBanUser(r.Context(), actorID, id, req); err != nil {
+		switch {
+		case errors.Is(err, service.ErrAdminUserNotFound):
+			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
+		case errors.Is(err, service.ErrAdminInsufficientLevel):
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions to ban this user")
+		case errors.Is(err, service.ErrAdminBanReasonRequired):
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "ban reason is required")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to ban user")
+		}
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "user banned successfully",
+	})
+}
+
 // HandleListTorrents handles GET /api/v1/admin/torrents.
 func (h *AdminHandler) HandleListTorrents(w http.ResponseWriter, r *http.Request) {
 	opts := repository.ListTorrentsOptions{}

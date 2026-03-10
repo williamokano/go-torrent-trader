@@ -223,6 +223,22 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		actor := resolveActor(userRepo, e.Actor)
 		return fmt.Sprintf("%s restored %s privilege for %s", actor, e.RestrictionType, e.Username), e.Actor
 	})
+
+	listen(event.UserQuickBanned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.UserQuickBannedEvent)
+		duration := "permanently"
+		if e.DurationDays != nil {
+			duration = fmt.Sprintf("for %d days", *e.DurationDays)
+		}
+		extras := ""
+		if e.BanIP {
+			extras += " +IP"
+		}
+		if e.BanEmail {
+			extras += " +email"
+		}
+		return fmt.Sprintf("%s banned %s %s%s: %s", e.Actor.Username, e.Username, duration, extras, e.Reason), e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.

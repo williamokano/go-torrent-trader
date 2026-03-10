@@ -190,6 +190,8 @@ func run() int {
 	adminService.SetModNoteRepo(modNoteRepo)
 	adminService.SetTorrentRepo(torrentRepo)
 	adminService.SetWarningRepo(warningRepo)
+	adminService.SetMessageRepo(messageRepo)
+	adminService.SetBanService(banService)
 
 	reportService.SetWarningService(warningService)
 	reportService.SetTorrentService(torrentService)
@@ -251,6 +253,7 @@ func run() int {
 		StatsCache:      statsCache,
 		ChatSvc:         chatService,
 		RestrictionSvc:  restrictionService,
+		AdminSvc:        adminService,
 		SendToUser:      chatHub.SendToUser,
 	}
 

@@ -45,6 +45,7 @@ const (
 	PasskeyReset            Type = "passkey_reset"
 	RestrictionApplied      Type = "restriction_applied"
 	RestrictionLifted       Type = "restriction_lifted"
+	UserQuickBanned         Type = "user_quick_banned"
 )
 
 // Event is the base interface for all domain events.
@@ -316,4 +317,14 @@ type RestrictionLiftedEvent struct {
 	UserID          int64  `json:"user_id"`
 	Username        string `json:"username"`
 	RestrictionType string `json:"restriction_type"`
+}
+
+type UserQuickBannedEvent struct {
+	Base
+	UserID       int64  `json:"user_id"`
+	Username     string `json:"username"`
+	Reason       string `json:"reason"`
+	BanIP        bool   `json:"ban_ip"`
+	BanEmail     bool   `json:"ban_email"`
+	DurationDays *int   `json:"duration_days,omitempty"`
 }

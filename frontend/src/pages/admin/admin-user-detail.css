@@ -1,5 +1,9 @@
 .admin-user-detail__header {
   margin-bottom: var(--space-lg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .admin-user-detail__header h1 {
@@ -13,6 +17,21 @@
   font-weight: 400;
   color: var(--color-text-muted);
   margin-top: var(--space-xs);
+}
+
+.admin-user-detail__ban-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-danger, #dc3545);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.admin-user-detail__ban-btn:hover {
+  opacity: 0.85;
 }
 
 .admin-user-detail__back {

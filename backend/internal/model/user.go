@@ -29,6 +29,7 @@ type User struct {
 	CanDownload    bool
 	CanUpload      bool
 	CanChat        bool
+	DisabledUntil  *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
