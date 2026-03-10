@@ -22,6 +22,7 @@ export function Shoutbox() {
     isStaff,
     muted,
     muteExpiresAt,
+    chatSuspended,
     setMainChatVisible,
     sendMessage,
     deleteMessage,
@@ -149,17 +150,17 @@ export function Shoutbox() {
         <input
           className="shoutbox__input"
           type="text"
-          placeholder={muted ? "You are muted" : "Type a message..."}
+          placeholder={chatSuspended ? "Chat suspended" : muted ? "You are muted" : "Type a message..."}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           maxLength={500}
-          disabled={!connected || muted}
+          disabled={!connected || muted || chatSuspended}
         />
         <button
           className="shoutbox__send-btn"
           onClick={handleSend}
-          disabled={!connected || !input.trim() || muted}
+          disabled={!connected || !input.trim() || muted || chatSuspended}
         >
           Send
         </button>

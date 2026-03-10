@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,11 +17,12 @@ import (
 // RestrictionHandler handles admin restriction endpoints.
 type RestrictionHandler struct {
 	restrictionSvc *service.RestrictionService
+	hub            *ChatHub
 }
 
 // NewRestrictionHandler creates a new RestrictionHandler.
-func NewRestrictionHandler(restrictionSvc *service.RestrictionService) *RestrictionHandler {
-	return &RestrictionHandler{restrictionSvc: restrictionSvc}
+func NewRestrictionHandler(restrictionSvc *service.RestrictionService, hub *ChatHub) *RestrictionHandler {
+	return &RestrictionHandler{restrictionSvc: restrictionSvc, hub: hub}
 }
 
 type setRestrictionsRequest struct {
@@ -113,6 +115,30 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 						return
 					}
 				}
+			}
+		}
+	}
+
+	// Send real-time WS notification for chat privilege changes.
+	if h.hub != nil && req.CanChat != nil {
+		if !*req.CanChat {
+			// Chat suspended
+			payload, err := json.Marshal(map[string]interface{}{
+				"type":    "chat_suspended",
+				"reason":  req.Reason,
+			})
+			if err == nil {
+				h.hub.SendToUser(userID, payload)
+			} else {
+				slog.Error("failed to marshal chat_suspended notification", "error", err)
+			}
+		} else {
+			// Chat restored
+			payload, err := json.Marshal(map[string]string{"type": "chat_restored"})
+			if err == nil {
+				h.hub.SendToUser(userID, payload)
+			} else {
+				slog.Error("failed to marshal chat_restored notification", "error", err)
 			}
 		}
 	}

@@ -20,6 +20,8 @@ export interface ChatContextValue {
   muted: boolean;
   /** ISO timestamp when the mute expires */
   muteExpiresAt: string | null;
+  /** Whether chat privilege is suspended (admin restriction) */
+  chatSuspended: boolean;
   /** Whether the full-size shoutbox (home page) is currently mounted */
   mainChatVisible: boolean;
   setMainChatVisible: (visible: boolean) => void;
@@ -48,6 +50,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(false);
   const [muteExpiresAt, setMuteExpiresAt] = useState<string | null>(null);
+  const [chatSuspended, setChatSuspended] = useState(false);
   const [mainChatVisible, setMainChatVisible] = useState(false);
   const [pmUnreadCount, setPmUnreadCount] = useState(0);
   const muteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,6 +120,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             clearTimeout(muteTimerRef.current);
             muteTimerRef.current = null;
           }
+          break;
+        case "chat_suspended":
+          setChatSuspended(true);
+          toast.error("Your chat privileges have been suspended");
+          break;
+        case "chat_restored":
+          setChatSuspended(false);
+          toast.success("Your chat privileges have been restored");
           break;
         case "pm_notification":
           setPmUnreadCount(event.unread_count);
@@ -296,6 +307,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         isStaff: user?.isStaff ?? false,
         muted,
         muteExpiresAt,
+        chatSuspended: chatSuspended || (user?.can_chat === false),
         mainChatVisible,
         setMainChatVisible,
         pmUnreadCount,

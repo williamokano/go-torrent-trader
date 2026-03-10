@@ -351,7 +351,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 					// Restriction management endpoints
 					if deps.RestrictionService != nil {
-						restrictions := NewRestrictionHandler(deps.RestrictionService)
+						restrictions := NewRestrictionHandler(deps.RestrictionService, deps.ChatHub)
 						r.Put("/users/{id}/restrictions", restrictions.HandleSetRestrictions)
 						r.Get("/users/{id}/restrictions", restrictions.HandleListRestrictions)
 						r.Delete("/restrictions/{id}", restrictions.HandleLiftRestriction)
