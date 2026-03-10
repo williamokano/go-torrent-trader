@@ -246,7 +246,7 @@ func TestHandleListReports_AdminOnly(t *testing.T) {
 
 	// Regular user (groupID=5) should get 403
 	userToken := createSessionWithGroup(sessions, 400, 5)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reports", nil)
 	req.Header.Set("Authorization", "Bearer "+userToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -276,7 +276,7 @@ func TestHandleListReports_AsAdmin(t *testing.T) {
 
 	// List as admin
 	adminToken := createSessionWithGroup(sessions, 501, 1)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/reports", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reports", nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -322,7 +322,7 @@ func TestHandleResolveReport_AsAdmin(t *testing.T) {
 
 	// Resolve as admin
 	adminToken := createSessionWithGroup(sessions, 601, 1)
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/reports/%d/resolve", id), nil)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/admin/reports/%d/resolve", id), nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -351,7 +351,7 @@ func TestHandleResolveReport_NonAdmin(t *testing.T) {
 	}
 
 	// Try to resolve as non-admin
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/reports/1/resolve", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/reports/1/resolve", nil)
 	req.Header.Set("Authorization", "Bearer "+userToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -365,7 +365,7 @@ func TestHandleResolveReport_NotFound(t *testing.T) {
 	router, sessions := setupReportRouter()
 
 	adminToken := createSessionWithGroup(sessions, 800, 1)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/reports/999/resolve", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/reports/999/resolve", nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
