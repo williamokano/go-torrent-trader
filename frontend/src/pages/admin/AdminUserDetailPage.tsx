@@ -753,12 +753,18 @@ export function AdminUserDetailPage() {
             value={restrictionReason}
             onChange={(e) => setRestrictionReason(e.target.value)}
           />
-          <Input
-            label="Expires At (optional)"
-            type="datetime-local"
-            value={restrictionExpiry}
-            onChange={(e) => setRestrictionExpiry(e.target.value)}
-          />
+          <div className="admin-user-detail__field-group">
+            <label htmlFor="restriction-expiry" className="admin-user-detail__field-label">
+              Expires At (optional)
+            </label>
+            <input
+              id="restriction-expiry"
+              type="datetime-local"
+              value={restrictionExpiry}
+              onChange={(e) => setRestrictionExpiry(e.target.value)}
+              className="admin-user-detail__date-input"
+            />
+          </div>
           <button
             className="admin-user-detail__add-note-btn"
             onClick={handleApplyRestrictions}
