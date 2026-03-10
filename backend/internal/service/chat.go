@@ -170,7 +170,7 @@ func (s *ChatService) MuteUser(ctx context.Context, userID, actorID int64, durat
 
 	mute := &model.ChatMute{
 		UserID:    userID,
-		MutedBy:   actorID,
+		MutedBy:   &actorID,
 		Reason:    strings.TrimSpace(reason),
 		ExpiresAt: time.Now().Add(time.Duration(durationMinutes) * time.Minute),
 	}
@@ -201,7 +201,7 @@ func (s *ChatService) SystemMuteUser(ctx context.Context, userID int64, duration
 
 	mute := &model.ChatMute{
 		UserID:    userID,
-		MutedBy:   0, // system
+		MutedBy:   nil, // system-initiated
 		Reason:    strings.TrimSpace(reason),
 		ExpiresAt: time.Now().Add(time.Duration(durationMinutes) * time.Minute),
 	}

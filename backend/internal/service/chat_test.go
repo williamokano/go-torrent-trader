@@ -257,7 +257,7 @@ func TestChatService_SendMessage_Muted(t *testing.T) {
 	muteRepo.mutes = append(muteRepo.mutes, model.ChatMute{
 		ID:        1,
 		UserID:    1,
-		MutedBy:   2,
+		MutedBy:   ptrInt64(2),
 		ExpiresAt: time.Now().Add(10 * time.Minute),
 		CreatedAt: time.Now(),
 	})
@@ -473,8 +473,8 @@ func TestChatService_SystemMuteUser(t *testing.T) {
 		if mute.UserID != 1 {
 			t.Errorf("expected user_id 1, got %d", mute.UserID)
 		}
-		if mute.MutedBy != 0 {
-			t.Errorf("expected muted_by 0 (system), got %d", mute.MutedBy)
+		if mute.MutedBy != nil {
+			t.Errorf("expected muted_by nil (system), got %v", mute.MutedBy)
 		}
 		if mute.Reason != "Automatic mute: chat spam/flooding" {
 			t.Errorf("unexpected reason: %q", mute.Reason)
@@ -510,7 +510,7 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 	muteRepo.mutes = append(muteRepo.mutes, model.ChatMute{
 		ID:        1,
 		UserID:    1,
-		MutedBy:   2,
+		MutedBy:   ptrInt64(2),
 		ExpiresAt: time.Now().Add(-1 * time.Hour),
 		CreatedAt: time.Now().Add(-2 * time.Hour),
 	})
@@ -518,7 +518,7 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 	muteRepo.mutes = append(muteRepo.mutes, model.ChatMute{
 		ID:        2,
 		UserID:    2,
-		MutedBy:   1,
+		MutedBy:   ptrInt64(1),
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 		CreatedAt: time.Now(),
 	})
@@ -534,3 +534,5 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 		t.Errorf("expected 1 remaining mute, got %d", len(muteRepo.mutes))
 	}
 }
+
+func ptrInt64(v int64) *int64 { return &v }
