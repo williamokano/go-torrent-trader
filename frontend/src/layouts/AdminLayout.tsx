@@ -32,6 +32,14 @@ export function AdminLayout() {
           Reports
         </NavLink>
         <NavLink
+          to="/admin/torrents"
+          className={({ isActive }) =>
+            `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`
+          }
+        >
+          Torrents
+        </NavLink>
+        <NavLink
           to="/admin/categories"
           className={({ isActive }) =>
             `admin-layout__nav-link${isActive ? " admin-layout__nav-link--active" : ""}`

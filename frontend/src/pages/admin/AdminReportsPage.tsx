@@ -5,6 +5,7 @@ import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
+import { Modal } from "@/components/modal/Modal";
 import { timeAgo } from "@/utils/format";
 import "./admin-reports.css";
 
@@ -21,6 +22,8 @@ interface Report {
   created_at: string;
 }
 
+type ResolveAction = "resolve" | "warn" | "delete";
+
 const PER_PAGE = 25;
 
 export function AdminReportsPage() {
@@ -33,7 +36,8 @@ export function AdminReportsPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [resolving, setResolving] = useState<number | null>(null);
+  const [resolvingReport, setResolvingReport] = useState<Report | null>(null);
+  const [resolveLoading, setResolveLoading] = useState(false);
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -81,25 +85,36 @@ export function AdminReportsPage() {
     setSearchParams(next);
   };
 
-  const handleResolve = async (reportId: number) => {
-    setResolving(reportId);
+  const handleResolveAction = async (action: ResolveAction) => {
+    if (!resolvingReport) return;
+    setResolveLoading(true);
     const token = getAccessToken();
     try {
       const res = await fetch(
-        `${getConfig().API_URL}/api/v1/reports/${reportId}/resolve`,
+        `${getConfig().API_URL}/api/v1/reports/${resolvingReport.id}/resolve`,
         {
           method: "PUT",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action }),
         },
       );
       if (res.ok) {
-        toast.success("Report resolved");
+        const labels: Record<ResolveAction, string> = {
+          resolve: "Report resolved",
+          warn: "Report resolved and user warned",
+          delete: "Report resolved and torrent deleted",
+        };
+        toast.success(labels[action]);
+        setResolvingReport(null);
         fetchReports();
       } else {
         toast.error("Failed to resolve report");
       }
     } finally {
-      setResolving(null);
+      setResolveLoading(false);
     }
   };
 
@@ -175,10 +190,9 @@ export function AdminReportsPage() {
                     {!report.resolved && (
                       <button
                         className="admin-reports__resolve-btn"
-                        onClick={() => handleResolve(report.id)}
-                        disabled={resolving === report.id}
+                        onClick={() => setResolvingReport(report)}
                       >
-                        {resolving === report.id ? "..." : "Resolve"}
+                        Resolve
                       </button>
                     )}
                   </td>
@@ -193,6 +207,59 @@ export function AdminReportsPage() {
             onPageChange={handlePageChange}
           />
         </>
+      )}
+
+      {resolvingReport && (
+        <Modal
+          isOpen
+          onClose={() => !resolveLoading && setResolvingReport(null)}
+          title="Resolve Report"
+        >
+          <div className="admin-reports__resolve-modal">
+            <p className="admin-reports__resolve-reason">
+              <strong>Reason:</strong> {resolvingReport.reason}
+            </p>
+            {resolvingReport.torrent_name && (
+              <p className="admin-reports__resolve-torrent">
+                <strong>Torrent:</strong> {resolvingReport.torrent_name}
+              </p>
+            )}
+            <div className="admin-reports__resolve-actions">
+              <button
+                className="admin-reports__resolve-action-btn admin-reports__resolve-action-btn--resolve"
+                onClick={() => handleResolveAction("resolve")}
+                disabled={resolveLoading}
+              >
+                Resolve Only
+              </button>
+              {resolvingReport.torrent_id && (
+                <>
+                  <button
+                    className="admin-reports__resolve-action-btn admin-reports__resolve-action-btn--warn"
+                    onClick={() => handleResolveAction("warn")}
+                    disabled={resolveLoading}
+                  >
+                    Resolve &amp; Warn User
+                  </button>
+                  <button
+                    className="admin-reports__resolve-action-btn admin-reports__resolve-action-btn--delete"
+                    onClick={() => handleResolveAction("delete")}
+                    disabled={resolveLoading}
+                  >
+                    Resolve &amp; Delete Torrent
+                  </button>
+                </>
+              )}
+            </div>
+            <button
+              className="admin-reports__resolve-cancel"
+              onClick={() => setResolvingReport(null)}
+              disabled={resolveLoading}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

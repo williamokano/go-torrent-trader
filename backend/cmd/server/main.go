@@ -183,6 +183,14 @@ func run() int {
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	adminService.SetSessionStore(sessionStore)
 	adminService.SetEmailSender(emailSender)
+	modNoteRepo := postgres.NewModNoteRepo(db)
+	adminService.SetModNoteRepo(modNoteRepo)
+	adminService.SetTorrentRepo(torrentRepo)
+	adminService.SetWarningRepo(warningRepo)
+
+	reportService.SetWarningService(warningService)
+	reportService.SetTorrentService(torrentService)
+
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)

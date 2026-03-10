@@ -40,6 +40,8 @@ import { FormattingPage } from "@/pages/FormattingPage";
 import { AdminDashboardPage } from "@/pages/admin/AdminDashboardPage";
 import { AdminChatMutesPage } from "@/pages/admin/AdminChatMutesPage";
 import { AdminNewsPage } from "@/pages/admin/AdminNewsPage";
+import { AdminUserDetailPage } from "@/pages/admin/AdminUserDetailPage";
+import { AdminTorrentsPage } from "@/pages/admin/AdminTorrentsPage";
 import { NewsListPage } from "@/pages/NewsListPage";
 import { NewsDetailPage } from "@/pages/NewsDetailPage";
 
@@ -147,7 +149,9 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <AdminDashboardPage /> },
           { path: "users", element: <AdminUsersPage /> },
+          { path: "users/:id", element: <AdminUserDetailPage /> },
           { path: "reports", element: <AdminReportsPage /> },
+          { path: "torrents", element: <AdminTorrentsPage /> },
           { path: "categories", element: <AdminCategoriesPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
           { path: "warnings", element: <AdminWarningsPage /> },

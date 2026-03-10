@@ -301,10 +301,18 @@ func NewRouter(deps *Deps) chi.Router {
 					if deps.AdminService != nil {
 						admin := NewAdminHandler(deps.AdminService)
 						r.Get("/users", admin.HandleListUsers)
+						r.Get("/users/{id}", admin.HandleGetUserDetail)
 						r.Put("/users/{id}", admin.HandleUpdateUser)
 						r.Put("/users/{id}/reset-password", admin.HandleResetPassword)
 						r.Put("/users/{id}/reset-passkey", admin.HandleResetPasskey)
+						r.Post("/users/{id}/notes", admin.HandleCreateModNote)
+						r.Delete("/notes/{id}", admin.HandleDeleteModNote)
 						r.Get("/groups", admin.HandleListGroups)
+						r.Get("/torrents", admin.HandleListTorrents)
+						if deps.TorrentService != nil {
+							torrentAdmin := NewTorrentAdminHandler(deps.TorrentService)
+							r.Delete("/torrents/{id}", torrentAdmin.HandleDeleteTorrent)
+						}
 					}
 
 					// Warning management endpoints

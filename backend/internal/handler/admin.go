@@ -67,6 +67,29 @@ func (h *AdminHandler) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleGetUserDetail handles GET /api/v1/admin/users/{id}.
+func (h *AdminHandler) HandleGetUserDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	detail, err := h.admin.GetUserDetail(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrAdminUserNotFound) {
+			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to get user detail")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"user": detail,
+	})
+}
+
 // HandleUpdateUser handles PUT /api/v1/admin/users/{id}.
 func (h *AdminHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	actorID, ok := middleware.UserIDFromContext(r.Context())
@@ -213,5 +236,155 @@ func (h *AdminHandler) HandleListGroups(w http.ResponseWriter, r *http.Request) 
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"groups": items,
+	})
+}
+
+// HandleCreateModNote handles POST /api/v1/admin/users/{id}/notes.
+func (h *AdminHandler) HandleCreateModNote(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	userID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || userID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	var req struct {
+		Note string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	note, err := h.admin.CreateModNote(r.Context(), userID, actorID, req.Note)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrAdminUserNotFound):
+			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
+		case errors.Is(err, service.ErrInvalidModNote):
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create mod note")
+		}
+		return
+	}
+
+	JSON(w, http.StatusCreated, map[string]interface{}{
+		"note": note,
+	})
+}
+
+// HandleDeleteModNote handles DELETE /api/v1/admin/notes/{id}.
+func (h *AdminHandler) HandleDeleteModNote(w http.ResponseWriter, r *http.Request) {
+	noteID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || noteID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid note ID")
+		return
+	}
+
+	if err := h.admin.DeleteModNote(r.Context(), noteID); err != nil {
+		if errors.Is(err, service.ErrModNoteNotFound) {
+			ErrorResponse(w, http.StatusNotFound, "not_found", "mod note not found")
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete mod note")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "mod note deleted",
+	})
+}
+
+// HandleListTorrents handles GET /api/v1/admin/torrents.
+func (h *AdminHandler) HandleListTorrents(w http.ResponseWriter, r *http.Request) {
+	opts := repository.ListTorrentsOptions{}
+
+	if search := r.URL.Query().Get("search"); search != "" {
+		opts.Search = search
+	}
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		opts.Page, _ = strconv.Atoi(pageStr)
+	}
+	if ppStr := r.URL.Query().Get("per_page"); ppStr != "" {
+		opts.PerPage, _ = strconv.Atoi(ppStr)
+	}
+	if uploaderStr := r.URL.Query().Get("uploader_id"); uploaderStr != "" {
+		uid, err := strconv.ParseInt(uploaderStr, 10, 64)
+		if err == nil {
+			opts.UploaderID = &uid
+		}
+	}
+
+	torrents, total, err := h.admin.ListTorrents(r.Context(), opts)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list torrents")
+		return
+	}
+
+	items := make([]map[string]interface{}, len(torrents))
+	for i, t := range torrents {
+		items[i] = map[string]interface{}{
+			"id":         t.ID,
+			"name":       t.Name,
+			"size":       t.Size,
+			"seeders":    t.Seeders,
+			"leechers":   t.Leechers,
+			"uploader_id": t.UploaderID,
+			"uploader":   t.UploaderName,
+			"banned":     t.Banned,
+			"created_at": t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"torrents": items,
+		"total":    total,
+		"page":     opts.Page,
+		"per_page": opts.PerPage,
+	})
+}
+
+// TorrentAdminHandler handles admin torrent operations that need TorrentService.
+type TorrentAdminHandler struct {
+	torrentSvc *service.TorrentService
+}
+
+// NewTorrentAdminHandler creates a new TorrentAdminHandler.
+func NewTorrentAdminHandler(torrentSvc *service.TorrentService) *TorrentAdminHandler {
+	return &TorrentAdminHandler{torrentSvc: torrentSvc}
+}
+
+// HandleDeleteTorrent handles DELETE /api/v1/admin/torrents/{id}.
+func (h *TorrentAdminHandler) HandleDeleteTorrent(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	torrentID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || torrentID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	adminPerms := middleware.PermissionsFromContext(r.Context())
+	if err := h.torrentSvc.DeleteTorrent(r.Context(), torrentID, actorID, adminPerms); err != nil {
+		if errors.Is(err, service.ErrTorrentNotFound) {
+			ErrorResponse(w, http.StatusNotFound, "not_found", "torrent not found")
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete torrent")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "torrent deleted",
 	})
 }

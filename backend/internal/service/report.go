@@ -22,17 +22,43 @@ type CreateReportRequest struct {
 	Reason    string `json:"reason"`
 }
 
+// ResolveReportAction defines the action to take when resolving a report.
+type ResolveReportAction string
+
+const (
+	ResolveOnly          ResolveReportAction = "resolve"
+	ResolveAndWarn       ResolveReportAction = "warn"
+	ResolveAndDelete     ResolveReportAction = "delete"
+)
+
+// ResolveReportRequest holds the input for resolving a report with an action.
+type ResolveReportRequest struct {
+	Action ResolveReportAction `json:"action"`
+}
+
 // ReportService handles report business logic.
 type ReportService struct {
 	reports  repository.ReportRepository
 	torrents repository.TorrentRepository
 	users    repository.UserRepository
 	eventBus event.Bus
+	warningSvc *WarningService
+	torrentSvc *TorrentService
 }
 
 // NewReportService creates a new ReportService.
 func NewReportService(reports repository.ReportRepository, torrents repository.TorrentRepository, users repository.UserRepository, bus event.Bus) *ReportService {
 	return &ReportService{reports: reports, torrents: torrents, users: users, eventBus: bus}
+}
+
+// SetWarningService sets the warning service for resolve-with-warn actions.
+func (s *ReportService) SetWarningService(ws *WarningService) {
+	s.warningSvc = ws
+}
+
+// SetTorrentService sets the torrent service for resolve-with-delete actions.
+func (s *ReportService) SetTorrentService(ts *TorrentService) {
+	s.torrentSvc = ts
 }
 
 // Create submits a new report. One report per user per torrent is enforced.
@@ -110,6 +136,44 @@ func (s *ReportService) Resolve(ctx context.Context, reportID, resolvedByUserID 
 		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID, Username: resolverUsername}),
 		ReportID: reportID,
 	})
+
+	return nil
+}
+
+// ResolveWithAction resolves a report and optionally performs an action (warn user or delete torrent).
+func (s *ReportService) ResolveWithAction(ctx context.Context, reportID, resolvedByUserID int64, action ResolveReportAction) error {
+	// Get the report first to know the torrent/user context
+	report, err := s.reports.GetByID(ctx, reportID)
+	if err != nil {
+		return ErrReportNotFound
+	}
+
+	// Mark as resolved
+	if err := s.reports.Resolve(ctx, reportID, resolvedByUserID); err != nil {
+		return ErrReportNotFound
+	}
+
+	s.eventBus.Publish(ctx, &event.ReportResolvedEvent{
+		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID}),
+		ReportID: reportID,
+	})
+
+	switch action {
+	case ResolveAndWarn:
+		if report.TorrentID != nil && s.warningSvc != nil && s.torrentSvc != nil {
+			// Get the torrent to find the uploader
+			torrent, err := s.torrentSvc.GetByID(ctx, *report.TorrentID)
+			if err == nil {
+				reason := fmt.Sprintf("Warning issued from report: %s", report.Reason)
+				_, _ = s.warningSvc.IssueManualWarning(ctx, torrent.UploaderID, reason, nil, resolvedByUserID)
+			}
+		}
+	case ResolveAndDelete:
+		if report.TorrentID != nil && s.torrentSvc != nil {
+			adminPerms := model.Permissions{IsAdmin: true}
+			_ = s.torrentSvc.DeleteTorrent(ctx, *report.TorrentID, resolvedByUserID, adminPerms)
+		}
+	}
 
 	return nil
 }

@@ -259,6 +259,13 @@ type NewsRepository interface {
 	ListPublished(ctx context.Context, page, perPage int) ([]model.NewsArticle, int64, error)
 }
 
+// ModNoteRepository defines persistence operations for staff mod notes.
+type ModNoteRepository interface {
+	Create(ctx context.Context, note *model.ModNote) error
+	ListByUser(ctx context.Context, userID int64) ([]model.ModNote, error)
+	Delete(ctx context.Context, id int64) error
+}
+
 // ListNewsOptions holds filtering and pagination options for listing news (admin).
 type ListNewsOptions struct {
 	Published *bool

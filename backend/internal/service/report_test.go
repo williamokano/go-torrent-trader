@@ -324,3 +324,32 @@ func TestReportService_Resolve_NotFound(t *testing.T) {
 		t.Errorf("expected ErrReportNotFound, got %v", err)
 	}
 }
+
+func TestReportService_ResolveWithAction_ResolveOnly(t *testing.T) {
+	repo := newMockReportRepo()
+	svc := NewReportService(repo, event.NewInMemoryBus())
+
+	tid := int64(1)
+	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "test"})
+
+	err := svc.ResolveWithAction(context.Background(), 1, 99, ResolveOnly)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify resolved
+	report, _ := repo.GetByID(context.Background(), 1)
+	if !report.Resolved {
+		t.Error("expected report to be resolved")
+	}
+}
+
+func TestReportService_ResolveWithAction_NotFound(t *testing.T) {
+	repo := newMockReportRepo()
+	svc := NewReportService(repo, event.NewInMemoryBus())
+
+	err := svc.ResolveWithAction(context.Background(), 999, 99, ResolveOnly)
+	if !errors.Is(err, ErrReportNotFound) {
+		t.Errorf("expected ErrReportNotFound, got %v", err)
+	}
+}

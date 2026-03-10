@@ -98,9 +98,27 @@ func (h *ReportHandler) HandleResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.reports.Resolve(r.Context(), id, userID); err != nil {
-		handleReportError(w, err)
-		return
+	// Check if the request has a body with an action
+	var req service.ResolveReportRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+			return
+		}
+	}
+
+	if req.Action != "" && req.Action != service.ResolveOnly {
+		// Resolve with action
+		if err := h.reports.ResolveWithAction(r.Context(), id, userID, req.Action); err != nil {
+			handleReportError(w, err)
+			return
+		}
+	} else {
+		// Simple resolve (backward compatible)
+		if err := h.reports.Resolve(r.Context(), id, userID); err != nil {
+			handleReportError(w, err)
+			return
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{

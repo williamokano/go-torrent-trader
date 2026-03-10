@@ -235,7 +235,7 @@ export function AdminUsersPage() {
               {users.map((user) => (
                 <tr key={user.id}>
                   <td>
-                    <Link to={`/user/${user.id}`}>{user.username}</Link>
+                    <Link to={`/admin/users/${user.id}`}>{user.username}</Link>
                     <WarningBadge warned={user.warned} />
                   </td>
                   <td>{user.email}</td>
