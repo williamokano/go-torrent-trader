@@ -25,6 +25,8 @@ func RegisterWarningEscalationListener(
 	restrictionSvc *service.RestrictionService,
 	userRepo repository.UserRepository,
 	activityLogSvc *service.ActivityLogService,
+	sessions service.SessionStore,
+	messageRepo repository.MessageRepository,
 ) {
 	bus.Subscribe(event.WarningIssued, func(ctx context.Context, evt event.Event) error {
 		e := evt.(*event.WarningIssuedEvent)
@@ -52,16 +54,57 @@ func RegisterWarningEscalationListener(
 		banThreshold := siteSettings.GetInt(ctx, service.SettingWarningCountBan, 3)
 		restrictThreshold := siteSettings.GetInt(ctx, service.SettingWarningCountRestrict, 2)
 
+		// Validate thresholds: ban must be strictly greater than restrict.
+		if banThreshold <= restrictThreshold {
+			slog.Warn("warning_escalation: ban threshold must be greater than restrict threshold, skipping escalation",
+				"ban_threshold", banThreshold,
+				"restrict_threshold", restrictThreshold,
+			)
+			return nil
+		}
+
 		actor := event.Actor{ID: 0, Username: "System"}
 
 		if activeCount >= banThreshold {
+			// Check if user is already disabled — skip if so.
+			user, err := userRepo.GetByID(ctx, e.UserID)
+			if err != nil {
+				slog.Error("warning_escalation: failed to get user",
+					"user_id", e.UserID,
+					"error", err,
+				)
+				return nil
+			}
+			if !user.Enabled {
+				slog.Info("warning_escalation: user already disabled, skipping ban",
+					"user_id", e.UserID,
+					"username", e.Username,
+				)
+				return nil
+			}
+
 			// Disable the user's account.
-			if err := disableUser(ctx, userRepo, e.UserID); err != nil {
+			user.Enabled = false
+			if err := userRepo.Update(ctx, user); err != nil {
 				slog.Error("warning_escalation: failed to disable user",
 					"user_id", e.UserID,
 					"error", err,
 				)
 				return nil
+			}
+
+			// Invalidate all sessions for this user.
+			sessions.DeleteByUserID(e.UserID)
+
+			// Send a PM explaining the auto-ban.
+			banMsg := &model.Message{
+				SenderID:   e.UserID,
+				ReceiverID: e.UserID,
+				Subject:    "Account Disabled — Warning Threshold Reached",
+				Body:       fmt.Sprintf("Your account has been automatically disabled after accumulating %d active manual warnings (threshold: %d). If you believe this is a mistake, please contact staff.", activeCount, banThreshold),
+			}
+			if err := messageRepo.Create(ctx, banMsg); err != nil {
+				slog.Error("warning_escalation: failed to send ban PM", "user_id", e.UserID, "error", err)
 			}
 
 			// Log to activity log.
@@ -107,48 +150,58 @@ func RegisterWarningEscalationListener(
 			expiresAt := time.Now().Add(time.Duration(restrictDays) * 24 * time.Hour)
 			reason := fmt.Sprintf("Automatic restriction: %d active manual warnings (threshold: %d)", activeCount, restrictThreshold)
 
+			applied := 0
 			for _, rt := range types {
+				// Skip if user already has an active restriction of this type.
+				hasActive, err := restrictionSvc.HasActiveByType(ctx, e.UserID, rt)
+				if err != nil {
+					slog.Error("warning_escalation: failed to check active restriction",
+						"user_id", e.UserID,
+						"restriction_type", rt,
+						"error", err,
+					)
+					continue
+				}
+				if hasActive {
+					slog.Info("warning_escalation: active restriction already exists, skipping",
+						"user_id", e.UserID,
+						"restriction_type", rt,
+					)
+					continue
+				}
+
 				if _, err := restrictionSvc.ApplyRestriction(ctx, e.UserID, rt, reason, &expiresAt, nil); err != nil {
 					slog.Error("warning_escalation: failed to apply restriction",
 						"user_id", e.UserID,
 						"restriction_type", rt,
 						"error", err,
 					)
+				} else {
+					applied++
 				}
 			}
 
-			// Log to activity log.
-			logEntry := &model.ActivityLog{
-				EventType: "warning_escalation_restrict",
-				Message:   fmt.Sprintf("System restricted %s (%s for %d days) after %d active manual warnings (threshold: %d)", e.Username, restrictType, restrictDays, activeCount, restrictThreshold),
-			}
-			if err := activityLogSvc.Create(ctx, logEntry); err != nil {
-				slog.Error("warning_escalation: failed to write activity log", "error", err)
-			}
+			if applied > 0 {
+				// Log to activity log.
+				logEntry := &model.ActivityLog{
+					EventType: "warning_escalation_restrict",
+					Message:   fmt.Sprintf("System restricted %s (%s for %d days) after %d active manual warnings (threshold: %d)", e.Username, restrictType, restrictDays, activeCount, restrictThreshold),
+				}
+				if err := activityLogSvc.Create(ctx, logEntry); err != nil {
+					slog.Error("warning_escalation: failed to write activity log", "error", err)
+				}
 
-			slog.Info("warning_escalation: privilege restriction applied",
-				"user_id", e.UserID,
-				"username", e.Username,
-				"restriction_type", restrictType,
-				"duration_days", restrictDays,
-				"active_warnings", activeCount,
-				"threshold", restrictThreshold,
-			)
+				slog.Info("warning_escalation: privilege restriction applied",
+					"user_id", e.UserID,
+					"username", e.Username,
+					"restriction_type", restrictType,
+					"duration_days", restrictDays,
+					"active_warnings", activeCount,
+					"threshold", restrictThreshold,
+				)
+			}
 		}
 
 		return nil
 	})
-}
-
-// disableUser sets the user's enabled flag to false.
-func disableUser(ctx context.Context, userRepo repository.UserRepository, userID int64) error {
-	user, err := userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("get user %d: %w", userID, err)
-	}
-	user.Enabled = false
-	if err := userRepo.Update(ctx, user); err != nil {
-		return fmt.Errorf("disable user %d: %w", userID, err)
-	}
-	return nil
 }

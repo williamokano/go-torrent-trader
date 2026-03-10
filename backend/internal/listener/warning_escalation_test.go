@@ -175,7 +175,14 @@ func (m *mockEscalationRestrictionRepo) LiftExpired(_ context.Context) ([]model.
 	return nil, nil
 }
 
-func (m *mockEscalationRestrictionRepo) HasActiveByType(_ context.Context, _ int64, _ string) (bool, error) {
+func (m *mockEscalationRestrictionRepo) HasActiveByType(_ context.Context, userID int64, restrictionType string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.restrictions {
+		if r.UserID == userID && r.RestrictionType == restrictionType && r.LiftedAt == nil {
+			return true, nil
+		}
+	}
 	return false, nil
 }
 
@@ -234,6 +241,69 @@ func (m *mockEscalationUserRepo) ListStaff(_ context.Context) ([]model.User, err
 }
 func (m *mockEscalationUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
 
+// --- mock session store ---
+
+type mockEscalationSessionStore struct {
+	mu             sync.Mutex
+	deletedUserIDs []int64
+}
+
+func (m *mockEscalationSessionStore) Create(_ *service.Session) error { return nil }
+func (m *mockEscalationSessionStore) GetByAccessToken(_ string) *service.Session {
+	return nil
+}
+func (m *mockEscalationSessionStore) GetByRefreshToken(_ string) *service.Session {
+	return nil
+}
+func (m *mockEscalationSessionStore) Delete(_ string)                              {}
+func (m *mockEscalationSessionStore) DeleteByUserIDExcept(_ int64, _ string)       {}
+func (m *mockEscalationSessionStore) Rotate(_ string, _ *service.Session) error    { return nil }
+func (m *mockEscalationSessionStore) TouchLastActive(_ string)                     {}
+
+func (m *mockEscalationSessionStore) DeleteByUserID(userID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deletedUserIDs = append(m.deletedUserIDs, userID)
+}
+
+// --- mock message repo ---
+
+type mockEscalationMessageRepo struct {
+	mu       sync.Mutex
+	messages []*model.Message
+	nextID   int64
+}
+
+func (m *mockEscalationMessageRepo) Create(_ context.Context, msg *model.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nextID++
+	msg.ID = m.nextID
+	cp := *msg
+	m.messages = append(m.messages, &cp)
+	return nil
+}
+
+func (m *mockEscalationMessageRepo) GetByID(_ context.Context, _ int64) (*model.Message, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (m *mockEscalationMessageRepo) ListInbox(_ context.Context, _ int64, _, _ int) ([]model.Message, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockEscalationMessageRepo) ListOutbox(_ context.Context, _ int64, _, _ int) ([]model.Message, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockEscalationMessageRepo) MarkAsRead(_ context.Context, _, _ int64) error { return nil }
+
+func (m *mockEscalationMessageRepo) DeleteForUser(_ context.Context, _, _ int64) error { return nil }
+
+func (m *mockEscalationMessageRepo) CountUnread(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
+
 // --- helper ---
 
 func setupEscalation(settings map[string]string, warnings []*model.Warning) (
@@ -242,6 +312,8 @@ func setupEscalation(settings map[string]string, warnings []*model.Warning) (
 	*mockEscalationRestrictionRepo,
 	*mockEscalationUserRepo,
 	*mockActivityLogRepo,
+	*mockEscalationSessionStore,
+	*mockEscalationMessageRepo,
 ) {
 	bus := event.NewInMemoryBus()
 
@@ -256,9 +328,12 @@ func setupEscalation(settings map[string]string, warnings []*model.Warning) (
 	activityLogRepo := &mockActivityLogRepo{}
 	activityLogSvc := service.NewActivityLogService(activityLogRepo)
 
-	RegisterWarningEscalationListener(bus, siteSettingsSvc, warningRepo, restrictionSvc, userRepo, activityLogSvc)
+	sessionStore := &mockEscalationSessionStore{}
+	messageRepo := &mockEscalationMessageRepo{}
 
-	return bus, warningRepo, restrictionRepo, userRepo, activityLogRepo
+	RegisterWarningEscalationListener(bus, siteSettingsSvc, warningRepo, restrictionSvc, userRepo, activityLogSvc, sessionStore, messageRepo)
+
+	return bus, warningRepo, restrictionRepo, userRepo, activityLogRepo, sessionStore, messageRepo
 }
 
 // --- tests ---
@@ -271,7 +346,7 @@ func TestWarningEscalation_DisabledByDefault(t *testing.T) {
 		{ID: 3, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
 	}
 
-	bus, _, restrictionRepo, userRepo, _ := setupEscalation(
+	bus, _, restrictionRepo, userRepo, _, _, _ := setupEscalation(
 		map[string]string{"warning_escalation_enabled": "false"},
 		warnings,
 	)
@@ -302,7 +377,7 @@ func TestWarningEscalation_SkipsRatioWarnings(t *testing.T) {
 		{ID: 3, UserID: 10, Type: model.WarningTypeRatioSoft, Status: model.WarningStatusActive},
 	}
 
-	bus, _, restrictionRepo, userRepo, _ := setupEscalation(
+	bus, _, restrictionRepo, userRepo, _, _, _ := setupEscalation(
 		map[string]string{
 			"warning_escalation_enabled": "true",
 			"warning_count_restrict":     "2",
@@ -335,7 +410,7 @@ func TestWarningEscalation_AppliesRestriction(t *testing.T) {
 		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
 	}
 
-	bus, _, restrictionRepo, userRepo, activityLogRepo := setupEscalation(
+	bus, _, restrictionRepo, userRepo, activityLogRepo, _, _ := setupEscalation(
 		map[string]string{
 			"warning_escalation_enabled": "true",
 			"warning_count_restrict":     "2",
@@ -396,7 +471,7 @@ func TestWarningEscalation_BansUser(t *testing.T) {
 		{ID: 3, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
 	}
 
-	bus, _, _, userRepo, activityLogRepo := setupEscalation(
+	bus, _, _, userRepo, activityLogRepo, sessionStore, messageRepo := setupEscalation(
 		map[string]string{
 			"warning_escalation_enabled": "true",
 			"warning_count_restrict":     "2",
@@ -418,6 +493,24 @@ func TestWarningEscalation_BansUser(t *testing.T) {
 	if u.Enabled {
 		t.Error("expected user to be disabled after reaching ban threshold")
 	}
+
+	// Sessions should be invalidated.
+	sessionStore.mu.Lock()
+	if len(sessionStore.deletedUserIDs) != 1 || sessionStore.deletedUserIDs[0] != 10 {
+		t.Errorf("expected session invalidation for user 10, got %v", sessionStore.deletedUserIDs)
+	}
+	sessionStore.mu.Unlock()
+
+	// PM should be sent.
+	messageRepo.mu.Lock()
+	if len(messageRepo.messages) != 1 {
+		t.Fatalf("expected 1 ban PM, got %d", len(messageRepo.messages))
+	}
+	pm := messageRepo.messages[0]
+	if pm.SenderID != 10 || pm.ReceiverID != 10 {
+		t.Errorf("expected self-message to user 10, got sender=%d receiver=%d", pm.SenderID, pm.ReceiverID)
+	}
+	messageRepo.mu.Unlock()
 
 	// Activity log should have a ban entry.
 	activityLogRepo.mu.Lock()
@@ -441,7 +534,7 @@ func TestWarningEscalation_AllRestrictionTypes(t *testing.T) {
 		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
 	}
 
-	bus, _, restrictionRepo, _, _ := setupEscalation(
+	bus, _, restrictionRepo, _, _, _, _ := setupEscalation(
 		map[string]string{
 			"warning_escalation_enabled": "true",
 			"warning_count_restrict":     "2",
@@ -483,7 +576,7 @@ func TestWarningEscalation_BelowThreshold(t *testing.T) {
 		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
 	}
 
-	bus, _, restrictionRepo, userRepo, _ := setupEscalation(
+	bus, _, restrictionRepo, userRepo, _, _, _ := setupEscalation(
 		map[string]string{
 			"warning_escalation_enabled": "true",
 			"warning_count_restrict":     "2",
@@ -506,5 +599,186 @@ func TestWarningEscalation_BelowThreshold(t *testing.T) {
 	}
 	if len(restrictionRepo.restrictions) != 0 {
 		t.Errorf("expected 0 restrictions, got %d", len(restrictionRepo.restrictions))
+	}
+}
+
+func TestWarningEscalation_SkipsDuplicateRestriction(t *testing.T) {
+	// User already has an active download restriction — should not create another.
+	warnings := []*model.Warning{
+		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+	}
+
+	bus, _, restrictionRepo, userRepo, _, _, _ := setupEscalation(
+		map[string]string{
+			"warning_escalation_enabled": "true",
+			"warning_count_restrict":     "2",
+			"warning_count_ban":          "5",
+			"warning_restrict_type":      "download",
+			"warning_restrict_days":      "7",
+		},
+		warnings,
+	)
+
+	// Pre-seed an existing active restriction.
+	expiresAt := time.Now().Add(24 * time.Hour)
+	restrictionRepo.mu.Lock()
+	restrictionRepo.nextID++
+	restrictionRepo.restrictions = append(restrictionRepo.restrictions, &model.Restriction{
+		ID:              restrictionRepo.nextID,
+		UserID:          10,
+		RestrictionType: "download",
+		Reason:          "pre-existing",
+		ExpiresAt:       &expiresAt,
+		CreatedAt:       time.Now(),
+	})
+	restrictionRepo.mu.Unlock()
+
+	// Also update user flag to reflect existing restriction.
+	userRepo.mu.Lock()
+	userRepo.users[10].CanDownload = false
+	userRepo.mu.Unlock()
+
+	bus.Publish(context.Background(), &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, event.Actor{ID: 1, Username: "admin"}),
+		WarningID:   2,
+		UserID:      10,
+		Username:    "testuser",
+		WarningType: model.WarningTypeManual,
+	})
+
+	// Should still have only 1 restriction (the pre-existing one).
+	restrictionRepo.mu.Lock()
+	defer restrictionRepo.mu.Unlock()
+	if len(restrictionRepo.restrictions) != 1 {
+		t.Errorf("expected 1 restriction (no duplicate), got %d", len(restrictionRepo.restrictions))
+	}
+
+	// User should remain enabled (ban not reached).
+	u, _ := userRepo.GetByID(context.Background(), 10)
+	if !u.Enabled {
+		t.Error("expected user to remain enabled")
+	}
+}
+
+func TestWarningEscalation_SkipsAlreadyDisabledUser(t *testing.T) {
+	// User is already disabled — should not re-ban or send duplicate PM.
+	warnings := []*model.Warning{
+		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 3, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+	}
+
+	bus, _, _, userRepo, activityLogRepo, sessionStore, messageRepo := setupEscalation(
+		map[string]string{
+			"warning_escalation_enabled": "true",
+			"warning_count_restrict":     "2",
+			"warning_count_ban":          "3",
+		},
+		warnings,
+	)
+
+	// Pre-disable the user.
+	userRepo.mu.Lock()
+	userRepo.users[10].Enabled = false
+	userRepo.mu.Unlock()
+
+	bus.Publish(context.Background(), &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, event.Actor{ID: 1, Username: "admin"}),
+		WarningID:   3,
+		UserID:      10,
+		Username:    "testuser",
+		WarningType: model.WarningTypeManual,
+	})
+
+	// No session invalidation should happen.
+	sessionStore.mu.Lock()
+	if len(sessionStore.deletedUserIDs) != 0 {
+		t.Errorf("expected no session invalidation for already-disabled user, got %v", sessionStore.deletedUserIDs)
+	}
+	sessionStore.mu.Unlock()
+
+	// No PM should be sent.
+	messageRepo.mu.Lock()
+	if len(messageRepo.messages) != 0 {
+		t.Errorf("expected no PM for already-disabled user, got %d", len(messageRepo.messages))
+	}
+	messageRepo.mu.Unlock()
+
+	// No activity log for ban.
+	activityLogRepo.mu.Lock()
+	defer activityLogRepo.mu.Unlock()
+	for _, log := range activityLogRepo.logs {
+		if log.EventType == "warning_escalation_ban" {
+			t.Error("expected no warning_escalation_ban log for already-disabled user")
+		}
+	}
+}
+
+func TestWarningEscalation_InvalidThresholds(t *testing.T) {
+	// ban threshold <= restrict threshold — should skip escalation entirely.
+	warnings := []*model.Warning{
+		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 3, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+	}
+
+	bus, _, restrictionRepo, userRepo, _, _, _ := setupEscalation(
+		map[string]string{
+			"warning_escalation_enabled": "true",
+			"warning_count_restrict":     "3",
+			"warning_count_ban":          "2", // ban <= restrict — invalid
+		},
+		warnings,
+	)
+
+	bus.Publish(context.Background(), &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, event.Actor{ID: 1, Username: "admin"}),
+		WarningID:   3,
+		UserID:      10,
+		Username:    "testuser",
+		WarningType: model.WarningTypeManual,
+	})
+
+	// No action should be taken.
+	u, _ := userRepo.GetByID(context.Background(), 10)
+	if !u.Enabled {
+		t.Error("expected user to remain enabled when thresholds are invalid")
+	}
+	if len(restrictionRepo.restrictions) != 0 {
+		t.Errorf("expected 0 restrictions when thresholds are invalid, got %d", len(restrictionRepo.restrictions))
+	}
+}
+
+func TestWarningEscalation_EqualThresholds(t *testing.T) {
+	// ban threshold == restrict threshold — should skip escalation entirely.
+	warnings := []*model.Warning{
+		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+	}
+
+	bus, _, restrictionRepo, userRepo, _, _, _ := setupEscalation(
+		map[string]string{
+			"warning_escalation_enabled": "true",
+			"warning_count_restrict":     "2",
+			"warning_count_ban":          "2", // equal — invalid
+		},
+		warnings,
+	)
+
+	bus.Publish(context.Background(), &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, event.Actor{ID: 1, Username: "admin"}),
+		WarningID:   2,
+		UserID:      10,
+		Username:    "testuser",
+		WarningType: model.WarningTypeManual,
+	})
+
+	u, _ := userRepo.GetByID(context.Background(), 10)
+	if !u.Enabled {
+		t.Error("expected user to remain enabled when thresholds are equal")
+	}
+	if len(restrictionRepo.restrictions) != 0 {
+		t.Errorf("expected 0 restrictions when thresholds are equal, got %d", len(restrictionRepo.restrictions))
 	}
 }

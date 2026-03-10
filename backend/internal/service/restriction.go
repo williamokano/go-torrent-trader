@@ -218,6 +218,11 @@ func (s *RestrictionService) actorFromUserID(ctx context.Context, userID *int64)
 	return actor
 }
 
+// HasActiveByType checks if a user has an active restriction of the given type.
+func (s *RestrictionService) HasActiveByType(ctx context.Context, userID int64, restrictionType string) (bool, error) {
+	return s.restrictions.HasActiveByType(ctx, userID, restrictionType)
+}
+
 func isValidRestrictionType(t string) bool {
 	switch t {
 	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat:

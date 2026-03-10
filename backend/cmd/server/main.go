@@ -185,7 +185,7 @@ func run() int {
 	restrictionService := service.NewRestrictionService(restrictionRepo, userRepo, eventBus)
 
 	// Warning escalation listener — auto-restrict or ban based on manual warning count.
-	listener.RegisterWarningEscalationListener(eventBus, siteSettingsService, warningRepo, restrictionService, userRepo, activityLogService)
+	listener.RegisterWarningEscalationListener(eventBus, siteSettingsService, warningRepo, restrictionService, userRepo, activityLogService, sessionStore, messageRepo)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	adminService.SetSessionStore(sessionStore)
