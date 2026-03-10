@@ -7,6 +7,7 @@ import { useAuth } from "@/features/auth";
 import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import { Shoutbox } from "@/components/Shoutbox";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { WarningBadge } from "@/components/WarningBadge";
 import type { Torrent } from "@/types/torrent";
 import type { NewsArticle } from "@/types/news";
@@ -176,9 +177,9 @@ export function HomePage() {
                 <div className="home__news-item-meta">
                   {n.author_name ?? "Unknown"} &middot; {timeAgo(n.created_at)}
                 </div>
-                <p className="home__news-item-preview">
-                  {n.body.length > 200 ? n.body.slice(0, 200) + "..." : n.body}
-                </p>
+                <div className="home__news-item-preview">
+                  <MarkdownRenderer content={n.body} />
+                </div>
                 <Link to={`/news/${n.id}`} className="home__news-read-more">
                   Read more
                 </Link>
