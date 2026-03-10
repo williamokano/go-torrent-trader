@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
@@ -53,6 +53,8 @@ export function AdminUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   const [user, setUser] = useState<UserDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,12 +77,12 @@ export function AdminUserDetailPage() {
         setUser(data.user);
       } else if (res.status === 404) {
         navigate("/admin/users");
-        toast.error("User not found");
+        toastRef.current.error("User not found");
       }
     } finally {
       setLoading(false);
     }
-  }, [id, navigate, toast]);
+  }, [id, navigate]);
 
   useEffect(() => {
     fetchUser();

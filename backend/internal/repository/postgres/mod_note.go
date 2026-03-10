@@ -31,6 +31,20 @@ func (r *ModNoteRepo) Create(ctx context.Context, note *model.ModNote) error {
 	return nil
 }
 
+func (r *ModNoteRepo) GetByID(ctx context.Context, id int64) (*model.ModNote, error) {
+	query := `SELECT mn.id, mn.user_id, mn.author_id, mn.note, mn.created_at,
+		COALESCE(u.username, '') AS author_username
+		FROM mod_notes mn
+		LEFT JOIN users u ON u.id = mn.author_id
+		WHERE mn.id = $1`
+	var n model.ModNote
+	err := r.db.QueryRowContext(ctx, query, id).Scan(&n.ID, &n.UserID, &n.AuthorID, &n.Note, &n.CreatedAt, &n.AuthorUsername)
+	if err != nil {
+		return nil, fmt.Errorf("get mod note: %w", err)
+	}
+	return &n, nil
+}
+
 func (r *ModNoteRepo) ListByUser(ctx context.Context, userID int64) ([]model.ModNote, error) {
 	query := `SELECT mn.id, mn.user_id, mn.author_id, mn.note, mn.created_at,
 		COALESCE(u.username, '') AS author_username

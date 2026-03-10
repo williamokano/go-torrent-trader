@@ -104,8 +104,10 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		return fmt.Sprintf("$%d", argIdx)
 	}
 
-	// Default: only show visible, non-banned torrents.
-	conditions = append(conditions, "t.visible = true", "t.banned = false")
+	// Default: only show visible, non-banned torrents (skip for admin context).
+	if !opts.IncludeHidden {
+		conditions = append(conditions, "t.visible = true", "t.banned = false")
+	}
 
 	if opts.CategoryID != nil {
 		conditions = append(conditions, fmt.Sprintf("t.category_id = %s", nextArg()))

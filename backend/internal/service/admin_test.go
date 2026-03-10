@@ -191,6 +191,15 @@ func (m *mockModNoteRepo) Create(_ context.Context, note *model.ModNote) error {
 	return nil
 }
 
+func (m *mockModNoteRepo) GetByID(_ context.Context, id int64) (*model.ModNote, error) {
+	for _, n := range m.notes {
+		if n.ID == id {
+			return n, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
 func (m *mockModNoteRepo) ListByUser(_ context.Context, userID int64) ([]model.ModNote, error) {
 	var result []model.ModNote
 	for _, n := range m.notes {
@@ -511,17 +520,51 @@ func TestAdminDeleteModNote(t *testing.T) {
 		Password: "password123",
 	}, "127.0.0.1")
 
+	adminPerms := model.Permissions{IsAdmin: true}
 	note, _ := svc.CreateModNote(context.Background(), result.User.ID, result.User.ID, "delete me")
 
-	err := svc.DeleteModNote(context.Background(), note.ID)
+	// Author can delete their own note
+	err := svc.DeleteModNote(context.Background(), note.ID, result.User.ID, model.Permissions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Deleting again should fail
-	err = svc.DeleteModNote(context.Background(), note.ID)
+	err = svc.DeleteModNote(context.Background(), note.ID, result.User.ID, adminPerms)
 	if !errors.Is(err, ErrModNoteNotFound) {
 		t.Errorf("expected ErrModNoteNotFound, got %v", err)
+	}
+}
+
+func TestAdminDeleteModNote_ForbiddenForNonAuthor(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	author, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "noteauthor",
+		Email:    "noteauthor@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	note, _ := svc.CreateModNote(context.Background(), author.User.ID, author.User.ID, "private note")
+
+	// Non-author moderator (not admin) should be forbidden
+	otherModID := int64(9999)
+	modPerms := model.Permissions{IsModerator: true}
+	err := svc.DeleteModNote(context.Background(), note.ID, otherModID, modPerms)
+	if !errors.Is(err, ErrModNoteDeleteForbidden) {
+		t.Errorf("expected ErrModNoteDeleteForbidden, got %v", err)
+	}
+
+	// Admin can delete anyone's note
+	adminPerms := model.Permissions{IsAdmin: true}
+	err = svc.DeleteModNote(context.Background(), note.ID, otherModID, adminPerms)
+	if err != nil {
+		t.Fatalf("expected admin to delete note, got %v", err)
 	}
 }
 
@@ -535,6 +578,32 @@ func TestAdminCreateModNote_UserNotFound(t *testing.T) {
 	_, err := svc.CreateModNote(context.Background(), 999, 1, "test")
 	if !errors.Is(err, ErrAdminUserNotFound) {
 		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
+	}
+}
+
+func TestAdminCreateModNote_TooLong(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "longnote",
+		Email:    "longnote@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	// Create a string longer than 10000 chars
+	buf := make([]byte, 10001)
+	for i := range buf {
+		buf[i] = 'a'
+	}
+
+	_, err := svc.CreateModNote(context.Background(), result.User.ID, result.User.ID, string(buf))
+	if !errors.Is(err, ErrInvalidModNote) {
+		t.Errorf("expected ErrInvalidModNote, got %v", err)
 	}
 }
 

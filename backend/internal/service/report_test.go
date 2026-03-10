@@ -327,7 +327,7 @@ func TestReportService_Resolve_NotFound(t *testing.T) {
 
 func TestReportService_ResolveWithAction_ResolveOnly(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	tid := int64(1)
 	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{TorrentID: &tid, Reason: "test"})
@@ -346,10 +346,168 @@ func TestReportService_ResolveWithAction_ResolveOnly(t *testing.T) {
 
 func TestReportService_ResolveWithAction_NotFound(t *testing.T) {
 	repo := newMockReportRepo()
-	svc := NewReportService(repo, event.NewInMemoryBus())
+	svc := NewReportService(repo, &stubTorrentRepo{}, newMockUserRepo(), event.NewInMemoryBus())
 
 	err := svc.ResolveWithAction(context.Background(), 999, 99, ResolveOnly)
 	if !errors.Is(err, ErrReportNotFound) {
 		t.Errorf("expected ErrReportNotFound, got %v", err)
+	}
+}
+
+func TestReportService_ResolveWithAction_Warn(t *testing.T) {
+	reportRepo := newMockReportRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewReportService(reportRepo, &stubTorrentRepo{}, newMockUserRepo(), bus)
+
+	// Set up torrent service with a torrent
+	torrentRepo := newMemTorrentRepo()
+	userRepo := newMockUserRepo()
+	torrentSvc := NewTorrentService(nil, torrentRepo, userRepo, newMemStorage(), TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, nil)
+
+	// Create a test user (uploader)
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", bus)
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "uploader",
+		Email:    "uploader@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	// Insert a torrent directly
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents = append(torrentRepo.torrents, &model.Torrent{
+		ID:         1,
+		UploaderID: result.User.ID,
+		Name:       "test.torrent",
+	})
+	torrentRepo.mu.Unlock()
+
+	// Set up warning service
+	warningRepo := newMockWarningRepo()
+	msgRepo := newMockMessageRepoForWarnings()
+	warningSvc := NewWarningService(warningRepo, userRepo, msgRepo, bus)
+
+	svc.SetTorrentService(torrentSvc)
+	svc.SetWarningService(warningSvc)
+
+	// Create a report for the torrent
+	tid := int64(1)
+	_, _ = svc.Create(context.Background(), 99, CreateReportRequest{TorrentID: &tid, Reason: "bad content"})
+
+	// Resolve with warn
+	err := svc.ResolveWithAction(context.Background(), 1, 99, ResolveAndWarn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify report is resolved
+	report, _ := reportRepo.GetByID(context.Background(), 1)
+	if !report.Resolved {
+		t.Error("expected report to be resolved")
+	}
+
+	// Verify warning was issued
+	warnings, _ := warningRepo.ListByUser(context.Background(), result.User.ID, true)
+	if len(warnings) != 1 {
+		t.Errorf("expected 1 warning, got %d", len(warnings))
+	}
+}
+
+func TestReportService_ResolveWithAction_Warn_NoTorrent(t *testing.T) {
+	reportRepo := newMockReportRepo()
+	svc := NewReportService(reportRepo, nil, nil, event.NewInMemoryBus())
+
+	// Create a report without a torrent
+	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{Reason: "general report"})
+
+	// ResolveAndWarn should fail for a report without torrent_id
+	err := svc.ResolveWithAction(context.Background(), 1, 99, ResolveAndWarn)
+	if !errors.Is(err, ErrInvalidReport) {
+		t.Errorf("expected ErrInvalidReport, got %v", err)
+	}
+
+	// Verify report is NOT resolved (action failed)
+	report, _ := reportRepo.GetByID(context.Background(), 1)
+	if report.Resolved {
+		t.Error("expected report to remain unresolved when action fails")
+	}
+}
+
+func TestReportService_ResolveWithAction_Delete(t *testing.T) {
+	reportRepo := newMockReportRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewReportService(reportRepo, &stubTorrentRepo{}, newMockUserRepo(), bus)
+
+	// Set up torrent service with a torrent
+	torrentRepo := newMemTorrentRepo()
+	userRepo := newMockUserRepo()
+	store := newMemStorage()
+	torrentSvc := NewTorrentService(nil, torrentRepo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, nil)
+
+	// Create a test user (uploader)
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", bus)
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "uploader2",
+		Email:    "uploader2@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	// Insert a torrent directly
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents = append(torrentRepo.torrents, &model.Torrent{
+		ID:         1,
+		UploaderID: result.User.ID,
+		Name:       "delete-me.torrent",
+	})
+	torrentRepo.mu.Unlock()
+
+	svc.SetTorrentService(torrentSvc)
+
+	// Create a report for the torrent
+	tid := int64(1)
+	_, _ = svc.Create(context.Background(), 99, CreateReportRequest{TorrentID: &tid, Reason: "illegal content"})
+
+	// Resolve with delete
+	err := svc.ResolveWithAction(context.Background(), 1, 99, ResolveAndDelete)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify report is resolved
+	report, _ := reportRepo.GetByID(context.Background(), 1)
+	if !report.Resolved {
+		t.Error("expected report to be resolved")
+	}
+
+	// Verify torrent was deleted
+	torrentRepo.mu.Lock()
+	found := false
+	for _, t := range torrentRepo.torrents {
+		if t.ID == 1 {
+			found = true
+		}
+	}
+	torrentRepo.mu.Unlock()
+	if found {
+		t.Error("expected torrent to be deleted")
+	}
+}
+
+func TestReportService_ResolveWithAction_Delete_NoTorrent(t *testing.T) {
+	reportRepo := newMockReportRepo()
+	svc := NewReportService(reportRepo, nil, nil, event.NewInMemoryBus())
+
+	// Create a report without a torrent
+	_, _ = svc.Create(context.Background(), 1, CreateReportRequest{Reason: "general report"})
+
+	// ResolveAndDelete should fail for a report without torrent_id
+	err := svc.ResolveWithAction(context.Background(), 1, 99, ResolveAndDelete)
+	if !errors.Is(err, ErrInvalidReport) {
+		t.Errorf("expected ErrInvalidReport, got %v", err)
+	}
+
+	// Verify report is NOT resolved
+	report, _ := reportRepo.GetByID(context.Background(), 1)
+	if report.Resolved {
+		t.Error("expected report to remain unresolved when action fails")
 	}
 }

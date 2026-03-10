@@ -181,10 +181,20 @@ func (s *AdminService) GetUserDetail(ctx context.Context, userID int64) (*AdminU
 		view.Ratio = -1 // infinite
 	}
 
-	// Recent uploads
+	// Recent uploads (admin view: include hidden/banned torrents)
 	if s.torrents != nil {
-		uploads, err := s.torrents.ListByUploader(ctx, userID, 10)
-		if err == nil {
+		uid := userID
+		uploads, _, err := s.torrents.List(ctx, repository.ListTorrentsOptions{
+			UploaderID:    &uid,
+			IncludeHidden: true,
+			Page:          1,
+			PerPage:       10,
+			SortBy:        "created_at",
+			SortOrder:     "desc",
+		})
+		if err != nil {
+			slog.Error("admin: failed to fetch recent uploads", "user_id", userID, "error", err)
+		} else {
 			view.RecentUploads = make([]AdminTorrentSummary, len(uploads))
 			for i, t := range uploads {
 				view.RecentUploads[i] = AdminTorrentSummary{
@@ -203,7 +213,9 @@ func (s *AdminService) GetUserDetail(ctx context.Context, userID int64) (*AdminU
 	// Active warnings count
 	if s.warnings != nil {
 		count, err := s.warnings.CountActiveByUser(ctx, userID)
-		if err == nil {
+		if err != nil {
+			slog.Error("admin: failed to fetch warnings count", "user_id", userID, "error", err)
+		} else {
 			view.WarningsCount = count
 		}
 	}
@@ -211,7 +223,9 @@ func (s *AdminService) GetUserDetail(ctx context.Context, userID int64) (*AdminU
 	// Mod notes
 	if s.modNotes != nil {
 		notes, err := s.modNotes.ListByUser(ctx, userID)
-		if err == nil {
+		if err != nil {
+			slog.Error("admin: failed to fetch mod notes", "user_id", userID, "error", err)
+		} else {
 			view.ModNotes = make([]AdminModNoteView, len(notes))
 			for i, n := range notes {
 				view.ModNotes[i] = AdminModNoteView{
@@ -236,6 +250,9 @@ func (s *AdminService) GetUserDetail(ctx context.Context, userID int64) (*AdminU
 func (s *AdminService) CreateModNote(ctx context.Context, userID, authorID int64, noteText string) (*AdminModNoteView, error) {
 	if noteText == "" {
 		return nil, fmt.Errorf("%w: note cannot be empty", ErrInvalidModNote)
+	}
+	if len(noteText) > 10000 {
+		return nil, fmt.Errorf("%w: note exceeds maximum length of 10,000 characters", ErrInvalidModNote)
 	}
 
 	// Verify user exists
@@ -272,11 +289,24 @@ func (s *AdminService) CreateModNote(ctx context.Context, userID, authorID int64
 	}, nil
 }
 
-// DeleteModNote removes a mod note by ID.
-func (s *AdminService) DeleteModNote(ctx context.Context, noteID int64) error {
+var ErrModNoteDeleteForbidden = fmt.Errorf("not authorized to delete this note")
+
+// DeleteModNote removes a mod note by ID. Only the author or an admin can delete a note.
+func (s *AdminService) DeleteModNote(ctx context.Context, noteID, actorID int64, perms model.Permissions) error {
 	if s.modNotes == nil {
 		return fmt.Errorf("mod notes not configured")
 	}
+
+	note, err := s.modNotes.GetByID(ctx, noteID)
+	if err != nil {
+		return ErrModNoteNotFound
+	}
+
+	// Moderators can only delete their own notes; admins can delete anyone's.
+	if note.AuthorID != actorID && !perms.IsAdmin {
+		return ErrModNoteDeleteForbidden
+	}
+
 	if err := s.modNotes.Delete(ctx, noteID); err != nil {
 		return ErrModNoteNotFound
 	}
@@ -297,6 +327,8 @@ func (s *AdminService) ListTorrents(ctx context.Context, opts repository.ListTor
 	if opts.PerPage > 100 {
 		opts.PerPage = 100
 	}
+	// Admin view should see all torrents including hidden/banned.
+	opts.IncludeHidden = true
 	return s.torrents.List(ctx, opts)
 }
 

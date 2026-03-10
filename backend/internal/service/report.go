@@ -141,6 +141,7 @@ func (s *ReportService) Resolve(ctx context.Context, reportID, resolvedByUserID 
 }
 
 // ResolveWithAction resolves a report and optionally performs an action (warn user or delete torrent).
+// Actions are performed BEFORE resolving so that failures don't leave the report in a partially-resolved state.
 func (s *ReportService) ResolveWithAction(ctx context.Context, reportID, resolvedByUserID int64, action ResolveReportAction) error {
 	// Get the report first to know the torrent/user context
 	report, err := s.reports.GetByID(ctx, reportID)
@@ -148,7 +149,37 @@ func (s *ReportService) ResolveWithAction(ctx context.Context, reportID, resolve
 		return ErrReportNotFound
 	}
 
-	// Mark as resolved
+	// Perform the action FIRST — if it fails, do not resolve.
+	switch action {
+	case ResolveAndWarn:
+		if report.TorrentID == nil {
+			return fmt.Errorf("%w: cannot warn without a torrent", ErrInvalidReport)
+		}
+		if s.warningSvc == nil || s.torrentSvc == nil {
+			return fmt.Errorf("warning or torrent service not configured")
+		}
+		torrent, err := s.torrentSvc.GetByID(ctx, *report.TorrentID)
+		if err != nil {
+			return fmt.Errorf("get torrent for warning: %w", err)
+		}
+		reason := fmt.Sprintf("Warning issued from report: %s", report.Reason)
+		if _, err := s.warningSvc.IssueManualWarning(ctx, torrent.UploaderID, reason, nil, resolvedByUserID); err != nil {
+			return fmt.Errorf("issue warning: %w", err)
+		}
+	case ResolveAndDelete:
+		if report.TorrentID == nil {
+			return fmt.Errorf("%w: cannot delete without a torrent", ErrInvalidReport)
+		}
+		if s.torrentSvc == nil {
+			return fmt.Errorf("torrent service not configured")
+		}
+		adminPerms := model.Permissions{IsAdmin: true}
+		if err := s.torrentSvc.DeleteTorrent(ctx, *report.TorrentID, resolvedByUserID, adminPerms); err != nil {
+			return fmt.Errorf("delete torrent: %w", err)
+		}
+	}
+
+	// Mark as resolved only after the action succeeds.
 	if err := s.reports.Resolve(ctx, reportID, resolvedByUserID); err != nil {
 		return ErrReportNotFound
 	}
@@ -157,23 +188,6 @@ func (s *ReportService) ResolveWithAction(ctx context.Context, reportID, resolve
 		Base:     event.NewBase(event.ReportResolved, event.Actor{ID: resolvedByUserID}),
 		ReportID: reportID,
 	})
-
-	switch action {
-	case ResolveAndWarn:
-		if report.TorrentID != nil && s.warningSvc != nil && s.torrentSvc != nil {
-			// Get the torrent to find the uploader
-			torrent, err := s.torrentSvc.GetByID(ctx, *report.TorrentID)
-			if err == nil {
-				reason := fmt.Sprintf("Warning issued from report: %s", report.Reason)
-				_, _ = s.warningSvc.IssueManualWarning(ctx, torrent.UploaderID, reason, nil, resolvedByUserID)
-			}
-		}
-	case ResolveAndDelete:
-		if report.TorrentID != nil && s.torrentSvc != nil {
-			adminPerms := model.Permissions{IsAdmin: true}
-			_ = s.torrentSvc.DeleteTorrent(ctx, *report.TorrentID, resolvedByUserID, adminPerms)
-		}
-	}
 
 	return nil
 }

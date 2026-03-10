@@ -281,18 +281,28 @@ func (h *AdminHandler) HandleCreateModNote(w http.ResponseWriter, r *http.Reques
 
 // HandleDeleteModNote handles DELETE /api/v1/admin/notes/{id}.
 func (h *AdminHandler) HandleDeleteModNote(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
 	noteID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || noteID <= 0 {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid note ID")
 		return
 	}
 
-	if err := h.admin.DeleteModNote(r.Context(), noteID); err != nil {
-		if errors.Is(err, service.ErrModNoteNotFound) {
+	perms := middleware.PermissionsFromContext(r.Context())
+	if err := h.admin.DeleteModNote(r.Context(), noteID, actorID, perms); err != nil {
+		switch {
+		case errors.Is(err, service.ErrModNoteNotFound):
 			ErrorResponse(w, http.StatusNotFound, "not_found", "mod note not found")
-			return
+		case errors.Is(err, service.ErrModNoteDeleteForbidden):
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "you can only delete your own notes")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete mod note")
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete mod note")
 		return
 	}
 
