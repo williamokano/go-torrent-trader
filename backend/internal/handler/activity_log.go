@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -53,7 +54,12 @@ func (h *ActivityLogHandler) HandleList(w http.ResponseWriter, r *http.Request) 
 			"created_at": l.CreatedAt,
 		}
 		if l.Metadata != nil {
-			items[i]["metadata"] = l.Metadata
+			var raw json.RawMessage
+			if err := json.Unmarshal([]byte(*l.Metadata), &raw); err == nil {
+				items[i]["metadata"] = raw
+			} else {
+				items[i]["metadata"] = l.Metadata
+			}
 		}
 	}
 

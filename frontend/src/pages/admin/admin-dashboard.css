@@ -16,7 +16,7 @@
 }
 
 .admin-dashboard__card--warning {
-  border-color: #ffc107;
+  border-color: var(--color-warning, #ffc107);
 }
 
 .admin-dashboard__card--danger {
@@ -39,7 +39,7 @@
 }
 
 .admin-dashboard__card-value--warning {
-  color: #ffc107;
+  color: var(--color-warning, #ffc107);
 }
 
 .admin-dashboard__card-value--danger {

@@ -1,10 +1,9 @@
 package handler
 
 import (
-	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -42,39 +41,35 @@ type PeerStats struct {
 }
 
 // HandleDashboard returns GET /api/v1/admin/dashboard.
-func HandleDashboard(db *sql.DB, activityLogs *service.ActivityLogService) http.HandlerFunc {
+func HandleDashboard(dashRepo repository.DashboardRepository, activityLogs *service.ActivityLogService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		now := time.Now().UTC()
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-		weekStart := todayStart.AddDate(0, 0, -int(todayStart.Weekday()))
 
-		var stats DashboardStats
-
-		// Single query for user, torrent, and peer counts
-		err := db.QueryRowContext(ctx, `
-			SELECT
-				(SELECT COUNT(*) FROM users WHERE enabled = true),
-				(SELECT COUNT(*) FROM users WHERE enabled = true AND created_at >= $1),
-				(SELECT COUNT(*) FROM users WHERE enabled = true AND created_at >= $2),
-				(SELECT COUNT(*) FROM torrents WHERE visible = true AND banned = false),
-				(SELECT COUNT(*) FROM torrents WHERE visible = true AND banned = false AND created_at >= $1),
-				(SELECT COUNT(*) FROM peers),
-				(SELECT COUNT(*) FROM peers WHERE seeder = true),
-				(SELECT COUNT(*) FROM peers WHERE seeder = false),
-				(SELECT COUNT(*) FROM reports WHERE resolved = false),
-				(SELECT COUNT(*) FROM warnings WHERE status = 'active'),
-				(SELECT COUNT(*) FROM chat_mutes WHERE (expires_at IS NULL OR expires_at > NOW()))
-		`, todayStart, weekStart).Scan(
-			&stats.Users.Total, &stats.Users.Today, &stats.Users.Week,
-			&stats.Torrents.Total, &stats.Torrents.Today,
-			&stats.Peers.Total, &stats.Peers.Seeders, &stats.Peers.Leechers,
-			&stats.PendingReports, &stats.ActiveWarnings, &stats.ActiveMutes,
-		)
+		dbStats, err := dashRepo.GetStats(ctx)
 		if err != nil {
 			slog.Error("dashboard: failed to query stats", "error", err)
 			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to load dashboard stats")
 			return
+		}
+
+		stats := DashboardStats{
+			Users: UserStats{
+				Total: dbStats.UsersTotal,
+				Today: dbStats.UsersToday,
+				Week:  dbStats.UsersWeek,
+			},
+			Torrents: TorrentStats{
+				Total: dbStats.TorrentsTotal,
+				Today: dbStats.TorrentsToday,
+			},
+			Peers: PeerStats{
+				Total:    dbStats.PeersTotal,
+				Seeders:  dbStats.PeersSeeders,
+				Leechers: dbStats.PeersLeechers,
+			},
+			PendingReports: dbStats.PendingReports,
+			ActiveWarnings: dbStats.ActiveWarnings,
+			ActiveMutes:    dbStats.ActiveMutes,
 		}
 
 		// Fetch last 10 activity log entries
@@ -98,7 +93,13 @@ func HandleDashboard(db *sql.DB, activityLogs *service.ActivityLogService) http.
 				"created_at": l.CreatedAt,
 			}
 			if l.Metadata != nil {
-				items[i]["metadata"] = l.Metadata
+				// Parse the JSON string into json.RawMessage to avoid double-encoding.
+				var raw json.RawMessage
+				if err := json.Unmarshal([]byte(*l.Metadata), &raw); err == nil {
+					items[i]["metadata"] = raw
+				} else {
+					items[i]["metadata"] = l.Metadata
+				}
 			}
 		}
 		stats.RecentActivity = items

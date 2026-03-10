@@ -38,6 +38,7 @@ type Deps struct {
 	UserRepo             repository.UserRepository
 	CategoryRepo         repository.CategoryRepository
 	TransferHistoryRepo  repository.TransferHistoryRepository
+	DashboardRepo        repository.DashboardRepository
 	RSSConfig            *RSSConfig
 }
 
@@ -293,8 +294,8 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Group(func(r chi.Router) {
 					r.Use(mw.RequireAdmin)
 
-					if deps.DB != nil && deps.ActivityLogService != nil {
-						r.Get("/dashboard", HandleDashboard(deps.DB, deps.ActivityLogService))
+					if deps.DashboardRepo != nil && deps.ActivityLogService != nil {
+						r.Get("/dashboard", HandleDashboard(deps.DashboardRepo, deps.ActivityLogService))
 					}
 
 					if deps.AdminService != nil {
