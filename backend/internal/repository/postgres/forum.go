@@ -119,3 +119,13 @@ func (r *ForumRepo) RecalculateLastPost(ctx context.Context, forumID int64) erro
 			)`, forumID)
 	return err
 }
+
+func (r *ForumRepo) RecalculateCounts(ctx context.Context, forumID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE forums SET
+			topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
+			post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
+			last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
+		WHERE id = $1`, forumID)
+	return err
+}

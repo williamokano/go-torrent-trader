@@ -143,3 +143,40 @@ func (r *ForumTopicRepo) RecalculateLastPost(ctx context.Context, topicID int64)
 	_ = res
 	return nil
 }
+
+func (r *ForumTopicRepo) SetLocked(ctx context.Context, id int64, locked bool) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_topics SET locked = $1, updated_at = NOW() WHERE id = $2",
+		locked, id,
+	)
+	return err
+}
+
+func (r *ForumTopicRepo) SetPinned(ctx context.Context, id int64, pinned bool) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_topics SET pinned = $1, updated_at = NOW() WHERE id = $2",
+		pinned, id,
+	)
+	return err
+}
+
+func (r *ForumTopicRepo) UpdateTitle(ctx context.Context, id int64, title string) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_topics SET title = $1, updated_at = NOW() WHERE id = $2",
+		title, id,
+	)
+	return err
+}
+
+func (r *ForumTopicRepo) UpdateForumID(ctx context.Context, id int64, forumID int64) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_topics SET forum_id = $1, updated_at = NOW() WHERE id = $2",
+		forumID, id,
+	)
+	return err
+}
+
+func (r *ForumTopicRepo) Delete(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM forum_topics WHERE id = $1", id)
+	return err
+}

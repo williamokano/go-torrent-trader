@@ -348,6 +348,152 @@ func (h *ForumHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// HandleLockTopic handles POST /api/v1/forums/topics/{id}/lock — lock a topic.
+func (h *ForumHandler) HandleLockTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	if err := h.forumSvc.LockTopic(r.Context(), topicID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "topic locked"})
+}
+
+// HandleUnlockTopic handles POST /api/v1/forums/topics/{id}/unlock — unlock a topic.
+func (h *ForumHandler) HandleUnlockTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	if err := h.forumSvc.UnlockTopic(r.Context(), topicID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "topic unlocked"})
+}
+
+// HandlePinTopic handles POST /api/v1/forums/topics/{id}/pin — pin a topic.
+func (h *ForumHandler) HandlePinTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	if err := h.forumSvc.PinTopic(r.Context(), topicID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "topic pinned"})
+}
+
+// HandleUnpinTopic handles POST /api/v1/forums/topics/{id}/unpin — unpin a topic.
+func (h *ForumHandler) HandleUnpinTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	if err := h.forumSvc.UnpinTopic(r.Context(), topicID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "topic unpinned"})
+}
+
+// HandleRenameTopic handles PUT /api/v1/forums/topics/{id}/title — rename a topic.
+func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	if err := h.forumSvc.RenameTopic(r.Context(), topicID, perms, body.Title); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "topic renamed"})
+}
+
+// HandleMoveTopic handles POST /api/v1/forums/topics/{id}/move — move a topic to another forum.
+func (h *ForumHandler) HandleMoveTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	var body struct {
+		ForumID int64 `json:"forum_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	if body.ForumID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid forum ID")
+		return
+	}
+
+	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "topic moved"})
+}
+
+// HandleDeleteTopic handles DELETE /api/v1/forums/topics/{id} — delete a topic and its posts.
+func (h *ForumHandler) HandleDeleteTopic(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || topicID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid topic ID")
+		return
+	}
+
+	if err := h.forumSvc.DeleteTopic(r.Context(), topicID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleForumError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrForumNotFound):
@@ -366,6 +512,10 @@ func handleForumError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "not authorized to delete this post")
 	case errors.Is(err, service.ErrCannotDeleteFirstPost):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "cannot delete the first post of a topic; delete the topic instead")
+	case errors.Is(err, service.ErrTopicDeleteDenied):
+		ErrorResponse(w, http.StatusForbidden, "forbidden", "you cannot delete this topic")
+	case errors.Is(err, service.ErrSameForum):
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "topic is already in this forum")
 	case errors.Is(err, service.ErrInvalidTopic):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 	case errors.Is(err, service.ErrInvalidPost):

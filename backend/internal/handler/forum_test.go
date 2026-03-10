@@ -165,6 +165,8 @@ func TestHandleForumError(t *testing.T) {
 		{service.ErrPostDeleteDenied, http.StatusForbidden},
 		{service.ErrCannotDeleteFirstPost, http.StatusBadRequest},
 		{service.ErrInvalidPost, http.StatusBadRequest},
+		{service.ErrTopicDeleteDenied, http.StatusForbidden},
+		{service.ErrSameForum, http.StatusBadRequest},
 		{service.ErrInvalidReply, http.StatusBadRequest},
 	}
 	for _, tc := range tests {
@@ -240,4 +242,114 @@ func TestHandleDeletePost_InvalidID(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
+}
+
+func TestHandleLockTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/abc/lock", nil)
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleLockTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleUnlockTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/0/unlock", nil)
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "0")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleUnlockTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandlePinTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/xyz/pin", nil)
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "xyz")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandlePinTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleUnpinTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/-1/unpin", nil)
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleUnpinTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleRenameTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("PUT", "/api/v1/forums/topics/abc/title", strings.NewReader(`{"title":"new"}`))
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleRenameTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleRenameTopic_BadJSON(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("PUT", "/api/v1/forums/topics/1/title", strings.NewReader("{bad"))
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleRenameTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleMoveTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/abc/move", strings.NewReader(`{"forum_id":2}`))
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleMoveTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleMoveTopic_BadJSON(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/1/move", strings.NewReader("{bad"))
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleMoveTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleMoveTopic_InvalidForumID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("POST", "/api/v1/forums/topics/1/move", strings.NewReader(`{"forum_id":0}`))
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleMoveTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
+}
+
+func TestHandleDeleteTopic_InvalidID(t *testing.T) {
+	h := NewForumHandler(nil)
+	req := httptest.NewRequest("DELETE", "/api/v1/forums/topics/abc", nil)
+	req = withForumAuth(req, 1, model.Permissions{Level: 100, IsAdmin: true})
+	rctx := chi.NewRouteContext(); rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.HandleDeleteTopic(w, req)
+	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
 }
