@@ -754,7 +754,7 @@ export function AdminUserDetailPage() {
             onChange={(e) => setRestrictionReason(e.target.value)}
           />
           <Input
-            label="Expires At (optional, RFC3339)"
+            label="Expires At (optional)"
             type="datetime-local"
             value={restrictionExpiry}
             onChange={(e) => setRestrictionExpiry(e.target.value)}
