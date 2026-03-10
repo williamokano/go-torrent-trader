@@ -409,7 +409,7 @@
 - Error responses: bencoded `failure reason`
 - All DB operations within a transaction
 
-#### BE-2.2: Connection Limits [S]
+#### BE-2.2: Connection Limits [S] [DONE]
 **As a** tracker operator
 **I want** to limit concurrent connections per user
 **So that** account sharing is deterred
@@ -762,7 +762,7 @@
 
 ### Epic BE-5: Forum
 
-#### BE-5.1: Forum Structure & Browsing [M]
+#### BE-5.1: Forum Structure & Browsing [M] [DONE]
 **As a** user
 **I want** to browse forum categories and topics
 **So that** I can participate in discussions
@@ -1592,7 +1592,7 @@
 
 ### Epic FE-3: Forum [L]
 
-#### FE-3.1: Forum Index [M]
+#### FE-3.1: Forum Index [M] [DONE]
 **As a** user
 **I want** to browse forum categories and forums
 **So that** I can find discussions
@@ -1607,7 +1607,7 @@
 - "Mark all read" button
 - Responsive layout
 
-#### FE-3.2: Topic List [M]
+#### FE-3.2: Topic List [M] [DONE]
 **As a** user
 **I want** to browse topics in a forum
 **So that** I can find interesting discussions
@@ -1620,7 +1620,7 @@
 - Unread indicator per topic
 - New topic button (hidden if user lacks `can_forum` or group level < forum's `min_group_level`)
 
-#### FE-3.3: Topic View [L]
+#### FE-3.3: Topic View [L] [DONE]
 **As a** user
 **I want** to read and participate in a topic
 **So that** I can discuss with other users
