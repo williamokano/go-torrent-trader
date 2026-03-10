@@ -23,9 +23,13 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		bus.Subscribe(evtType, func(ctx context.Context, evt event.Event) error {
 			msg, actor := buildMsg(evt)
 			metadata := marshalMetadata(evt)
+			var actorID *int64
+			if actor.ID != 0 {
+				actorID = &actor.ID
+			}
 			entry := &model.ActivityLog{
 				EventType: string(evt.EventType()),
-				ActorID:   actor.ID,
+				ActorID:   actorID,
 				Message:   msg,
 				Metadata:  metadata,
 			}

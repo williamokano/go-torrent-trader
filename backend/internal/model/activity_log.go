@@ -6,7 +6,7 @@ import "time"
 type ActivityLog struct {
 	ID        int64
 	EventType string
-	ActorID   int64
+	ActorID   *int64
 	Message   string
 	Metadata  *string // JSON, optional extra data
 	CreatedAt time.Time

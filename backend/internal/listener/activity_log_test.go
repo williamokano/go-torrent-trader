@@ -36,7 +36,7 @@ func (m *mockActivityLogRepo) List(_ context.Context, opts repository.ListActivi
 		if opts.EventType != nil && l.EventType != *opts.EventType {
 			continue
 		}
-		if opts.ActorID != nil && l.ActorID != *opts.ActorID {
+		if opts.ActorID != nil && (l.ActorID == nil || *l.ActorID != *opts.ActorID) {
 			continue
 		}
 		filtered = append(filtered, *l)
@@ -113,8 +113,8 @@ func TestListener_UserRegistered(t *testing.T) {
 	if repo.logs[0].Message != "alice joined the site" {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
-	if repo.logs[0].ActorID != 1 {
-		t.Errorf("expected actor_id 1, got %d", repo.logs[0].ActorID)
+	if repo.logs[0].ActorID == nil || *repo.logs[0].ActorID != 1 {
+		t.Errorf("expected actor_id 1, got %v", repo.logs[0].ActorID)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestListener_ActorCarriesUsername(t *testing.T) {
 	if repo.logs[0].Message != "editor edited torrent: Edited Torrent" {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
-	if repo.logs[0].ActorID != 42 {
-		t.Errorf("expected actor_id 42, got %d", repo.logs[0].ActorID)
+	if repo.logs[0].ActorID == nil || *repo.logs[0].ActorID != 42 {
+		t.Errorf("expected actor_id 42, got %v", repo.logs[0].ActorID)
 	}
 }
