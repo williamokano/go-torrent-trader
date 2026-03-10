@@ -264,9 +264,6 @@ export function RootLayout() {
         </nav>
 
         <div className="header__actions">
-          <button className="header__theme-btn" onClick={toggleTheme}>
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
           {isAuthenticated ? (
             <>
               <Link
@@ -279,30 +276,53 @@ export function RootLayout() {
                   <span className="header__mail-badge">{pmUnreadCount}</span>
                 )}
               </Link>
-              <Link to={`/user/${user?.id}`} className="header__username-link">
-                {user?.username}
-              </Link>
-              {user?.isAdmin && (
-                <NavLink
-                  to="/admin"
-                  className={({ isActive }) =>
-                    `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-                  }
-                >
-                  Admin
-                </NavLink>
-              )}
-              <NavLink
-                to="/settings"
-                className={({ isActive }) =>
-                  `header__nav-link${isActive ? " header__nav-link--active" : ""}`
-                }
+              <Dropdown
+                key={`user-${location.key}`}
+                label={user?.username ?? "Account"}
+                onNavigate={closeMenu}
               >
-                Settings
-              </NavLink>
-              <button className="header__theme-btn" onClick={logout}>
-                Logout
-              </button>
+                <NavLink
+                  to={`/user/${user?.id}`}
+                  className="header__dropdown-item"
+                  onClick={closeMenu}
+                >
+                  Profile
+                </NavLink>
+                <NavLink
+                  to="/settings"
+                  className="header__dropdown-item"
+                  onClick={closeMenu}
+                >
+                  Settings
+                </NavLink>
+                {user?.isAdmin && (
+                  <NavLink
+                    to="/admin"
+                    className="header__dropdown-item"
+                    onClick={closeMenu}
+                  >
+                    Admin Panel
+                  </NavLink>
+                )}
+                <button
+                  className="header__dropdown-btn"
+                  onClick={() => {
+                    toggleTheme();
+                    closeMenu();
+                  }}
+                >
+                  Theme: {theme === "dark" ? "Light" : "Dark"}
+                </button>
+                <button
+                  className="header__dropdown-btn header__dropdown-btn--danger"
+                  onClick={() => {
+                    logout();
+                    closeMenu();
+                  }}
+                >
+                  Logout
+                </button>
+              </Dropdown>
             </>
           ) : (
             <>
