@@ -9,7 +9,7 @@ import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import { buildCategoryOptions } from "@/utils/categories";
 import { CategoryIcon } from "@/components/CategoryIcon";
-import { WarningBadge } from "@/components/WarningBadge";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./browse.css";
 
 const SORT_OPTIONS = [
@@ -255,12 +255,11 @@ export function BrowsePage() {
                   {t.anonymous ? (
                     <span className="browse__anonymous">Anonymous</span>
                   ) : (
-                    <>
-                      <Link to={`/user/${t.uploader_id}`}>
-                        {t.uploader_name ?? "Unknown"}
-                      </Link>
-                      <WarningBadge warned={t.uploader_warned} />
-                    </>
+                    <UsernameDisplay
+                      userId={t.uploader_id!}
+                      username={t.uploader_name ?? "Unknown"}
+                      warned={t.uploader_warned}
+                    />
                   )}
                 </td>
                 <td>{formatBytes(t.size ?? 0)}</td>

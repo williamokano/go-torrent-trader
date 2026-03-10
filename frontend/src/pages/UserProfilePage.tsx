@@ -4,7 +4,7 @@ import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
-import { WarningBadge } from "@/components/WarningBadge";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./profile.css";
 
 interface UserWarning {
@@ -38,6 +38,9 @@ interface PublicUser {
   invited_by_name?: string;
   seeding_count: number;
   leeching_count: number;
+  can_download: boolean;
+  can_upload: boolean;
+  can_chat: boolean;
   recent_uploads?: Array<{
     id: number;
     name: string;
@@ -298,8 +301,12 @@ export function UserProfilePage() {
         )}
         <div className="profile-info">
           <h1 className="profile-info__username">
-            {profile.username}
-            <WarningBadge warned={profile.warned} />
+            <UsernameDisplay
+              userId={profile.id}
+              username={profile.username}
+              warned={profile.warned}
+              noLink
+            />
           </h1>
           {profile.title && (
             <p className="profile-info__title">{profile.title}</p>
@@ -314,12 +321,13 @@ export function UserProfilePage() {
             <span className="profile-info__joined">
               Joined {formatDate(profile.created_at)}
             </span>
-            {profile.invited_by_name && (
+            {profile.invited_by_name && profile.invited_by_id && (
               <span className="profile-info__invited-by">
                 Invited by{" "}
-                <Link to={`/user/${profile.invited_by_id}`}>
-                  {profile.invited_by_name}
-                </Link>
+                <UsernameDisplay
+                  userId={profile.invited_by_id}
+                  username={profile.invited_by_name}
+                />
               </span>
             )}
             {isOwnProfile && (
@@ -383,6 +391,31 @@ export function UserProfilePage() {
           <div className="profile-stat__value">{profile.leeching_count}</div>
         </div>
       </div>
+
+      {(isOwnProfile || currentUser?.isStaff) &&
+        profile &&
+        (profile.can_download === false ||
+          profile.can_upload === false ||
+          profile.can_chat === false) && (
+          <div className="profile-restrictions">
+            <h2 className="profile-restrictions__title">Active Restrictions</h2>
+            {profile.can_download === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                {isOwnProfile ? "Your" : "This user's"} download privileges are currently suspended.
+              </p>
+            )}
+            {profile.can_upload === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                {isOwnProfile ? "Your" : "This user's"} upload privileges are currently suspended.
+              </p>
+            )}
+            {profile.can_chat === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                {isOwnProfile ? "Your" : "This user's"} chat privileges are currently suspended.
+              </p>
+            )}
+          </div>
+        )}
 
       {userWarnings.length > 0 && (
         <div className="profile-warnings">

@@ -303,6 +303,9 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		GroupID:        groupID,
 		Enabled:        !needsConfirmation,
 		IP:             &ip,
+		CanDownload:    true,
+		CanUpload:      true,
+		CanChat:        true,
 	}
 
 	// Link inviter to invitee

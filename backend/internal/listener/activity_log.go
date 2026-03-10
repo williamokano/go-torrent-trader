@@ -211,6 +211,18 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.PasskeyResetEvent)
 		return fmt.Sprintf("%s reset passkey for %s", e.Actor.Username, e.Username), e.Actor
 	})
+
+	listen(event.RestrictionApplied, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.RestrictionAppliedEvent)
+		actor := resolveActor(userRepo, e.Actor)
+		return fmt.Sprintf("%s restricted %s privilege for %s", actor, e.RestrictionType, e.Username), e.Actor
+	})
+
+	listen(event.RestrictionLifted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.RestrictionLiftedEvent)
+		actor := resolveActor(userRepo, e.Actor)
+		return fmt.Sprintf("%s restored %s privilege for %s", actor, e.RestrictionType, e.Username), e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.

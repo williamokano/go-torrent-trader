@@ -7,6 +7,7 @@ import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { Modal } from "@/components/modal/Modal";
 import { timeAgo } from "@/utils/format";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./admin-reports.css";
 
 interface Report {
@@ -157,13 +158,11 @@ export function AdminReportsPage() {
               {reports.map((report) => (
                 <tr key={report.id}>
                   <td>
-                    <Link
-                      to={`/user/${report.reporter_id}`}
+                    <UsernameDisplay
+                      userId={report.reporter_id}
+                      username={report.reporter_username || `User #${report.reporter_id}`}
                       className="admin-reports__link"
-                    >
-                      {report.reporter_username ||
-                        `User #${report.reporter_id}`}
-                    </Link>
+                    />
                   </td>
                   <td>
                     {report.torrent_id ? (

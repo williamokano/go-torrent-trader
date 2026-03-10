@@ -43,6 +43,8 @@ const (
 	SiteSettingChanged      Type = "site_setting_changed"
 	PasswordReset           Type = "password_reset"
 	PasskeyReset            Type = "passkey_reset"
+	RestrictionApplied      Type = "restriction_applied"
+	RestrictionLifted       Type = "restriction_lifted"
 )
 
 // Event is the base interface for all domain events.
@@ -297,4 +299,21 @@ type PasskeyResetEvent struct {
 	Base
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+}
+
+type RestrictionAppliedEvent struct {
+	Base
+	RestrictionID   int64  `json:"restriction_id"`
+	UserID          int64  `json:"user_id"`
+	Username        string `json:"username"`
+	RestrictionType string `json:"restriction_type"`
+	Reason          string `json:"reason"`
+}
+
+type RestrictionLiftedEvent struct {
+	Base
+	RestrictionID   int64  `json:"restriction_id"`
+	UserID          int64  `json:"user_id"`
+	Username        string `json:"username"`
+	RestrictionType string `json:"restriction_type"`
 }

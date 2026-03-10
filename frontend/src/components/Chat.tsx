@@ -19,6 +19,7 @@ export function Chat() {
     isStaff,
     muted,
     muteExpiresAt,
+    chatSuspended,
     mainChatVisible,
     sendMessage,
     deleteMessage,
@@ -150,17 +151,17 @@ export function Chat() {
             <input
               className="chat__input"
               type="text"
-              placeholder={muted ? "You are muted" : "Type a message..."}
+              placeholder={chatSuspended ? "Chat suspended" : muted ? "You are muted" : "Type a message..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               maxLength={500}
-              disabled={!connected || muted}
+              disabled={!connected || muted || chatSuspended}
             />
             <button
               className="chat__send-btn"
               onClick={handleSend}
-              disabled={!connected || !input.trim() || muted}
+              disabled={!connected || !input.trim() || muted || chatSuspended}
             >
               Send
             </button>

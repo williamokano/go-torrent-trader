@@ -55,6 +55,9 @@ type PublicProfile struct {
 	InvitedByID     *int64         `json:"invited_by_id,omitempty"`
 	InvitedByName   *string        `json:"invited_by_name,omitempty"`
 	RecentUploads   []RecentUpload `json:"recent_uploads"`
+	CanDownload     bool           `json:"can_download"`
+	CanUpload       bool           `json:"can_upload"`
+	CanChat         bool           `json:"can_chat"`
 }
 
 // OwnerProfile extends PublicProfile with fields only visible to the profile owner.
@@ -216,8 +219,11 @@ func (s *UserService) buildPublicProfile(ctx context.Context, u *model.User) Pub
 		Downloaded: u.Downloaded,
 		Ratio:      calculateRatio(u.Uploaded, u.Downloaded),
 		Donor:      u.Donor,
-		Warned:     u.Warned,
-		CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Warned:      u.Warned,
+		CanDownload: u.CanDownload,
+		CanUpload:   u.CanUpload,
+		CanChat:     u.CanChat,
+		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		InvitedByID: u.InvitedBy,
 	}
 	if u.InvitedBy != nil {

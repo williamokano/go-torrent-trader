@@ -251,6 +251,7 @@ func setupTorrentRouter() (http.Handler, service.SessionStore) {
 		AuthService:    authSvc,
 		SessionStore:   sessions,
 		TorrentService: torrentSvc,
+		UserRepo:       userRepo,
 	})
 	return router, sessions
 }

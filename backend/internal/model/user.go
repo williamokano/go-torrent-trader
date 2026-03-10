@@ -26,6 +26,9 @@ type User struct {
 	WarnUntil      *time.Time
 	Donor          bool
 	InvitedBy      *int64
+	CanDownload    bool
+	CanUpload      bool
+	CanChat        bool
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

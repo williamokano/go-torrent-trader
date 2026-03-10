@@ -30,6 +30,9 @@ export interface User {
   warned: boolean;
   donor: boolean;
   enabled: boolean;
+  can_download: boolean;
+  can_upload: boolean;
+  can_chat: boolean;
   created_at: string;
   last_login: string;
   isAdmin: boolean;

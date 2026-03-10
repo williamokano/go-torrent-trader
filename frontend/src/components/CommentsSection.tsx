@@ -6,6 +6,7 @@ import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { timeAgo } from "@/utils/format";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 
 export interface Comment {
   id: number;
@@ -259,7 +260,10 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
               <li key={comment.id} className="comments-section__item">
                 <div className="comments-section__meta">
                   <span className="comments-section__author">
-                    {comment.username ?? `User #${comment.user_id}`}
+                    <UsernameDisplay
+                      userId={comment.user_id}
+                      username={comment.username ?? `User #${comment.user_id}`}
+                    />
                   </span>
                   <time
                     className="comments-section__time"

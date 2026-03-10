@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { Pagination } from "@/components/Pagination";
 import { formatDate, formatBytes, formatRatio } from "@/utils/format";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./invites.css";
 
 interface InviteeView {
@@ -275,7 +275,11 @@ export function InvitesPage() {
                   {invitees.map((u) => (
                     <tr key={u.id}>
                       <td>
-                        <Link to={`/user/${u.id}`}>{u.username}</Link>
+                        <UsernameDisplay
+                          userId={u.id}
+                          username={u.username}
+                          warned={u.warned}
+                        />
                       </td>
                       <td>{formatBytes(u.uploaded)}</td>
                       <td>{formatBytes(u.downloaded)}</td>

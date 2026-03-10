@@ -7,6 +7,14 @@
   margin: var(--space-xs) 0 0;
 }
 
+.admin-user-detail__header-meta {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--color-text-muted);
+  margin-top: var(--space-xs);
+}
+
 .admin-user-detail__back {
   color: var(--color-accent);
   text-decoration: none;
@@ -45,6 +53,176 @@
   padding-bottom: var(--space-xs);
 }
 
+/* Edit form */
+.admin-user-detail__form-row {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.admin-user-detail__form-row > .admin-user-detail__form-field {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .admin-user-detail__form-row {
+    flex-direction: column;
+  }
+}
+
+.admin-user-detail__form-flags {
+  display: flex;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+  margin: var(--space-sm) 0;
+}
+
+.admin-user-detail__passkey {
+  margin: var(--space-sm) 0;
+}
+
+.admin-user-detail__passkey label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-xs);
+}
+
+.admin-user-detail__passkey code {
+  display: block;
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-family: monospace;
+  word-break: break-all;
+  user-select: all;
+}
+
+.admin-user-detail__stats-summary {
+  display: flex;
+  gap: var(--space-lg);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-sm) 0;
+}
+
+.admin-user-detail__form-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.admin-user-detail__save-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-user-detail__reset-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-warning, #e0a800);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.admin-user-detail__reset-btn:hover {
+  opacity: 0.85;
+}
+
+.admin-user-detail__reset-btn--danger {
+  background-color: var(--color-danger, #dc3545);
+}
+
+.admin-user-detail__generated-value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary, #f8f9fa);
+  margin: var(--space-sm) 0;
+}
+
+.admin-user-detail__generated-value label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.admin-user-detail__copyable {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.admin-user-detail__copyable code {
+  flex: 1;
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-primary, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+.admin-user-detail__copyable button {
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.admin-user-detail__copyable button:hover {
+  opacity: 0.85;
+}
+
+.admin-user-detail__cancel-btn {
+  padding: var(--space-xs) var(--space-md);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+
+.admin-user-detail__modal-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+/* Definition list */
 .admin-user-detail__dl {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -62,6 +240,7 @@
   color: var(--color-text-primary);
 }
 
+/* Badges */
 .admin-user-detail__badge {
   display: inline-block;
   padding: 2px 6px;
@@ -96,6 +275,7 @@
   color: #566573;
 }
 
+/* Table */
 .admin-user-detail__table {
   width: 100%;
   border-collapse: collapse;
@@ -130,6 +310,7 @@
   padding: var(--space-md);
 }
 
+/* Notes */
 .admin-user-detail__note-form {
   display: flex;
   gap: var(--space-sm);
@@ -205,4 +386,71 @@
   margin: 0;
   font-size: var(--text-sm);
   white-space: pre-wrap;
+}
+
+/* Restrictions */
+.admin-user-detail__restrictions-status {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.admin-user-detail__restriction-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__restore-btn {
+  padding: 1px 6px;
+  background-color: var(--color-success, #28a745);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.admin-user-detail__restore-btn:hover {
+  opacity: 0.85;
+}
+
+.admin-user-detail__restriction-form {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.admin-user-detail__restriction-form h3 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-md);
+}
+
+.admin-user-detail__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.admin-user-detail__field-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.admin-user-detail__date-input {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  max-width: 250px;
+}
+
+.admin-user-detail__date-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
 }

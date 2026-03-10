@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
-import { WarningBadge } from "@/components/WarningBadge";
+import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./staff.css";
 
 interface StaffMember {
@@ -119,13 +118,12 @@ export function StaffPage() {
             <div className="staff__cards">
               {group.members.map((member) => (
                 <div key={member.id} className="staff__card">
-                  <Link
-                    to={`/user/${member.id}`}
+                  <UsernameDisplay
+                    userId={member.id}
+                    username={member.username}
+                    warned={member.warned}
                     className="staff__card-username"
-                  >
-                    {member.username}
-                  </Link>
-                  <WarningBadge warned={member.warned} />
+                  />
                   {member.title && (
                     <span className="staff__card-title">{member.title}</span>
                   )}

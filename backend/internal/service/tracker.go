@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	ErrInvalidPasskey = errors.New("invalid passkey")
-	ErrTorrentBanned  = errors.New("torrent is banned")
-	ErrUserDisabled   = errors.New("user account is disabled")
+	ErrInvalidPasskey      = errors.New("invalid passkey")
+	ErrTorrentBanned       = errors.New("torrent is banned")
+	ErrUserDisabled        = errors.New("user account is disabled")
+	ErrDownloadSuspended   = errors.New("download privilege suspended")
 )
 
 const (
@@ -101,6 +102,11 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	}
 	if !user.Enabled {
 		return nil, ErrUserDisabled
+	}
+
+	// Reject leeching if user's download privilege is suspended.
+	if !user.CanDownload && req.Left > 0 {
+		return nil, ErrDownloadSuspended
 	}
 
 	// Validate torrent exists and is not banned.

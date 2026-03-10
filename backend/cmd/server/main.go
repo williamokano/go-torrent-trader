@@ -180,6 +180,9 @@ func run() int {
 	newsRepo := postgres.NewNewsRepo(db)
 	newsService := service.NewNewsService(newsRepo, userRepo, eventBus)
 
+	restrictionRepo := postgres.NewRestrictionRepo(db)
+	restrictionService := service.NewRestrictionService(restrictionRepo, userRepo, eventBus)
+
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	adminService.SetSessionStore(sessionStore)
 	adminService.SetEmailSender(emailSender)
@@ -222,6 +225,7 @@ func run() int {
 		MessageService:      messageService,
 		WarningService:     warningService,
 		NewsService:        newsService,
+		RestrictionService: restrictionService,
 		ChatService:        chatService,
 		ChatHub:            chatHub,
 		PeerRepo:            peerRepo,
@@ -246,6 +250,7 @@ func run() int {
 		EmailSender:     emailSender,
 		StatsCache:      statsCache,
 		ChatSvc:         chatService,
+		RestrictionSvc:  restrictionService,
 		SendToUser:      chatHub.SendToUser,
 	}
 

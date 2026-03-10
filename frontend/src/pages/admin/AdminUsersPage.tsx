@@ -2,11 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
-import { useToast } from "@/components/toast";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
-import { AdminUserEditModal } from "./AdminUserEditModal";
 import { formatBytes, timeAgo } from "@/utils/format";
 import { WarningBadge } from "@/components/WarningBadge";
 import "./admin-users.css";
@@ -17,17 +15,10 @@ interface AdminUser {
   email: string;
   group_id: number;
   group_name: string;
-  avatar: string | null;
-  title: string | null;
-  info: string | null;
   uploaded: number;
   downloaded: number;
   enabled: boolean;
   warned: boolean;
-  donor: boolean;
-  parked: boolean;
-  passkey: string | null;
-  invites: number;
   created_at: string;
   last_access: string | null;
 }
@@ -41,7 +32,6 @@ const PER_PAGE = 25;
 
 export function AdminUsersPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const toast = useToast();
 
   const query = searchParams.get("q") ?? "";
   const groupFilter = searchParams.get("group") ?? "";
@@ -55,9 +45,8 @@ export function AdminUsersPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<GroupOption[]>([]);
-  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
 
-  // Fetch groups for filter and edit modal
+  // Fetch groups for filter dropdown
   useEffect(() => {
     async function fetchGroups() {
       const token = getAccessToken();
@@ -152,31 +141,6 @@ export function AdminUsersPage() {
     setSearchParams(next);
   };
 
-  const handleSaveUser = async (
-    userId: number,
-    data: { group_id?: number; enabled?: boolean; warned?: boolean },
-  ) => {
-    const token = getAccessToken();
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/users/${userId}`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      },
-    );
-
-    if (res.ok) {
-      toast.success("User updated successfully");
-      fetchUsers();
-    } else {
-      toast.error("Failed to update user");
-    }
-  };
-
   const totalPages = Math.ceil(total / PER_PAGE);
 
   return (
@@ -228,7 +192,6 @@ export function AdminUsersPage() {
                 <th>Status</th>
                 <th>Created</th>
                 <th>Last Active</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -263,14 +226,6 @@ export function AdminUsersPage() {
                   <td>
                     {user.last_access ? timeAgo(user.last_access) : "Never"}
                   </td>
-                  <td className="admin-users__actions">
-                    <button
-                      className="admin-users__edit-btn"
-                      onClick={() => setEditingUser(user)}
-                    >
-                      Edit
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -282,16 +237,6 @@ export function AdminUsersPage() {
             onPageChange={handlePageChange}
           />
         </>
-      )}
-
-      {editingUser && (
-        <AdminUserEditModal
-          user={editingUser}
-          groups={groups}
-          isOpen={!!editingUser}
-          onClose={() => setEditingUser(null)}
-          onSave={handleSaveUser}
-        />
       )}
     </div>
   );
