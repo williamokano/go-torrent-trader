@@ -74,10 +74,10 @@ describe("RootLayout", () => {
     expect(toggleLabels.some((t) => t?.includes("Community"))).toBe(true);
   });
 
-  test("renders theme toggle button", () => {
+  test("renders login and signup for unauthenticated users", () => {
     renderLayout();
-    const button = document.querySelector(".header__theme-btn");
-    expect(button).toBeInTheDocument();
+    expect(screen.getByText("Login")).toBeInTheDocument();
+    expect(screen.getByText("Sign Up")).toBeInTheDocument();
   });
 
   test("renders footer with stats placeholder", () => {
