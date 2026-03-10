@@ -1,5 +1,6 @@
 -- +goose Up
-CREATE TABLE IF NOT EXISTS news (
+DROP TABLE IF EXISTS news;
+CREATE TABLE news (
     id         BIGSERIAL PRIMARY KEY,
     title      TEXT NOT NULL,
     body       TEXT NOT NULL,
@@ -9,7 +10,7 @@ CREATE TABLE IF NOT EXISTS news (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_news_published_created ON news (published, created_at DESC);
+CREATE INDEX idx_news_published_created ON news (published, created_at DESC);
 
 -- +goose Down
 DROP TABLE IF EXISTS news;
