@@ -1,54 +1,34 @@
 # Session Resume Document
 
-## Current State (2026-03-07)
+The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
-### Pending PR
-- `feat/wire-worker` — worker wiring + multi-instance fixes (password resets in DB, scheduler toggle, unique tasks, security fixes)
+## Current State (2026-03-10)
 
-### What's Done (merged to main)
-**Infrastructure:** INFRA-1 through INFRA-5
-**Backend Foundation:** BE-0.1 through BE-0.7, BE-10.1
-**Frontend Foundation:** FE-0.1 through FE-0.6 (scoped)
-**Auth:** BE-1.1, BE-1.2, BE-1.2.2 (Redis sessions), BE-1.3, BE-1.4, BE-1.5
-**Tracker:** BE-2.1, BE-2.4, BE-2.6, BE-9.1
-**Torrents:** BE-3.1-3.3, BE-3.5-3.8 + FE-1.1, FE-1.3, FE-1.4, FE-2.4
-**User:** FE-2.1
-**Migration Tool:** MT-0.1
+### No Pending PRs
 
-### Architecture Notes
-- SessionStore: INTERFACE (memory for tests, Redis for production)
-- PasswordResetStore: INTERFACE (memory for tests, Postgres for production)
-- EmailSender: INTERFACE (NoopSender for tests, SMTP for production)
-- Password reset uses atomic ClaimByTokenHash (UPDATE...RETURNING) — no TOCTOU race
-- Worker: asynq server + scheduler, ENABLE_SCHEDULER env var, Unique task dedup
-- SITE_BASE_URL = frontend URL, API_URL = backend API URL
-- Search: PostgreSQL tsvector with prefix matching, 250ms debounce on FE
-- All SQL audited — parameterized queries, no injection
+All feature branches merged to main. Clean working tree.
 
-### What's Next
-- Merge feat/admin-panel PR
-- Build first Docker image for POC
-- Phase 3 remaining: forums, chat, PMs, invites, notifications
-- BE-1.2.3: Move test doubles out of domain code (testutil package)
-- BE-3.13: Rich torrent metadata (research task)
+### Recently Completed
+- BE-5.1 + FE-3.1/3.2/3.3 — Forum structure, browsing, topic list, topic view
+- BE-5.2 — Create topics & post replies
+- BE-2.2 — Tracker connection limits
+- BE-8.10 — Tiered warning escalation
+- BE-8.9 — Privilege restrictions
+- BE-8.11 — Quick ban
 
-### Future: Reseed Notification via PM
-- [ ] BE-3.9.1: Reseed PM notification listener — when `ReseedRequested` event fires, send a PM to the torrent uploader notifying them of the reseed request
-  - **Depends on:** BE-7.1 (Private messaging: send & receive)
-  - Listener in `listener/` package, wires into event bus, calls PM service to create a system message
+### What's Next (Forum Track)
+- BE-5.3: Edit & Delete Posts
+- BE-5.4: Moderation Tools (lock, pin, move, rename)
+- BE-5.5: Forum Search
+- BE-8.5: Admin Forum CRUD
 
-### Future: UX Bugs
-- [ ] FE-BUG-1: Invites page doesn't reflect updated invite count after admin edit — the auth context caches user data (including `invites` count) and only refreshes on login or manual page reload. When admin grants invites via the admin panel, the inviter's session still has the old count. Need to either poll `/auth/me` periodically, invalidate on navigation, or use a WebSocket push to refresh user data when it changes server-side.
+### What's Next (Other)
+- BE-5.6–5.9: Notification infrastructure + delivery
+- BE-2.3/2.5/2.7: Tracker hardening
+- FE-7: Theme management
+- MT-1: Migration tool data transformers
 
-### Future: Footer Stats Performance & Real-Time
-- [ ] BE-STATS-1: Cache stats query — the footer polls `/api/v1/stats` every 60s from every connected client. Options: (a) Redis cache with short TTL (15-30s), (b) in-memory cache per instance, (c) scheduler pre-computes stats on interval. Use an interface to abstract the cache backend.
-- [ ] BE-STATS-2: Real-time stats via SSE or WebSocket — when the chat WebSocket lands (BE-6.1), piggyback stats updates on the same connection. Broadcast stat changes when peers announce or torrents are uploaded. Eliminates polling entirely.
-- [ ] BE-STATS-3: Backfill torrent file lists — existing torrents uploaded before migration 023 have NULL `files` column. Write a one-time script that reads stored `.torrent` files from S3, parses them, and populates the `files` JSONB.
-
-### Future: Admin Panel Enhancements (BE-8.x)
-- [ ] BE-8.1: Invalidate sessions on user disable — when admin toggles `enabled=false`, also call `sessions.DeleteByUserID()` so the ban is immediate
-- [ ] BE-8.2: Admin torrent moderation — add torrent delete action from admin panel, ideally linked from reports page ("resolve & delete torrent" flow)
-- [ ] BE-8.3: Report action flow — resolve with action (warn uploader, delete torrent, ban user) instead of just toggling resolved status
-- [ ] BE-8.4: Admin user detail view — click username to see their torrents, reports against them, session history
-- [ ] BE-8.5: Admin audit log — record who changed what and when (user group changes, bans, torrent deletions, report resolutions)
-- [ ] BE-8.6: Admin dashboard — site stats landing page (registrations, uploads, active peers, pending reports count)
+### Known Bugs / Tech Debt
+- FE-BUG-1: Invites page doesn't reflect updated count after admin edit (auth context caches)
+- BE-STATS-1: Footer stats polling from every client — needs Redis cache or WebSocket push
+- BE-STATS-3: Backfill torrent file lists for pre-migration-023 torrents
