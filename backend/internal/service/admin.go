@@ -37,11 +37,14 @@ type AdminUserView struct {
 	Enabled    bool    `json:"enabled"`
 	Warned     bool    `json:"warned"`
 	Donor      bool    `json:"donor"`
-	Parked     bool    `json:"parked"`
-	Passkey    *string `json:"passkey"`
-	Invites    int     `json:"invites"`
-	CreatedAt  string  `json:"created_at"`
-	LastAccess *string `json:"last_access"`
+	Parked      bool    `json:"parked"`
+	Passkey     *string `json:"passkey"`
+	Invites     int     `json:"invites"`
+	CanDownload bool    `json:"can_download"`
+	CanUpload   bool    `json:"can_upload"`
+	CanChat     bool    `json:"can_chat"`
+	CreatedAt   string  `json:"created_at"`
+	LastAccess  *string `json:"last_access"`
 }
 
 // AdminUserDetailView extends AdminUserView with additional detail data.
@@ -464,11 +467,14 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		Info:       u.Info,
 		Enabled:    u.Enabled,
 		Warned:     u.Warned,
-		Donor:      u.Donor,
-		Parked:     u.Parked,
-		Passkey:    u.Passkey,
-		Invites:    u.Invites,
-		CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Donor:       u.Donor,
+		Parked:      u.Parked,
+		Passkey:     u.Passkey,
+		Invites:     u.Invites,
+		CanDownload: u.CanDownload,
+		CanUpload:   u.CanUpload,
+		CanChat:     u.CanChat,
+		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if u.LastAccess != nil {
 		la := u.LastAccess.Format("2006-01-02T15:04:05Z")

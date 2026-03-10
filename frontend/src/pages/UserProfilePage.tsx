@@ -384,6 +384,31 @@ export function UserProfilePage() {
         </div>
       </div>
 
+      {isOwnProfile &&
+        currentUser &&
+        (currentUser.can_download === false ||
+          currentUser.can_upload === false ||
+          currentUser.can_chat === false) && (
+          <div className="profile-restrictions">
+            <h2 className="profile-restrictions__title">Active Restrictions</h2>
+            {currentUser.can_download === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                Your download privileges are currently suspended.
+              </p>
+            )}
+            {currentUser.can_upload === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                Your upload privileges are currently suspended.
+              </p>
+            )}
+            {currentUser.can_chat === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                Your chat privileges are currently suspended.
+              </p>
+            )}
+          </div>
+        )}
+
       {userWarnings.length > 0 && (
         <div className="profile-warnings">
           <h2 className="profile-warnings__title">

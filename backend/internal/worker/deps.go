@@ -21,5 +21,6 @@ type WorkerDeps struct {
 	EmailSender     service.EmailSender
 	StatsCache      *service.StatsCache
 	ChatSvc         *service.ChatService
+	RestrictionSvc  *service.RestrictionService
 	SendToUser      SendToUserFunc
 }

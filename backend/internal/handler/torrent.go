@@ -42,6 +42,14 @@ func (h *TorrentHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check upload restriction.
+	if h.userRepo != nil {
+		if user, uErr := h.userRepo.GetByID(r.Context(), userID); uErr == nil && !user.CanUpload {
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "Your upload privileges have been suspended")
+			return
+		}
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxTorrentFileSize)
 
 	if err := r.ParseMultipartForm(maxTorrentFileSize); err != nil {
@@ -193,6 +201,14 @@ func (h *TorrentHandler) HandleDownload(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
 		return
+	}
+
+	// Check download restriction.
+	if h.userRepo != nil {
+		if user, uErr := h.userRepo.GetByID(r.Context(), userID); uErr == nil && !user.CanDownload {
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "Your download privileges have been suspended")
+			return
+		}
 	}
 
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)

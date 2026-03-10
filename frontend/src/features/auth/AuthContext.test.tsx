@@ -75,6 +75,9 @@ describe("AuthProvider", () => {
           uploaded: 0,
           downloaded: 0,
           enabled: true,
+          can_download: true,
+          can_upload: true,
+          can_chat: true,
           created_at: "2026-01-01T00:00:00Z",
         },
         tokens: {
@@ -131,6 +134,9 @@ describe("AuthProvider", () => {
             uploaded: 0,
             downloaded: 0,
             enabled: true,
+            can_download: true,
+            can_upload: true,
+            can_chat: true,
             created_at: "2026-01-01T00:00:00Z",
           },
           tokens: {

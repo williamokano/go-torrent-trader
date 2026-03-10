@@ -275,6 +275,16 @@ type ListNewsOptions struct {
 	PerPage   int
 }
 
+// RestrictionRepository defines persistence operations for user privilege restrictions.
+type RestrictionRepository interface {
+	Create(ctx context.Context, r *model.Restriction) error
+	GetByID(ctx context.Context, id int64) (*model.Restriction, error)
+	ListByUser(ctx context.Context, userID int64) ([]model.Restriction, error)
+	ListActive(ctx context.Context) ([]model.Restriction, error)
+	Lift(ctx context.Context, id int64, liftedBy *int64) error
+	DeleteExpired(ctx context.Context) ([]model.Restriction, error)
+}
+
 // DashboardStats holds aggregated counts for the admin dashboard.
 type DashboardStats struct {
 	UsersTotal     int64

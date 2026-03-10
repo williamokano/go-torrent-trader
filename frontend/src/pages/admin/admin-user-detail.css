@@ -206,3 +206,42 @@
   font-size: var(--text-sm);
   white-space: pre-wrap;
 }
+
+.admin-user-detail__restrictions-status {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.admin-user-detail__restriction-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__restore-btn {
+  padding: 1px 6px;
+  background-color: var(--color-success, #28a745);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.admin-user-detail__restore-btn:hover {
+  opacity: 0.85;
+}
+
+.admin-user-detail__restriction-form {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.admin-user-detail__restriction-form h3 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-md);
+}

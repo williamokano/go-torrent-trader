@@ -65,6 +65,9 @@ type OwnerProfile struct {
 	Invites     int               `json:"invites"`
 	LastLogin   *string           `json:"last_login"`
 	Permissions *model.Permissions `json:"permissions,omitempty"`
+	CanDownload bool              `json:"can_download"`
+	CanUpload   bool              `json:"can_upload"`
+	CanChat     bool              `json:"can_chat"`
 }
 
 // UserService handles user profile business logic.
@@ -263,6 +266,9 @@ func buildOwnerProfile(u *model.User, pub PublicProfile) *OwnerProfile {
 		Email:         u.Email,
 		Passkey:       derefString(u.Passkey),
 		Invites:       u.Invites,
+		CanDownload:   u.CanDownload,
+		CanUpload:     u.CanUpload,
+		CanChat:       u.CanChat,
 	}
 
 	if u.LastLogin != nil {

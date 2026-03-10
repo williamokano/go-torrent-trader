@@ -72,10 +72,13 @@ func (s *ChatService) SendMessage(ctx context.Context, userID int64, message str
 		return nil, fmt.Errorf("%w for %.0f more minutes", ErrChatMuted, remaining)
 	}
 
-	// Look up the username for the response.
+	// Check chat privilege restriction.
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if !user.CanChat {
+		return nil, fmt.Errorf("your chat privileges have been suspended")
 	}
 
 	msg := &model.ChatMessage{

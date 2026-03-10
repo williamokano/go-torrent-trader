@@ -200,8 +200,8 @@ func newTestChatService() (*ChatService, *mockChatMessageRepo, *mockChatMuteRepo
 	chatRepo := newMockChatMessageRepo()
 	muteRepo := newMockChatMuteRepo()
 	userRepo := newMockChatUserRepo()
-	userRepo.users[1] = &model.User{ID: 1, Username: "alice"}
-	userRepo.users[2] = &model.User{ID: 2, Username: "bob"}
+	userRepo.users[1] = &model.User{ID: 1, Username: "alice", CanChat: true, CanDownload: true, CanUpload: true}
+	userRepo.users[2] = &model.User{ID: 2, Username: "bob", CanChat: true, CanDownload: true, CanUpload: true}
 
 	svc := NewChatService(chatRepo, muteRepo, userRepo, bus)
 	return svc, chatRepo, muteRepo

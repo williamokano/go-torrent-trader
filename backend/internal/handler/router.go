@@ -33,6 +33,7 @@ type Deps struct {
 	ChatService         *service.ChatService
 	WarningService      *service.WarningService
 	NewsService         *service.NewsService
+	RestrictionService  *service.RestrictionService
 	ChatHub             *ChatHub
 	PeerRepo             repository.PeerRepository
 	UserRepo             repository.UserRepository
@@ -346,6 +347,14 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Post("/categories", catAdmin.HandleCreateCategory)
 						r.Put("/categories/{id}", catAdmin.HandleUpdateCategory)
 						r.Delete("/categories/{id}", catAdmin.HandleDeleteCategory)
+					}
+
+					// Restriction management endpoints
+					if deps.RestrictionService != nil {
+						restrictions := NewRestrictionHandler(deps.RestrictionService)
+						r.Put("/users/{id}/restrictions", restrictions.HandleSetRestrictions)
+						r.Get("/users/{id}/restrictions", restrictions.HandleListRestrictions)
+						r.Delete("/restrictions/{id}", restrictions.HandleLiftRestriction)
 					}
 
 					// News management endpoints

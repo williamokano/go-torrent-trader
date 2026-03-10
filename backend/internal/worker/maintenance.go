@@ -48,6 +48,15 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 			}
 		}
 
+		// 3. Resolve expired privilege restrictions
+		if deps.RestrictionSvc != nil {
+			if resolved, err := deps.RestrictionSvc.ResolveExpired(ctx); err != nil {
+				slog.Error("maintenance: failed to resolve expired restrictions", "error", err)
+			} else if resolved > 0 {
+				slog.Info("maintenance: resolved expired restrictions", "count", resolved)
+			}
+		}
+
 		return nil
 	}
 }

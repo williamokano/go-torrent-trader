@@ -429,3 +429,27 @@
     justify-content: center;
   }
 }
+
+.profile-restrictions {
+  background: var(--color-danger-bg, #f8d7da);
+  border: 1px solid var(--color-danger, #dc3545);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.profile-restrictions__title {
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-sm);
+  color: var(--color-danger, #721c24);
+}
+
+.profile-restrictions__item {
+  margin: var(--space-xs) 0;
+  font-size: var(--text-sm);
+}
+
+.profile-restrictions__item--suspended {
+  color: var(--color-danger, #721c24);
+  font-weight: 600;
+}
