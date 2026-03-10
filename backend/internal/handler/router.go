@@ -350,6 +350,7 @@ func NewRouter(deps *Deps) chi.Router {
 
 					if deps.ChatService != nil && deps.ChatHub != nil {
 						chatAdmin := NewChatAdminHandler(deps.ChatService, deps.ChatHub)
+						r.Get("/chat/mutes", chatAdmin.HandleListActiveMutes)
 						r.Delete("/chat/messages/{id}", chatAdmin.HandleDeleteMessage)
 						r.Delete("/chat/users/{id}/messages", chatAdmin.HandleDeleteUserMessages)
 						r.Post("/chat/users/{id}/mute", chatAdmin.HandleMuteUser)

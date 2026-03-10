@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -18,6 +19,15 @@ const (
 
 	// RegistrationModeInviteOnly requires an invite code to register.
 	RegistrationModeInviteOnly = "invite_only"
+
+	// Chat anti-spam settings keys.
+	SettingChatRateLimitWindow  = "chat_rate_limit_window"
+	SettingChatRateLimitMax     = "chat_rate_limit_max"
+	SettingChatSpamStrikeCount  = "chat_spam_strike_count"
+	SettingChatSpamMuteMinutes  = "chat_spam_mute_minutes"
+	SettingChatStrikeResetSeconds = "chat_strike_reset_seconds"
+	SettingChatRateLimitMessage   = "chat_rate_limit_message"
+	SettingChatSpamMuteMessage    = "chat_spam_mute_message"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -68,7 +78,17 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 		return fmt.Errorf("set setting %q: %w", key, err)
 	}
 
-	// Publish event for registration mode changes
+	// Publish generic setting changed event for all consumers
+	if oldValue != value {
+		s.eventBus.Publish(ctx, &event.SiteSettingChangedEvent{
+			Base:     event.NewBase(event.SiteSettingChanged, actor),
+			Key:      key,
+			OldValue: oldValue,
+			NewValue: value,
+		})
+	}
+
+	// Publish specific event for registration mode changes (backward compat)
 	if key == SettingRegistrationMode && oldValue != value {
 		s.eventBus.Publish(ctx, &event.RegistrationModeChangedEvent{
 			Base:    event.NewBase(event.RegistrationModeChanged, actor),
@@ -78,4 +98,26 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	}
 
 	return nil
+}
+
+// GetString returns a site setting as a string, or the fallback if not found.
+func (s *SiteSettingsService) GetString(ctx context.Context, key string, fallback string) string {
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil || setting == nil || setting.Value == "" {
+		return fallback
+	}
+	return setting.Value
+}
+
+// GetInt returns a site setting parsed as an integer, or the fallback if not found or not a valid int.
+func (s *SiteSettingsService) GetInt(ctx context.Context, key string, fallback int) int {
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil || setting == nil {
+		return fallback
+	}
+	v, err := strconv.Atoi(setting.Value)
+	if err != nil {
+		return fallback
+	}
+	return v
 }

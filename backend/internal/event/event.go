@@ -40,6 +40,7 @@ const (
 	WarningIssued           Type = "warning_issued"
 	WarningLifted           Type = "warning_lifted"
 	NewsPublished           Type = "news_published"
+	SiteSettingChanged      Type = "site_setting_changed"
 )
 
 // Event is the base interface for all domain events.
@@ -269,4 +270,11 @@ type NewsPublishedEvent struct {
 	Base
 	ArticleID int64  `json:"article_id"`
 	Title     string `json:"title"`
+}
+
+type SiteSettingChangedEvent struct {
+	Base
+	Key      string `json:"key"`
+	OldValue string `json:"old_value"`
+	NewValue string `json:"new_value"`
 }

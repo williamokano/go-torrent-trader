@@ -163,7 +163,7 @@ func run() int {
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
-	listener.RegisterActivityLogListeners(eventBus, activityLogService)
+	listener.RegisterActivityLogListeners(eventBus, activityLogService, userRepo)
 	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
 	banRepo := postgres.NewBanRepo(db)
@@ -185,7 +185,7 @@ func run() int {
 	categoryService := service.NewCategoryService(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
 
-	chatHub := handler.NewChatHub(chatService, sessionStore, []string{cfg.Site.BaseURL})
+	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
 	deps := &handler.Deps{

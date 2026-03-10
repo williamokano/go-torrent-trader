@@ -2,6 +2,7 @@ package listener
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -35,7 +36,7 @@ func (m *mockActivityLogRepo) List(_ context.Context, opts repository.ListActivi
 		if opts.EventType != nil && l.EventType != *opts.EventType {
 			continue
 		}
-		if opts.ActorID != nil && l.ActorID != *opts.ActorID {
+		if opts.ActorID != nil && (l.ActorID == nil || *l.ActorID != *opts.ActorID) {
 			continue
 		}
 		filtered = append(filtered, *l)
@@ -61,11 +62,37 @@ func (m *mockActivityLogRepo) List(_ context.Context, opts repository.ListActivi
 	return filtered[start:end], total, nil
 }
 
+type mockUserRepo struct{}
+
+func (r *mockUserRepo) GetByID(_ context.Context, id int64) (*model.User, error) {
+	return &model.User{ID: id, Username: fmt.Sprintf("user%d", id)}, nil
+}
+func (r *mockUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepo) GetByPasskey(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (r *mockUserRepo) Count(context.Context) (int64, error) { return 0, nil }
+func (r *mockUserRepo) Create(context.Context, *model.User) error { return nil }
+func (r *mockUserRepo) Update(context.Context, *model.User) error { return nil }
+func (r *mockUserRepo) IncrementStats(context.Context, int64, int64, int64) error {
+	return nil
+}
+func (r *mockUserRepo) List(context.Context, repository.ListUsersOptions) ([]model.User, int64, error) {
+	return nil, 0, nil
+}
+func (r *mockUserRepo) ListStaff(context.Context) ([]model.User, error) { return nil, nil }
+func (r *mockUserRepo) UpdateLastAccess(context.Context, int64) error   { return nil }
+
 func setup() (*mockActivityLogRepo, event.Bus) {
 	repo := &mockActivityLogRepo{}
 	svc := service.NewActivityLogService(repo)
 	bus := event.NewInMemoryBus()
-	RegisterActivityLogListeners(bus, svc)
+	RegisterActivityLogListeners(bus, svc, &mockUserRepo{})
 	return repo, bus
 }
 
@@ -86,8 +113,8 @@ func TestListener_UserRegistered(t *testing.T) {
 	if repo.logs[0].Message != "alice joined the site" {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
-	if repo.logs[0].ActorID != 1 {
-		t.Errorf("expected actor_id 1, got %d", repo.logs[0].ActorID)
+	if repo.logs[0].ActorID == nil || *repo.logs[0].ActorID != 1 {
+		t.Errorf("expected actor_id 1, got %v", repo.logs[0].ActorID)
 	}
 }
 
@@ -144,7 +171,7 @@ func TestListener_ActorCarriesUsername(t *testing.T) {
 	if repo.logs[0].Message != "editor edited torrent: Edited Torrent" {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
-	if repo.logs[0].ActorID != 42 {
-		t.Errorf("expected actor_id 42, got %d", repo.logs[0].ActorID)
+	if repo.logs[0].ActorID == nil || *repo.logs[0].ActorID != 42 {
+		t.Errorf("expected actor_id 42, got %v", repo.logs[0].ActorID)
 	}
 }

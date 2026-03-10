@@ -146,3 +146,33 @@ func TestSiteSettingsService_GetAll(t *testing.T) {
 		t.Errorf("expected 1 setting, got %d", len(settings))
 	}
 }
+
+func TestSiteSettingsService_GetInt(t *testing.T) {
+	repo := newMockSiteSettingsRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewSiteSettingsService(repo, bus)
+	ctx := context.Background()
+
+	t.Run("returns fallback when key missing", func(t *testing.T) {
+		got := svc.GetInt(ctx, "nonexistent", 42)
+		if got != 42 {
+			t.Errorf("expected 42, got %d", got)
+		}
+	})
+
+	t.Run("returns parsed int", func(t *testing.T) {
+		_ = repo.Set(ctx, "chat_rate_limit_window", "15")
+		got := svc.GetInt(ctx, "chat_rate_limit_window", 10)
+		if got != 15 {
+			t.Errorf("expected 15, got %d", got)
+		}
+	})
+
+	t.Run("returns fallback for non-integer value", func(t *testing.T) {
+		_ = repo.Set(ctx, "bad_int", "notanumber")
+		got := svc.GetInt(ctx, "bad_int", 99)
+		if got != 99 {
+			t.Errorf("expected 99, got %d", got)
+		}
+	})
+}

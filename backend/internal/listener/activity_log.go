@@ -11,20 +11,25 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // RegisterActivityLogListeners subscribes event listeners that write entries
 // to the product activity log. Each event type gets its own listener — a
 // closure that knows how to build the log message for that specific event.
-func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogService) {
+func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogService, userRepo repository.UserRepository) {
 	listen := func(evtType event.Type, buildMsg func(event.Event) (string, event.Actor)) {
 		bus.Subscribe(evtType, func(ctx context.Context, evt event.Event) error {
 			msg, actor := buildMsg(evt)
 			metadata := marshalMetadata(evt)
+			var actorID *int64
+			if actor.ID != 0 {
+				actorID = &actor.ID
+			}
 			entry := &model.ActivityLog{
 				EventType: string(evt.EventType()),
-				ActorID:   actor.ID,
+				ActorID:   actorID,
 				Message:   msg,
 				Metadata:  metadata,
 			}
@@ -161,18 +166,28 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.ChatUserMuted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ChatUserMutedEvent)
-		return fmt.Sprintf("User #%d muted in chat for %d minutes", e.TargetUserID, e.DurationMinutes), e.Actor
+		username := resolveUsername(userRepo, e.TargetUserID)
+		return fmt.Sprintf("%s muted in chat for %d minutes", username, e.DurationMinutes), e.Actor
 	})
 
 	listen(event.ChatUserUnmuted, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.ChatUserUnmutedEvent)
-		return fmt.Sprintf("User #%d unmuted in chat", e.TargetUserID), e.Actor
+		username := resolveUsername(userRepo, e.TargetUserID)
+		return fmt.Sprintf("%s unmuted in chat", username), e.Actor
 	})
 
 	listen(event.NewsPublished, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.NewsPublishedEvent)
 		return fmt.Sprintf("%s published news: %s", e.Actor.Username, e.Title), e.Actor
 	})
+}
+
+func resolveUsername(userRepo repository.UserRepository, userID int64) string {
+	user, err := userRepo.GetByID(context.Background(), userID)
+	if err != nil || user == nil {
+		return fmt.Sprintf("User #%d", userID)
+	}
+	return user.Username
 }
 
 func marshalMetadata(evt event.Event) *string {

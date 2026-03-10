@@ -127,6 +127,10 @@ func (r *mockChatMuteRepo) Delete(_ context.Context, userID int64) error {
 	return nil
 }
 
+func (r *mockChatMuteRepo) ListActive(_ context.Context, _, _ int) ([]repository.ChatMuteWithNames, int64, error) {
+	return nil, 0, nil
+}
+
 func (r *mockChatMuteRepo) DeleteExpired(_ context.Context) ([]int64, error) {
 	var kept []model.ChatMute
 	var userIDs []int64
@@ -257,7 +261,7 @@ func TestChatService_SendMessage_Muted(t *testing.T) {
 	muteRepo.mutes = append(muteRepo.mutes, model.ChatMute{
 		ID:        1,
 		UserID:    1,
-		MutedBy:   2,
+		MutedBy:   ptrInt64(2),
 		ExpiresAt: time.Now().Add(10 * time.Minute),
 		CreatedAt: time.Now(),
 	})
@@ -461,6 +465,47 @@ func TestChatService_MuteUnmute(t *testing.T) {
 	})
 }
 
+func TestChatService_SystemMuteUser(t *testing.T) {
+	svc, _, _ := newTestChatService()
+	ctx := context.Background()
+
+	t.Run("auto-mutes user without staff permissions", func(t *testing.T) {
+		mute, err := svc.SystemMuteUser(ctx, 1, 5, "Automatic mute: chat spam/flooding")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if mute.UserID != 1 {
+			t.Errorf("expected user_id 1, got %d", mute.UserID)
+		}
+		if mute.MutedBy != nil {
+			t.Errorf("expected muted_by nil (system), got %v", mute.MutedBy)
+		}
+		if mute.Reason != "Automatic mute: chat spam/flooding" {
+			t.Errorf("unexpected reason: %q", mute.Reason)
+		}
+
+		// Verify user is actually muted
+		_, err = svc.SendMessage(ctx, 1, "should fail")
+		if !errors.Is(err, ErrChatMuted) {
+			t.Errorf("expected ErrChatMuted after system mute, got %v", err)
+		}
+	})
+
+	t.Run("rejects zero duration", func(t *testing.T) {
+		_, err := svc.SystemMuteUser(ctx, 2, 0, "test")
+		if err == nil {
+			t.Error("expected error for zero duration")
+		}
+	})
+
+	t.Run("rejects negative duration", func(t *testing.T) {
+		_, err := svc.SystemMuteUser(ctx, 2, -1, "test")
+		if err == nil {
+			t.Error("expected error for negative duration")
+		}
+	})
+}
+
 func TestChatService_CleanupExpiredMutes(t *testing.T) {
 	svc, _, muteRepo := newTestChatService()
 	ctx := context.Background()
@@ -469,7 +514,7 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 	muteRepo.mutes = append(muteRepo.mutes, model.ChatMute{
 		ID:        1,
 		UserID:    1,
-		MutedBy:   2,
+		MutedBy:   ptrInt64(2),
 		ExpiresAt: time.Now().Add(-1 * time.Hour),
 		CreatedAt: time.Now().Add(-2 * time.Hour),
 	})
@@ -477,7 +522,7 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 	muteRepo.mutes = append(muteRepo.mutes, model.ChatMute{
 		ID:        2,
 		UserID:    2,
-		MutedBy:   1,
+		MutedBy:   ptrInt64(1),
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 		CreatedAt: time.Now(),
 	})
@@ -493,3 +538,5 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 		t.Errorf("expected 1 remaining mute, got %d", len(muteRepo.mutes))
 	}
 }
+
+func ptrInt64(v int64) *int64 { return &v }

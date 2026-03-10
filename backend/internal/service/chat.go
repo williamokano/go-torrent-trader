@@ -170,7 +170,7 @@ func (s *ChatService) MuteUser(ctx context.Context, userID, actorID int64, durat
 
 	mute := &model.ChatMute{
 		UserID:    userID,
-		MutedBy:   actorID,
+		MutedBy:   &actorID,
 		Reason:    strings.TrimSpace(reason),
 		ExpiresAt: time.Now().Add(time.Duration(durationMinutes) * time.Minute),
 	}
@@ -181,6 +181,37 @@ func (s *ChatService) MuteUser(ctx context.Context, userID, actorID int64, durat
 
 	s.eventBus.Publish(ctx, &event.ChatUserMutedEvent{
 		Base:            event.NewBase(event.ChatUserMuted, event.Actor{ID: actorID}),
+		TargetUserID:    userID,
+		DurationMinutes: durationMinutes,
+		Reason:          mute.Reason,
+	})
+
+	return mute, nil
+}
+
+// SystemMuteUser mutes a user without requiring staff permissions.
+// Used for automated actions like anti-spam. Uses actorID=0 (system).
+func (s *ChatService) SystemMuteUser(ctx context.Context, userID int64, durationMinutes int, reason string) (*model.ChatMute, error) {
+	if durationMinutes <= 0 {
+		return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidChatMessage)
+	}
+	if durationMinutes > maxMuteDurationMinutes {
+		return nil, fmt.Errorf("%w: duration cannot exceed %d minutes (30 days)", ErrInvalidChatMessage, maxMuteDurationMinutes)
+	}
+
+	mute := &model.ChatMute{
+		UserID:    userID,
+		MutedBy:   nil, // system-initiated
+		Reason:    strings.TrimSpace(reason),
+		ExpiresAt: time.Now().Add(time.Duration(durationMinutes) * time.Minute),
+	}
+
+	if err := s.mutes.Create(ctx, mute); err != nil {
+		return nil, fmt.Errorf("create chat mute: %w", err)
+	}
+
+	s.eventBus.Publish(ctx, &event.ChatUserMutedEvent{
+		Base:            event.NewBase(event.ChatUserMuted, event.Actor{ID: 0, Username: "system"}),
 		TargetUserID:    userID,
 		DurationMinutes: durationMinutes,
 		Reason:          mute.Reason,
@@ -210,6 +241,14 @@ func (s *ChatService) UnmuteUser(ctx context.Context, userID, actorID int64, per
 // GetActiveMute returns the active mute for a user, or nil if not muted.
 func (s *ChatService) GetActiveMute(ctx context.Context, userID int64) (*model.ChatMute, error) {
 	return s.mutes.GetActiveMute(ctx, userID)
+}
+
+// ListActiveMutes returns paginated active mutes with user info. Staff only.
+func (s *ChatService) ListActiveMutes(ctx context.Context, page, perPage int, perms model.Permissions) ([]repository.ChatMuteWithNames, int64, error) {
+	if !perms.IsStaff() {
+		return nil, 0, ErrForbidden
+	}
+	return s.mutes.ListActive(ctx, page, perPage)
 }
 
 // CleanupExpiredMutes deletes expired mute records. Returns user IDs that were unmuted.
