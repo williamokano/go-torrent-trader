@@ -3,6 +3,7 @@ package listener
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
@@ -80,6 +81,36 @@ func TestPMNotificationListener_SendsUnreadCount(t *testing.T) {
 	}
 	if parsed["unread_count"] != float64(3) {
 		t.Errorf("expected unread_count 3, got %v", parsed["unread_count"])
+	}
+}
+
+func TestPMNotificationListener_CountUnreadError_DoesNotSend(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	msgRepo := &mockMessageRepo{unreadErr: errors.New("db connection lost")}
+
+	var mu sync.Mutex
+	var sent []sentPayload
+
+	sendToUser := func(userID int64, payload []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		sent = append(sent, sentPayload{UserID: userID, Payload: payload})
+	}
+
+	RegisterPMNotificationListener(bus, msgRepo, sendToUser)
+
+	bus.Publish(context.Background(), &event.MessageSentEvent{
+		Base:       event.NewBase(event.MessageSent, event.Actor{ID: 1, Username: "alice"}),
+		MessageID:  10,
+		ReceiverID: 42,
+		Subject:    "Hello",
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(sent) != 0 {
+		t.Fatalf("expected no payloads sent on CountUnread error, got %d", len(sent))
 	}
 }
 

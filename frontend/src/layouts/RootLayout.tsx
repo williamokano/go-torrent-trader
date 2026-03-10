@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useTheme } from "@/themes";
 import { useAuth } from "@/features/auth";
@@ -53,11 +53,19 @@ export function RootLayout() {
   const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
 
-  const { pmUnreadCount, setPmUnreadCount } = useChat();
+  const { pmUnreadCount, setPmUnreadCount, connected } = useChat();
+  const prevConnectedRef = useRef(connected);
 
-  // Fetch the initial unread count on mount; real-time updates come via WS.
+  // Fetch unread count on mount and on WS reconnection (laptop sleep, network blip).
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    const wasConnected = prevConnectedRef.current;
+    prevConnectedRef.current = connected;
+
+    // Skip when disconnecting — only fetch on reconnection (false→true) or initial mount.
+    if (!connected && wasConnected) return;
+
     const token = getAccessToken();
     if (!token) return;
     fetch(`${getConfig().API_URL}/api/v1/messages/unread-count`, {
@@ -66,7 +74,7 @@ export function RootLayout() {
       .then((r) => r.json())
       .then((d) => setPmUnreadCount(d?.unread_count ?? 0))
       .catch(() => {});
-  }, [isAuthenticated, setPmUnreadCount]);
+  }, [isAuthenticated, setPmUnreadCount, connected]);
 
   const [siteStats, setSiteStats] = useState<{
     users: number;

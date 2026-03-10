@@ -29,7 +29,7 @@ func RegisterPMNotificationListener(
 				"receiver_id", e.ReceiverID,
 				"error", err,
 			)
-			return err
+			return nil
 		}
 
 		payload, err := json.Marshal(map[string]interface{}{
@@ -38,7 +38,7 @@ func RegisterPMNotificationListener(
 		})
 		if err != nil {
 			slog.Error("pm_notification: failed to marshal payload", "error", err)
-			return err
+			return nil
 		}
 
 		sendToUser(e.ReceiverID, payload)
