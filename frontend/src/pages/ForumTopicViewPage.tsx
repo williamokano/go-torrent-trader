@@ -7,6 +7,7 @@ import { timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { Pagination } from "@/components/Pagination";
+import { ConfirmModal } from "@/components/modal";
 import "./forums.css";
 
 interface TopicData {
@@ -33,6 +34,7 @@ interface PostData {
   body: string;
   reply_to_post_id?: number;
   edited_at?: string;
+  edited_by?: number;
   created_at: string;
   user_created_at: string;
   user_post_count: number;
@@ -57,6 +59,14 @@ export function ForumTopicViewPage() {
   const [replyToPostId, setReplyToPostId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const [editingPostId, setEditingPostId] = useState<number | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  const [deletePostId, setDeletePostId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchTopic = useCallback(async () => {
     setLoading(true);
@@ -156,6 +166,90 @@ export function ForumTopicViewPage() {
     }
   };
 
+  const canModifyPost = (post: PostData) =>
+    !!user && (user.id === post.user_id || user.isAdmin || user.isStaff);
+
+  const handleStartEdit = (post: PostData) => {
+    setEditingPostId(post.id);
+    setEditBody(post.body);
+    setEditError(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPostId(null);
+    setEditBody("");
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async (postId: number) => {
+    if (!editBody.trim()) return;
+    setEditSaving(true);
+    setEditError(null);
+
+    try {
+      const token = getAccessToken();
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/forums/posts/${postId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ body: editBody }),
+        },
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error?.message ?? "Failed to save edit");
+      }
+
+      const data = await res.json();
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, ...data.post } : p)),
+      );
+      setEditingPostId(null);
+      setEditBody("");
+    } catch (err) {
+      setEditError((err as Error).message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletePostId) return;
+    setDeleteError(null);
+
+    try {
+      const token = getAccessToken();
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/forums/posts/${deletePostId}`,
+        {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg =
+          res.status === 400
+            ? (data?.error?.message ??
+              "Cannot delete the first post. Delete the topic instead.")
+            : (data?.error?.message ?? "Failed to delete post");
+        throw new Error(msg);
+      }
+
+      setPosts((prev) => prev.filter((p) => p.id !== deletePostId));
+      setDeletePostId(null);
+    } catch (err) {
+      setDeleteError((err as Error).message);
+      setDeletePostId(null);
+    }
+  };
+
   if (loading) return <div className="topic-view-page">Loading topic...</div>;
   if (error) return <div className="topic-view-page">Error: {error}</div>;
   if (!topic) return <div className="topic-view-page">Topic not found.</div>;
@@ -212,23 +306,72 @@ export function ForumTopicViewPage() {
                   In reply to post #{post.reply_to_post_id}
                 </div>
               )}
-              <div className="forum-post__body">
-                <MarkdownRenderer content={post.body} />
-              </div>
-              {post.edited_at && (
-                <div className="forum-post__edited">
-                  Edited {timeAgo(post.edited_at)}
+              {editingPostId === post.id ? (
+                <div className="forum-post__edit-form">
+                  <textarea
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    placeholder="Edit your post... (Markdown supported)"
+                  />
+                  {editError && (
+                    <div style={{ color: "red", marginBottom: "0.5rem" }}>
+                      {editError}
+                    </div>
+                  )}
+                  <div className="forum-post__actions">
+                    <button
+                      className="btn btn--primary"
+                      onClick={() => handleSaveEdit(post.id)}
+                      disabled={editSaving || !editBody.trim()}
+                    >
+                      {editSaving ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      className="btn btn--secondary"
+                      onClick={handleCancelEdit}
+                      disabled={editSaving}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-              )}
-              {canReply && (
-                <div className="forum-post__actions">
-                  <button
-                    className="forum-post__quote-btn"
-                    onClick={() => handleQuote(post)}
-                  >
-                    Quote
-                  </button>
-                </div>
+              ) : (
+                <>
+                  <div className="forum-post__body">
+                    <MarkdownRenderer content={post.body} />
+                  </div>
+                  {post.edited_at && (
+                    <div className="forum-post__edited">
+                      Edited {timeAgo(post.edited_at)}
+                    </div>
+                  )}
+                  <div className="forum-post__actions">
+                    {canReply && (
+                      <button
+                        className="forum-post__quote-btn"
+                        onClick={() => handleQuote(post)}
+                      >
+                        Quote
+                      </button>
+                    )}
+                    {canModifyPost(post) && (
+                      <>
+                        <button
+                          className="forum-post__edit-btn"
+                          onClick={() => handleStartEdit(post)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="forum-post__delete-btn"
+                          onClick={() => setDeletePostId(post.id)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -239,6 +382,20 @@ export function ForumTopicViewPage() {
         currentPage={page}
         totalPages={totalPages}
         onPageChange={handlePageChange}
+      />
+
+      {deleteError && (
+        <div style={{ color: "red", margin: "1rem 0" }}>{deleteError}</div>
+      )}
+
+      <ConfirmModal
+        isOpen={deletePostId !== null}
+        title="Delete Post"
+        message="Are you sure you want to delete this post? This action cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeletePostId(null)}
       />
 
       {canReply && (
