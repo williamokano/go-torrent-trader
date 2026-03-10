@@ -12,6 +12,26 @@ vi.mock("@/config", () => ({
   getConfig: () => ({ API_URL: "http://localhost:8080", SITE_NAME: "Test" }),
 }));
 
+vi.mock("@/lib/useChat", () => ({
+  useChat: () => ({
+    pmUnreadCount: 0,
+    setPmUnreadCount: vi.fn(),
+    messages: [],
+    connected: false,
+    isStaff: false,
+    muted: false,
+    muteExpiresAt: null,
+    mainChatVisible: false,
+    setMainChatVisible: vi.fn(),
+    sendMessage: vi.fn(),
+    deleteMessage: vi.fn(),
+    deleteUserMessages: vi.fn(),
+    muteUser: vi.fn(),
+    unmuteUser: vi.fn(),
+    loadMore: vi.fn(),
+  }),
+}));
+
 const FAKE_INBOX = [
   {
     id: 1,

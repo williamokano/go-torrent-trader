@@ -19,6 +19,26 @@ vi.mock("@/api", () => ({
   },
 }));
 
+vi.mock("@/lib/useChat", () => ({
+  useChat: () => ({
+    pmUnreadCount: 0,
+    setPmUnreadCount: vi.fn(),
+    messages: [],
+    connected: false,
+    isStaff: false,
+    muted: false,
+    muteExpiresAt: null,
+    mainChatVisible: false,
+    setMainChatVisible: vi.fn(),
+    sendMessage: vi.fn(),
+    deleteMessage: vi.fn(),
+    deleteUserMessages: vi.fn(),
+    muteUser: vi.fn(),
+    unmuteUser: vi.fn(),
+    loadMore: vi.fn(),
+  }),
+}));
+
 afterEach(cleanup);
 
 test("renders app with routing", () => {

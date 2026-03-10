@@ -6,6 +6,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { formatNumber } from "@/utils/format";
 import { Chat } from "@/components/Chat";
+import { useChat } from "@/lib/useChat";
 import "./RootLayout.css";
 
 function Dropdown({
@@ -52,24 +53,20 @@ export function RootLayout() {
   const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
 
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { pmUnreadCount, setPmUnreadCount } = useChat();
 
+  // Fetch the initial unread count on mount; real-time updates come via WS.
   useEffect(() => {
     if (!isAuthenticated) return;
-    function fetchUnread() {
-      const token = getAccessToken();
-      if (!token) return;
-      fetch(`${getConfig().API_URL}/api/v1/messages/unread-count`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((r) => r.json())
-        .then((d) => setUnreadCount(d?.unread_count ?? 0))
-        .catch(() => {});
-    }
-    fetchUnread();
-    const interval = setInterval(fetchUnread, 30_000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+    const token = getAccessToken();
+    if (!token) return;
+    fetch(`${getConfig().API_URL}/api/v1/messages/unread-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setPmUnreadCount(d?.unread_count ?? 0))
+      .catch(() => {});
+  }, [isAuthenticated, setPmUnreadCount]);
 
   const [siteStats, setSiteStats] = useState<{
     users: number;
@@ -270,8 +267,8 @@ export function RootLayout() {
                 title="Messages"
               >
                 <span className="header__mail-icon">&#9993;</span>
-                {unreadCount > 0 && (
-                  <span className="header__mail-badge">{unreadCount}</span>
+                {pmUnreadCount > 0 && (
+                  <span className="header__mail-badge">{pmUnreadCount}</span>
                 )}
               </Link>
               <Link to={`/user/${user?.id}`} className="header__username-link">
