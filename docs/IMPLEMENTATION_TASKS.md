@@ -1106,7 +1106,7 @@
 - Frontend: buttons in the admin user edit panel
 - Staff can reset passwords for users at or below their group level (cannot reset admin passwords unless admin)
 
-#### BE-8.9: Per-User Privilege Restrictions [M]
+#### BE-8.9: Per-User Privilege Restrictions [M] [DONE]
 **As a** staff member
 **I want** to restrict specific privileges for a user without fully disabling their account
 **So that** I can apply proportional consequences for rule violations
@@ -1145,7 +1145,7 @@
 - Staff can always override (lift warnings, re-enable accounts, remove restrictions)
 - When disabled (`warning_escalation_enabled=false`), warnings remain purely informational (current behavior)
 
-#### BE-8.11: Quick Ban Action [S]
+#### BE-8.11: Quick Ban Action [S] [DONE]
 **As a** staff member
 **I want** a one-click ban action that combines account disable + warning + optional IP ban
 **So that** I can swiftly handle severe violations without multiple steps
