@@ -1126,7 +1126,7 @@
 - Restriction issued/removed events logged to activity log
 - Frontend: restriction controls in admin user edit panel, checkboxes + optional reason/expiry
 
-#### BE-8.10: Tiered Warning Escalation [S]
+#### BE-8.10: Tiered Warning Escalation [S] [DONE]
 **As a** site operator
 **I want** optional automatic escalation based on warning count
 **So that** moderation consequences are consistent and predictable
