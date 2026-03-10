@@ -70,3 +70,16 @@ type ForumPost struct {
 	UserCreatedAt  time.Time
 	UserPostCount  int
 }
+
+// ForumSearchResult represents a single search result from forum full-text search.
+type ForumSearchResult struct {
+	PostID     int64
+	Body       string
+	TopicID    int64
+	TopicTitle string
+	ForumID    int64
+	ForumName  string
+	UserID     int64
+	Username   string
+	CreatedAt  time.Time
+}

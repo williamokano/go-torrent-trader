@@ -229,6 +229,68 @@ func (h *ForumHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// HandleSearchForum handles GET /api/v1/forums/search?q=...&forum_id=...&page=1&per_page=25.
+func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "query parameter 'q' is required")
+		return
+	}
+
+	var forumID *int64
+	if fid := r.URL.Query().Get("forum_id"); fid != "" {
+		id, err := strconv.ParseInt(fid, 10, 64)
+		if err != nil || id <= 0 {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid forum_id")
+			return
+		}
+		forumID = &id
+	}
+
+	page := 1
+	perPage := 25
+	if p := r.URL.Query().Get("page"); p != "" {
+		page, _ = strconv.Atoi(p)
+	}
+	if pp := r.URL.Query().Get("per_page"); pp != "" {
+		perPage, _ = strconv.Atoi(pp)
+	}
+
+	results, total, err := h.forumSvc.Search(r.Context(), q, perms, forumID, page, perPage)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidSearch) {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "search failed")
+		return
+	}
+
+	items := make([]map[string]interface{}, 0, len(results))
+	for _, sr := range results {
+		items = append(items, map[string]interface{}{
+			"post_id":     sr.PostID,
+			"body":        sr.Body,
+			"topic_id":    sr.TopicID,
+			"topic_title": sr.TopicTitle,
+			"forum_id":    sr.ForumID,
+			"forum_name":  sr.ForumName,
+			"user_id":     sr.UserID,
+			"username":    sr.Username,
+			"created_at":  sr.CreatedAt,
+		})
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"results":  items,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
+	})
+}
+
 func handleForumError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrForumNotFound):

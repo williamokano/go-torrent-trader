@@ -286,6 +286,7 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/forums", func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/", forums.HandleListForums)
+					r.Get("/search", forums.HandleSearchForum)
 					r.Get("/{id}", forums.HandleGetForum)
 					r.Get("/{id}/topics", forums.HandleListTopics)
 					r.Post("/{id}/topics", forums.HandleCreateTopic)

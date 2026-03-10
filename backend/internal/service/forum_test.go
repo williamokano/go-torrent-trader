@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,11 +31,12 @@ func (m *mockForumTopicRepo) IncrementViewCount(_ context.Context, _ int64) erro
 func (m *mockForumTopicRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockForumTopicRepo) UpdateLastPost(_ context.Context, _ int64, _ int64, _ time.Time) error { return nil }
 
-type mockForumPostRepo struct{ posts []model.ForumPost; postByID map[int64]*model.ForumPost; total int64; listErr, getErr error }
+type mockForumPostRepo struct{ posts []model.ForumPost; postByID map[int64]*model.ForumPost; total int64; listErr, getErr error; searchResults []model.ForumSearchResult; searchTotal int64; searchErr error }
 func (m *mockForumPostRepo) GetByID(_ context.Context, id int64) (*model.ForumPost, error) { if m.getErr != nil { return nil, m.getErr }; if p, ok := m.postByID[id]; ok { return p, nil }; return nil, sql.ErrNoRows }
 func (m *mockForumPostRepo) ListByTopic(_ context.Context, _ int64, _, _ int) ([]model.ForumPost, int64, error) { return m.posts, m.total, m.listErr }
 func (m *mockForumPostRepo) Create(_ context.Context, post *model.ForumPost) error { post.ID = 200; post.CreatedAt = time.Now(); return nil }
 func (m *mockForumPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
+func (m *mockForumPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return m.searchResults, m.searchTotal, m.searchErr }
 
 type mockForumUserRepo struct{ user *model.User; err error }
 func (m *mockForumUserRepo) GetByID(_ context.Context, _ int64) (*model.User, error) { return m.user, m.err }
@@ -158,4 +160,43 @@ func TestForumService_ListTopics(t *testing.T) {
 	if forum.Name != "General" { t.Errorf("wrong name") }
 	if len(topics) != 2 { t.Errorf("expected 2 topics") }
 	if total != 2 { t.Errorf("expected total 2") }
+}
+
+func TestForumService_Search_Success(t *testing.T) {
+	results := []model.ForumSearchResult{{PostID: 1, Body: "hello world", TopicID: 10, TopicTitle: "Greetings", ForumID: 1, ForumName: "General", UserID: 1, Username: "alice"}}
+	svc := NewForumService(nil, nil, nil, nil, &mockForumPostRepo{searchResults: results, searchTotal: 1}, nil)
+	got, total, err := svc.Search(context.Background(), "hello", model.Permissions{Level: 5}, nil, 1, 25)
+	if err != nil { t.Fatalf("unexpected error: %v", err) }
+	if total != 1 { t.Errorf("expected total 1, got %d", total) }
+	if len(got) != 1 { t.Errorf("expected 1 result, got %d", len(got)) }
+	if got[0].PostID != 1 { t.Errorf("expected post ID 1") }
+}
+
+func TestForumService_Search_EmptyQuery(t *testing.T) {
+	svc := NewForumService(nil, nil, nil, nil, nil, nil)
+	if _, _, err := svc.Search(context.Background(), "", model.Permissions{Level: 5}, nil, 1, 25); !errors.Is(err, ErrInvalidSearch) { t.Errorf("expected ErrInvalidSearch, got %v", err) }
+	if _, _, err := svc.Search(context.Background(), "   ", model.Permissions{Level: 5}, nil, 1, 25); !errors.Is(err, ErrInvalidSearch) { t.Errorf("expected ErrInvalidSearch for whitespace-only query, got %v", err) }
+}
+
+func TestForumService_Search_QueryTooLong(t *testing.T) {
+	svc := NewForumService(nil, nil, nil, nil, nil, nil)
+	longQuery := strings.Repeat("a", 201)
+	if _, _, err := svc.Search(context.Background(), longQuery, model.Permissions{Level: 5}, nil, 1, 25); !errors.Is(err, ErrInvalidSearch) { t.Errorf("expected ErrInvalidSearch, got %v", err) }
+}
+
+func TestForumService_Search_PaginationClamping(t *testing.T) {
+	svc := NewForumService(nil, nil, nil, nil, &mockForumPostRepo{searchResults: nil, searchTotal: 0}, nil)
+	// Negative page and perPage should be clamped, not cause errors
+	_, _, err := svc.Search(context.Background(), "test", model.Permissions{Level: 5}, nil, -1, -1)
+	if err != nil { t.Fatalf("unexpected error: %v", err) }
+}
+
+func TestForumService_Search_WithForumFilter(t *testing.T) {
+	results := []model.ForumSearchResult{{PostID: 5, Body: "filtered result", TopicID: 20, TopicTitle: "Topic", ForumID: 2, ForumName: "Support", UserID: 1, Username: "bob"}}
+	svc := NewForumService(nil, nil, nil, nil, &mockForumPostRepo{searchResults: results, searchTotal: 1}, nil)
+	forumID := int64(2)
+	got, total, err := svc.Search(context.Background(), "filtered", model.Permissions{Level: 5}, &forumID, 1, 25)
+	if err != nil { t.Fatalf("unexpected error: %v", err) }
+	if total != 1 { t.Errorf("expected total 1, got %d", total) }
+	if len(got) != 1 { t.Errorf("expected 1 result") }
 }

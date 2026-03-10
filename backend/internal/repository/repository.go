@@ -321,6 +321,7 @@ type ForumPostRepository interface {
 	ListByTopic(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error)
 	Create(ctx context.Context, post *model.ForumPost) error
 	CountByUser(ctx context.Context, userID int64) (int, error)
+	Search(ctx context.Context, query string, forumID *int64, maxGroupLevel int, page, perPage int) ([]model.ForumSearchResult, int64, error)
 }
 
 // DashboardStats holds aggregated counts for the admin dashboard.

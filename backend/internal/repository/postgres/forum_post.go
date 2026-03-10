@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -101,4 +102,98 @@ func (r *ForumPostRepo) CountByUser(ctx context.Context, userID int64) (int, err
 		"SELECT COUNT(*) FROM forum_posts WHERE user_id = $1", userID,
 	).Scan(&count)
 	return count, err
+}
+
+// buildForumPrefixQuery converts user input into a tsquery with prefix matching.
+// "forum rules" -> "forum:* & rules:*"
+// Special characters are stripped to prevent tsquery syntax errors.
+func buildForumPrefixQuery(search string) string {
+	words := strings.Fields(search)
+	var parts []string
+	for _, w := range words {
+		cleaned := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return -1
+		}, w)
+		if cleaned != "" {
+			parts = append(parts, cleaned+":*")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " & ")
+}
+
+func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64, maxGroupLevel int, page, perPage int) ([]model.ForumSearchResult, int64, error) {
+	tsQuery := buildForumPrefixQuery(query)
+	if tsQuery == "" {
+		return nil, 0, nil
+	}
+
+	// Build conditions for the WHERE clause.
+	conditions := []string{
+		"(p.search_vector @@ to_tsquery('english', $1) OR t.search_vector @@ to_tsquery('english', $1))",
+		fmt.Sprintf("f.min_group_level <= $%d", 2),
+	}
+	args := []any{tsQuery, maxGroupLevel}
+	argIdx := 2
+
+	if forumID != nil {
+		argIdx++
+		conditions = append(conditions, fmt.Sprintf("t.forum_id = $%d", argIdx))
+		args = append(args, *forumID)
+	}
+
+	whereClause := strings.Join(conditions, " AND ")
+
+	// Count total matching results.
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM forum_posts p
+		JOIN forum_topics t ON t.id = p.topic_id
+		JOIN forums f ON f.id = t.forum_id
+		WHERE %s`, whereClause)
+
+	var total int64
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count forum search results: %w", err)
+	}
+
+	// Fetch paginated results ordered by relevance.
+	offset := (page - 1) * perPage
+	argIdx++
+	args = append(args, perPage)
+	limitArg := argIdx
+	argIdx++
+	args = append(args, offset)
+	offsetArg := argIdx
+
+	dataQuery := fmt.Sprintf(`SELECT p.id, p.body, t.id, t.title, f.id, f.name, p.user_id, u.username, p.created_at
+		FROM forum_posts p
+		JOIN forum_topics t ON t.id = p.topic_id
+		JOIN forums f ON f.id = t.forum_id
+		JOIN users u ON u.id = p.user_id
+		WHERE %s
+		ORDER BY ts_rank(p.search_vector, to_tsquery('english', $1)) DESC, p.created_at DESC
+		LIMIT $%d OFFSET $%d`, whereClause, limitArg, offsetArg)
+
+	rows, err := r.db.QueryContext(ctx, dataQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("search forum posts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []model.ForumSearchResult
+	for rows.Next() {
+		var sr model.ForumSearchResult
+		if err := rows.Scan(
+			&sr.PostID, &sr.Body, &sr.TopicID, &sr.TopicTitle,
+			&sr.ForumID, &sr.ForumName, &sr.UserID, &sr.Username, &sr.CreatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan forum search result: %w", err)
+		}
+		results = append(results, sr)
+	}
+	return results, total, rows.Err()
 }
