@@ -47,10 +47,11 @@ type ChatClient struct {
 	userID      int64
 	accessToken string           // For periodic re-validation.
 	perms       model.Permissions
-	send        chan []byte       // Buffered channel of outbound messages.
-	lastMsg     time.Time         // Rate limiting: time of last sent message.
-	msgCount    int               // Rate limiting: messages in current window.
-	strikeCount int               // Anti-spam: consecutive rate limit violations.
+	send           chan []byte       // Buffered channel of outbound messages.
+	lastMsg        time.Time         // Rate limiting: time of last sent message.
+	msgCount       int               // Rate limiting: messages in current window.
+	strikeCount    int               // Anti-spam: consecutive rate limit violations.
+	lastStrikeTime time.Time         // Anti-spam: when the last strike occurred.
 }
 
 // closeConn safely closes the WebSocket connection exactly once.
@@ -461,6 +462,7 @@ func (c *ChatClient) readPump() {
 		c.msgCount++
 		if c.msgCount > settings.rateLimitMaxMsgs {
 			c.strikeCount++
+			c.lastStrikeTime = now
 			slog.Debug("chat rate limit exceeded",
 				"user_id", c.userID,
 				"strike", c.strikeCount,
@@ -484,8 +486,10 @@ func (c *ChatClient) readPump() {
 			continue
 		}
 
-		// Message passed rate limit — reset strikes.
-		c.strikeCount = 0
+		// Reset strikes only after 60 seconds of no violations.
+		if c.strikeCount > 0 && now.Sub(c.lastStrikeTime) > 60*time.Second {
+			c.strikeCount = 0
+		}
 
 		c.hub.handleIncomingMessage(c, incoming.Text)
 	}
