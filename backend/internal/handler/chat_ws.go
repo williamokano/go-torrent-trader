@@ -70,6 +70,8 @@ type chatSpamSettings struct {
 	rateLimitMaxMsgs int
 	spamStrikeCount  int
 	spamMuteMinutes  int
+	rateLimitMessage string
+	spamMuteMessage  string
 }
 
 // ChatHub manages WebSocket connections for the shoutbox.
@@ -114,6 +116,8 @@ func (h *ChatHub) loadSpamSettings() {
 	maxMsgs := h.siteSettingsSvc.GetInt(ctx, service.SettingChatRateLimitMax, defaultRateLimitMaxMsgs)
 	strikeCount := h.siteSettingsSvc.GetInt(ctx, service.SettingChatSpamStrikeCount, defaultSpamStrikeCount)
 	muteMinutes := h.siteSettingsSvc.GetInt(ctx, service.SettingChatSpamMuteMinutes, defaultSpamMuteMinutes)
+	rateLimitMsg := h.siteSettingsSvc.GetString(ctx, service.SettingChatRateLimitMessage, "Slow down! You are sending messages too fast.")
+	spamMuteMsg := h.siteSettingsSvc.GetString(ctx, service.SettingChatSpamMuteMessage, "You have been automatically muted for flooding the chat.")
 
 	h.settingsMu.Lock()
 	h.spamSettings = chatSpamSettings{
@@ -121,6 +125,8 @@ func (h *ChatHub) loadSpamSettings() {
 		rateLimitMaxMsgs: maxMsgs,
 		spamStrikeCount:  strikeCount,
 		spamMuteMinutes:  muteMinutes,
+		rateLimitMessage: rateLimitMsg,
+		spamMuteMessage:  spamMuteMsg,
 	}
 	h.settingsMu.Unlock()
 
@@ -451,11 +457,11 @@ func (c *ChatClient) readPump() {
 			// Check if strikes exceed threshold for auto-mute.
 			if c.strikeCount >= settings.spamStrikeCount {
 				c.strikeCount = 0
-				c.hub.autoMuteUser(c, settings.spamMuteMinutes)
+				c.hub.autoMuteUser(c, settings.spamMuteMinutes, settings.spamMuteMessage)
 			} else {
 				errPayload, _ := json.Marshal(map[string]interface{}{
 					"type":    "error",
-					"message": "rate limit exceeded, slow down",
+					"message": settings.rateLimitMessage,
 				})
 				select {
 				case c.send <- errPayload:
@@ -504,11 +510,10 @@ func (c *ChatClient) writePump() {
 }
 
 // autoMuteUser automatically mutes a user for spam/flooding and notifies them via WebSocket.
-func (h *ChatHub) autoMuteUser(client *ChatClient, durationMinutes int) {
+func (h *ChatHub) autoMuteUser(client *ChatClient, durationMinutes int, reason string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	reason := "Automatic mute: chat spam/flooding"
 	mute, err := h.chatSvc.SystemMuteUser(ctx, client.userID, durationMinutes, reason)
 	if err != nil {
 		slog.Error("failed to auto-mute user for spam",

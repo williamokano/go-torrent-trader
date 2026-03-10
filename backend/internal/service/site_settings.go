@@ -25,6 +25,8 @@ const (
 	SettingChatRateLimitMax     = "chat_rate_limit_max"
 	SettingChatSpamStrikeCount  = "chat_spam_strike_count"
 	SettingChatSpamMuteMinutes  = "chat_spam_mute_minutes"
+	SettingChatRateLimitMessage = "chat_rate_limit_message"
+	SettingChatSpamMuteMessage  = "chat_spam_mute_message"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -85,6 +87,15 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	}
 
 	return nil
+}
+
+// GetString returns a site setting as a string, or the fallback if not found.
+func (s *SiteSettingsService) GetString(ctx context.Context, key string, fallback string) string {
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil || setting == nil || setting.Value == "" {
+		return fallback
+	}
+	return setting.Value
 }
 
 // GetInt returns a site setting parsed as an integer, or the fallback if not found or not a valid int.
