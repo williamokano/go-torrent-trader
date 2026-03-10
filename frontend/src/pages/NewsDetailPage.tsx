@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { formatDate } from "@/utils/format";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import type { NewsArticle } from "@/types/news";
 import "./news.css";
 
@@ -72,7 +73,7 @@ export function NewsDetailPage() {
           <span>By {article.author_name ?? "Unknown"}</span>
           <span>{formatDate(article.created_at)}</span>
         </div>
-        <div className="news__detail-body">{article.body}</div>
+        <MarkdownRenderer content={article.body} className="news__detail-body" />
       </article>
     </div>
   );
