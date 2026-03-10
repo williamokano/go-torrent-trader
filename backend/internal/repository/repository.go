@@ -115,6 +115,7 @@ type ListTorrentsOptions struct {
 	MaxSeeders       *int       // for "need seed" (seeders <= N)
 	UploaderID       *int64     // for "my uploads" or user's torrents
 	ExcludeAnonymous bool       // when true, filter out anonymous torrents (for non-owner/non-staff viewers)
+	IncludeHidden    bool       // when true, skip visible/banned filters (admin context)
 }
 
 // GroupRepository defines persistence operations for groups.
@@ -257,6 +258,14 @@ type NewsRepository interface {
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, opts ListNewsOptions) ([]model.NewsArticle, int64, error)
 	ListPublished(ctx context.Context, page, perPage int) ([]model.NewsArticle, int64, error)
+}
+
+// ModNoteRepository defines persistence operations for staff mod notes.
+type ModNoteRepository interface {
+	Create(ctx context.Context, note *model.ModNote) error
+	GetByID(ctx context.Context, id int64) (*model.ModNote, error)
+	ListByUser(ctx context.Context, userID int64) ([]model.ModNote, error)
+	Delete(ctx context.Context, id int64) error
 }
 
 // ListNewsOptions holds filtering and pagination options for listing news (admin).

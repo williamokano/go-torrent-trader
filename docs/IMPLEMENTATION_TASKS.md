@@ -8,6 +8,22 @@
 > See `ARCHITECTURE.md` for monorepo structure and conventions.
 > See `NOT_PORTING.md` for features explicitly excluded.
 
+## Development Standards
+
+### Test Coverage
+- **Minimum 80% coverage** per package is required. CI gates on this threshold.
+- All new code must ship with tests. No exceptions — if it's not tested, it doesn't ship.
+- New PRs must not decrease overall coverage.
+- Backend: `go test -coverprofile=coverage.out ./...` — check with `go tool cover -func=coverage.out`
+- Frontend: `npm test -- --coverage` — check summary output
+- Handler, service, and repository layers must all have dedicated test suites.
+
+### Code Quality
+- All code must pass linting before merge: `golangci-lint run` (backend), `npm run lint` (frontend)
+- Activity log messages must be self-contained: include WHO (actor username), WHAT (target name, not IDs), and the ACTION. Never leak sensitive data (PM content, passwords, IPs, emails).
+- Migrations that have been merged to main are immutable — fix issues with a new migration.
+- Features ship in BE+FE pairs — both backend and frontend must be included for a feature to be considered complete.
+
 ---
 
 ## Phase Overview
@@ -1216,6 +1232,25 @@
 - Parses file list and updates `files` JSONB column
 - Skips torrents that already have files populated
 - Reports progress and errors
+
+#### BE-9.6: Increase Test Coverage to 80% [M]
+**As a** developer
+**I want** comprehensive test coverage across all packages
+**So that** regressions are caught early and code quality is maintained
+
+**Acceptance Criteria:**
+- Minimum 80% test coverage per package (handler, service, repository, worker, middleware)
+- CI gates on coverage threshold — build fails if coverage drops below 80%
+- Current low-coverage packages to prioritize:
+  - `handler` — add tests for dashboard, admin, chat, news, warning, user activity handlers
+  - `worker` — add tests for maintenance, ratio warning, cleanup jobs
+  - `repository/postgres` — add integration tests or improve mock coverage
+  - `config` — test validation and edge cases
+  - `database` — test connection and migration error handling
+- All new code must ship with tests above the threshold
+- Add `go test -coverprofile` to CI with coverage check step
+
+> **Note:** This is a tech-debt task. Should be addressed incrementally — each new PR must not decrease coverage, and dedicated test sprints can bring existing packages up to the threshold.
 
 ---
 

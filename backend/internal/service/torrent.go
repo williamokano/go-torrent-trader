@@ -428,7 +428,7 @@ func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID in
 	// Delete from storage first (best effort — log and continue if file missing)
 	storageKey := fmt.Sprintf("torrents/%d.torrent", torrentID)
 	if err := s.storage.Delete(ctx, storageKey); err != nil {
-		slog.Error("failed to delete torrent file from storage", "torrent_id", torrentID, "error", err)
+		slog.Warn("torrent file not found in storage (may already be deleted)", "torrent_id", torrentID, "error", err)
 	}
 
 	// Delete from DB

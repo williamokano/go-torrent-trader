@@ -86,3 +86,59 @@
 .admin-reports__link:hover {
   text-decoration: underline;
 }
+
+/* Resolve modal */
+.admin-reports__resolve-modal {
+  padding: var(--space-md);
+}
+
+.admin-reports__resolve-reason,
+.admin-reports__resolve-torrent {
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-sm);
+}
+
+.admin-reports__resolve-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.admin-reports__resolve-action-btn {
+  padding: var(--space-xs) var(--space-md);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: white;
+}
+
+.admin-reports__resolve-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-reports__resolve-action-btn--resolve {
+  background-color: var(--color-accent);
+}
+
+.admin-reports__resolve-action-btn--warn {
+  background-color: var(--color-warning, #ffc107);
+  color: #000;
+}
+
+.admin-reports__resolve-action-btn--delete {
+  background-color: var(--color-danger, #dc3545);
+}
+
+.admin-reports__resolve-cancel {
+  padding: var(--space-xs) var(--space-md);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  width: 100%;
+}

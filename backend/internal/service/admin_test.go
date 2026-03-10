@@ -173,6 +173,53 @@ func TestAdminListGroups(t *testing.T) {
 	}
 }
 
+// mockModNoteRepo is an in-memory mod note repo for tests.
+type mockModNoteRepo struct {
+	notes  []*model.ModNote
+	nextID int64
+}
+
+func newMockModNoteRepo() *mockModNoteRepo {
+	return &mockModNoteRepo{nextID: 1}
+}
+
+func (m *mockModNoteRepo) Create(_ context.Context, note *model.ModNote) error {
+	note.ID = m.nextID
+	note.CreatedAt = time.Now()
+	m.nextID++
+	m.notes = append(m.notes, note)
+	return nil
+}
+
+func (m *mockModNoteRepo) GetByID(_ context.Context, id int64) (*model.ModNote, error) {
+	for _, n := range m.notes {
+		if n.ID == id {
+			return n, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (m *mockModNoteRepo) ListByUser(_ context.Context, userID int64) ([]model.ModNote, error) {
+	var result []model.ModNote
+	for _, n := range m.notes {
+		if n.UserID == userID {
+			result = append(result, *n)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockModNoteRepo) Delete(_ context.Context, id int64) error {
+	for i, n := range m.notes {
+		if n.ID == id {
+			m.notes = append(m.notes[:i], m.notes[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func newAdminServiceWithDeps(t *testing.T) (*AdminService, *mockUserRepo, *mockAdminGroupRepo, *memorySessionStore, *noopSender) {
 	t.Helper()
 	userRepo := newMockUserRepo()
@@ -202,6 +249,46 @@ func createTestUserForAdmin(t *testing.T, userRepo *mockUserRepo, groupID int64)
 		t.Fatalf("create test user: %v", err)
 	}
 	return user
+}
+
+func TestAdminGetUserDetail(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "detailuser",
+		Email:    "detail@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	detail, err := svc.GetUserDetail(context.Background(), result.User.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if detail.Username != "detailuser" {
+		t.Errorf("expected detailuser, got %s", detail.Username)
+	}
+	if len(detail.ModNotes) != 0 {
+		t.Errorf("expected 0 mod notes, got %d", len(detail.ModNotes))
+	}
+	if len(detail.RecentUploads) != 0 {
+		t.Errorf("expected 0 recent uploads, got %d", len(detail.RecentUploads))
+	}
+}
+
+func TestAdminGetUserDetail_NotFound(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+
+	_, err := svc.GetUserDetail(context.Background(), 999)
+	if !errors.Is(err, ErrAdminUserNotFound) {
+		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
+	}
 }
 
 func TestAdminResetPassword_AutoGenerate(t *testing.T) {
@@ -370,6 +457,153 @@ func TestAdminResetPassword_TooShort(t *testing.T) {
 	_, err := svc.ResetPassword(context.Background(), admin.ID, target.ID, "short")
 	if !errors.Is(err, ErrAdminPasswordTooShort) {
 		t.Errorf("expected ErrAdminPasswordTooShort, got %v", err)
+	}
+}
+
+func TestAdminCreateModNote(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "noteuser",
+		Email:    "note@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	note, err := svc.CreateModNote(context.Background(), result.User.ID, result.User.ID, "This is a test note")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if note.Note != "This is a test note" {
+		t.Errorf("expected note text, got %s", note.Note)
+	}
+	if note.ID == 0 {
+		t.Error("expected non-zero note ID")
+	}
+}
+
+func TestAdminCreateModNote_EmptyNote(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "emptynote",
+		Email:    "emptynote@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	_, err := svc.CreateModNote(context.Background(), result.User.ID, result.User.ID, "")
+	if !errors.Is(err, ErrInvalidModNote) {
+		t.Errorf("expected ErrInvalidModNote, got %v", err)
+	}
+}
+
+func TestAdminDeleteModNote(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "delnote",
+		Email:    "delnote@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	adminPerms := model.Permissions{IsAdmin: true}
+	note, _ := svc.CreateModNote(context.Background(), result.User.ID, result.User.ID, "delete me")
+
+	// Author can delete their own note
+	err := svc.DeleteModNote(context.Background(), note.ID, result.User.ID, model.Permissions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Deleting again should fail
+	err = svc.DeleteModNote(context.Background(), note.ID, result.User.ID, adminPerms)
+	if !errors.Is(err, ErrModNoteNotFound) {
+		t.Errorf("expected ErrModNoteNotFound, got %v", err)
+	}
+}
+
+func TestAdminDeleteModNote_ForbiddenForNonAuthor(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	author, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "noteauthor",
+		Email:    "noteauthor@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	note, _ := svc.CreateModNote(context.Background(), author.User.ID, author.User.ID, "private note")
+
+	// Non-author moderator (not admin) should be forbidden
+	otherModID := int64(9999)
+	modPerms := model.Permissions{IsModerator: true}
+	err := svc.DeleteModNote(context.Background(), note.ID, otherModID, modPerms)
+	if !errors.Is(err, ErrModNoteDeleteForbidden) {
+		t.Errorf("expected ErrModNoteDeleteForbidden, got %v", err)
+	}
+
+	// Admin can delete anyone's note
+	adminPerms := model.Permissions{IsAdmin: true}
+	err = svc.DeleteModNote(context.Background(), note.ID, otherModID, adminPerms)
+	if err != nil {
+		t.Fatalf("expected admin to delete note, got %v", err)
+	}
+}
+
+func TestAdminCreateModNote_UserNotFound(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	_, err := svc.CreateModNote(context.Background(), 999, 1, "test")
+	if !errors.Is(err, ErrAdminUserNotFound) {
+		t.Errorf("expected ErrAdminUserNotFound, got %v", err)
+	}
+}
+
+func TestAdminCreateModNote_TooLong(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	modNoteRepo := newMockModNoteRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	svc.SetModNoteRepo(modNoteRepo)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "longnote",
+		Email:    "longnote@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	// Create a string longer than 10000 chars
+	buf := make([]byte, 10001)
+	for i := range buf {
+		buf[i] = 'a'
+	}
+
+	_, err := svc.CreateModNote(context.Background(), result.User.ID, result.User.ID, string(buf))
+	if !errors.Is(err, ErrInvalidModNote) {
+		t.Errorf("expected ErrInvalidModNote, got %v", err)
 	}
 }
 

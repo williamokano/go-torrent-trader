@@ -18,6 +18,8 @@ var (
 	ErrAdminUserNotFound      = fmt.Errorf("user not found")
 	ErrAdminGroupNotFound     = fmt.Errorf("group not found")
 	ErrAdminInsufficientLevel = fmt.Errorf("insufficient group level to perform this action")
+	ErrModNoteNotFound        = fmt.Errorf("mod note not found")
+	ErrInvalidModNote         = fmt.Errorf("invalid mod note")
 )
 
 // AdminUserView is the user representation returned by admin endpoints.
@@ -40,6 +42,33 @@ type AdminUserView struct {
 	Invites    int     `json:"invites"`
 	CreatedAt  string  `json:"created_at"`
 	LastAccess *string `json:"last_access"`
+}
+
+// AdminUserDetailView extends AdminUserView with additional detail data.
+type AdminUserDetailView struct {
+	AdminUserView
+	Ratio          float64                  `json:"ratio"`
+	RecentUploads  []AdminTorrentSummary    `json:"recent_uploads"`
+	WarningsCount  int                      `json:"warnings_count"`
+	ModNotes       []AdminModNoteView       `json:"mod_notes"`
+}
+
+// AdminTorrentSummary is a lightweight torrent representation for admin views.
+type AdminTorrentSummary struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	CreatedAt string `json:"created_at"`
+}
+
+// AdminModNoteView is the mod note representation returned by admin endpoints.
+type AdminModNoteView struct {
+	ID             int64  `json:"id"`
+	UserID         int64  `json:"user_id"`
+	AuthorID       int64  `json:"author_id"`
+	AuthorUsername string `json:"author_username"`
+	Note           string `json:"note"`
+	CreatedAt      string `json:"created_at"`
 }
 
 // AdminUpdateUserRequest holds fields an admin can change on a user.
@@ -66,6 +95,9 @@ type AdminService struct {
 	sessions SessionStore
 	email    EmailSender
 	eventBus event.Bus
+	modNotes repository.ModNoteRepository
+	torrents repository.TorrentRepository
+	warnings repository.WarningRepository
 }
 
 // NewAdminService creates a new AdminService.
@@ -81,6 +113,21 @@ func (s *AdminService) SetSessionStore(sessions SessionStore) {
 // SetEmailSender sets the email sender for notifications.
 func (s *AdminService) SetEmailSender(email EmailSender) {
 	s.email = email
+}
+
+// SetModNoteRepo sets the mod note repository (setter to avoid changing all call sites).
+func (s *AdminService) SetModNoteRepo(repo repository.ModNoteRepository) {
+	s.modNotes = repo
+}
+
+// SetTorrentRepo sets the torrent repository for admin torrent operations.
+func (s *AdminService) SetTorrentRepo(repo repository.TorrentRepository) {
+	s.torrents = repo
+}
+
+// SetWarningRepo sets the warning repository for user detail views.
+func (s *AdminService) SetWarningRepo(repo repository.WarningRepository) {
+	s.warnings = repo
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -105,32 +152,184 @@ func (s *AdminService) ListUsers(ctx context.Context, opts repository.ListUsersO
 
 	views := make([]AdminUserView, len(users))
 	for i, u := range users {
-		views[i] = AdminUserView{
-			ID:         u.ID,
-			Username:   u.Username,
-			Email:      u.Email,
-			GroupID:    u.GroupID,
-			GroupName:  groupNames[u.GroupID],
-			Uploaded:   u.Uploaded,
-			Downloaded: u.Downloaded,
-			Avatar:     u.Avatar,
-			Title:      u.Title,
-			Info:       u.Info,
-			Enabled:    u.Enabled,
-			Warned:     u.Warned,
-			Donor:      u.Donor,
-			Parked:     u.Parked,
-			Passkey:    u.Passkey,
-			Invites:    u.Invites,
-			CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		}
-		if u.LastAccess != nil {
-			la := u.LastAccess.Format("2006-01-02T15:04:05Z")
-			views[i].LastAccess = &la
-		}
+		views[i] = s.userToView(&u, groupNames[u.GroupID])
 	}
 
 	return views, total, nil
+}
+
+// GetUserDetail returns a detailed admin view of a user.
+func (s *AdminService) GetUserDetail(ctx context.Context, userID int64) (*AdminUserDetailView, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, ErrAdminUserNotFound
+	}
+
+	groupName := ""
+	if g, err := s.groups.GetByID(ctx, user.GroupID); err == nil {
+		groupName = g.Name
+	}
+
+	view := &AdminUserDetailView{
+		AdminUserView: s.userToView(user, groupName),
+	}
+
+	// Compute ratio
+	if user.Downloaded > 0 {
+		view.Ratio = float64(user.Uploaded) / float64(user.Downloaded)
+	} else if user.Uploaded > 0 {
+		view.Ratio = -1 // infinite
+	}
+
+	// Recent uploads (admin view: include hidden/banned torrents)
+	if s.torrents != nil {
+		uid := userID
+		uploads, _, err := s.torrents.List(ctx, repository.ListTorrentsOptions{
+			UploaderID:    &uid,
+			IncludeHidden: true,
+			Page:          1,
+			PerPage:       10,
+			SortBy:        "created_at",
+			SortOrder:     "desc",
+		})
+		if err != nil {
+			slog.Error("admin: failed to fetch recent uploads", "user_id", userID, "error", err)
+		} else {
+			view.RecentUploads = make([]AdminTorrentSummary, len(uploads))
+			for i, t := range uploads {
+				view.RecentUploads[i] = AdminTorrentSummary{
+					ID:        t.ID,
+					Name:      t.Name,
+					Size:      t.Size,
+					CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				}
+			}
+		}
+	}
+	if view.RecentUploads == nil {
+		view.RecentUploads = []AdminTorrentSummary{}
+	}
+
+	// Active warnings count
+	if s.warnings != nil {
+		count, err := s.warnings.CountActiveByUser(ctx, userID)
+		if err != nil {
+			slog.Error("admin: failed to fetch warnings count", "user_id", userID, "error", err)
+		} else {
+			view.WarningsCount = count
+		}
+	}
+
+	// Mod notes
+	if s.modNotes != nil {
+		notes, err := s.modNotes.ListByUser(ctx, userID)
+		if err != nil {
+			slog.Error("admin: failed to fetch mod notes", "user_id", userID, "error", err)
+		} else {
+			view.ModNotes = make([]AdminModNoteView, len(notes))
+			for i, n := range notes {
+				view.ModNotes[i] = AdminModNoteView{
+					ID:             n.ID,
+					UserID:         n.UserID,
+					AuthorID:       n.AuthorID,
+					AuthorUsername: n.AuthorUsername,
+					Note:           n.Note,
+					CreatedAt:      n.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				}
+			}
+		}
+	}
+	if view.ModNotes == nil {
+		view.ModNotes = []AdminModNoteView{}
+	}
+
+	return view, nil
+}
+
+// CreateModNote adds a private staff note to a user.
+func (s *AdminService) CreateModNote(ctx context.Context, userID, authorID int64, noteText string) (*AdminModNoteView, error) {
+	if noteText == "" {
+		return nil, fmt.Errorf("%w: note cannot be empty", ErrInvalidModNote)
+	}
+	if len(noteText) > 10000 {
+		return nil, fmt.Errorf("%w: note exceeds maximum length of 10,000 characters", ErrInvalidModNote)
+	}
+
+	// Verify user exists
+	if _, err := s.users.GetByID(ctx, userID); err != nil {
+		return nil, ErrAdminUserNotFound
+	}
+
+	if s.modNotes == nil {
+		return nil, fmt.Errorf("mod notes not configured")
+	}
+
+	note := &model.ModNote{
+		UserID:   userID,
+		AuthorID: authorID,
+		Note:     noteText,
+	}
+	if err := s.modNotes.Create(ctx, note); err != nil {
+		return nil, fmt.Errorf("create mod note: %w", err)
+	}
+
+	// Get author username
+	authorUsername := ""
+	if author, err := s.users.GetByID(ctx, authorID); err == nil {
+		authorUsername = author.Username
+	}
+
+	return &AdminModNoteView{
+		ID:             note.ID,
+		UserID:         note.UserID,
+		AuthorID:       note.AuthorID,
+		AuthorUsername: authorUsername,
+		Note:           note.Note,
+		CreatedAt:      note.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}, nil
+}
+
+var ErrModNoteDeleteForbidden = fmt.Errorf("not authorized to delete this note")
+
+// DeleteModNote removes a mod note by ID. Only the author or an admin can delete a note.
+func (s *AdminService) DeleteModNote(ctx context.Context, noteID, actorID int64, perms model.Permissions) error {
+	if s.modNotes == nil {
+		return fmt.Errorf("mod notes not configured")
+	}
+
+	note, err := s.modNotes.GetByID(ctx, noteID)
+	if err != nil {
+		return ErrModNoteNotFound
+	}
+
+	// Moderators can only delete their own notes; admins can delete anyone's.
+	if note.AuthorID != actorID && !perms.IsAdmin {
+		return ErrModNoteDeleteForbidden
+	}
+
+	if err := s.modNotes.Delete(ctx, noteID); err != nil {
+		return ErrModNoteNotFound
+	}
+	return nil
+}
+
+// ListTorrents returns a paginated list of torrents for admin search.
+func (s *AdminService) ListTorrents(ctx context.Context, opts repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
+	if s.torrents == nil {
+		return nil, 0, fmt.Errorf("torrent repo not configured")
+	}
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	if opts.PerPage <= 0 {
+		opts.PerPage = 25
+	}
+	if opts.PerPage > 100 {
+		opts.PerPage = 100
+	}
+	// Admin view should see all torrents including hidden/banned.
+	opts.IncludeHidden = true
+	return s.torrents.List(ctx, opts)
 }
 
 // UpdateUser modifies admin-editable fields on a user. actorID is the admin performing the action.
@@ -247,31 +446,35 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		groupName = g.Name
 	}
 
-	view := &AdminUserView{
-		ID:         user.ID,
-		Username:   user.Username,
-		Email:      user.Email,
-		GroupID:    user.GroupID,
+	view := s.userToView(user, groupName)
+	return &view, nil
+}
+
+func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView {
+	view := AdminUserView{
+		ID:         u.ID,
+		Username:   u.Username,
+		Email:      u.Email,
+		GroupID:    u.GroupID,
 		GroupName:  groupName,
-		Uploaded:   user.Uploaded,
-		Downloaded: user.Downloaded,
-		Avatar:     user.Avatar,
-		Title:      user.Title,
-		Info:       user.Info,
-		Enabled:    user.Enabled,
-		Warned:     user.Warned,
-		Donor:      user.Donor,
-		Parked:     user.Parked,
-		Passkey:    user.Passkey,
-		Invites:    user.Invites,
-		CreatedAt:  user.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Uploaded:   u.Uploaded,
+		Downloaded: u.Downloaded,
+		Avatar:     u.Avatar,
+		Title:      u.Title,
+		Info:       u.Info,
+		Enabled:    u.Enabled,
+		Warned:     u.Warned,
+		Donor:      u.Donor,
+		Parked:     u.Parked,
+		Passkey:    u.Passkey,
+		Invites:    u.Invites,
+		CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
-	if user.LastAccess != nil {
-		la := user.LastAccess.Format("2006-01-02T15:04:05Z")
+	if u.LastAccess != nil {
+		la := u.LastAccess.Format("2006-01-02T15:04:05Z")
 		view.LastAccess = &la
 	}
-
-	return view, nil
+	return view
 }
 
 func (s *AdminService) actorFromUserID(ctx context.Context, userID int64) event.Actor {

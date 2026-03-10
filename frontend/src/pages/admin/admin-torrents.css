@@ -1,0 +1,91 @@
+.admin-torrents__header {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
+}
+
+.admin-torrents__header h1 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.admin-torrents__search {
+  min-width: 250px;
+}
+
+.admin-torrents__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-torrents__table th,
+.admin-torrents__table td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.admin-torrents__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-torrents__table td {
+  color: var(--color-text-primary);
+}
+
+.admin-torrents__table a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.admin-torrents__table a:hover {
+  text-decoration: underline;
+}
+
+.admin-torrents__badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.admin-torrents__badge--active {
+  background-color: var(--color-success-bg, #d4edda);
+  color: var(--color-success, #155724);
+}
+
+.admin-torrents__badge--banned {
+  background-color: var(--color-danger-bg, #f8d7da);
+  color: var(--color-danger, #721c24);
+}
+
+.admin-torrents__actions {
+  white-space: nowrap;
+}
+
+.admin-torrents__delete-btn {
+  padding: 2px 8px;
+  background-color: var(--color-danger, #dc3545);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.admin-torrents__delete-btn:hover {
+  opacity: 0.85;
+}
+
+.admin-torrents__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}

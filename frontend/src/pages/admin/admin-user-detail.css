@@ -1,0 +1,208 @@
+.admin-user-detail__header {
+  margin-bottom: var(--space-lg);
+}
+
+.admin-user-detail__header h1 {
+  font-size: var(--text-xl);
+  margin: var(--space-xs) 0 0;
+}
+
+.admin-user-detail__back {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__back:hover {
+  text-decoration: underline;
+}
+
+.admin-user-detail__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+@media (max-width: 768px) {
+  .admin-user-detail__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-user-detail__card {
+  background: var(--color-bg-secondary, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.admin-user-detail__card h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-xs);
+}
+
+.admin-user-detail__dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-xs) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__dl dt {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.admin-user-detail__dl dd {
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.admin-user-detail__badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  margin-right: var(--space-xs);
+}
+
+.admin-user-detail__badge--enabled {
+  background-color: var(--color-success-bg, #d4edda);
+  color: var(--color-success, #155724);
+}
+
+.admin-user-detail__badge--disabled {
+  background-color: var(--color-danger-bg, #f8d7da);
+  color: var(--color-danger, #721c24);
+}
+
+.admin-user-detail__badge--warned {
+  background-color: var(--color-warning-bg, #fff3cd);
+  color: var(--color-warning, #856404);
+}
+
+.admin-user-detail__badge--donor {
+  background-color: #e8daef;
+  color: #6c3483;
+}
+
+.admin-user-detail__badge--parked {
+  background-color: #d5dbdb;
+  color: #566573;
+}
+
+.admin-user-detail__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-user-detail__table th,
+.admin-user-detail__table td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.admin-user-detail__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.admin-user-detail__table a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.admin-user-detail__table a:hover {
+  text-decoration: underline;
+}
+
+.admin-user-detail__empty {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: var(--space-md);
+}
+
+.admin-user-detail__note-form {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-end;
+  margin-bottom: var(--space-md);
+}
+
+.admin-user-detail__note-form > :first-child {
+  flex: 1;
+}
+
+.admin-user-detail__add-note-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.admin-user-detail__add-note-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-user-detail__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.admin-user-detail__note {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+}
+
+.admin-user-detail__note-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  font-size: var(--text-xs);
+}
+
+.admin-user-detail__note-author {
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.admin-user-detail__note-date {
+  color: var(--color-text-muted);
+}
+
+.admin-user-detail__note-delete {
+  margin-left: auto;
+  padding: 1px 6px;
+  background-color: var(--color-danger, #dc3545);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.admin-user-detail__note-delete:hover {
+  opacity: 0.85;
+}
+
+.admin-user-detail__note-body {
+  margin: 0;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}
