@@ -441,7 +441,7 @@ export function AdminForumsPage() {
                   <td>{getGroupNameByLevel(forum.min_post_level)}</td>
                   <td>{forum.topic_count}</td>
                   <td>{forum.post_count}</td>
-                  <td>
+                  <td className="admin-forums__actions">
                     <button
                       className="admin-forums__edit-btn"
                       onClick={() => openEditForumModal(forum)}
