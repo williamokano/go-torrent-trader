@@ -60,6 +60,9 @@ const (
 	ForumUpdated            Type = "forum_updated"
 	ForumDeleted            Type = "forum_deleted"
 	CheatFlagged            Type = "cheat_flagged"
+	ForumPostCreated        Type = "forum_post_created"
+	ForumTopicCreated       Type = "forum_topic_created"
+	TorrentCommented        Type = "torrent_commented"
 )
 
 // Event is the base interface for all domain events.
@@ -432,4 +435,31 @@ type CheatFlaggedEvent struct {
 	TorrentID   *int64 `json:"torrent_id,omitempty"`
 	TorrentName string `json:"torrent_name,omitempty"`
 	FlagType    string `json:"flag_type"`
+}
+
+type ForumPostCreatedEvent struct {
+	Base
+	PostID        int64  `json:"post_id"`
+	TopicID       int64  `json:"topic_id"`
+	TopicTitle    string `json:"topic_title"`
+	ForumID       int64  `json:"forum_id"`
+	Body          string `json:"body"`
+	ReplyToPostID *int64 `json:"reply_to_post_id,omitempty"`
+	ReplyToUserID *int64 `json:"reply_to_user_id,omitempty"`
+}
+
+type ForumTopicCreatedEvent struct {
+	Base
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+	ForumID    int64  `json:"forum_id"`
+	FirstPostID int64 `json:"first_post_id"`
+}
+
+type TorrentCommentedEvent struct {
+	Base
+	CommentID   int64  `json:"comment_id"`
+	TorrentID   int64  `json:"torrent_id"`
+	TorrentName string `json:"torrent_name"`
+	UploaderID  int64  `json:"uploader_id"`
 }

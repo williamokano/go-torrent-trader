@@ -223,6 +223,13 @@ func run() int {
 	// Wire PM notification listener — pushes real-time unread count via WebSocket.
 	listener.RegisterPMNotificationListener(eventBus, messageRepo, chatHub.SendToUser)
 
+	// Notification system
+	notificationRepo := postgres.NewNotificationRepo(db)
+	notificationPrefRepo := postgres.NewNotificationPreferenceRepo(db)
+	topicSubscriptionRepo := postgres.NewTopicSubscriptionRepo(db)
+	notificationService := service.NewNotificationService(notificationRepo, notificationPrefRepo, topicSubscriptionRepo, forumTopicRepo, forumRepo, chatHub.SendToUser)
+	listener.RegisterNotificationListeners(eventBus, notificationService, userRepo, forumPostRepo, topicSubscriptionRepo)
+
 	deps := &handler.Deps{
 		DB:             db,
 		StatsCache:     statsCache,
@@ -253,6 +260,7 @@ func run() int {
 		TransferHistoryRepo: transferHistoryRepo,
 		DashboardRepo:       dashboardRepo,
 		CheatFlagRepo:       cheatFlagRepo,
+		NotificationService: notificationService,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,

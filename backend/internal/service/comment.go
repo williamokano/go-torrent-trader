@@ -49,7 +49,8 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 	}
 
 	// Verify the torrent exists.
-	if _, err := s.torrents.GetByID(ctx, torrentID); err != nil {
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
 		return nil, ErrTorrentNotFound
 	}
 
@@ -69,16 +70,22 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 		return nil, fmt.Errorf("get created comment: %w", err)
 	}
 
-	var torrentName string
-	if t, err := s.torrents.GetByID(ctx, torrentID); err == nil {
-		torrentName = t.Name
+	if s.eventBus != nil {
+		actor := event.Actor{ID: userID, Username: created.Username}
+		s.eventBus.Publish(ctx, &event.CommentCreatedEvent{
+			Base:        event.NewBase(event.CommentCreated, actor),
+			CommentID:   created.ID,
+			TorrentID:   torrentID,
+			TorrentName: torrent.Name,
+		})
+		s.eventBus.Publish(ctx, &event.TorrentCommentedEvent{
+			Base:        event.NewBase(event.TorrentCommented, actor),
+			CommentID:   created.ID,
+			TorrentID:   torrentID,
+			TorrentName: torrent.Name,
+			UploaderID:  torrent.UploaderID,
+		})
 	}
-	s.eventBus.Publish(ctx, &event.CommentCreatedEvent{
-		Base:        event.NewBase(event.CommentCreated, event.Actor{ID: userID, Username: created.Username}),
-		CommentID:   created.ID,
-		TorrentID:   torrentID,
-		TorrentName: torrentName,
-	})
 
 	return created, nil
 }
