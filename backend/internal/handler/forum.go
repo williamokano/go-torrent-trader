@@ -435,6 +435,11 @@ func (h *ForumHandler) HandleUnpinTopic(w http.ResponseWriter, r *http.Request) 
 
 // HandleRenameTopic handles PUT /api/v1/forums/topics/{id}/title — rename a topic.
 func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
 	perms := middleware.PermissionsFromContext(r.Context())
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -453,7 +458,7 @@ func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request)
 
 	actor := actorFromRequest(r)
 
-	if err := h.forumSvc.RenameTopic(r.Context(), topicID, perms, body.Title, actor); err != nil {
+	if err := h.forumSvc.RenameTopic(r.Context(), topicID, userID, perms, body.Title, actor); err != nil {
 		handleForumError(w, err)
 		return
 	}

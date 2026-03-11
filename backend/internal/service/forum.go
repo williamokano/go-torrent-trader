@@ -560,11 +560,9 @@ func (s *ForumService) UnpinTopic(ctx context.Context, topicID int64, perms mode
 	return nil
 }
 
-// RenameTopic changes a topic's title. Staff/admin only.
-func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, perms model.Permissions, title string, actor event.Actor) error {
-	if err := s.requireStaff(perms); err != nil {
-		return err
-	}
+// RenameTopic changes a topic's title. The topic author or staff can rename.
+// Non-staff authors cannot rename locked topics and must have can_forum privilege.
+func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, title string, actor event.Actor) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return fmt.Errorf("%w: title cannot be empty", ErrInvalidTopic)
@@ -576,6 +574,28 @@ func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, perms mod
 	if err != nil {
 		return ErrTopicNotFound
 	}
+
+	// Authorization: topic author or staff
+	if topic.UserID != userID && !perms.IsStaff() {
+		return ErrForumAccessDenied
+	}
+
+	// Non-staff checks
+	if !perms.IsStaff() {
+		// can_forum check
+		user, userErr := s.users.GetByID(ctx, userID)
+		if userErr != nil {
+			return fmt.Errorf("get user: %w", userErr)
+		}
+		if !user.CanForum {
+			return ErrForumAccessDenied
+		}
+		// Locked topic check: author cannot rename locked topics
+		if topic.Locked {
+			return ErrTopicLocked
+		}
+	}
+
 	oldTitle := topic.Title
 	if err := s.topics.UpdateTitle(ctx, topicID, title); err != nil {
 		return err

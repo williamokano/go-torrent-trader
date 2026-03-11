@@ -1,8 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  fireEvent,
-} from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
@@ -560,6 +558,31 @@ describe("ForumTopicViewPage", () => {
           "Are you sure you want to delete this topic? This action cannot be undone.",
         ),
       ).toBeInTheDocument();
+    });
+  });
+
+  test("topic author (non-staff) sees Edit Title button", async () => {
+    // user id=1 is the topic author (FAKE_RESPONSE.topic.user_id=1)
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    // Should see "Edit Title" button (not the mod toolbar "Rename")
+    expect(screen.getByText("Edit Title")).toBeInTheDocument();
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+
+    // Clicking it should open the rename modal
+    fireEvent.click(screen.getByText("Edit Title"));
+    await waitFor(() => {
+      expect(screen.getByText("Rename Topic")).toBeInTheDocument();
+      const input = screen.getByLabelText(
+        "New topic title",
+      ) as HTMLInputElement;
+      expect(input.value).toBe("Test Topic");
     });
   });
 

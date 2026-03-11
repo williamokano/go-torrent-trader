@@ -683,7 +683,7 @@ func TestForumService_UnpinTopic_Success(t *testing.T) {
 func TestForumService_RenameTopic_Success(t *testing.T) {
 	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, Title: "Old Title"}}}
 	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
-	if err := svc.RenameTopic(context.Background(), 1, staffPerms, "New Title", event.Actor{}); err != nil {
+	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, "New Title", event.Actor{}); err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
 	if topicRepo.titleCalls[1] != "New Title" {
@@ -694,7 +694,7 @@ func TestForumService_RenameTopic_Success(t *testing.T) {
 func TestForumService_RenameTopic_EmptyTitle(t *testing.T) {
 	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1}}}
 	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
-	if err := svc.RenameTopic(context.Background(), 1, staffPerms, "  ", event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
+	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, "  ", event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
 		t.Errorf("expected ErrInvalidTopic, got %v", err)
 	}
 }
@@ -703,22 +703,64 @@ func TestForumService_RenameTopic_TooLong(t *testing.T) {
 	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1}}}
 	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
 	longTitle := strings.Repeat("a", 201)
-	if err := svc.RenameTopic(context.Background(), 1, staffPerms, longTitle, event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
+	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, longTitle, event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
 		t.Errorf("expected ErrInvalidTopic, got %v", err)
 	}
 }
 
 func TestForumService_RenameTopic_Unauthorized(t *testing.T) {
-	svc := NewForumService(nil, nil, nil, nil, nil, nil, nil)
-	if err := svc.RenameTopic(context.Background(), 1, regularPerms, "New Title", event.Actor{}); !errors.Is(err, ErrForumAccessDenied) {
+	// Non-author, non-staff user cannot rename
+	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, UserID: 10}}}
+	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
+	if err := svc.RenameTopic(context.Background(), 1, 99, regularPerms, "New Title", event.Actor{}); !errors.Is(err, ErrForumAccessDenied) {
 		t.Errorf("expected ErrForumAccessDenied, got %v", err)
 	}
 }
 
 func TestForumService_RenameTopic_NotFound(t *testing.T) {
 	svc := NewForumService(nil, nil, nil, &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{}}, nil, nil, nil)
-	if err := svc.RenameTopic(context.Background(), 999, staffPerms, "Title", event.Actor{}); !errors.Is(err, ErrTopicNotFound) {
+	if err := svc.RenameTopic(context.Background(), 999, 99, staffPerms, "Title", event.Actor{}); !errors.Is(err, ErrTopicNotFound) {
 		t.Errorf("expected ErrTopicNotFound, got %v", err)
+	}
+}
+
+func TestForumService_RenameTopic_AuthorSuccess(t *testing.T) {
+	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, UserID: 5, Title: "Old Title"}}}
+	userRepo := &mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}}
+	svc := NewForumService(nil, nil, nil, topicRepo, nil, userRepo, nil)
+	if err := svc.RenameTopic(context.Background(), 1, 5, regularPerms, "Author Renamed", event.Actor{}); err != nil {
+		t.Fatalf("topic author should be able to rename: %v", err)
+	}
+	if topicRepo.titleCalls[1] != "Author Renamed" {
+		t.Errorf("expected title 'Author Renamed', got '%s'", topicRepo.titleCalls[1])
+	}
+}
+
+func TestForumService_RenameTopic_NonAuthorNonStaffDenied(t *testing.T) {
+	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, UserID: 5}}}
+	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
+	if err := svc.RenameTopic(context.Background(), 1, 99, regularPerms, "Nope", event.Actor{}); !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied for non-author non-staff, got %v", err)
+	}
+}
+
+func TestForumService_RenameTopic_AuthorLockedDenied(t *testing.T) {
+	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, UserID: 5, Locked: true}}}
+	userRepo := &mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}}
+	svc := NewForumService(nil, nil, nil, topicRepo, nil, userRepo, nil)
+	if err := svc.RenameTopic(context.Background(), 1, 5, regularPerms, "Locked Rename", event.Actor{}); !errors.Is(err, ErrTopicLocked) {
+		t.Errorf("expected ErrTopicLocked for author on locked topic, got %v", err)
+	}
+}
+
+func TestForumService_RenameTopic_StaffLockedAllowed(t *testing.T) {
+	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, UserID: 5, Locked: true, Title: "Locked"}}}
+	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
+	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, "Staff Rename", event.Actor{}); err != nil {
+		t.Fatalf("staff should be able to rename locked topic: %v", err)
+	}
+	if topicRepo.titleCalls[1] != "Staff Rename" {
+		t.Errorf("expected title 'Staff Rename', got '%s'", topicRepo.titleCalls[1])
 	}
 }
 
@@ -811,11 +853,11 @@ func TestForumService_RenameTopic_Unicode200Chars(t *testing.T) {
 	title200 := strings.Repeat("\u00e9", 200) // e-acute, 2 bytes each = 400 bytes but 200 runes
 	topicRepo := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, Title: "Old"}}}
 	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil)
-	if err := svc.RenameTopic(context.Background(), 1, staffPerms, title200, event.Actor{}); err != nil {
+	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, title200, event.Actor{}); err != nil {
 		t.Fatalf("200 unicode chars should be allowed: %v", err)
 	}
 	title201 := strings.Repeat("\u00e9", 201)
-	if err := svc.RenameTopic(context.Background(), 1, staffPerms, title201, event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
+	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, title201, event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
 		t.Errorf("201 unicode chars should fail, got %v", err)
 	}
 }

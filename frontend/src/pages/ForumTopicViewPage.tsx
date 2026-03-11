@@ -407,7 +407,21 @@ export function ForumTopicViewPage() {
         &rsaquo; {topic.title}
       </div>
 
-      <h1>{topic.title}</h1>
+      <h1>
+        {topic.title}
+        {!isMod && !!user && user.id === topic.user_id && !topic.locked && (
+          <button
+            className="forum-post__edit-btn"
+            style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
+            onClick={() => {
+              setRenameTitle(topic.title);
+              setShowRenameModal(true);
+            }}
+          >
+            Edit Title
+          </button>
+        )}
+      </h1>
 
       {isMod && (
         <div className="forum-mod-toolbar">
