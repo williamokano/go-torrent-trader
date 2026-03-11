@@ -397,7 +397,7 @@ export function ForumTopicViewPage() {
   if (!topic) return <div className="topic-view-page">Topic not found.</div>;
 
   const totalPages = Math.ceil(total / PER_PAGE);
-  const canReply = !!user && !topic.locked;
+  const canReply = !!user && (!topic.locked || user.isAdmin || user.isStaff);
 
   return (
     <div className="topic-view-page">

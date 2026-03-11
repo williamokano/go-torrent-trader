@@ -222,7 +222,7 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil { return nil, ErrTopicNotFound }
-	if topic.Locked { return nil, ErrTopicLocked }
+	if topic.Locked && !perms.IsStaff() { return nil, ErrTopicLocked }
 	forum, err := s.forums.GetByID(ctx, topic.ForumID)
 	if err != nil { return nil, ErrForumNotFound }
 	if forum.MinGroupLevel > perms.Level { return nil, ErrForumAccessDenied }

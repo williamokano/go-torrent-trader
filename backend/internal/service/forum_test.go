@@ -132,6 +132,13 @@ func TestForumService_CreatePost_TopicLocked(t *testing.T) {
 	if _, err := svc.CreatePost(context.Background(), 1, 1, model.Permissions{Level: 5}, "Reply", nil); !errors.Is(err, ErrTopicLocked) { t.Errorf("expected ErrTopicLocked") }
 }
 
+func TestForumService_CreatePost_TopicLocked_StaffAllowed(t *testing.T) {
+	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}}, &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, TopicID: 1, Username: "admin", GroupName: "Admin"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil)
+	post, err := svc.CreatePost(context.Background(), 1, 1, model.Permissions{Level: 200, IsAdmin: true}, "Staff reply in locked topic", nil)
+	if err != nil { t.Fatalf("expected staff to post in locked topic, got: %v", err) }
+	if post == nil { t.Fatal("nil post") }
+}
+
 func TestForumService_CreatePost_Success(t *testing.T) {
 	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}}, &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, TopicID: 1, Username: "alice", GroupName: "User"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil)
 	post, err := svc.CreatePost(context.Background(), 1, 1, model.Permissions{Level: 5}, "Reply body", nil)
