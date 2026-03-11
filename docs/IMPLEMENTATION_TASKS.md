@@ -444,19 +444,7 @@
 - No authentication required (or optional passkey)
 - Rate limited per IP
 
-#### BE-2.5: UDP Tracker Protocol [L]
-**As a** BitTorrent client
-**I want** to announce and scrape over UDP
-**So that** I get lower latency and the tracker handles more connections
-
-**Acceptance Criteria:**
-- Implement BEP 15 (UDP Tracker Protocol)
-- Connection handshake: verify protocol_id, issue connection_id with TTL
-- Announce: same logic as HTTP announce, compact response only
-- Scrape: same logic as HTTP scrape
-- IPv4 and IPv6 support on same or separate ports
-- Connection ID expiry (default 2 minutes per BEP 15)
-- Shared peer/stats logic with HTTP announce (same service layer)
+#### BE-2.5: UDP Tracker Protocol [L] [DEFERRED — moved to docs/FUTURE_WORK.md]
 
 #### BE-2.6: Peer Cleanup Job [S] [DONE]
 **As a** tracker operator
