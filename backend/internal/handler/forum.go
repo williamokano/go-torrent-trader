@@ -104,12 +104,16 @@ func (h *ForumHandler) HandleListTopics(w http.ResponseWriter, r *http.Request) 
 		items = append(items, topicResponse(&t))
 	}
 
+	_, isAuthenticated := middleware.UserIDFromContext(r.Context())
+	canCreateTopic := isAuthenticated && perms.Level >= forum.MinPostLevel
+
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"forum":    forumResponse(forum),
-		"topics":   items,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
+		"forum":            forumResponse(forum),
+		"topics":           items,
+		"total":            total,
+		"page":             page,
+		"per_page":         perPage,
+		"can_create_topic": canCreateTopic,
 	})
 }
 
@@ -561,6 +565,7 @@ func forumResponse(f *model.Forum) map[string]interface{} {
 		"topic_count":     f.TopicCount,
 		"post_count":      f.PostCount,
 		"min_group_level": f.MinGroupLevel,
+		"min_post_level":  f.MinPostLevel,
 		"created_at":      f.CreatedAt,
 	}
 	if f.LastPostAt != nil {

@@ -127,6 +127,46 @@ func TestForumService_CreateTopic_UserCanForumFalse(t *testing.T) {
 	if _, _, err := svc.CreateTopic(context.Background(), 1, 1, model.Permissions{Level: 5}, "Title", "Body"); !errors.Is(err, ErrForumAccessDenied) { t.Errorf("expected ErrForumAccessDenied") }
 }
 
+func TestForumService_CreateTopic_MinPostLevel(t *testing.T) {
+	// User below min_post_level should be denied
+	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0, MinPostLevel: 50}}}, nil, nil, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil)
+	if _, _, err := svc.CreateTopic(context.Background(), 1, 1, model.Permissions{Level: 5}, "Title", "Body"); !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied for user below min_post_level, got %v", err)
+	}
+
+	// User at min_post_level should succeed
+	svc = NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0, MinPostLevel: 50}}}, &mockForumTopicRepo{}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, Username: "alice", GroupName: "User"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil)
+	topic, post, err := svc.CreateTopic(context.Background(), 1, 1, model.Permissions{Level: 50}, "Title", "Body")
+	if err != nil {
+		t.Fatalf("expected success for user at min_post_level, got %v", err)
+	}
+	if topic == nil || post == nil {
+		t.Fatal("expected non-nil topic and post")
+	}
+
+	// User above min_post_level should succeed
+	svc = NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0, MinPostLevel: 50}}}, &mockForumTopicRepo{}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, Username: "alice", GroupName: "User"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil)
+	topic, post, err = svc.CreateTopic(context.Background(), 1, 1, model.Permissions{Level: 100}, "Title", "Body")
+	if err != nil {
+		t.Fatalf("expected success for user above min_post_level, got %v", err)
+	}
+	if topic == nil || post == nil {
+		t.Fatal("expected non-nil topic and post")
+	}
+}
+
+func TestForumService_CreatePost_MinPostLevel_DoesNotBlock(t *testing.T) {
+	// Replies should NOT be blocked by min_post_level — only topic creation is gated
+	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0, MinPostLevel: 50}}}, &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, TopicID: 1, Username: "alice", GroupName: "User"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil)
+	post, err := svc.CreatePost(context.Background(), 1, 1, model.Permissions{Level: 5}, "Reply body", nil)
+	if err != nil {
+		t.Fatalf("expected replies to succeed regardless of min_post_level, got %v", err)
+	}
+	if post == nil {
+		t.Fatal("expected non-nil post")
+	}
+}
+
 func TestForumService_CreatePost_TopicLocked(t *testing.T) {
 	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}}, &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}}, nil, nil, nil)
 	if _, err := svc.CreatePost(context.Background(), 1, 1, model.Permissions{Level: 5}, "Reply", nil); !errors.Is(err, ErrTopicLocked) { t.Errorf("expected ErrTopicLocked") }

@@ -22,6 +22,7 @@ type Forum struct {
 	PostCount     int
 	LastPostID    *int64
 	MinGroupLevel int
+	MinPostLevel  int
 	CreatedAt     time.Time
 
 	// Denormalized last post info (populated by queries)

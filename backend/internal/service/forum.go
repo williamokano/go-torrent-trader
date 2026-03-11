@@ -163,6 +163,9 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 	if forum.MinGroupLevel > perms.Level {
 		return nil, nil, ErrForumAccessDenied
 	}
+	if forum.MinPostLevel > perms.Level {
+		return nil, nil, ErrForumAccessDenied
+	}
 	// can_forum=false only blocks writing (CreateTopic, CreatePost).
 	// Reading forums is always allowed if the user's group level meets min_group_level.
 	user, err := s.users.GetByID(ctx, userID)

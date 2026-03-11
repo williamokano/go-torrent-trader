@@ -21,7 +21,7 @@ func NewForumRepo(db *sql.DB) repository.ForumRepository {
 
 func (r *ForumRepo) GetByID(ctx context.Context, id int64) (*model.Forum, error) {
 	query := `SELECT f.id, f.category_id, f.name, f.description, f.sort_order,
-		f.topic_count, f.post_count, f.last_post_id, f.min_group_level, f.created_at,
+		f.topic_count, f.post_count, f.last_post_id, f.min_group_level, f.min_post_level, f.created_at,
 		p.created_at, u.username, t.id, t.title
 	FROM forums f
 	LEFT JOIN forum_posts p ON p.id = f.last_post_id
@@ -32,7 +32,7 @@ func (r *ForumRepo) GetByID(ctx context.Context, id int64) (*model.Forum, error)
 	var f model.Forum
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&f.ID, &f.CategoryID, &f.Name, &f.Description, &f.SortOrder,
-		&f.TopicCount, &f.PostCount, &f.LastPostID, &f.MinGroupLevel, &f.CreatedAt,
+		&f.TopicCount, &f.PostCount, &f.LastPostID, &f.MinGroupLevel, &f.MinPostLevel, &f.CreatedAt,
 		&f.LastPostAt, &f.LastPostUsername, &f.LastPostTopicID, &f.LastPostTopicTitle,
 	)
 	if err != nil {
@@ -51,7 +51,7 @@ func (r *ForumRepo) List(ctx context.Context) ([]model.Forum, error) {
 
 func (r *ForumRepo) listForums(ctx context.Context, whereClause string, args ...interface{}) ([]model.Forum, error) {
 	query := fmt.Sprintf(`SELECT f.id, f.category_id, f.name, f.description, f.sort_order,
-		f.topic_count, f.post_count, f.last_post_id, f.min_group_level, f.created_at,
+		f.topic_count, f.post_count, f.last_post_id, f.min_group_level, f.min_post_level, f.created_at,
 		p.created_at, u.username, t.id, t.title
 	FROM forums f
 	LEFT JOIN forum_posts p ON p.id = f.last_post_id
@@ -70,7 +70,7 @@ func (r *ForumRepo) listForums(ctx context.Context, whereClause string, args ...
 		var f model.Forum
 		if err := rows.Scan(
 			&f.ID, &f.CategoryID, &f.Name, &f.Description, &f.SortOrder,
-			&f.TopicCount, &f.PostCount, &f.LastPostID, &f.MinGroupLevel, &f.CreatedAt,
+			&f.TopicCount, &f.PostCount, &f.LastPostID, &f.MinGroupLevel, &f.MinPostLevel, &f.CreatedAt,
 			&f.LastPostAt, &f.LastPostUsername, &f.LastPostTopicID, &f.LastPostTopicTitle,
 		); err != nil {
 			return nil, fmt.Errorf("scan forum: %w", err)

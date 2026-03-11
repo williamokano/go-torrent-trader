@@ -7,7 +7,6 @@ import {
 } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
-import { useAuth } from "@/features/auth";
 import { timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { Pagination } from "@/components/Pagination";
@@ -19,6 +18,7 @@ interface ForumData {
   description: string;
   topic_count: number;
   post_count: number;
+  min_post_level: number;
 }
 
 interface TopicData {
@@ -42,13 +42,13 @@ export function ForumTopicListPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
 
   const [forum, setForum] = useState<ForumData | null>(null);
   const [topics, setTopics] = useState<TopicData[]>([]);
   const [total, setTotal] = useState(0);
+  const [canCreateTopic, setCanCreateTopic] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +78,7 @@ export function ForumTopicListPage() {
           setForum(data.forum ?? null);
           setTopics(data.topics ?? []);
           setTotal(data.total ?? 0);
+          setCanCreateTopic(data.can_create_topic ?? false);
         }
       } catch (err) {
         if (!cancelled) setError((err as Error).message);
@@ -103,7 +104,7 @@ export function ForumTopicListPage() {
   if (!forum) return <div className="topic-list-page">Forum not found.</div>;
 
   const totalPages = Math.ceil(total / PER_PAGE);
-  const canPost = !!user;
+  const canPost = canCreateTopic;
 
   return (
     <div className="topic-list-page">
