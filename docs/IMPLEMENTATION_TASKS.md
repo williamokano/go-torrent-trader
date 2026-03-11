@@ -1070,7 +1070,7 @@
 - Comments on news (same system as torrent comments)
 - Delete news also deletes associated comments
 
-#### BE-8.5: Forum Administration [S]
+#### BE-8.5: Forum Administration [DONE]
 **As an** admin
 **I want** to manage forum structure
 **So that** the forum stays organized
@@ -1335,6 +1335,21 @@
 - Post anchors added to topic view page (`id="post-{id}"` on each post element)
 
 > **Origin:** Review findings from BE-5.3 and BE-5.5 — delete button shown on first post causes confusing error, search results link to topic page 1 even if match is on page 5.
+
+---
+
+#### BE-9.12: Forum FK ON DELETE RESTRICT & Atomic Delete Checks [S]
+**As a** developer
+**I want** forum category and forum deletes to be safe against race conditions
+**So that** concurrent admin operations cannot accidentally cascade-delete data
+
+**Acceptance Criteria:**
+- New migration changes `forums.category_id` FK from `ON DELETE CASCADE` to `ON DELETE RESTRICT`
+- New migration changes `forum_topics.forum_id` FK from `ON DELETE CASCADE` to `ON DELETE RESTRICT`
+- `AdminDeleteCategory` and `AdminDeleteForum` wrapped in transactions (count + delete atomic)
+- Category/forum delete with ConfirmModal instead of `window.confirm` on frontend
+
+> **Origin:** Review findings from BE-8.5 — TOCTOU race on check-then-delete with CASCADE FKs, plus `window.confirm` inconsistency.
 
 ---
 

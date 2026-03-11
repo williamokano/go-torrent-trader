@@ -16,20 +16,25 @@ import (
 )
 
 var (
-	ErrForumNotFound         = errors.New("forum not found")
-	ErrTopicNotFound         = errors.New("topic not found")
-	ErrTopicLocked           = errors.New("topic is locked")
-	ErrForumAccessDenied     = errors.New("forum access denied")
-	ErrInvalidTopic          = errors.New("invalid topic")
-	ErrInvalidPost           = errors.New("invalid post")
-	ErrInvalidReply          = errors.New("invalid reply reference")
-	ErrInvalidSearch         = errors.New("invalid search query")
-	ErrPostNotFound          = errors.New("post not found")
-	ErrPostEditDenied        = errors.New("not authorized to edit this post")
-	ErrPostDeleteDenied      = errors.New("not authorized to delete this post")
-	ErrCannotDeleteFirstPost = errors.New("cannot delete the first post of a topic; delete the topic instead")
-	ErrSameForum             = errors.New("topic is already in this forum")
-	ErrTopicDeleteDenied     = errors.New("topic delete denied")
+	ErrForumNotFound            = errors.New("forum not found")
+	ErrTopicNotFound            = errors.New("topic not found")
+	ErrTopicLocked              = errors.New("topic is locked")
+	ErrForumAccessDenied        = errors.New("forum access denied")
+	ErrInvalidTopic             = errors.New("invalid topic")
+	ErrInvalidPost              = errors.New("invalid post")
+	ErrInvalidReply             = errors.New("invalid reply reference")
+	ErrInvalidSearch            = errors.New("invalid search query")
+	ErrPostNotFound             = errors.New("post not found")
+	ErrPostEditDenied           = errors.New("not authorized to edit this post")
+	ErrPostDeleteDenied         = errors.New("not authorized to delete this post")
+	ErrCannotDeleteFirstPost    = errors.New("cannot delete the first post of a topic; delete the topic instead")
+	ErrSameForum                = errors.New("topic is already in this forum")
+	ErrTopicDeleteDenied        = errors.New("topic delete denied")
+	ErrForumCategoryNotFound    = errors.New("forum category not found")
+	ErrForumCategoryHasForums   = errors.New("forum category has forums and cannot be deleted")
+	ErrInvalidForumCategory     = errors.New("invalid forum category")
+	ErrInvalidForum             = errors.New("invalid forum")
+	ErrForumHasTopics           = errors.New("forum has topics and cannot be deleted")
 )
 
 const viewCountDebounce = 15 * time.Minute
@@ -740,5 +745,262 @@ func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, perms mod
 		return err
 	}
 	publishEvent()
+	return nil
+}
+
+// --- Admin CRUD methods ---
+
+// CreateForumCategoryRequest holds the input for creating a forum category.
+type CreateForumCategoryRequest struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// AdminListCategories returns all forum categories (no permission filtering).
+func (s *ForumService) AdminListCategories(ctx context.Context) ([]model.ForumCategory, error) {
+	return s.categories.List(ctx)
+}
+
+// AdminCreateCategory creates a new forum category.
+func (s *ForumService) AdminCreateCategory(ctx context.Context, req CreateForumCategoryRequest, actor event.Actor) (*model.ForumCategory, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidForumCategory)
+	}
+	if utf8.RuneCountInString(name) > 200 {
+		return nil, fmt.Errorf("%w: name too long", ErrInvalidForumCategory)
+	}
+
+	cat := &model.ForumCategory{
+		Name:      name,
+		SortOrder: req.SortOrder,
+	}
+	if err := s.categories.Create(ctx, cat); err != nil {
+		return nil, fmt.Errorf("create forum category: %w", err)
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumCategoryCreatedEvent{
+			Base:         event.NewBase(event.ForumCategoryCreated, actor),
+			CategoryID:   cat.ID,
+			CategoryName: cat.Name,
+		})
+	}
+	return cat, nil
+}
+
+// UpdateForumCategoryRequest holds the input for updating a forum category.
+type UpdateForumCategoryRequest struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// AdminUpdateCategory updates an existing forum category.
+func (s *ForumService) AdminUpdateCategory(ctx context.Context, id int64, req UpdateForumCategoryRequest, actor event.Actor) (*model.ForumCategory, error) {
+	cat, err := s.categories.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrForumCategoryNotFound
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidForumCategory)
+	}
+	if utf8.RuneCountInString(name) > 200 {
+		return nil, fmt.Errorf("%w: name too long", ErrInvalidForumCategory)
+	}
+
+	cat.Name = name
+	cat.SortOrder = req.SortOrder
+	if err := s.categories.Update(ctx, cat); err != nil {
+		return nil, fmt.Errorf("update forum category: %w", err)
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumCategoryUpdatedEvent{
+			Base:         event.NewBase(event.ForumCategoryUpdated, actor),
+			CategoryID:   cat.ID,
+			CategoryName: cat.Name,
+		})
+	}
+	return cat, nil
+}
+
+// AdminDeleteCategory deletes a forum category if it has no forums.
+func (s *ForumService) AdminDeleteCategory(ctx context.Context, id int64, actor event.Actor) error {
+	cat, err := s.categories.GetByID(ctx, id)
+	if err != nil {
+		return ErrForumCategoryNotFound
+	}
+
+	count, err := s.categories.CountForumsByCategory(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check forums: %w", err)
+	}
+	if count > 0 {
+		return ErrForumCategoryHasForums
+	}
+
+	if err := s.categories.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete forum category: %w", err)
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumCategoryDeletedEvent{
+			Base:         event.NewBase(event.ForumCategoryDeleted, actor),
+			CategoryID:   id,
+			CategoryName: cat.Name,
+		})
+	}
+	return nil
+}
+
+// CreateForumRequest holds the input for creating a forum.
+type CreateForumRequest struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	CategoryID    int64  `json:"category_id"`
+	SortOrder     int    `json:"sort_order"`
+	MinGroupLevel int    `json:"min_group_level"`
+	MinPostLevel  int    `json:"min_post_level"`
+}
+
+// AdminListForums returns all forums (no permission filtering).
+func (s *ForumService) AdminListForums(ctx context.Context) ([]model.Forum, error) {
+	return s.forums.List(ctx)
+}
+
+// AdminCreateForum creates a new forum.
+func (s *ForumService) AdminCreateForum(ctx context.Context, req CreateForumRequest, actor event.Actor) (*model.Forum, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidForum)
+	}
+	if utf8.RuneCountInString(name) > 200 {
+		return nil, fmt.Errorf("%w: name too long", ErrInvalidForum)
+	}
+	if req.CategoryID <= 0 {
+		return nil, fmt.Errorf("%w: category_id is required", ErrInvalidForum)
+	}
+	if req.MinGroupLevel < 0 {
+		return nil, fmt.Errorf("%w: min_group_level cannot be negative", ErrInvalidForum)
+	}
+	if req.MinPostLevel < 0 {
+		return nil, fmt.Errorf("%w: min_post_level cannot be negative", ErrInvalidForum)
+	}
+
+	// Verify category exists
+	if _, err := s.categories.GetByID(ctx, req.CategoryID); err != nil {
+		return nil, ErrForumCategoryNotFound
+	}
+
+	forum := &model.Forum{
+		Name:          name,
+		Description:   strings.TrimSpace(req.Description),
+		CategoryID:    req.CategoryID,
+		SortOrder:     req.SortOrder,
+		MinGroupLevel: req.MinGroupLevel,
+		MinPostLevel:  req.MinPostLevel,
+	}
+	if err := s.forums.Create(ctx, forum); err != nil {
+		return nil, fmt.Errorf("create forum: %w", err)
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumCreatedEvent{
+			Base:      event.NewBase(event.ForumCreated, actor),
+			ForumID:   forum.ID,
+			ForumName: forum.Name,
+		})
+	}
+	return forum, nil
+}
+
+// UpdateForumRequest holds the input for updating a forum.
+type UpdateForumRequest struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	CategoryID    int64  `json:"category_id"`
+	SortOrder     int    `json:"sort_order"`
+	MinGroupLevel int    `json:"min_group_level"`
+	MinPostLevel  int    `json:"min_post_level"`
+}
+
+// AdminUpdateForum updates an existing forum.
+func (s *ForumService) AdminUpdateForum(ctx context.Context, id int64, req UpdateForumRequest, actor event.Actor) (*model.Forum, error) {
+	forum, err := s.forums.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrForumNotFound
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidForum)
+	}
+	if utf8.RuneCountInString(name) > 200 {
+		return nil, fmt.Errorf("%w: name too long", ErrInvalidForum)
+	}
+	if req.CategoryID <= 0 {
+		return nil, fmt.Errorf("%w: category_id is required", ErrInvalidForum)
+	}
+	if req.MinGroupLevel < 0 {
+		return nil, fmt.Errorf("%w: min_group_level cannot be negative", ErrInvalidForum)
+	}
+	if req.MinPostLevel < 0 {
+		return nil, fmt.Errorf("%w: min_post_level cannot be negative", ErrInvalidForum)
+	}
+
+	// Verify category exists
+	if _, err := s.categories.GetByID(ctx, req.CategoryID); err != nil {
+		return nil, ErrForumCategoryNotFound
+	}
+
+	forum.Name = name
+	forum.Description = strings.TrimSpace(req.Description)
+	forum.CategoryID = req.CategoryID
+	forum.SortOrder = req.SortOrder
+	forum.MinGroupLevel = req.MinGroupLevel
+	forum.MinPostLevel = req.MinPostLevel
+
+	if err := s.forums.Update(ctx, forum); err != nil {
+		return nil, fmt.Errorf("update forum: %w", err)
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumUpdatedEvent{
+			Base:      event.NewBase(event.ForumUpdated, actor),
+			ForumID:   forum.ID,
+			ForumName: forum.Name,
+		})
+	}
+	return forum, nil
+}
+
+// AdminDeleteForum deletes a forum if it has no topics.
+func (s *ForumService) AdminDeleteForum(ctx context.Context, id int64, actor event.Actor) error {
+	forum, err := s.forums.GetByID(ctx, id)
+	if err != nil {
+		return ErrForumNotFound
+	}
+
+	count, err := s.forums.CountTopicsByForum(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check topics: %w", err)
+	}
+	if count > 0 {
+		return ErrForumHasTopics
+	}
+
+	if err := s.forums.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete forum: %w", err)
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumDeletedEvent{
+			Base:      event.NewBase(event.ForumDeleted, actor),
+			ForumID:   id,
+			ForumName: forum.Name,
+		})
+	}
 	return nil
 }

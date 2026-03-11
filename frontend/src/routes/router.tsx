@@ -49,6 +49,7 @@ import { ForumTopicListPage } from "@/pages/ForumTopicListPage";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
 import { ForumNewTopicPage } from "@/pages/ForumNewTopicPage";
 import { ForumSearchPage } from "@/pages/ForumSearchPage";
+import { AdminForumsPage } from "@/pages/admin/AdminForumsPage";
 
 export const router = createBrowserRouter([
   {
@@ -164,6 +165,7 @@ export const router = createBrowserRouter([
           { path: "news", element: <AdminNewsPage /> },
           { path: "settings", element: <AdminSettingsPage /> },
           { path: "bans", element: <AdminBansPage /> },
+          { path: "forums", element: <AdminForumsPage /> },
         ],
       },
       {

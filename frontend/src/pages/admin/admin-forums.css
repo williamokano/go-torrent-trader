@@ -1,0 +1,148 @@
+.admin-forums__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.admin-forums__header h1 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.admin-forums__section {
+  margin-bottom: var(--space-xl);
+}
+
+.admin-forums__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.admin-forums__section-header h2 {
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.admin-forums__add-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.admin-forums__add-btn:hover {
+  opacity: 0.9;
+}
+
+.admin-forums__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-forums__table th,
+.admin-forums__table td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.admin-forums__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-forums__table td {
+  color: var(--color-text-primary);
+}
+
+.admin-forums__edit-btn,
+.admin-forums__delete-btn {
+  margin-right: var(--space-xs);
+  padding: 2px 8px;
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.admin-forums__edit-btn {
+  background-color: var(--color-accent);
+}
+
+.admin-forums__delete-btn {
+  background-color: var(--color-danger, #dc3545);
+}
+
+.admin-forums__edit-btn:hover,
+.admin-forums__delete-btn:hover {
+  opacity: 0.85;
+}
+
+.admin-forums__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}
+
+.admin-forums__modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+
+.admin-forums__modal-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.admin-forums__save-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.admin-forums__save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-forums__cancel-btn {
+  padding: var(--space-xs) var(--space-md);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.admin-forums__error {
+  color: var(--color-danger, #dc3545);
+  font-size: var(--text-sm);
+  margin-top: var(--space-xs);
+}
+
+.admin-forums__description {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

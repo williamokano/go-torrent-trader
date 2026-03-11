@@ -53,6 +53,12 @@ const (
 	ForumTopicRenamed       Type = "forum_topic_renamed"
 	ForumTopicMoved         Type = "forum_topic_moved"
 	ForumTopicDeleted       Type = "forum_topic_deleted"
+	ForumCategoryCreated    Type = "forum_category_created"
+	ForumCategoryUpdated    Type = "forum_category_updated"
+	ForumCategoryDeleted    Type = "forum_category_deleted"
+	ForumCreated            Type = "forum_created"
+	ForumUpdated            Type = "forum_updated"
+	ForumDeleted            Type = "forum_deleted"
 )
 
 // Event is the base interface for all domain events.
@@ -380,4 +386,40 @@ type ForumTopicDeletedEvent struct {
 	TopicID    int64  `json:"topic_id"`
 	TopicTitle string `json:"topic_title"`
 	ForumID    int64  `json:"forum_id"`
+}
+
+type ForumCategoryCreatedEvent struct {
+	Base
+	CategoryID   int64  `json:"category_id"`
+	CategoryName string `json:"category_name"`
+}
+
+type ForumCategoryUpdatedEvent struct {
+	Base
+	CategoryID   int64  `json:"category_id"`
+	CategoryName string `json:"category_name"`
+}
+
+type ForumCategoryDeletedEvent struct {
+	Base
+	CategoryID   int64  `json:"category_id"`
+	CategoryName string `json:"category_name"`
+}
+
+type ForumCreatedEvent struct {
+	Base
+	ForumID   int64  `json:"forum_id"`
+	ForumName string `json:"forum_name"`
+}
+
+type ForumUpdatedEvent struct {
+	Base
+	ForumID   int64  `json:"forum_id"`
+	ForumName string `json:"forum_name"`
+}
+
+type ForumDeletedEvent struct {
+	Base
+	ForumID   int64  `json:"forum_id"`
+	ForumName string `json:"forum_name"`
 }
