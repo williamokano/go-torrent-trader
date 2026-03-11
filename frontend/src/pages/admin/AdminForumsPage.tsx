@@ -322,10 +322,12 @@ export function AdminForumsPage() {
     label: c.name,
   }));
 
-  // Build unique level options from groups, sorted ascending
+  // Build unique level options from groups, sorted ascending, with "Everyone" at 0
   const levelOptions = [
+    { value: "0", label: "Everyone (no restriction)" },
     ...new Map(
       groups
+        .filter((g) => g.level > 0)
         .sort((a, b) => a.level - b.level)
         .map((g) => [
           g.level,
@@ -335,8 +337,9 @@ export function AdminForumsPage() {
   ];
 
   const getGroupNameByLevel = (level: number): string => {
+    if (level === 0) return "Everyone";
     const group = groups.find((g) => g.level === level);
-    return group ? group.name : String(level);
+    return group ? `${group.name} (${level})` : `Level ${level}`;
   };
 
   if (loading) return <p>Loading...</p>;
