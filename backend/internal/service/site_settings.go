@@ -39,6 +39,11 @@ const (
 	SettingWarningCountBan          = "warning_count_ban"
 	SettingWarningRestrictType      = "warning_restrict_type"
 	SettingWarningRestrictDays      = "warning_restrict_days"
+
+	// Wait time settings keys.
+	SettingWaitTimeEnabled     = "wait_time_enabled"
+	SettingWaitTimeBypassRatio = "wait_time_bypass_ratio"
+	SettingWaitTimeTiers       = "wait_time_tiers"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -143,6 +148,19 @@ func (s *SiteSettingsService) GetInt(ctx context.Context, key string, fallback i
 		return fallback
 	}
 	v, err := strconv.Atoi(setting.Value)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+// GetFloat64 returns a site setting parsed as a float64, or the fallback if not found or not a valid float.
+func (s *SiteSettingsService) GetFloat64(ctx context.Context, key string, fallback float64) float64 {
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil || setting == nil {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(setting.Value, 64)
 	if err != nil {
 		return fallback
 	}

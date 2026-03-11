@@ -950,3 +950,557 @@ func TestAnnounce_ConnectionLimits_NoSettingsUsesDefaults(t *testing.T) {
 		t.Errorf("expected success without site settings, got %v", err)
 	}
 }
+
+// --- Mock Group Repository ---
+
+type trackerMockGroupRepo struct {
+	mu     sync.Mutex
+	groups []*model.Group
+}
+
+func newTrackerMockGroupRepo() *trackerMockGroupRepo {
+	return &trackerMockGroupRepo{}
+}
+
+func (m *trackerMockGroupRepo) addGroup(g *model.Group) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.groups = append(m.groups, g)
+}
+
+func (m *trackerMockGroupRepo) GetByID(_ context.Context, id int64) (*model.Group, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, g := range m.groups {
+		if g.ID == id {
+			return g, nil
+		}
+	}
+	return nil, errors.New("group not found")
+}
+
+func (m *trackerMockGroupRepo) List(_ context.Context) ([]model.Group, error) {
+	return nil, nil
+}
+
+// --- Wait Time Test Helpers ---
+
+func setupTrackerWithWaitTime(settings map[string]string, group *model.Group) (*TrackerService, *trackerMockUserRepo, *trackerMockTorrentRepo, *trackerMockPeerRepo) {
+	svc, userRepo, torrentRepo, peerRepo := setupTracker()
+	settingsRepo := newMockSiteSettingsRepo()
+	for k, v := range settings {
+		settingsRepo.settings[k] = &model.SiteSetting{Key: k, Value: v}
+	}
+	bus := event.NewInMemoryBus()
+	siteSettings := NewSiteSettingsService(settingsRepo, bus)
+	svc.SetSiteSettings(siteSettings)
+
+	if group != nil {
+		groupRepo := newTrackerMockGroupRepo()
+		groupRepo.addGroup(group)
+		svc.SetGroupRepo(groupRepo)
+		// Set the user's group ID to match
+		userRepo.mu.Lock()
+		userRepo.users[0].GroupID = group.ID
+		userRepo.mu.Unlock()
+	}
+
+	return svc, userRepo, torrentRepo, peerRepo
+}
+
+// --- Wait Time Tests ---
+
+func TestAnnounce_WaitTime_BlocksLowRatioOnNewTorrent(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled:     "true",
+		SettingWaitTimeBypassRatio: "0.95",
+	}, nil)
+
+	// Set user to have a low ratio: uploaded 100, downloaded 1000 → ratio = 0.1
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	// Set torrent as recently uploaded (just now).
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	var waitErr *WaitTimeError
+	if !errors.As(err, &waitErr) {
+		t.Fatalf("expected WaitTimeError, got %v", err)
+	}
+	if waitErr.RemainingSeconds <= 0 {
+		t.Errorf("expected positive remaining seconds, got %d", waitErr.RemainingSeconds)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsHighRatioUser(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled:     "true",
+		SettingWaitTimeBypassRatio: "0.95",
+	}, nil)
+
+	// High ratio: uploaded 10000, downloaded 1000 → ratio = 10.0
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 10000
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected high-ratio user to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsZeroDownloadUser(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, nil)
+
+	// Zero downloaded → infinite ratio → exempt.
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 0
+	userRepo.users[0].Downloaded = 0
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected zero-download user to be exempt, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsImmuneGroup(t *testing.T) {
+	immuneGroup := &model.Group{ID: 5, Name: "VIP", IsImmune: true}
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, immuneGroup)
+
+	// Low ratio but immune group.
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected immune user to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsAdminGroup(t *testing.T) {
+	adminGroup := &model.Group{ID: 1, Name: "Admin", IsAdmin: true}
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, adminGroup)
+
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected admin to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsOldTorrent(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, nil)
+
+	// Low ratio user.
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	// Torrent uploaded 3 days ago (older than any default tier wait).
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now().Add(-72 * time.Hour)
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected old torrent to pass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsSeeders(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, nil)
+
+	// Low ratio but seeding (left=0).
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     0, // seeder
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected seeder to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsExistingPeer(t *testing.T) {
+	svc, userRepo, torrentRepo, peerRepo := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, nil)
+
+	// Low ratio.
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	// Pre-fill this peer so it's an existing peer update (re-announce).
+	peerRepo.mu.Lock()
+	peerRepo.peers = append(peerRepo.peers, &model.Peer{
+		ID:        1,
+		TorrentID: 1,
+		UserID:    1,
+		PeerID:    testPeerID(),
+		IP:        "192.168.1.1",
+		Port:      6881,
+		Seeder:    false,
+	})
+	peerRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:    testPasskey(),
+		InfoHash:   testInfoHash(),
+		PeerID:     testPeerID(),
+		IP:         "192.168.1.1",
+		Port:       6881,
+		Uploaded:   50,
+		Downloaded: 100,
+		Left:       500,
+		Event:      EventEmpty,
+	})
+
+	if err != nil {
+		t.Errorf("expected existing peer to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_DisabledByDefault(t *testing.T) {
+	// Wait time not enabled → no blocking.
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{}, nil)
+
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected wait time disabled to allow download, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_CustomTiers(t *testing.T) {
+	// Custom tiers: ratio < 0.3 → 24h wait.
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled:     "true",
+		SettingWaitTimeBypassRatio: "0.5",
+		SettingWaitTimeTiers:       `[{"ratio":0.3,"hours":24}]`,
+	}, nil)
+
+	// ratio = 0.1 (below 0.3 tier)
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	// Torrent uploaded 12h ago (less than 24h wait).
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now().Add(-12 * time.Hour)
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	var waitErr *WaitTimeError
+	if !errors.As(err, &waitErr) {
+		t.Fatalf("expected WaitTimeError with custom tiers, got %v", err)
+	}
+	// Should be approximately 12h remaining (in seconds).
+	if waitErr.RemainingSeconds < 11*3600 || waitErr.RemainingSeconds > 13*3600 {
+		t.Errorf("expected ~12h remaining, got %d seconds", waitErr.RemainingSeconds)
+	}
+}
+
+func TestAnnounce_WaitTime_RatioAboveTierButBelowBypass(t *testing.T) {
+	// Tiers: <0.5 → 48h, <0.8 → 12h. Bypass at 0.95.
+	// User ratio = 0.6 (above 0.5 but below 0.8) → 12h wait.
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled:     "true",
+		SettingWaitTimeBypassRatio: "0.95",
+		SettingWaitTimeTiers:       `[{"ratio":0.5,"hours":48},{"ratio":0.8,"hours":12}]`,
+	}, nil)
+
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 600
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	// Torrent uploaded 6h ago (less than 12h).
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now().Add(-6 * time.Hour)
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	var waitErr *WaitTimeError
+	if !errors.As(err, &waitErr) {
+		t.Fatalf("expected WaitTimeError for mid-tier ratio, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsUploader(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, nil)
+
+	// Low ratio user who is also the torrent uploader.
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.torrents[0].UploaderID = 1 // same as user ID
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected uploader to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_AllowsModeratorGroup(t *testing.T) {
+	modGroup := &model.Group{ID: 3, Name: "Moderator", IsModerator: true}
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+	}, modGroup)
+
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	if err != nil {
+		t.Errorf("expected moderator to bypass wait time, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_TierBoundaryExactRatio(t *testing.T) {
+	// User ratio exactly 0.5 should NOT match the <0.5 tier (48h) but SHOULD match <0.65 tier (24h).
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled:     "true",
+		SettingWaitTimeBypassRatio: "0.95",
+	}, nil)
+
+	// ratio = exactly 0.5
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 500
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	// Torrent uploaded 30h ago — older than 24h but less than 48h.
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now().Add(-30 * time.Hour)
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	// ratio=0.5, so NOT < 0.5 tier. Falls to <0.65 tier (24h). Torrent is 30h old > 24h → allowed.
+	if err != nil {
+		t.Errorf("expected ratio exactly at tier boundary to use next tier, got %v", err)
+	}
+}
+
+func TestAnnounce_WaitTime_MalformedTiersFallsBackToDefaults(t *testing.T) {
+	svc, userRepo, torrentRepo, _ := setupTrackerWithWaitTime(map[string]string{
+		SettingWaitTimeEnabled: "true",
+		SettingWaitTimeTiers:   `not valid json`,
+	}, nil)
+
+	// Low ratio.
+	userRepo.mu.Lock()
+	userRepo.users[0].Uploaded = 100
+	userRepo.users[0].Downloaded = 1000
+	userRepo.mu.Unlock()
+
+	// New torrent.
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].CreatedAt = time.Now()
+	torrentRepo.mu.Unlock()
+
+	_, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "192.168.1.1",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+
+	// Should fall back to default tiers and block (ratio 0.1 < 0.5 tier → 48h wait).
+	var waitErr *WaitTimeError
+	if !errors.As(err, &waitErr) {
+		t.Fatalf("expected WaitTimeError with malformed tiers (fallback to defaults), got %v", err)
+	}
+}

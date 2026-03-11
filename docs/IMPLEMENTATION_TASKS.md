@@ -420,7 +420,7 @@
 - Checked for new peers only (not existing peers re-announcing)
 - Error response with clear message when limit exceeded
 
-#### BE-2.3: Wait Time System [S]
+#### BE-2.3: Wait Time System [S] [DONE]
 **As a** tracker operator
 **I want** users with poor ratios to wait before downloading new torrents
 **So that** there's incentive to maintain good ratio

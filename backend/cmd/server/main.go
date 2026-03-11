@@ -125,6 +125,7 @@ func run() int {
 	transferHistoryRepo := postgres.NewTransferHistoryRepo(db)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 	trackerService.SetTransferHistoryRepo(transferHistoryRepo)
+	trackerService.SetGroupRepo(groupRepo)
 
 	// File storage
 	fileStore, err := storage.New(cfg.Storage)
