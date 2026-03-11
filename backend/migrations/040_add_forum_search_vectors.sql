@@ -14,6 +14,7 @@ END;
 $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
+DROP TRIGGER IF EXISTS forum_posts_search_vector_trigger ON forum_posts;
 CREATE TRIGGER forum_posts_search_vector_trigger
   BEFORE INSERT OR UPDATE OF body ON forum_posts
   FOR EACH ROW EXECUTE FUNCTION forum_posts_search_vector_update();
@@ -27,6 +28,7 @@ END;
 $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
+DROP TRIGGER IF EXISTS forum_topics_search_vector_trigger ON forum_topics;
 CREATE TRIGGER forum_topics_search_vector_trigger
   BEFORE INSERT OR UPDATE OF title ON forum_topics
   FOR EACH ROW EXECUTE FUNCTION forum_topics_search_vector_update();
