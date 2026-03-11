@@ -8,6 +8,12 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
   if (isLoading) return <div>Loading...</div>;
   if (!isAuthenticated)
     return <Navigate to="/login" state={{ from: location }} replace />;
-  if (!user?.isAdmin) return <Navigate to="/" replace />;
+  if (!user?.isStaff) return <Navigate to="/" replace />;
   return <>{children}</>;
+}
+
+export function AdminIndexRedirect() {
+  const { user } = useAuth();
+  if (!user?.isAdmin) return <Navigate to="/admin/chat-mutes" replace />;
+  return null;
 }

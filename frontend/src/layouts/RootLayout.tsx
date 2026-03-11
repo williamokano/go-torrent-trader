@@ -295,7 +295,7 @@ export function RootLayout() {
                 >
                   Settings
                 </NavLink>
-                {user?.isAdmin && (
+                {user?.isStaff && (
                   <NavLink
                     to="/admin"
                     className="header__dropdown-item"

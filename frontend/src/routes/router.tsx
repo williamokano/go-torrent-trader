@@ -2,7 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { RootLayout } from "@/layouts/RootLayout";
 import { AdminLayout } from "@/layouts/AdminLayout";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
-import { AdminRoute } from "@/routes/AdminRoute";
+import { AdminRoute, AdminIndexRedirect } from "@/routes/AdminRoute";
 import { HomePage } from "@/pages/HomePage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { UploadPage } from "@/pages/UploadPage";
@@ -153,7 +153,15 @@ export const router = createBrowserRouter([
           </AdminRoute>
         ),
         children: [
-          { index: true, element: <AdminDashboardPage /> },
+          {
+            index: true,
+            element: (
+              <>
+                <AdminIndexRedirect />
+                <AdminDashboardPage />
+              </>
+            ),
+          },
           { path: "users", element: <AdminUsersPage /> },
           { path: "users/:id", element: <AdminUserDetailPage /> },
           { path: "reports", element: <AdminReportsPage /> },
