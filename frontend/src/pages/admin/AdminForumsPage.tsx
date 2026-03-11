@@ -7,6 +7,12 @@ import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
 import "./admin-forums.css";
 
+interface Group {
+  id: number;
+  name: string;
+  level: number;
+}
+
 interface ForumCategory {
   id: number;
   name: string;
@@ -59,6 +65,7 @@ export function AdminForumsPage() {
   const toast = useToast();
   const [categories, setCategories] = useState<ForumCategory[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Category modal state
@@ -78,11 +85,14 @@ export function AdminForumsPage() {
   const fetchData = useCallback(async () => {
     const token = getAccessToken();
     try {
-      const [catRes, forumRes] = await Promise.all([
+      const [catRes, forumRes, groupsRes] = await Promise.all([
         fetch(`${getConfig().API_URL}/api/v1/admin/forum-categories`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${getConfig().API_URL}/api/v1/admin/forums`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -99,6 +109,10 @@ export function AdminForumsPage() {
       } else {
         toast.error("Failed to load forums");
       }
+      if (groupsRes.ok) {
+        const data = await groupsRes.json();
+        setGroups(data.groups ?? []);
+      }
     } finally {
       setLoading(false);
     }
@@ -111,7 +125,11 @@ export function AdminForumsPage() {
   // Category CRUD
   const openCreateCatModal = () => {
     setEditingCatId(null);
-    setCatForm(emptyCategoryForm);
+    const nextSort =
+      categories.length > 0
+        ? Math.max(...categories.map((c) => c.sort_order)) + 1
+        : 1;
+    setCatForm({ ...emptyCategoryForm, sort_order: String(nextSort) });
     setCatModalOpen(true);
   };
 
@@ -200,7 +218,9 @@ export function AdminForumsPage() {
   // Forum CRUD
   const openCreateForumModal = () => {
     setEditingForumId(null);
-    setForumForm(emptyForumForm);
+    const nextSort =
+      forums.length > 0 ? Math.max(...forums.map((f) => f.sort_order)) + 1 : 1;
+    setForumForm({ ...emptyForumForm, sort_order: String(nextSort) });
     setForumModalOpen(true);
   };
 
@@ -302,6 +322,23 @@ export function AdminForumsPage() {
     label: c.name,
   }));
 
+  // Build unique level options from groups, sorted ascending
+  const levelOptions = [
+    ...new Map(
+      groups
+        .sort((a, b) => a.level - b.level)
+        .map((g) => [
+          g.level,
+          { value: String(g.level), label: `${g.name} (level ${g.level})` },
+        ]),
+    ).values(),
+  ];
+
+  const getGroupNameByLevel = (level: number): string => {
+    const group = groups.find((g) => g.level === level);
+    return group ? group.name : String(level);
+  };
+
   if (loading) return <p>Loading...</p>;
 
   return (
@@ -397,8 +434,8 @@ export function AdminForumsPage() {
                     {forum.description || "-"}
                   </td>
                   <td>{forum.sort_order}</td>
-                  <td>{forum.min_group_level}</td>
-                  <td>{forum.min_post_level}</td>
+                  <td>{getGroupNameByLevel(forum.min_group_level)}</td>
+                  <td>{getGroupNameByLevel(forum.min_post_level)}</td>
                   <td>{forum.topic_count}</td>
                   <td>{forum.post_count}</td>
                   <td>
@@ -500,17 +537,17 @@ export function AdminForumsPage() {
               setForumForm({ ...forumForm, sort_order: e.target.value })
             }
           />
-          <Input
+          <Select
             label="Min Group Level (view access)"
-            type="number"
+            options={levelOptions}
             value={forumForm.min_group_level}
             onChange={(e) =>
               setForumForm({ ...forumForm, min_group_level: e.target.value })
             }
           />
-          <Input
+          <Select
             label="Min Post Level (create topics)"
-            type="number"
+            options={levelOptions}
             value={forumForm.min_post_level}
             onChange={(e) =>
               setForumForm({ ...forumForm, min_post_level: e.target.value })

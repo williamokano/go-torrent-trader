@@ -60,6 +60,14 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+const FAKE_GROUPS = [
+  { id: 1, name: "Admin", level: 0 },
+  { id: 2, name: "Moderator", level: 1 },
+  { id: 3, name: "User", level: 3 },
+  { id: 4, name: "Power User", level: 2 },
+  { id: 5, name: "VIP", level: 5 },
+];
+
 function mockFetchBoth(categories = FAKE_CATEGORIES, forums = FAKE_FORUMS) {
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   fetchSpy.mockImplementation(async (input) => {
@@ -69,6 +77,12 @@ function mockFetchBoth(categories = FAKE_CATEGORIES, forums = FAKE_FORUMS) {
         : ((input as Request).url ?? input.toString());
     if (url.includes("/admin/forum-categories")) {
       return { ok: true, json: async () => ({ categories }) } as Response;
+    }
+    if (url.includes("/admin/groups")) {
+      return {
+        ok: true,
+        json: async () => ({ groups: FAKE_GROUPS }),
+      } as Response;
     }
     if (url.includes("/admin/forums")) {
       return { ok: true, json: async () => ({ forums }) } as Response;
@@ -195,12 +209,18 @@ describe("AdminForumsPage", () => {
           ? input
           : ((input as Request).url ?? input.toString());
 
-      // First two calls are the initial data load
-      if (callCount <= 2) {
+      // First three calls are the initial data load
+      if (callCount <= 3) {
         if (url.includes("/admin/forum-categories")) {
           return {
             ok: true,
             json: async () => ({ categories: FAKE_CATEGORIES }),
+          } as Response;
+        }
+        if (url.includes("/admin/groups")) {
+          return {
+            ok: true,
+            json: async () => ({ groups: FAKE_GROUPS }),
           } as Response;
         }
         return {
@@ -209,7 +229,7 @@ describe("AdminForumsPage", () => {
         } as Response;
       }
 
-      // Third call is the DELETE
+      // Fourth call is the DELETE
       return {
         ok: false,
         status: 409,
