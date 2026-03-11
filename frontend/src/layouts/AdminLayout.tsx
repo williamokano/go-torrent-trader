@@ -67,6 +67,11 @@ export function AdminLayout() {
           </NavLink>
         )}
         {isAdmin && (
+          <NavLink to="/admin/cheat-flags" className={navLinkClass}>
+            Cheat Flags
+          </NavLink>
+        )}
+        {isAdmin && (
           <NavLink to="/admin/forums" className={navLinkClass}>
             Forums
           </NavLink>

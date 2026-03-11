@@ -1784,7 +1784,7 @@
 
 #### FE-4.2: Notification System [M] [DONE — bell icon + /notifications page with All/Unread/Preferences tabs, WS push, mark read, per-type toggles]
 
-#### FE-4.3: Online Users Indicator [S]
+#### FE-4.3: Online Users Indicator [S] [DONE — online count in footer via stats API, last_access > 15min]
 **As a** user
 **I want** to see who's online
 **So that** I know if the community is active
@@ -1908,7 +1908,7 @@
 - Remove ban
 - Shows who created the ban and when
 
-#### FE-5.9: Cheat Detection Dashboard [M]
+#### FE-5.9: Cheat Detection Dashboard [M] [DONE — admin page with flag type/status filters, dismiss action, pagination]
 **As an** admin
 **I want** to review flagged users and ratio anomalies
 **So that** I can investigate potential cheating
