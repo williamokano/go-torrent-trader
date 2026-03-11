@@ -292,7 +292,12 @@ type RestrictionRepository interface {
 
 // ForumCategoryRepository defines persistence operations for forum categories.
 type ForumCategoryRepository interface {
+	GetByID(ctx context.Context, id int64) (*model.ForumCategory, error)
 	List(ctx context.Context) ([]model.ForumCategory, error)
+	Create(ctx context.Context, cat *model.ForumCategory) error
+	Update(ctx context.Context, cat *model.ForumCategory) error
+	Delete(ctx context.Context, id int64) error
+	CountForumsByCategory(ctx context.Context, categoryID int64) (int64, error)
 }
 
 // ForumRepository defines persistence operations for forums.
@@ -300,6 +305,10 @@ type ForumRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.Forum, error)
 	ListByCategory(ctx context.Context, categoryID int64) ([]model.Forum, error)
 	List(ctx context.Context) ([]model.Forum, error)
+	Create(ctx context.Context, forum *model.Forum) error
+	Update(ctx context.Context, forum *model.Forum) error
+	Delete(ctx context.Context, id int64) error
+	CountTopicsByForum(ctx context.Context, forumID int64) (int64, error)
 	IncrementTopicCount(ctx context.Context, id int64, delta int) error
 	IncrementPostCount(ctx context.Context, id int64, delta int) error
 	UpdateLastPost(ctx context.Context, forumID int64, postID int64) error

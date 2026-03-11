@@ -13,13 +13,94 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
-type mockForumCategoryRepo struct{ categories []model.ForumCategory; err error }
-func (m *mockForumCategoryRepo) List(_ context.Context) ([]model.ForumCategory, error) { return m.categories, m.err }
+type mockForumCategoryRepo struct {
+	categories  []model.ForumCategory
+	err         error
+	nextID      int64
+	forumCounts map[int64]int64
+}
 
-type mockForumRepo struct{ forums []model.Forum; forumByID map[int64]*model.Forum; listErr, getErr error; recalculated []int64 }
-func (m *mockForumRepo) GetByID(_ context.Context, id int64) (*model.Forum, error) { if m.getErr != nil { return nil, m.getErr }; if f, ok := m.forumByID[id]; ok { return f, nil }; return nil, sql.ErrNoRows }
+func (m *mockForumCategoryRepo) GetByID(_ context.Context, id int64) (*model.ForumCategory, error) {
+	for i := range m.categories {
+		if m.categories[i].ID == id {
+			return &m.categories[i], nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+func (m *mockForumCategoryRepo) List(_ context.Context) ([]model.ForumCategory, error) { return m.categories, m.err }
+func (m *mockForumCategoryRepo) Create(_ context.Context, cat *model.ForumCategory) error {
+	if m.nextID == 0 { m.nextID = 1 }
+	cat.ID = m.nextID
+	m.nextID++
+	cat.CreatedAt = time.Now()
+	m.categories = append(m.categories, *cat)
+	return nil
+}
+func (m *mockForumCategoryRepo) Update(_ context.Context, cat *model.ForumCategory) error {
+	for i := range m.categories {
+		if m.categories[i].ID == cat.ID {
+			m.categories[i] = *cat
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+func (m *mockForumCategoryRepo) Delete(_ context.Context, id int64) error {
+	for i := range m.categories {
+		if m.categories[i].ID == id {
+			m.categories = append(m.categories[:i], m.categories[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+func (m *mockForumCategoryRepo) CountForumsByCategory(_ context.Context, categoryID int64) (int64, error) {
+	if m.forumCounts != nil {
+		return m.forumCounts[categoryID], nil
+	}
+	return 0, nil
+}
+
+type mockForumRepo struct {
+	forums       []model.Forum
+	forumByID    map[int64]*model.Forum
+	listErr      error
+	getErr       error
+	recalculated []int64
+	nextID       int64
+	topicCounts  map[int64]int64
+}
+
+func (m *mockForumRepo) GetByID(_ context.Context, id int64) (*model.Forum, error) {
+	if m.getErr != nil { return nil, m.getErr }
+	if f, ok := m.forumByID[id]; ok { return f, nil }
+	return nil, sql.ErrNoRows
+}
 func (m *mockForumRepo) ListByCategory(_ context.Context, _ int64) ([]model.Forum, error) { return m.forums, m.listErr }
 func (m *mockForumRepo) List(_ context.Context) ([]model.Forum, error) { return m.forums, m.listErr }
+func (m *mockForumRepo) Create(_ context.Context, forum *model.Forum) error {
+	if m.nextID == 0 { m.nextID = 1 }
+	forum.ID = m.nextID
+	m.nextID++
+	forum.CreatedAt = time.Now()
+	if m.forumByID == nil { m.forumByID = make(map[int64]*model.Forum) }
+	m.forumByID[forum.ID] = forum
+	m.forums = append(m.forums, *forum)
+	return nil
+}
+func (m *mockForumRepo) Update(_ context.Context, forum *model.Forum) error {
+	if m.forumByID != nil { m.forumByID[forum.ID] = forum }
+	return nil
+}
+func (m *mockForumRepo) Delete(_ context.Context, id int64) error {
+	if m.forumByID != nil { delete(m.forumByID, id) }
+	return nil
+}
+func (m *mockForumRepo) CountTopicsByForum(_ context.Context, forumID int64) (int64, error) {
+	if m.topicCounts != nil { return m.topicCounts[forumID], nil }
+	return 0, nil
+}
 func (m *mockForumRepo) IncrementTopicCount(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockForumRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockForumRepo) UpdateLastPost(_ context.Context, _ int64, _ int64) error { return nil }
@@ -906,5 +987,176 @@ func TestForumService_RenameTopic_Unicode200Chars(t *testing.T) {
 	title201 := strings.Repeat("\u00e9", 201)
 	if err := svc.RenameTopic(context.Background(), 1, 99, staffPerms, title201, event.Actor{}); !errors.Is(err, ErrInvalidTopic) {
 		t.Errorf("201 unicode chars should fail, got %v", err)
+	}
+}
+
+// --- Admin CRUD tests ---
+
+func TestAdminCreateCategory(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	catRepo := &mockForumCategoryRepo{nextID: 1}
+	svc := NewForumService(nil, catRepo, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{CanForum: true}}, bus)
+
+	cat, err := svc.AdminCreateCategory(context.Background(), CreateForumCategoryRequest{Name: "General", SortOrder: 1}, event.Actor{ID: 1, Username: "admin"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cat.Name != "General" {
+		t.Errorf("expected name General, got %s", cat.Name)
+	}
+	if cat.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+}
+
+func TestAdminCreateCategory_EmptyName(t *testing.T) {
+	svc := NewForumService(nil, &mockForumCategoryRepo{}, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	_, err := svc.AdminCreateCategory(context.Background(), CreateForumCategoryRequest{Name: "  "}, event.Actor{})
+	if !errors.Is(err, ErrInvalidForumCategory) {
+		t.Errorf("expected ErrInvalidForumCategory, got %v", err)
+	}
+}
+
+func TestAdminUpdateCategory(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	catRepo := &mockForumCategoryRepo{
+		categories: []model.ForumCategory{{ID: 1, Name: "Old", SortOrder: 0}},
+	}
+	svc := NewForumService(nil, catRepo, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, bus)
+
+	cat, err := svc.AdminUpdateCategory(context.Background(), 1, UpdateForumCategoryRequest{Name: "Updated", SortOrder: 5}, event.Actor{ID: 1, Username: "admin"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cat.Name != "Updated" {
+		t.Errorf("expected name Updated, got %s", cat.Name)
+	}
+	if cat.SortOrder != 5 {
+		t.Errorf("expected sort_order 5, got %d", cat.SortOrder)
+	}
+}
+
+func TestAdminUpdateCategory_NotFound(t *testing.T) {
+	svc := NewForumService(nil, &mockForumCategoryRepo{}, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	_, err := svc.AdminUpdateCategory(context.Background(), 999, UpdateForumCategoryRequest{Name: "Nope"}, event.Actor{})
+	if !errors.Is(err, ErrForumCategoryNotFound) {
+		t.Errorf("expected ErrForumCategoryNotFound, got %v", err)
+	}
+}
+
+func TestAdminDeleteCategory(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	catRepo := &mockForumCategoryRepo{
+		categories: []model.ForumCategory{{ID: 1, Name: "ToDelete", SortOrder: 0}},
+	}
+	svc := NewForumService(nil, catRepo, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, bus)
+
+	if err := svc.AdminDeleteCategory(context.Background(), 1, event.Actor{ID: 1, Username: "admin"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(catRepo.categories) != 0 {
+		t.Errorf("expected 0 categories, got %d", len(catRepo.categories))
+	}
+}
+
+func TestAdminDeleteCategory_HasForums(t *testing.T) {
+	catRepo := &mockForumCategoryRepo{
+		categories:  []model.ForumCategory{{ID: 1, Name: "WithForums", SortOrder: 0}},
+		forumCounts: map[int64]int64{1: 3},
+	}
+	svc := NewForumService(nil, catRepo, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	err := svc.AdminDeleteCategory(context.Background(), 1, event.Actor{})
+	if !errors.Is(err, ErrForumCategoryHasForums) {
+		t.Errorf("expected ErrForumCategoryHasForums, got %v", err)
+	}
+}
+
+func TestAdminCreateForum(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	catRepo := &mockForumCategoryRepo{categories: []model.ForumCategory{{ID: 1, Name: "General"}}}
+	forumRepo := &mockForumRepo{nextID: 1, forumByID: make(map[int64]*model.Forum)}
+	svc := NewForumService(nil, catRepo, forumRepo, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, bus)
+
+	forum, err := svc.AdminCreateForum(context.Background(), CreateForumRequest{
+		Name: "Announcements", Description: "Site news", CategoryID: 1, SortOrder: 1, MinGroupLevel: 0, MinPostLevel: 5,
+	}, event.Actor{ID: 1, Username: "admin"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if forum.Name != "Announcements" {
+		t.Errorf("expected name Announcements, got %s", forum.Name)
+	}
+	if forum.MinPostLevel != 5 {
+		t.Errorf("expected min_post_level 5, got %d", forum.MinPostLevel)
+	}
+}
+
+func TestAdminCreateForum_EmptyName(t *testing.T) {
+	svc := NewForumService(nil, &mockForumCategoryRepo{categories: []model.ForumCategory{{ID: 1}}}, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	_, err := svc.AdminCreateForum(context.Background(), CreateForumRequest{Name: "", CategoryID: 1}, event.Actor{})
+	if !errors.Is(err, ErrInvalidForum) {
+		t.Errorf("expected ErrInvalidForum, got %v", err)
+	}
+}
+
+func TestAdminCreateForum_InvalidCategory(t *testing.T) {
+	svc := NewForumService(nil, &mockForumCategoryRepo{}, &mockForumRepo{}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	_, err := svc.AdminCreateForum(context.Background(), CreateForumRequest{Name: "Test", CategoryID: 999}, event.Actor{})
+	if !errors.Is(err, ErrForumCategoryNotFound) {
+		t.Errorf("expected ErrForumCategoryNotFound, got %v", err)
+	}
+}
+
+func TestAdminUpdateForum(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	catRepo := &mockForumCategoryRepo{categories: []model.ForumCategory{{ID: 1, Name: "General"}}}
+	forumRepo := &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, Name: "Old", CategoryID: 1}}}
+	svc := NewForumService(nil, catRepo, forumRepo, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, bus)
+
+	forum, err := svc.AdminUpdateForum(context.Background(), 1, UpdateForumRequest{
+		Name: "Renamed", Description: "New desc", CategoryID: 1, SortOrder: 2,
+	}, event.Actor{ID: 1, Username: "admin"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if forum.Name != "Renamed" {
+		t.Errorf("expected name Renamed, got %s", forum.Name)
+	}
+}
+
+func TestAdminUpdateForum_NotFound(t *testing.T) {
+	svc := NewForumService(nil, &mockForumCategoryRepo{}, &mockForumRepo{forumByID: map[int64]*model.Forum{}}, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	_, err := svc.AdminUpdateForum(context.Background(), 999, UpdateForumRequest{Name: "Nope", CategoryID: 1}, event.Actor{})
+	if !errors.Is(err, ErrForumNotFound) {
+		t.Errorf("expected ErrForumNotFound, got %v", err)
+	}
+}
+
+func TestAdminDeleteForum(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	forumRepo := &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, Name: "ToDelete"}}}
+	svc := NewForumService(nil, &mockForumCategoryRepo{}, forumRepo, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, bus)
+
+	if err := svc.AdminDeleteForum(context.Background(), 1, event.Actor{ID: 1, Username: "admin"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAdminDeleteForum_HasTopics(t *testing.T) {
+	forumRepo := &mockForumRepo{
+		forumByID:   map[int64]*model.Forum{1: {ID: 1, Name: "WithTopics"}},
+		topicCounts: map[int64]int64{1: 5},
+	}
+	svc := NewForumService(nil, &mockForumCategoryRepo{}, forumRepo, &mockForumTopicRepo{}, &mockForumPostRepo{}, &mockForumUserRepo{user: &model.User{}}, nil)
+
+	err := svc.AdminDeleteForum(context.Background(), 1, event.Actor{})
+	if !errors.Is(err, ErrForumHasTopics) {
+		t.Errorf("expected ErrForumHasTopics, got %v", err)
 	}
 }

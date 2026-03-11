@@ -2,7 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { RootLayout } from "@/layouts/RootLayout";
 import { AdminLayout } from "@/layouts/AdminLayout";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
-import { AdminRoute } from "@/routes/AdminRoute";
+import { AdminRoute, AdminIndexRedirect } from "@/routes/AdminRoute";
 import { HomePage } from "@/pages/HomePage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { UploadPage } from "@/pages/UploadPage";
@@ -49,6 +49,7 @@ import { ForumTopicListPage } from "@/pages/ForumTopicListPage";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
 import { ForumNewTopicPage } from "@/pages/ForumNewTopicPage";
 import { ForumSearchPage } from "@/pages/ForumSearchPage";
+import { AdminForumsPage } from "@/pages/admin/AdminForumsPage";
 
 export const router = createBrowserRouter([
   {
@@ -152,7 +153,15 @@ export const router = createBrowserRouter([
           </AdminRoute>
         ),
         children: [
-          { index: true, element: <AdminDashboardPage /> },
+          {
+            index: true,
+            element: (
+              <>
+                <AdminIndexRedirect />
+                <AdminDashboardPage />
+              </>
+            ),
+          },
           { path: "users", element: <AdminUsersPage /> },
           { path: "users/:id", element: <AdminUserDetailPage /> },
           { path: "reports", element: <AdminReportsPage /> },
@@ -164,6 +173,7 @@ export const router = createBrowserRouter([
           { path: "news", element: <AdminNewsPage /> },
           { path: "settings", element: <AdminSettingsPage /> },
           { path: "bans", element: <AdminBansPage /> },
+          { path: "forums", element: <AdminForumsPage /> },
         ],
       },
       {

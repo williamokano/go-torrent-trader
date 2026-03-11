@@ -80,6 +80,33 @@ func (r *ForumRepo) listForums(ctx context.Context, whereClause string, args ...
 	return forums, rows.Err()
 }
 
+func (r *ForumRepo) Create(ctx context.Context, forum *model.Forum) error {
+	return r.db.QueryRowContext(ctx,
+		`INSERT INTO forums (category_id, name, description, sort_order, min_group_level, min_post_level)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+		forum.CategoryID, forum.Name, forum.Description, forum.SortOrder, forum.MinGroupLevel, forum.MinPostLevel,
+	).Scan(&forum.ID, &forum.CreatedAt)
+}
+
+func (r *ForumRepo) Update(ctx context.Context, forum *model.Forum) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE forums SET category_id = $1, name = $2, description = $3, sort_order = $4, min_group_level = $5, min_post_level = $6 WHERE id = $7`,
+		forum.CategoryID, forum.Name, forum.Description, forum.SortOrder, forum.MinGroupLevel, forum.MinPostLevel, forum.ID,
+	)
+	return err
+}
+
+func (r *ForumRepo) Delete(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM forums WHERE id = $1`, id)
+	return err
+}
+
+func (r *ForumRepo) CountTopicsByForum(ctx context.Context, forumID int64) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1`, forumID).Scan(&count)
+	return count, err
+}
+
 func (r *ForumRepo) IncrementTopicCount(ctx context.Context, id int64, delta int) error {
 	_, err := r.db.ExecContext(ctx, "UPDATE forums SET topic_count = GREATEST(topic_count + $1, 0) WHERE id = $2", delta, id)
 	return err

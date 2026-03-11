@@ -393,6 +393,19 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Put("/news/{id}", newsAdmin.HandleAdminUpdateNews)
 						r.Delete("/news/{id}", newsAdmin.HandleAdminDeleteNews)
 					}
+
+					// Forum admin management endpoints
+					if deps.ForumService != nil {
+						forumAdmin := NewForumAdminHandler(deps.ForumService)
+						r.Get("/forum-categories", forumAdmin.HandleListForumCategories)
+						r.Post("/forum-categories", forumAdmin.HandleCreateForumCategory)
+						r.Put("/forum-categories/{id}", forumAdmin.HandleUpdateForumCategory)
+						r.Delete("/forum-categories/{id}", forumAdmin.HandleDeleteForumCategory)
+						r.Get("/forums", forumAdmin.HandleListForums)
+						r.Post("/forums", forumAdmin.HandleCreateForum)
+						r.Put("/forums/{id}", forumAdmin.HandleUpdateForum)
+						r.Delete("/forums/{id}", forumAdmin.HandleDeleteForum)
+					}
 				})
 
 				// Staff-level endpoints (accessible by admins and moderators)

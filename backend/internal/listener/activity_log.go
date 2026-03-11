@@ -239,6 +239,36 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		}
 		return fmt.Sprintf("%s banned %s %s%s: %s", e.Actor.Username, e.Username, duration, extras, e.Reason), e.Actor
 	})
+
+	listen(event.ForumCategoryCreated, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumCategoryCreatedEvent)
+		return fmt.Sprintf("%s created forum category: %s", e.Actor.Username, e.CategoryName), e.Actor
+	})
+
+	listen(event.ForumCategoryUpdated, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumCategoryUpdatedEvent)
+		return fmt.Sprintf("%s updated forum category: %s", e.Actor.Username, e.CategoryName), e.Actor
+	})
+
+	listen(event.ForumCategoryDeleted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumCategoryDeletedEvent)
+		return fmt.Sprintf("%s deleted forum category: %s", e.Actor.Username, e.CategoryName), e.Actor
+	})
+
+	listen(event.ForumCreated, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumCreatedEvent)
+		return fmt.Sprintf("%s created forum: %s", e.Actor.Username, e.ForumName), e.Actor
+	})
+
+	listen(event.ForumUpdated, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumUpdatedEvent)
+		return fmt.Sprintf("%s updated forum: %s", e.Actor.Username, e.ForumName), e.Actor
+	})
+
+	listen(event.ForumDeleted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumDeletedEvent)
+		return fmt.Sprintf("%s deleted forum: %s", e.Actor.Username, e.ForumName), e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.
