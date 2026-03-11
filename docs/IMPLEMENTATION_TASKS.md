@@ -1236,17 +1236,7 @@
 - Eliminates client-side polling entirely
 - Graceful fallback: if WebSocket disconnects, resume polling
 
-#### BE-9.5: Backfill Torrent File Lists [S]
-**As a** tracker operator
-**I want** existing torrents to have their file lists populated
-**So that** torrents uploaded before migration 023 show file details
-
-**Acceptance Criteria:**
-- One-time CLI command or background job
-- Reads stored `.torrent` files from S3/storage
-- Parses file list and updates `files` JSONB column
-- Skips torrents that already have files populated
-- Reports progress and errors
+#### BE-9.5: Backfill Torrent File Lists [S] [REMOVED — no legacy data to backfill; if needed, handle during MT-1.2 torrent migration]
 
 #### BE-9.6: Increase Test Coverage to 80% [M]
 **As a** developer
