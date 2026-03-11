@@ -269,6 +269,15 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		e := evt.(*event.ForumDeletedEvent)
 		return fmt.Sprintf("%s deleted forum: %s", e.Actor.Username, e.ForumName), e.Actor
 	})
+
+	listen(event.CheatFlagged, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.CheatFlaggedEvent)
+		torrent := nameOrID("torrent", e.TorrentName, 0)
+		if e.TorrentID != nil {
+			torrent = nameOrID("torrent", e.TorrentName, *e.TorrentID)
+		}
+		return fmt.Sprintf("cheat flag (%s) raised for %s on %s", e.FlagType, e.Username, torrent), e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.

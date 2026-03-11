@@ -41,6 +41,7 @@ type Deps struct {
 	CategoryRepo         repository.CategoryRepository
 	TransferHistoryRepo  repository.TransferHistoryRepository
 	DashboardRepo        repository.DashboardRepository
+	CheatFlagRepo        repository.CheatFlagRepository
 	RSSConfig            *RSSConfig
 }
 
@@ -392,6 +393,13 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Get("/news", newsAdmin.HandleAdminListNews)
 						r.Put("/news/{id}", newsAdmin.HandleAdminUpdateNews)
 						r.Delete("/news/{id}", newsAdmin.HandleAdminDeleteNews)
+					}
+
+					// Cheat flag management endpoints
+					if deps.CheatFlagRepo != nil {
+						cheatFlags := NewCheatFlagHandler(deps.CheatFlagRepo)
+						r.Get("/cheat-flags", cheatFlags.HandleListCheatFlags)
+						r.Put("/cheat-flags/{id}/dismiss", cheatFlags.HandleDismissCheatFlag)
 					}
 
 					// Forum admin management endpoints

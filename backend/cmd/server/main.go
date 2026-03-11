@@ -162,6 +162,10 @@ func run() int {
 	authService.SetInviteService(inviteService)
 	trackerService.SetSiteSettings(siteSettingsService)
 
+	cheatFlagRepo := postgres.NewCheatFlagRepo(db)
+	cheatDetectionService := service.NewCheatDetectionService(cheatFlagRepo, siteSettingsService, eventBus)
+	trackerService.SetCheatDetection(cheatDetectionService)
+
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
@@ -248,6 +252,7 @@ func run() int {
 		CategoryRepo:        categoryRepo,
 		TransferHistoryRepo: transferHistoryRepo,
 		DashboardRepo:       dashboardRepo,
+		CheatFlagRepo:       cheatFlagRepo,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,

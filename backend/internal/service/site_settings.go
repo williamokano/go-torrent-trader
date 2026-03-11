@@ -44,6 +44,12 @@ const (
 	SettingWaitTimeEnabled     = "wait_time_enabled"
 	SettingWaitTimeBypassRatio = "wait_time_bypass_ratio"
 	SettingWaitTimeTiers       = "wait_time_tiers"
+
+	// Cheat detection settings keys.
+	SettingCheatDetectionEnabled       = "cheat_detection_enabled"
+	SettingCheatMaxUploadSpeedMBs      = "cheat_max_upload_speed_mb_s"
+	SettingCheatLeftMismatchTolerancePct = "cheat_left_mismatch_tolerance_pct"
+	SettingCheatFlagCooldownHours      = "cheat_flag_cooldown_hours"
 )
 
 // SiteSettingsService handles site settings business logic.

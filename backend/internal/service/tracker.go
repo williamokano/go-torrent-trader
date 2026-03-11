@@ -103,6 +103,7 @@ type TrackerService struct {
 	transferHistory repository.TransferHistoryRepository
 	groups          repository.GroupRepository
 	siteSettings    *SiteSettingsService
+	cheatDetection  *CheatDetectionService
 }
 
 // NewTrackerService creates a new TrackerService.
@@ -131,6 +132,11 @@ func (s *TrackerService) SetTransferHistoryRepo(repo repository.TransferHistoryR
 // SetGroupRepo sets the group repository for wait time exemption checks.
 func (s *TrackerService) SetGroupRepo(repo repository.GroupRepository) {
 	s.groups = repo
+}
+
+// SetCheatDetection sets the cheat detection service for announce-time checks.
+func (s *TrackerService) SetCheatDetection(cd *CheatDetectionService) {
+	s.cheatDetection = cd
 }
 
 // Announce processes an announce request and returns the response.
@@ -213,6 +219,22 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	}
 
 	isSeeder := req.Left == 0
+
+	// Fire-and-forget cheat detection — errors logged but never block announce.
+	if s.cheatDetection != nil {
+		s.cheatDetection.CheckAnnounce(ctx, AnnounceCheckInput{
+			UserID:        user.ID,
+			Username:      user.Username,
+			TorrentID:     torrent.ID,
+			TorrentName:   torrent.Name,
+			ExistingPeer:  existingPeer,
+			UploadDelta:   uploadDelta,
+			DownloadDelta: downloadDelta,
+			ReqLeft:       req.Left,
+			Leechers:      torrent.Leechers,
+			Now:           time.Now(),
+		})
+	}
 
 	switch req.Event {
 	case EventStopped:
