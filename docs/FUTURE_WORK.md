@@ -15,3 +15,17 @@ Implement the UDP announce/scrape protocol for lower latency and higher connecti
 - IPv4 and IPv6 support
 
 **Why deferred:** HTTP tracker is fully functional and sufficient for the current scale. UDP adds operational complexity (separate port, stateless protocol, connection ID cache) with marginal benefit until the tracker handles thousands of concurrent announces per second.
+
+---
+
+## Theme Management
+
+Full theming system with user-selectable themes and admin controls.
+
+**Theme Switching UI:** Theme selector in user settings (dropdown or preview cards) with instant preview, saved to user settings API + localStorage.
+
+**Admin Theme Configuration:** Set default theme for new users, enable/disable specific themes, theme list in admin settings.
+
+**Additional Theme (Retro/Classic Tracker):** Classic private tracker aesthetic — dark background, monospace elements, compact layout. Uses CSS custom properties only (no structural changes).
+
+**Why deferred:** The current light/dark toggle via the header dropdown covers the immediate need. A full theme system with admin controls and custom themes is a nice-to-have for post-launch.

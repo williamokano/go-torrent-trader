@@ -971,17 +971,7 @@
 - Load template into compose form
 - List/delete drafts and templates
 
-#### BE-7.3: PM Notifications [S]
-**As a** user
-**I want** to be notified of new messages
-**So that** I don't miss important communication
-
-**Acceptance Criteria:**
-- Uses unified notification system from BE-5.6 (type: `pm_received`)
-- Email notification (if user opted in) - sent as background job
-- Unread badge count (API returns count, frontend displays)
-- WebSocket push: if user is connected, push notification in real-time
-- System messages: sent by "System" user for automated notifications (warnings, reseed requests, etc.)
+#### BE-7.3: PM Notifications [S] [DONE — handled by notification system BE-5.6-5.9, pm_received type + WS push + unread badge]
 
 #### BE-7.4: Real-Time PM Notification via WebSocket [S] [DONE]
 **As a** user
@@ -1792,18 +1782,7 @@
 - Embeddable as widget (homepage) or full page
 - Connection status indicator
 
-#### FE-4.2: Notification System [M]
-**As a** user
-**I want** to receive real-time notifications
-**So that** I know when something relevant happens
-
-**Acceptance Criteria:**
-- Bell icon in header with unread count badge
-- Dropdown list of recent notifications
-- Click notification to navigate to source (topic, PM, torrent)
-- Mark as read on click or bulk "mark all read"
-- Real-time push via WebSocket (new notifications appear without refresh)
-- Notification preferences page (per-type toggles)
+#### FE-4.2: Notification System [M] [DONE — bell icon + /notifications page with All/Unread/Preferences tabs, WS push, mark read, per-type toggles]
 
 #### FE-4.3: Online Users Indicator [S]
 **As a** user
@@ -1980,36 +1959,9 @@
 
 ### Epic FE-7: Theme Management [M]
 
-#### FE-7.1: Theme Switching UI [S]
-**As a** user
-**I want** to switch themes from my settings
-**So that** I can use the look I prefer
-
-**Acceptance Criteria:**
-- Theme selector in user settings (dropdown or preview cards)
-- Instant preview on selection
-- Saved to user settings API + localStorage
-
-#### FE-7.2: Admin Theme Configuration [S]
-**As an** admin
-**I want** to configure available themes and the default
-**So that** I control the site's appearance options
-
-**Acceptance Criteria:**
-- Set default theme for new users
-- Enable/disable specific themes
-- Theme list in admin settings
-
-#### FE-7.3: Additional Theme (Retro/Classic Tracker) [M]
-**As a** user
-**I want** a classic tracker theme
-**So that** I get the nostalgic look of traditional torrent sites
-
-**Acceptance Criteria:**
-- Theme using CSS custom properties (no structural changes)
-- Dark background, monospace elements, compact layout
-- Inspired by classic private tracker aesthetics
-- All components properly styled (no broken layouts)
+#### FE-7.1: Theme Switching UI [S] [DEFERRED — moved to docs/FUTURE_WORK.md]
+#### FE-7.2: Admin Theme Configuration [S] [DEFERRED — moved to docs/FUTURE_WORK.md]
+#### FE-7.3: Additional Theme (Retro/Classic Tracker) [M] [DEFERRED — moved to docs/FUTURE_WORK.md]
 
 ---
 
