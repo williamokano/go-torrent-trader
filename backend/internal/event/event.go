@@ -59,6 +59,7 @@ const (
 	ForumCreated            Type = "forum_created"
 	ForumUpdated            Type = "forum_updated"
 	ForumDeleted            Type = "forum_deleted"
+	CheatFlagged            Type = "cheat_flagged"
 )
 
 // Event is the base interface for all domain events.
@@ -422,4 +423,13 @@ type ForumDeletedEvent struct {
 	Base
 	ForumID   int64  `json:"forum_id"`
 	ForumName string `json:"forum_name"`
+}
+
+type CheatFlaggedEvent struct {
+	Base
+	UserID      int64  `json:"user_id"`
+	Username    string `json:"username"`
+	TorrentID   *int64 `json:"torrent_id,omitempty"`
+	TorrentName string `json:"torrent_name,omitempty"`
+	FlagType    string `json:"flag_type"`
 }

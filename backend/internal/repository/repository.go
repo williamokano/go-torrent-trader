@@ -344,6 +344,24 @@ type ForumPostRepository interface {
 	GetFirstPostIDByTopic(ctx context.Context, topicID int64) (int64, error)
 }
 
+// CheatFlagRepository defines persistence operations for cheat detection flags.
+type CheatFlagRepository interface {
+	Create(ctx context.Context, flag *model.CheatFlag) error
+	GetByID(ctx context.Context, id int64) (*model.CheatFlag, error)
+	List(ctx context.Context, opts ListCheatFlagsOptions) ([]model.CheatFlag, int64, error)
+	Dismiss(ctx context.Context, id, dismissedBy int64) error
+	HasRecentUndismissed(ctx context.Context, userID int64, torrentID int64, flagType string, cooldownHours int) (bool, error)
+}
+
+// ListCheatFlagsOptions holds filtering and pagination options for listing cheat flags.
+type ListCheatFlagsOptions struct {
+	UserID    *int64
+	FlagType  *string
+	Dismissed *bool
+	Page      int
+	PerPage   int
+}
+
 // DashboardStats holds aggregated counts for the admin dashboard.
 type DashboardStats struct {
 	UsersTotal     int64

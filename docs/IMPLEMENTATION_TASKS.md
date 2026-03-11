@@ -470,7 +470,7 @@
 - Update torrent visibility: hide torrents with no peers beyond dead threshold
 - Log stats: peers removed, torrents hidden
 
-#### BE-2.7: Cheating Detection [M]
+#### BE-2.7: Cheating Detection [M] [DONE]
 **As a** tracker operator
 **I want** basic cheating detection
 **So that** users can't fake upload/download stats
