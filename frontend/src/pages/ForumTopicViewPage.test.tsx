@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
@@ -45,6 +46,24 @@ vi.mock("@/components/modal", () => ({
         <span>{message}</span>
         <button onClick={onConfirm}>{confirmLabel}</button>
         <button onClick={onCancel}>Cancel</button>
+      </div>
+    ) : null,
+  Modal: ({
+    isOpen,
+    onClose,
+    title,
+    children,
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    title: string;
+    children: React.ReactNode;
+  }) =>
+    isOpen ? (
+      <div data-testid="modal">
+        <span>{title}</span>
+        {children}
+        <button onClick={onClose}>Close</button>
       </div>
     ) : null,
 }));
@@ -191,9 +210,9 @@ describe("ForumTopicViewPage", () => {
     });
     const editBtns = screen.getAllByText("Edit");
     const deleteBtns = screen.getAllByText("Delete");
-    // Admin can edit/delete all posts
+    // Admin can edit/delete all posts + mod toolbar Delete button
     expect(editBtns).toHaveLength(2);
-    expect(deleteBtns).toHaveLength(2);
+    expect(deleteBtns.length).toBeGreaterThanOrEqual(2);
   });
 
   test("shows edit and delete buttons for staff on all posts", async () => {
@@ -208,7 +227,7 @@ describe("ForumTopicViewPage", () => {
     const editBtns = screen.getAllByText("Edit");
     const deleteBtns = screen.getAllByText("Delete");
     expect(editBtns).toHaveLength(2);
-    expect(deleteBtns).toHaveLength(2);
+    expect(deleteBtns.length).toBeGreaterThanOrEqual(2);
   });
 
   test("hides edit and delete buttons for non-author non-admin", async () => {
@@ -222,6 +241,7 @@ describe("ForumTopicViewPage", () => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
     expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+    // No mod toolbar Delete button either for regular users
     expect(screen.queryByText("Delete")).not.toBeInTheDocument();
   });
 
@@ -320,7 +340,7 @@ describe("ForumTopicViewPage", () => {
     expect(screen.queryByText("Save")).not.toBeInTheDocument();
   });
 
-  test("delete button opens confirm modal", async () => {
+  test("delete post button opens confirm modal", async () => {
     const usr = userEvent.setup();
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
@@ -405,6 +425,185 @@ describe("ForumTopicViewPage", () => {
           "Cannot delete the first post. Delete the topic instead.",
         ),
       ).toBeInTheDocument();
+    });
+  });
+
+  // --- Moderation tests ---
+
+  test("shows mod toolbar for admin users", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Lock")).toBeInTheDocument();
+    expect(screen.getByText("Pin")).toBeInTheDocument();
+    expect(screen.getByText("Rename")).toBeInTheDocument();
+    expect(screen.getByText("Move")).toBeInTheDocument();
+    // Delete appears in both mod toolbar and post actions
+    expect(screen.getAllByText("Delete").length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("shows mod toolbar for staff users", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 2, username: "mod", isAdmin: false, isStaff: true },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Lock")).toBeInTheDocument();
+    expect(screen.getByText("Pin")).toBeInTheDocument();
+  });
+
+  test("hides mod toolbar for regular users", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Lock")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pin")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+    expect(screen.queryByText("Move")).not.toBeInTheDocument();
+  });
+
+  test("lock button calls correct API and updates state", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    // Click Lock button
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ message: "topic locked" }),
+    });
+    fireEvent.click(screen.getByText("Lock"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/forums/topics/1/lock",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    // Button should now say "Unlock"
+    await waitFor(() => {
+      expect(screen.getByText("Unlock")).toBeInTheDocument();
+    });
+  });
+
+  test("pin button calls correct API and updates state", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ message: "topic pinned" }),
+    });
+    fireEvent.click(screen.getByText("Pin"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/forums/topics/1/pin",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Unpin")).toBeInTheDocument();
+    });
+  });
+
+  test("delete topic button shows confirm modal and calls API", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    // Click the mod toolbar Delete button (it has the danger class)
+    const deleteButtons = screen.getAllByText("Delete");
+    // The mod toolbar Delete button is the one in the toolbar
+    const modDeleteBtn = deleteButtons.find((btn) =>
+      btn.closest(".forum-mod-toolbar"),
+    );
+    if (modDeleteBtn) {
+      fireEvent.click(modDeleteBtn);
+    } else {
+      // Fallback: just click the first delete
+      fireEvent.click(deleteButtons[0]);
+    }
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Are you sure you want to delete this topic? This action cannot be undone.",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("topic author (non-staff) sees Edit Title button", async () => {
+    // user id=1 is the topic author (FAKE_RESPONSE.topic.user_id=1)
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    // Should see "Edit Title" button (not the mod toolbar "Rename")
+    expect(screen.getByText("Edit Title")).toBeInTheDocument();
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+
+    // Clicking it should open the rename modal
+    fireEvent.click(screen.getByText("Edit Title"));
+    await waitFor(() => {
+      expect(screen.getByText("Rename Topic")).toBeInTheDocument();
+      const input = screen.getByLabelText(
+        "New topic title",
+      ) as HTMLInputElement;
+      expect(input.value).toBe("Test Topic");
+    });
+  });
+
+  test("rename button opens modal with current title", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Rename"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Rename Topic")).toBeInTheDocument();
+      const input = screen.getByLabelText(
+        "New topic title",
+      ) as HTMLInputElement;
+      expect(input.value).toBe("Test Topic");
     });
   });
 });

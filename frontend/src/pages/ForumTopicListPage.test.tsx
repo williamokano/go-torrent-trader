@@ -11,13 +11,6 @@ vi.mock("@/config", () => ({
   getConfig: () => ({ API_URL: "http://localhost:8080", SITE_NAME: "Test" }),
 }));
 
-vi.mock("@/features/auth", () => ({
-  useAuth: () => ({
-    user: { id: 1, username: "testuser", isAdmin: false },
-    isAuthenticated: true,
-  }),
-}));
-
 const FAKE_RESPONSE = {
   forum: {
     id: 1,
@@ -25,7 +18,9 @@ const FAKE_RESPONSE = {
     description: "Off-topic chat",
     topic_count: 2,
     post_count: 10,
+    min_post_level: 0,
   },
+  can_create_topic: true,
   topics: [
     {
       id: 1,
@@ -131,6 +126,25 @@ describe("ForumTopicListPage", () => {
         screen.getByText("No topics yet. Be the first to post!"),
       ).toBeInTheDocument();
     });
+  });
+
+  test("hides New Topic button when can_create_topic is false", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ...FAKE_RESPONSE,
+          can_create_topic: false,
+        }),
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("General Discussion")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("New Topic")).not.toBeInTheDocument();
   });
 
   test("shows access denied error", async () => {

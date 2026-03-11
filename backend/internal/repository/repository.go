@@ -304,6 +304,7 @@ type ForumRepository interface {
 	IncrementPostCount(ctx context.Context, id int64, delta int) error
 	UpdateLastPost(ctx context.Context, forumID int64, postID int64) error
 	RecalculateLastPost(ctx context.Context, forumID int64) error
+	RecalculateCounts(ctx context.Context, forumID int64) error
 }
 
 // ForumTopicRepository defines persistence operations for forum topics.
@@ -315,6 +316,11 @@ type ForumTopicRepository interface {
 	IncrementPostCount(ctx context.Context, id int64, delta int) error
 	UpdateLastPost(ctx context.Context, topicID int64, postID int64, postAt time.Time) error
 	RecalculateLastPost(ctx context.Context, topicID int64) error
+	SetLocked(ctx context.Context, id int64, locked bool) error
+	SetPinned(ctx context.Context, id int64, pinned bool) error
+	UpdateTitle(ctx context.Context, id int64, title string) error
+	UpdateForumID(ctx context.Context, id int64, forumID int64) error
+	Delete(ctx context.Context, id int64) error
 }
 
 // ForumPostRepository defines persistence operations for forum posts.

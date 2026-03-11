@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
@@ -7,7 +12,7 @@ import { timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { Pagination } from "@/components/Pagination";
-import { ConfirmModal } from "@/components/modal";
+import { Modal, ConfirmModal } from "@/components/modal";
 import "./forums.css";
 
 interface TopicData {
@@ -22,6 +27,11 @@ interface TopicData {
   view_count: number;
   forum_name: string;
   created_at: string;
+}
+
+interface ForumOption {
+  id: number;
+  name: string;
 }
 
 interface PostData {
@@ -45,6 +55,7 @@ const PER_PAGE = 25;
 export function ForumTopicViewPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
@@ -68,6 +79,15 @@ export function ForumTopicViewPage() {
   const [deletePostId, setDeletePostId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Moderation state
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [forums, setForums] = useState<ForumOption[]>([]);
+  const [selectedForumId, setSelectedForumId] = useState<number | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [modLoading, setModLoading] = useState(false);
 
   const fetchTopic = useCallback(async () => {
     setLoading(true);
@@ -255,12 +275,129 @@ export function ForumTopicViewPage() {
     }
   };
 
+  const isMod = !!(user?.isAdmin || user?.isStaff);
+
+  const modAction = async (url: string, method: string, body?: object) => {
+    setModLoading(true);
+    setError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${getConfig().API_URL}${url}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error?.message ?? "Action failed");
+      }
+      return true;
+    } catch (err) {
+      setError((err as Error).message);
+      return false;
+    } finally {
+      setModLoading(false);
+    }
+  };
+
+  const handleToggleLock = async () => {
+    if (!topic) return;
+    const action = topic.locked ? "unlock" : "lock";
+    const ok = await modAction(
+      `/api/v1/forums/topics/${topic.id}/${action}`,
+      "POST",
+    );
+    if (ok) {
+      setTopic({ ...topic, locked: !topic.locked });
+    }
+  };
+
+  const handleTogglePin = async () => {
+    if (!topic) return;
+    const action = topic.pinned ? "unpin" : "pin";
+    const ok = await modAction(
+      `/api/v1/forums/topics/${topic.id}/${action}`,
+      "POST",
+    );
+    if (ok) {
+      setTopic({ ...topic, pinned: !topic.pinned });
+    }
+  };
+
+  const handleRename = async () => {
+    if (!topic || !renameTitle.trim()) return;
+    const ok = await modAction(
+      `/api/v1/forums/topics/${topic.id}/title`,
+      "PUT",
+      {
+        title: renameTitle.trim(),
+      },
+    );
+    if (ok) {
+      setTopic({ ...topic, title: renameTitle.trim() });
+      setShowRenameModal(false);
+    }
+  };
+
+  const handleOpenMoveModal = async () => {
+    setShowMoveModal(true);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${getConfig().API_URL}/api/v1/forums`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const forumList: ForumOption[] = [];
+        for (const cat of data.categories ?? []) {
+          for (const f of cat.forums ?? []) {
+            forumList.push({ id: f.id, name: f.name });
+          }
+        }
+        setForums(forumList);
+        if (topic && !selectedForumId) {
+          setSelectedForumId(topic.forum_id);
+        }
+      }
+    } catch {
+      // forum list fetch failed — user can cancel
+    }
+  };
+
+  const handleMove = async () => {
+    if (!topic || !selectedForumId || selectedForumId === topic.forum_id)
+      return;
+    const ok = await modAction(
+      `/api/v1/forums/topics/${topic.id}/move`,
+      "POST",
+      {
+        forum_id: selectedForumId,
+      },
+    );
+    if (ok) {
+      setShowMoveModal(false);
+      await fetchTopic();
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!topic) return;
+    const ok = await modAction(`/api/v1/forums/topics/${topic.id}`, "DELETE");
+    if (ok) {
+      setShowDeleteConfirm(false);
+      navigate(`/forums/${topic.forum_id}`);
+    }
+  };
+
   if (loading) return <div className="topic-view-page">Loading topic...</div>;
   if (error) return <div className="topic-view-page">Error: {error}</div>;
   if (!topic) return <div className="topic-view-page">Topic not found.</div>;
 
   const totalPages = Math.ceil(total / PER_PAGE);
-  const canReply = !!user && !topic.locked;
+  const canReply = !!user && (!topic.locked || user.isAdmin || user.isStaff);
 
   return (
     <div className="topic-view-page">
@@ -270,7 +407,51 @@ export function ForumTopicViewPage() {
         &rsaquo; {topic.title}
       </div>
 
-      <h1>{topic.title}</h1>
+      <h1>
+        {topic.title}
+        {!isMod && !!user && user.id === topic.user_id && !topic.locked && (
+          <button
+            className="forum-post__edit-btn"
+            style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
+            onClick={() => {
+              setRenameTitle(topic.title);
+              setShowRenameModal(true);
+            }}
+          >
+            Edit Title
+          </button>
+        )}
+      </h1>
+
+      {isMod && (
+        <div className="forum-mod-toolbar">
+          <button onClick={handleToggleLock} disabled={modLoading}>
+            {topic.locked ? "Unlock" : "Lock"}
+          </button>
+          <button onClick={handleTogglePin} disabled={modLoading}>
+            {topic.pinned ? "Unpin" : "Pin"}
+          </button>
+          <button
+            onClick={() => {
+              setRenameTitle(topic.title);
+              setShowRenameModal(true);
+            }}
+            disabled={modLoading}
+          >
+            Rename
+          </button>
+          <button onClick={handleOpenMoveModal} disabled={modLoading}>
+            Move
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="forum-mod-toolbar__danger"
+            disabled={modLoading}
+          >
+            Delete
+          </button>
+        </div>
+      )}
 
       {topic.locked && (
         <div className="topic-view-page__locked">
@@ -439,6 +620,94 @@ export function ForumTopicViewPage() {
           </div>
         </form>
       )}
+
+      {/* Rename Modal */}
+      <Modal
+        isOpen={showRenameModal}
+        onClose={() => setShowRenameModal(false)}
+        title="Rename Topic"
+      >
+        <div className="modal-body">
+          <input
+            type="text"
+            value={renameTitle}
+            onChange={(e) => setRenameTitle(e.target.value)}
+            style={{ width: "100%", padding: "0.5rem", fontSize: "0.95rem" }}
+            aria-label="New topic title"
+          />
+        </div>
+        <div className="modal-footer">
+          <button
+            className="modal-btn modal-btn--secondary"
+            onClick={() => setShowRenameModal(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="modal-btn modal-btn--primary"
+            onClick={handleRename}
+            disabled={modLoading || !renameTitle.trim()}
+          >
+            Rename
+          </button>
+        </div>
+      </Modal>
+
+      {/* Move Modal */}
+      <Modal
+        isOpen={showMoveModal}
+        onClose={() => setShowMoveModal(false)}
+        title="Move Topic"
+      >
+        <div className="modal-body">
+          <select
+            value={selectedForumId ?? ""}
+            onChange={(e) => setSelectedForumId(Number(e.target.value))}
+            style={{ width: "100%", padding: "0.5rem", fontSize: "0.95rem" }}
+            aria-label="Select destination forum"
+          >
+            <option value="" disabled>
+              Select a forum...
+            </option>
+            {forums.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="modal-footer">
+          <button
+            className="modal-btn modal-btn--secondary"
+            onClick={() => setShowMoveModal(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="modal-btn modal-btn--primary"
+            onClick={handleMove}
+            disabled={
+              modLoading ||
+              !selectedForumId ||
+              selectedForumId === topic.forum_id
+            }
+          >
+            Move
+          </button>
+        </div>
+      </Modal>
+
+      {/* Delete Confirm */}
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        title="Delete Topic"
+        message="Are you sure you want to delete this topic? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger={true}
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

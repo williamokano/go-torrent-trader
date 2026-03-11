@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -27,6 +28,8 @@ var (
 	ErrPostEditDenied        = errors.New("not authorized to edit this post")
 	ErrPostDeleteDenied      = errors.New("not authorized to delete this post")
 	ErrCannotDeleteFirstPost = errors.New("cannot delete the first post of a topic; delete the topic instead")
+	ErrSameForum             = errors.New("topic is already in this forum")
+	ErrTopicDeleteDenied     = errors.New("topic delete denied")
 )
 
 const viewCountDebounce = 15 * time.Minute
@@ -38,12 +41,13 @@ type ForumService struct {
 	topics     repository.ForumTopicRepository
 	posts      repository.ForumPostRepository
 	users      repository.UserRepository
+	eventBus     event.Bus
 	viewMu       sync.Mutex
 	viewDebounce map[string]time.Time
 }
 
-func NewForumService(db *sql.DB, categories repository.ForumCategoryRepository, forums repository.ForumRepository, topics repository.ForumTopicRepository, posts repository.ForumPostRepository, users repository.UserRepository) *ForumService {
-	return &ForumService{db: db, categories: categories, forums: forums, topics: topics, posts: posts, users: users, viewDebounce: make(map[string]time.Time)}
+func NewForumService(db *sql.DB, categories repository.ForumCategoryRepository, forums repository.ForumRepository, topics repository.ForumTopicRepository, posts repository.ForumPostRepository, users repository.UserRepository, eventBus event.Bus) *ForumService {
+	return &ForumService{db: db, categories: categories, forums: forums, topics: topics, posts: posts, users: users, eventBus: eventBus, viewDebounce: make(map[string]time.Time)}
 }
 
 func (s *ForumService) ListCategories(ctx context.Context, perms model.Permissions) ([]model.ForumCategory, error) {
@@ -146,7 +150,7 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 	if title == "" {
 		return nil, nil, fmt.Errorf("%w: title cannot be empty", ErrInvalidTopic)
 	}
-	if len(title) > 200 {
+	if utf8.RuneCountInString(title) > 200 {
 		return nil, nil, fmt.Errorf("%w: title too long", ErrInvalidTopic)
 	}
 	if body == "" {
@@ -157,6 +161,9 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 		return nil, nil, ErrForumNotFound
 	}
 	if forum.MinGroupLevel > perms.Level {
+		return nil, nil, ErrForumAccessDenied
+	}
+	if forum.MinPostLevel > perms.Level {
 		return nil, nil, ErrForumAccessDenied
 	}
 	// can_forum=false only blocks writing (CreateTopic, CreatePost).
@@ -218,7 +225,7 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil { return nil, ErrTopicNotFound }
-	if topic.Locked { return nil, ErrTopicLocked }
+	if topic.Locked && !perms.IsStaff() { return nil, ErrTopicLocked }
 	forum, err := s.forums.GetByID(ctx, topic.ForumID)
 	if err != nil { return nil, ErrForumNotFound }
 	if forum.MinGroupLevel > perms.Level { return nil, ErrForumAccessDenied }
@@ -458,5 +465,280 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 	if err := s.forums.RecalculateLastPost(ctx, topic.ForumID); err != nil {
 		return fmt.Errorf("recalculate forum last post: %w", err)
 	}
+	return nil
+}
+
+func (s *ForumService) requireStaff(perms model.Permissions) error {
+	if !perms.IsStaff() {
+		return ErrForumAccessDenied
+	}
+	return nil
+}
+
+// LockTopic locks a topic so no new replies can be posted. Staff/admin only.
+func (s *ForumService) LockTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+	if err := s.requireStaff(perms); err != nil {
+		return err
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	if err := s.topics.SetLocked(ctx, topicID, true); err != nil {
+		return err
+	}
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumTopicLockedEvent{
+			Base:       event.NewBase(event.ForumTopicLocked, actor),
+			TopicID:    topicID,
+			TopicTitle: topic.Title,
+		})
+	}
+	return nil
+}
+
+// UnlockTopic unlocks a previously locked topic. Staff/admin only.
+func (s *ForumService) UnlockTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+	if err := s.requireStaff(perms); err != nil {
+		return err
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	if err := s.topics.SetLocked(ctx, topicID, false); err != nil {
+		return err
+	}
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumTopicUnlockedEvent{
+			Base:       event.NewBase(event.ForumTopicUnlocked, actor),
+			TopicID:    topicID,
+			TopicTitle: topic.Title,
+		})
+	}
+	return nil
+}
+
+// PinTopic pins a topic to the top of its forum listing. Staff/admin only.
+func (s *ForumService) PinTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+	if err := s.requireStaff(perms); err != nil {
+		return err
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	if err := s.topics.SetPinned(ctx, topicID, true); err != nil {
+		return err
+	}
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumTopicPinnedEvent{
+			Base:       event.NewBase(event.ForumTopicPinned, actor),
+			TopicID:    topicID,
+			TopicTitle: topic.Title,
+		})
+	}
+	return nil
+}
+
+// UnpinTopic removes the pin from a topic. Staff/admin only.
+func (s *ForumService) UnpinTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+	if err := s.requireStaff(perms); err != nil {
+		return err
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	if err := s.topics.SetPinned(ctx, topicID, false); err != nil {
+		return err
+	}
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumTopicUnpinnedEvent{
+			Base:       event.NewBase(event.ForumTopicUnpinned, actor),
+			TopicID:    topicID,
+			TopicTitle: topic.Title,
+		})
+	}
+	return nil
+}
+
+// RenameTopic changes a topic's title. The topic author or staff can rename.
+// Non-staff authors cannot rename locked topics and must have can_forum privilege.
+func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, title string, actor event.Actor) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return fmt.Errorf("%w: title cannot be empty", ErrInvalidTopic)
+	}
+	if utf8.RuneCountInString(title) > 200 {
+		return fmt.Errorf("%w: title too long", ErrInvalidTopic)
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+
+	// Authorization: topic author or staff
+	if topic.UserID != userID && !perms.IsStaff() {
+		return ErrForumAccessDenied
+	}
+
+	// Non-staff checks
+	if !perms.IsStaff() {
+		// can_forum check
+		user, userErr := s.users.GetByID(ctx, userID)
+		if userErr != nil {
+			return fmt.Errorf("get user: %w", userErr)
+		}
+		if !user.CanForum {
+			return ErrForumAccessDenied
+		}
+		// Locked topic check: author cannot rename locked topics
+		if topic.Locked {
+			return ErrTopicLocked
+		}
+	}
+
+	oldTitle := topic.Title
+	if err := s.topics.UpdateTitle(ctx, topicID, title); err != nil {
+		return err
+	}
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumTopicRenamedEvent{
+			Base:     event.NewBase(event.ForumTopicRenamed, actor),
+			TopicID:  topicID,
+			OldTitle: oldTitle,
+			NewTitle: title,
+		})
+	}
+	return nil
+}
+
+// MoveTopic moves a topic to a different forum. Staff/admin only.
+// Uses a transaction to update topic forum_id and recalculate counts on both forums.
+// Note: staff can intentionally move topics to forums with higher MinGroupLevel,
+// which may hide the topic from its original author. This is expected moderation behavior.
+func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model.Permissions, targetForumID int64, actor event.Actor) error {
+	if err := s.requireStaff(perms); err != nil {
+		return err
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	if topic.ForumID == targetForumID {
+		return ErrSameForum
+	}
+	if _, err := s.forums.GetByID(ctx, targetForumID); err != nil {
+		return ErrForumNotFound
+	}
+	oldForumID := topic.ForumID
+	publishEvent := func() {
+		if s.eventBus != nil {
+			s.eventBus.Publish(ctx, &event.ForumTopicMovedEvent{
+				Base:       event.NewBase(event.ForumTopicMoved, actor),
+				TopicID:    topicID,
+				TopicTitle: topic.Title,
+				OldForumID: oldForumID,
+				NewForumID: targetForumID,
+			})
+		}
+	}
+	if s.db != nil {
+		err := repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET forum_id = $1, updated_at = NOW() WHERE id = $2", targetForumID, topicID); err != nil {
+				return fmt.Errorf("move topic: %w", err)
+			}
+			// Recalculate old forum counts
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forums SET
+					topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
+					post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
+					last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
+				WHERE id = $1`, oldForumID); err != nil {
+				return fmt.Errorf("recalculate old forum: %w", err)
+			}
+			// Recalculate new forum counts
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forums SET
+					topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
+					post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
+					last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
+				WHERE id = $1`, targetForumID); err != nil {
+				return fmt.Errorf("recalculate new forum: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		publishEvent()
+		return nil
+	}
+	// Non-transactional fallback (tests without DB)
+	if err := s.topics.UpdateForumID(ctx, topicID, targetForumID); err != nil {
+		return fmt.Errorf("move topic: %w", err)
+	}
+	if err := s.forums.RecalculateCounts(ctx, oldForumID); err != nil {
+		return fmt.Errorf("recalculate old forum: %w", err)
+	}
+	if err := s.forums.RecalculateCounts(ctx, targetForumID); err != nil {
+		return err
+	}
+	publishEvent()
+	return nil
+}
+
+// DeleteTopic deletes a topic and all its posts. Staff/admin only.
+// Uses a transaction to delete the topic (CASCADE deletes posts) and recalculate forum counts.
+func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+	if err := s.requireStaff(perms); err != nil {
+		return ErrTopicDeleteDenied
+	}
+	topic, err := s.topics.GetByID(ctx, topicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	forumID := topic.ForumID
+	topicTitle := topic.Title
+	publishEvent := func() {
+		if s.eventBus != nil {
+			s.eventBus.Publish(ctx, &event.ForumTopicDeletedEvent{
+				Base:       event.NewBase(event.ForumTopicDeleted, actor),
+				TopicID:    topicID,
+				TopicTitle: topicTitle,
+				ForumID:    forumID,
+			})
+		}
+	}
+	if s.db != nil {
+		err := repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM forum_topics WHERE id = $1", topicID); err != nil {
+				return fmt.Errorf("delete topic: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forums SET
+					topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
+					post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
+					last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
+				WHERE id = $1`, forumID); err != nil {
+				return fmt.Errorf("recalculate forum: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		publishEvent()
+		return nil
+	}
+	// Non-transactional fallback (tests without DB)
+	if err := s.topics.Delete(ctx, topicID); err != nil {
+		return fmt.Errorf("delete topic: %w", err)
+	}
+	if err := s.forums.RecalculateCounts(ctx, forumID); err != nil {
+		return err
+	}
+	publishEvent()
 	return nil
 }

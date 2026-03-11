@@ -46,6 +46,13 @@ const (
 	RestrictionApplied      Type = "restriction_applied"
 	RestrictionLifted       Type = "restriction_lifted"
 	UserQuickBanned         Type = "user_quick_banned"
+	ForumTopicLocked        Type = "forum_topic_locked"
+	ForumTopicUnlocked      Type = "forum_topic_unlocked"
+	ForumTopicPinned        Type = "forum_topic_pinned"
+	ForumTopicUnpinned      Type = "forum_topic_unpinned"
+	ForumTopicRenamed       Type = "forum_topic_renamed"
+	ForumTopicMoved         Type = "forum_topic_moved"
+	ForumTopicDeleted       Type = "forum_topic_deleted"
 )
 
 // Event is the base interface for all domain events.
@@ -327,4 +334,50 @@ type UserQuickBannedEvent struct {
 	BanIP        bool   `json:"ban_ip"`
 	BanEmail     bool   `json:"ban_email"`
 	DurationDays *int   `json:"duration_days,omitempty"`
+}
+
+type ForumTopicLockedEvent struct {
+	Base
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+}
+
+type ForumTopicUnlockedEvent struct {
+	Base
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+}
+
+type ForumTopicPinnedEvent struct {
+	Base
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+}
+
+type ForumTopicUnpinnedEvent struct {
+	Base
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+}
+
+type ForumTopicRenamedEvent struct {
+	Base
+	TopicID  int64  `json:"topic_id"`
+	OldTitle string `json:"old_title"`
+	NewTitle string `json:"new_title"`
+}
+
+type ForumTopicMovedEvent struct {
+	Base
+	TopicID      int64  `json:"topic_id"`
+	TopicTitle   string `json:"topic_title"`
+	OldForumID   int64  `json:"old_forum_id"`
+	NewForumID   int64  `json:"new_forum_id"`
+}
+
+type ForumTopicDeletedEvent struct {
+	Base
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+	ForumID    int64  `json:"forum_id"`
 }
