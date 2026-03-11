@@ -102,7 +102,7 @@ func (r *ForumTopicRepo) IncrementViewCount(ctx context.Context, id int64) error
 }
 
 func (r *ForumTopicRepo) IncrementPostCount(ctx context.Context, id int64, delta int) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE forum_topics SET post_count = post_count + $1 WHERE id = $2", delta, id)
+	_, err := r.db.ExecContext(ctx, "UPDATE forum_topics SET post_count = GREATEST(post_count + $1, 0) WHERE id = $2", delta, id)
 	return err
 }
 
@@ -112,4 +112,34 @@ func (r *ForumTopicRepo) UpdateLastPost(ctx context.Context, topicID int64, post
 		postID, postAt, topicID,
 	)
 	return err
+}
+
+func (r *ForumTopicRepo) RecalculateLastPost(ctx context.Context, topicID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE forum_topics SET
+			last_post_id = sub.id,
+			last_post_at = sub.created_at,
+			updated_at = NOW()
+		FROM (
+			SELECT id, created_at FROM forum_posts
+			WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1
+		) sub
+		WHERE forum_topics.id = $1`, topicID)
+	if err != nil {
+		return err
+	}
+	// If no posts remain, the FROM subquery returns no rows so the UPDATE is a no-op.
+	// Handle that by setting last_post fields to NULL.
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE forum_topics SET
+			last_post_id = NULL,
+			last_post_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+			AND NOT EXISTS (SELECT 1 FROM forum_posts WHERE topic_id = $1)`, topicID)
+	if err != nil {
+		return err
+	}
+	_ = res
+	return nil
 }

@@ -303,6 +303,7 @@ type ForumRepository interface {
 	IncrementTopicCount(ctx context.Context, id int64, delta int) error
 	IncrementPostCount(ctx context.Context, id int64, delta int) error
 	UpdateLastPost(ctx context.Context, forumID int64, postID int64) error
+	RecalculateLastPost(ctx context.Context, forumID int64) error
 }
 
 // ForumTopicRepository defines persistence operations for forum topics.
@@ -313,6 +314,7 @@ type ForumTopicRepository interface {
 	IncrementViewCount(ctx context.Context, id int64) error
 	IncrementPostCount(ctx context.Context, id int64, delta int) error
 	UpdateLastPost(ctx context.Context, topicID int64, postID int64, postAt time.Time) error
+	RecalculateLastPost(ctx context.Context, topicID int64) error
 }
 
 // ForumPostRepository defines persistence operations for forum posts.
@@ -320,8 +322,11 @@ type ForumPostRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.ForumPost, error)
 	ListByTopic(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error)
 	Create(ctx context.Context, post *model.ForumPost) error
+	Update(ctx context.Context, post *model.ForumPost) error
+	Delete(ctx context.Context, id int64) error
 	CountByUser(ctx context.Context, userID int64) (int, error)
 	Search(ctx context.Context, query string, forumID *int64, maxGroupLevel int, page, perPage int) ([]model.ForumSearchResult, int64, error)
+	GetFirstPostIDByTopic(ctx context.Context, topicID int64) (int64, error)
 }
 
 // DashboardStats holds aggregated counts for the admin dashboard.

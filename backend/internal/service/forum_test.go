@@ -22,6 +22,7 @@ func (m *mockForumRepo) List(_ context.Context) ([]model.Forum, error) { return 
 func (m *mockForumRepo) IncrementTopicCount(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockForumRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockForumRepo) UpdateLastPost(_ context.Context, _ int64, _ int64) error { return nil }
+func (m *mockForumRepo) RecalculateLastPost(_ context.Context, _ int64) error { return nil }
 
 type mockForumTopicRepo struct{ topics []model.ForumTopic; topicByID map[int64]*model.ForumTopic; total int64; created *model.ForumTopic; listErr, getErr error }
 func (m *mockForumTopicRepo) GetByID(_ context.Context, id int64) (*model.ForumTopic, error) { if m.getErr != nil { return nil, m.getErr }; if t, ok := m.topicByID[id]; ok { return t, nil }; return nil, sql.ErrNoRows }
@@ -30,13 +31,29 @@ func (m *mockForumTopicRepo) Create(_ context.Context, topic *model.ForumTopic) 
 func (m *mockForumTopicRepo) IncrementViewCount(_ context.Context, _ int64) error { return nil }
 func (m *mockForumTopicRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error { return nil }
 func (m *mockForumTopicRepo) UpdateLastPost(_ context.Context, _ int64, _ int64, _ time.Time) error { return nil }
+func (m *mockForumTopicRepo) RecalculateLastPost(_ context.Context, _ int64) error { return nil }
 
-type mockForumPostRepo struct{ posts []model.ForumPost; postByID map[int64]*model.ForumPost; total int64; listErr, getErr error; searchResults []model.ForumSearchResult; searchTotal int64; searchErr error }
+type mockForumPostRepo struct{
+	posts         []model.ForumPost
+	postByID      map[int64]*model.ForumPost
+	total         int64
+	listErr       error
+	getErr        error
+	firstPostID   int64
+	updated       *model.ForumPost
+	deleted       int64
+	searchResults []model.ForumSearchResult
+	searchTotal   int64
+	searchErr     error
+}
 func (m *mockForumPostRepo) GetByID(_ context.Context, id int64) (*model.ForumPost, error) { if m.getErr != nil { return nil, m.getErr }; if p, ok := m.postByID[id]; ok { return p, nil }; return nil, sql.ErrNoRows }
 func (m *mockForumPostRepo) ListByTopic(_ context.Context, _ int64, _, _ int) ([]model.ForumPost, int64, error) { return m.posts, m.total, m.listErr }
 func (m *mockForumPostRepo) Create(_ context.Context, post *model.ForumPost) error { post.ID = 200; post.CreatedAt = time.Now(); return nil }
+func (m *mockForumPostRepo) Update(_ context.Context, post *model.ForumPost) error { m.updated = post; return nil }
+func (m *mockForumPostRepo) Delete(_ context.Context, id int64) error { m.deleted = id; return nil }
 func (m *mockForumPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockForumPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return m.searchResults, m.searchTotal, m.searchErr }
+func (m *mockForumPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) { return m.firstPostID, nil }
 
 type mockForumUserRepo struct{ user *model.User; err error }
 func (m *mockForumUserRepo) GetByID(_ context.Context, _ int64) (*model.User, error) { return m.user, m.err }
@@ -204,4 +221,352 @@ func TestForumService_Search_WithForumFilter(t *testing.T) {
 	if err != nil { t.Fatalf("unexpected error: %v", err) }
 	if total != 1 { t.Errorf("expected total 1, got %d", total) }
 	if len(got) != 1 { t.Errorf("expected 1 result") }
+}
+
+// --- EditPost tests ---
+
+func TestForumService_EditPost_AuthorSuccess(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if post == nil {
+		t.Fatal("expected non-nil post")
+	}
+	if postRepo.updated == nil {
+		t.Fatal("expected Update to be called")
+	}
+	if postRepo.updated.Body != "new body" {
+		t.Errorf("expected body 'new body', got %q", postRepo.updated.Body)
+	}
+	if postRepo.updated.EditedBy == nil || *postRepo.updated.EditedBy != 5 {
+		t.Errorf("expected edited_by=5")
+	}
+}
+
+func TestForumService_EditPost_StaffSuccess(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil,
+	)
+	// Staff user (different from post author) can edit
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.updated.Body != "staff edit" {
+		t.Errorf("expected body 'staff edit', got %q", postRepo.updated.Body)
+	}
+}
+
+func TestForumService_EditPost_Unauthorized(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body"},
+		},
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil)
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 5}, "hacked")
+	if !errors.Is(err, ErrPostEditDenied) {
+		t.Errorf("expected ErrPostEditDenied, got %v", err)
+	}
+}
+
+func TestForumService_EditPost_EmptyBody(t *testing.T) {
+	svc := NewForumService(nil, nil, nil, nil, nil, nil)
+	_, err := svc.EditPost(context.Background(), 10, 1, model.Permissions{}, "   ")
+	if !errors.Is(err, ErrInvalidPost) {
+		t.Errorf("expected ErrInvalidPost, got %v", err)
+	}
+}
+
+func TestForumService_EditPost_NotFound(t *testing.T) {
+	postRepo := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{}}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil)
+	_, err := svc.EditPost(context.Background(), 999, 1, model.Permissions{Level: 5}, "body")
+	if !errors.Is(err, ErrPostNotFound) {
+		t.Errorf("expected ErrPostNotFound, got %v", err)
+	}
+}
+
+func TestForumService_EditPost_ForumAccessDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 100}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "body")
+	if !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied, got %v", err)
+	}
+}
+
+// --- DeletePost tests ---
+
+func TestForumService_DeletePost_AuthorSuccess(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1, // first post is ID 1, so post 10 can be deleted
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	err := svc.DeletePost(context.Background(), 10, 5, model.Permissions{Level: 5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.deleted != 10 {
+		t.Errorf("expected Delete(10), got %d", postRepo.deleted)
+	}
+}
+
+func TestForumService_DeletePost_StaffSuccess(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil,
+	)
+	err := svc.DeletePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestForumService_DeletePost_FirstPostPrevented(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			1: {ID: 1, TopicID: 1, UserID: 5, Body: "opening post"},
+		},
+		firstPostID: 1, // this IS the first post
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	err := svc.DeletePost(context.Background(), 1, 5, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrCannotDeleteFirstPost) {
+		t.Errorf("expected ErrCannotDeleteFirstPost, got %v", err)
+	}
+}
+
+func TestForumService_DeletePost_Unauthorized(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil)
+	err := svc.DeletePost(context.Background(), 10, 99, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrPostDeleteDenied) {
+		t.Errorf("expected ErrPostDeleteDenied, got %v", err)
+	}
+}
+
+func TestForumService_DeletePost_NotFound(t *testing.T) {
+	postRepo := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{}}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil)
+	err := svc.DeletePost(context.Background(), 999, 1, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrPostNotFound) {
+		t.Errorf("expected ErrPostNotFound, got %v", err)
+	}
+}
+
+// --- EditPost locked topic tests ---
+
+func TestForumService_EditPost_LockedTopic_NonStaffDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	if !errors.Is(err, ErrTopicLocked) {
+		t.Errorf("expected ErrTopicLocked, got %v", err)
+	}
+}
+
+func TestForumService_EditPost_LockedTopic_StaffAllowed(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}},
+		postRepo, nil,
+	)
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit")
+	if err != nil {
+		t.Fatalf("expected staff to edit in locked topic, got: %v", err)
+	}
+}
+
+func TestForumService_EditPost_CanForumFalse_NonStaffDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: false}},
+	)
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	if !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied for can_forum=false, got %v", err)
+	}
+}
+
+func TestForumService_EditPost_CanForumFalse_StaffAllowed(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil, // no user repo needed — staff bypasses can_forum check
+	)
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true}, "admin edit")
+	if err != nil {
+		t.Fatalf("expected staff to bypass can_forum, got: %v", err)
+	}
+}
+
+// --- DeletePost locked topic tests ---
+
+func TestForumService_DeletePost_LockedTopic_NonStaffDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	err := svc.DeletePost(context.Background(), 10, 5, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrTopicLocked) {
+		t.Errorf("expected ErrTopicLocked, got %v", err)
+	}
+}
+
+func TestForumService_DeletePost_LockedTopic_StaffAllowed(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}},
+		postRepo, nil,
+	)
+	err := svc.DeletePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("expected staff to delete in locked topic, got: %v", err)
+	}
+}
+
+func TestForumService_DeletePost_CanForumFalse_NonStaffDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: false}},
+	)
+	err := svc.DeletePost(context.Background(), 10, 5, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied for can_forum=false, got %v", err)
+	}
+}
+
+func TestForumService_DeletePost_CanForumFalse_StaffAllowed(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil, // no user repo — staff bypasses can_forum
+	)
+	err := svc.DeletePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true})
+	if err != nil {
+		t.Fatalf("expected staff to bypass can_forum, got: %v", err)
+	}
+}
+
+func TestForumService_DeletePost_ForumAccessDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 100}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+	)
+	err := svc.DeletePost(context.Background(), 10, 5, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied for MinGroupLevel, got %v", err)
+	}
 }
