@@ -1351,6 +1351,53 @@
 
 > **Origin:** Review findings from BE-8.5 — TOCTOU race on check-then-delete with CASCADE FKs, plus `window.confirm` inconsistency.
 
+#### BE-9.13: Notification Email Digest [S]
+**As a** user
+**I want** email digests of my unread notifications
+**So that** I don't miss important activity when I'm not on the site
+
+**Acceptance Criteria:**
+- Asynq periodic task sends daily/weekly digest emails
+- User preference for digest frequency (off, daily, weekly)
+- Email summarizes unread notifications since last digest
+
+> **Origin:** Deferred from BE-5.9 — in-app + WS push covers the immediate need.
+
+#### BE-9.14: Notification Batching [S]
+**As a** user
+**I want** grouped notifications like "5 new replies in topic X"
+**So that** my notification list isn't flooded by active threads
+
+**Acceptance Criteria:**
+- Collapse multiple `topic_reply` notifications from the same topic into a single entry
+- Show count and last few actors
+- Expand on click to see individual notifications
+
+> **Origin:** Deferred from BE-5.9.
+
+#### BE-9.15: Notification Cleanup in Maintenance Worker [XS]
+**As a** developer
+**I want** old read notifications to be automatically purged
+**So that** the notifications table doesn't grow unboundedly
+
+**Acceptance Criteria:**
+- Wire `NotificationRepository.DeleteOld()` into the periodic maintenance worker
+- Configurable retention period (default 90 days for read notifications)
+
+> **Origin:** Review finding from BE-5.6 implementation — DeleteOld exists but is not called.
+
+#### BE-9.16: Notification Listener & Handler Test Coverage [S]
+**As a** developer
+**I want** tests for the notification listener and HTTP handlers
+**So that** event-to-notification mapping and API responses are verified
+
+**Acceptance Criteria:**
+- Listener tests: event-to-notification mapping, dedup, self-notify skip, @mention parsing
+- Handler tests: HTTP status codes, auth checks, pagination, error mapping
+- Meet 80% coverage gate
+
+> **Origin:** Review finding from BE-5.6 implementation.
+
 ---
 
 ### Epic BE-10: Protocol Support
