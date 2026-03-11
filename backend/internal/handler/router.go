@@ -42,6 +42,7 @@ type Deps struct {
 	TransferHistoryRepo  repository.TransferHistoryRepository
 	DashboardRepo        repository.DashboardRepository
 	CheatFlagRepo        repository.CheatFlagRepository
+	NotificationService  *service.NotificationService
 	RSSConfig            *RSSConfig
 }
 
@@ -304,6 +305,28 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Post("/topics/{id}/unpin", forums.HandleUnpinTopic)
 					r.Put("/topics/{id}/title", forums.HandleRenameTopic)
 					r.Post("/topics/{id}/move", forums.HandleMoveTopic)
+
+					// Topic subscription endpoints
+					if deps.NotificationService != nil {
+						topicSub := NewTopicSubscriptionHandler(deps.NotificationService)
+						r.Post("/topics/{id}/subscribe", topicSub.HandleSubscribe)
+						r.Delete("/topics/{id}/subscribe", topicSub.HandleUnsubscribe)
+						r.Get("/topics/{id}/subscription", topicSub.HandleGetSubscription)
+					}
+				})
+			}
+
+			// Notification endpoints
+			if deps.NotificationService != nil {
+				notifs := NewNotificationHandler(deps.NotificationService)
+				r.Route("/notifications", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/", notifs.HandleListNotifications)
+					r.Get("/unread-count", notifs.HandleUnreadCount)
+					r.Put("/read-all", notifs.HandleMarkAllRead)
+					r.Put("/{id}/read", notifs.HandleMarkRead)
+					r.Get("/preferences", notifs.HandleGetPreferences)
+					r.Put("/preferences", notifs.HandleUpdatePreferences)
 				})
 			}
 

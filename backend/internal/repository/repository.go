@@ -362,6 +362,40 @@ type ListCheatFlagsOptions struct {
 	PerPage   int
 }
 
+// NotificationRepository defines persistence operations for notifications.
+type NotificationRepository interface {
+	Create(ctx context.Context, notif *model.Notification) error
+	GetByID(ctx context.Context, id int64) (*model.Notification, error)
+	List(ctx context.Context, userID int64, opts ListNotificationsOptions) ([]model.Notification, int64, error)
+	MarkRead(ctx context.Context, userID, id int64) error
+	MarkAllRead(ctx context.Context, userID int64) error
+	CountUnread(ctx context.Context, userID int64) (int, error)
+	DeleteOld(ctx context.Context, before time.Time) (int64, error)
+}
+
+// ListNotificationsOptions holds filtering and pagination options for listing notifications.
+type ListNotificationsOptions struct {
+	UnreadOnly bool
+	Page       int
+	PerPage    int
+}
+
+// TopicSubscriptionRepository defines persistence operations for topic subscriptions.
+type TopicSubscriptionRepository interface {
+	Subscribe(ctx context.Context, userID, topicID int64) error
+	Unsubscribe(ctx context.Context, userID, topicID int64) error
+	IsSubscribed(ctx context.Context, userID, topicID int64) (bool, error)
+	ListSubscribers(ctx context.Context, topicID int64) ([]int64, error)
+}
+
+// NotificationPreferenceRepository defines persistence operations for notification preferences.
+type NotificationPreferenceRepository interface {
+	Get(ctx context.Context, userID int64, notifType string) (*model.NotificationPreference, error)
+	GetAll(ctx context.Context, userID int64) ([]model.NotificationPreference, error)
+	Set(ctx context.Context, userID int64, notifType string, enabled bool) error
+	IsEnabled(ctx context.Context, userID int64, notifType string) (bool, error)
+}
+
 // DashboardStats holds aggregated counts for the admin dashboard.
 type DashboardStats struct {
 	UsersTotal     int64

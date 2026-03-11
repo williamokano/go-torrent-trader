@@ -80,6 +80,10 @@ export function ForumTopicViewPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Subscription state
+  const [subscribed, setSubscribed] = useState(false);
+  const [subLoading, setSubLoading] = useState(false);
+
   // Moderation state
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameTitle, setRenameTitle] = useState("");
@@ -121,6 +125,40 @@ export function ForumTopicViewPage() {
   useEffect(() => {
     fetchTopic();
   }, [fetchTopic]);
+
+  // Fetch subscription status
+  useEffect(() => {
+    if (!id) return;
+    const token = getAccessToken();
+    if (!token) return;
+    fetch(`${getConfig().API_URL}/api/v1/forums/topics/${id}/subscription`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setSubscribed(d?.subscribed ?? false))
+      .catch(() => {});
+  }, [id]);
+
+  const handleToggleSubscription = async () => {
+    if (!id) return;
+    setSubLoading(true);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/forums/topics/${id}/subscribe`,
+        {
+          method: subscribed ? "DELETE" : "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+      if (!res.ok) throw new Error();
+      setSubscribed(!subscribed);
+    } catch {
+      // ignore
+    } finally {
+      setSubLoading(false);
+    }
+  };
 
   const handlePageChange = (newPage: number) => {
     const params = new URLSearchParams(searchParams);
@@ -407,21 +445,37 @@ export function ForumTopicViewPage() {
         &rsaquo; {topic.title}
       </div>
 
-      <h1>
-        {topic.title}
-        {!isMod && !!user && user.id === topic.user_id && !topic.locked && (
+      <div className="topic-view-page__title-row">
+        <h1>
+          {topic.title}
+          {!isMod && !!user && user.id === topic.user_id && !topic.locked && (
+            <button
+              className="forum-post__edit-btn"
+              style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
+              onClick={() => {
+                setRenameTitle(topic.title);
+                setShowRenameModal(true);
+              }}
+            >
+              Edit Title
+            </button>
+          )}
+        </h1>
+        {!!user && (
           <button
-            className="forum-post__edit-btn"
-            style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
-            onClick={() => {
-              setRenameTitle(topic.title);
-              setShowRenameModal(true);
-            }}
+            className={`topic-watch-btn${subscribed ? " topic-watch-btn--active" : ""}`}
+            onClick={handleToggleSubscription}
+            disabled={subLoading}
+            title={
+              subscribed
+                ? "Stop receiving notifications for this topic"
+                : "Get notified about new posts in this topic"
+            }
           >
-            Edit Title
+            {subLoading ? "..." : subscribed ? "Watching" : "Watch"}
           </button>
         )}
-      </h1>
+      </div>
 
       {isMod && (
         <div className="forum-mod-toolbar">

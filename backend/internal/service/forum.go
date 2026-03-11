@@ -218,6 +218,26 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 	}
 	topic.PostCount = 1
 	topic.LastPostAt = &post.CreatedAt
+
+	actor := event.Actor{ID: userID, Username: user.Username}
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, &event.ForumTopicCreatedEvent{
+			Base:        event.NewBase(event.ForumTopicCreated, actor),
+			TopicID:     topic.ID,
+			TopicTitle:  title,
+			ForumID:     forumID,
+			FirstPostID: post.ID,
+		})
+		s.eventBus.Publish(ctx, &event.ForumPostCreatedEvent{
+			Base:       event.NewBase(event.ForumPostCreated, actor),
+			PostID:     post.ID,
+			TopicID:    topic.ID,
+			TopicTitle: title,
+			ForumID:    forumID,
+			Body:       body,
+		})
+	}
+
 	return &topic, &post, nil
 }
 
@@ -272,6 +292,27 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 	}
 	created, err := s.posts.GetByID(ctx, post.ID)
 	if err != nil { return &post, nil }
+
+	if s.eventBus != nil {
+		// Resolve reply-to user ID for the notification listener
+		var replyToUserID *int64
+		if replyToPostID != nil {
+			if rp, rpErr := s.posts.GetByID(ctx, *replyToPostID); rpErr == nil {
+				replyToUserID = &rp.UserID
+			}
+		}
+		s.eventBus.Publish(ctx, &event.ForumPostCreatedEvent{
+			Base:          event.NewBase(event.ForumPostCreated, event.Actor{ID: userID, Username: user.Username}),
+			PostID:        post.ID,
+			TopicID:       topicID,
+			TopicTitle:    topic.Title,
+			ForumID:       topic.ForumID,
+			Body:          body,
+			ReplyToPostID: replyToPostID,
+			ReplyToUserID: replyToUserID,
+		})
+	}
+
 	return created, nil
 }
 

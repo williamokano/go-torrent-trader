@@ -50,6 +50,7 @@ import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
 import { ForumNewTopicPage } from "@/pages/ForumNewTopicPage";
 import { ForumSearchPage } from "@/pages/ForumSearchPage";
 import { AdminForumsPage } from "@/pages/admin/AdminForumsPage";
+import { NotificationsPage } from "@/pages/NotificationsPage";
 
 export const router = createBrowserRouter([
   {
@@ -237,6 +238,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <StaffPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "notifications",
+        element: (
+          <ProtectedRoute>
+            <NotificationsPage />
           </ProtectedRoute>
         ),
       },

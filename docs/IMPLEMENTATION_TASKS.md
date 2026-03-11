@@ -848,7 +848,7 @@
 - Respects forum access: only returns results from forums where user's group level >= `min_group_level`
 - Filter by: forum, author, date range
 
-#### BE-5.6: Notification Infrastructure [M]
+#### BE-5.6: Notification Infrastructure [M] [DONE — notifications table, NotificationService, NotificationRepo, WebSocket push, preference system]
 **As a** developer
 **I want** a unified notification system with event bus and delivery engine
 **So that** all notification triggers share common infrastructure
@@ -870,7 +870,7 @@
   - `torrent_comment` - someone commented on your torrent
   - `system` - system notifications (warnings, ratio alerts, etc.)
 
-#### BE-5.7: Forum Notification Triggers [S]
+#### BE-5.7: Forum Notification Triggers [S] [DONE — ForumPostCreated/ForumTopicCreated events, forum_reply/forum_mention/topic_reply notifications via listener]
 **As a** user
 **I want** to be notified when someone replies to my post or mentions me
 **So that** I don't miss relevant discussions
@@ -882,7 +882,7 @@
 - Auto-subscribe on: topic creation, posting in topic (configurable per user)
 - Uses notification infrastructure from BE-5.6
 
-#### BE-5.8: Subscription Management API [S]
+#### BE-5.8: Subscription Management API [S] [DONE — topic_subscriptions table, subscribe/unsubscribe/check endpoints, auto-subscribe on topic creation and posting, notification_preferences table]
 **As a** user
 **I want** to subscribe/unsubscribe to topics and forums
 **So that** I control which discussions I follow
@@ -896,7 +896,7 @@
   - Per-type toggle: enable/disable each notification type
   - Delivery method per type: in-app only, in-app + email, off
 
-#### BE-5.9: Notification Delivery [M]
+#### BE-5.9: Notification Delivery [M] [DONE — in-app notifications via DB, WebSocket push via ChatHub.SendToUser. Email digest and batching deferred to follow-up]
 **As a** user
 **I want** notifications delivered via multiple channels
 **So that** I receive them however I prefer

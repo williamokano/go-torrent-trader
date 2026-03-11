@@ -53,7 +53,7 @@ export function RootLayout() {
   const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
 
-  const { pmUnreadCount, setPmUnreadCount, connected } = useChat();
+  const { pmUnreadCount, setPmUnreadCount, notifUnreadCount, setNotifUnreadCount, connected } = useChat();
   const prevConnectedRef = useRef(connected);
 
   // Fetch unread count on mount and on WS reconnection (laptop sleep, network blip).
@@ -74,7 +74,14 @@ export function RootLayout() {
       .then((r) => r.json())
       .then((d) => setPmUnreadCount(d?.unread_count ?? 0))
       .catch(() => {});
-  }, [isAuthenticated, setPmUnreadCount, connected]);
+
+    fetch(`${getConfig().API_URL}/api/v1/notifications/unread-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setNotifUnreadCount(d?.count ?? 0))
+      .catch(() => {});
+  }, [isAuthenticated, setPmUnreadCount, setNotifUnreadCount, connected]);
 
   const [siteStats, setSiteStats] = useState<{
     users: number;
@@ -266,6 +273,16 @@ export function RootLayout() {
         <div className="header__actions">
           {isAuthenticated ? (
             <>
+              <Link
+                to="/notifications"
+                className="header__mail-link"
+                title="Notifications"
+              >
+                <span className="header__mail-icon">&#128276;</span>
+                {notifUnreadCount > 0 && (
+                  <span className="header__mail-badge">{notifUnreadCount}</span>
+                )}
+              </Link>
               <Link
                 to="/messages"
                 className="header__mail-link"
