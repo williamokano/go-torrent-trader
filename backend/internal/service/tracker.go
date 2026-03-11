@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"net"
+	"sort"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -23,6 +26,29 @@ var (
 	ErrTooManyPeers      = errors.New("too many peers on this torrent")
 	ErrTooManyConns      = errors.New("too many connections")
 )
+
+// WaitTimeError is returned when a user must wait before downloading a new torrent.
+type WaitTimeError struct {
+	RemainingSeconds int
+}
+
+func (e *WaitTimeError) Error() string {
+	return fmt.Sprintf("wait time not met: %d seconds remaining", e.RemainingSeconds)
+}
+
+// WaitTimeTier defines a ratio threshold and the corresponding wait hours.
+type WaitTimeTier struct {
+	Ratio float64 `json:"ratio"`
+	Hours int     `json:"hours"`
+}
+
+// DefaultWaitTimeTiers are the default tiers if none are configured.
+var DefaultWaitTimeTiers = []WaitTimeTier{
+	{Ratio: 0.5, Hours: 48},
+	{Ratio: 0.65, Hours: 24},
+	{Ratio: 0.8, Hours: 12},
+	{Ratio: 0.95, Hours: 6},
+}
 
 const (
 	DefaultInterval    = 1800 // seconds
@@ -75,6 +101,7 @@ type TrackerService struct {
 	torrents        repository.TorrentRepository
 	peers           repository.PeerRepository
 	transferHistory repository.TransferHistoryRepository
+	groups          repository.GroupRepository
 	siteSettings    *SiteSettingsService
 }
 
@@ -99,6 +126,11 @@ func (s *TrackerService) SetSiteSettings(ss *SiteSettingsService) {
 // SetTransferHistoryRepo sets the transfer history repository for recording completions.
 func (s *TrackerService) SetTransferHistoryRepo(repo repository.TransferHistoryRepository) {
 	s.transferHistory = repo
+}
+
+// SetGroupRepo sets the group repository for wait time exemption checks.
+func (s *TrackerService) SetGroupRepo(repo repository.GroupRepository) {
+	s.groups = repo
 }
 
 // Announce processes an announce request and returns the response.
@@ -129,6 +161,13 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// Look up existing peer by the exact peer_id for delta calculation.
 	// A user can have multiple peers (seedbox + home PC), each with a unique peer_id.
 	existingPeer, _ := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
+
+	// Wait time check: only for new leechers (first announce on this torrent, left > 0).
+	if existingPeer == nil && req.Left > 0 {
+		if err := s.checkWaitTime(ctx, user, torrent); err != nil {
+			return nil, err
+		}
+	}
 
 	// Connection limits: only enforce for NEW peers (not updates to existing ones).
 	if existingPeer == nil && req.Event != EventStopped && s.siteSettings != nil {
@@ -398,6 +437,96 @@ func (s *TrackerService) handleAnnounce(
 	}
 
 	return nil
+}
+
+// checkWaitTime enforces download wait times for low-ratio users on new torrents.
+// Returns nil if the user is exempt or the torrent is old enough; returns a WaitTimeError otherwise.
+func (s *TrackerService) checkWaitTime(ctx context.Context, user *model.User, torrent *model.Torrent) error {
+	if s.siteSettings == nil {
+		return nil
+	}
+
+	if !s.siteSettings.GetBool(ctx, SettingWaitTimeEnabled, false) {
+		return nil
+	}
+
+	// Check if user's group is immune (admin/mod/immune bypass wait times).
+	if s.groups != nil {
+		group, err := s.groups.GetByID(ctx, user.GroupID)
+		if err == nil && group != nil && (group.IsImmune || group.IsAdmin || group.IsModerator) {
+			return nil
+		}
+	}
+
+	// Torrent uploader is always exempt from wait times on their own uploads.
+	if user.ID == torrent.UploaderID {
+		return nil
+	}
+
+	// Calculate user ratio. If downloaded == 0, ratio is infinite → exempt.
+	if user.Downloaded == 0 {
+		return nil
+	}
+	ratio := float64(user.Uploaded) / float64(user.Downloaded)
+
+	bypassRatio := s.siteSettings.GetFloat64(ctx, SettingWaitTimeBypassRatio, 0.95)
+	if ratio >= bypassRatio {
+		return nil
+	}
+
+	// Parse tiers from settings.
+	tiers := s.getWaitTimeTiers(ctx)
+	if len(tiers) == 0 {
+		return nil
+	}
+
+	// Find the applicable wait hours for this user's ratio.
+	// Tiers are sorted by ratio ascending. Find the highest tier where ratio < tier.Ratio.
+	waitHours := 0
+	for _, tier := range tiers {
+		if ratio < tier.Ratio {
+			waitHours = tier.Hours
+			break
+		}
+	}
+
+	if waitHours == 0 {
+		return nil
+	}
+
+	// Check torrent age against wait time.
+	torrentAge := time.Since(torrent.CreatedAt)
+	requiredWait := time.Duration(waitHours) * time.Hour
+
+	if torrentAge >= requiredWait {
+		return nil
+	}
+
+	remaining := requiredWait - torrentAge
+	return &WaitTimeError{
+		RemainingSeconds: int(math.Ceil(remaining.Seconds())),
+	}
+}
+
+// getWaitTimeTiers parses the wait time tiers from site settings, falling back to defaults.
+func (s *TrackerService) getWaitTimeTiers(ctx context.Context) []WaitTimeTier {
+	raw := s.siteSettings.GetString(ctx, SettingWaitTimeTiers, "")
+	if raw == "" {
+		return DefaultWaitTimeTiers
+	}
+
+	var tiers []WaitTimeTier
+	if err := json.Unmarshal([]byte(raw), &tiers); err != nil {
+		slog.Error("failed to parse wait time tiers, using defaults", "error", err)
+		return DefaultWaitTimeTiers
+	}
+
+	// Ensure sorted by ratio ascending for correct matching.
+	sort.Slice(tiers, func(i, j int) bool {
+		return tiers[i].Ratio < tiers[j].Ratio
+	})
+
+	return tiers
 }
 
 // buildCompactPeerList creates a BEP 23 compact peer list.

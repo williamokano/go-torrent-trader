@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -165,6 +166,11 @@ func announceClientIP(r *http.Request) string {
 }
 
 func mapAnnounceError(err error) string {
+	var waitErr *service.WaitTimeError
+	if errors.As(err, &waitErr) {
+		return formatWaitTimeMessage(waitErr.RemainingSeconds)
+	}
+
 	switch {
 	case errors.Is(err, service.ErrInvalidPasskey):
 		return "invalid passkey"
@@ -181,4 +187,23 @@ func mapAnnounceError(err error) string {
 	default:
 		return "internal server error"
 	}
+}
+
+func formatWaitTimeMessage(totalSeconds int) string {
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+
+	var timeStr string
+	switch {
+	case hours > 0 && minutes > 0:
+		timeStr = fmt.Sprintf("%dh %dm", hours, minutes)
+	case hours > 0:
+		timeStr = fmt.Sprintf("%dh", hours)
+	case minutes > 0:
+		timeStr = fmt.Sprintf("%dm", minutes)
+	default:
+		timeStr = "less than 1m"
+	}
+
+	return fmt.Sprintf("Wait time: you must wait %s before downloading this torrent", timeStr)
 }
