@@ -48,6 +48,7 @@ import { ForumIndexPage } from "@/pages/ForumIndexPage";
 import { ForumTopicListPage } from "@/pages/ForumTopicListPage";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
 import { ForumNewTopicPage } from "@/pages/ForumNewTopicPage";
+import { ForumSearchPage } from "@/pages/ForumSearchPage";
 
 export const router = createBrowserRouter([
   {
@@ -170,6 +171,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <ForumIndexPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "forums/search",
+        element: (
+          <ProtectedRoute>
+            <ForumSearchPage />
           </ProtectedRoute>
         ),
       },

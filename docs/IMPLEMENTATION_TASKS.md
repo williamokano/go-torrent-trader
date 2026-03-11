@@ -791,7 +791,7 @@
 - View count per topic (increment on view)
 - "Mark all read" bulk action
 
-#### BE-5.2: Create Topics & Post Replies [M]
+#### BE-5.2: Create Topics & Post Replies [M] [DONE]
 **As a** user
 **I want** to create topics and reply to them
 **So that** I can participate in discussions

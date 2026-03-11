@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -21,6 +22,7 @@ var (
 	ErrInvalidTopic      = errors.New("invalid topic")
 	ErrInvalidPost       = errors.New("invalid post")
 	ErrInvalidReply      = errors.New("invalid reply reference")
+	ErrInvalidSearch     = errors.New("invalid search query")
 )
 
 const viewCountDebounce = 15 * time.Minute
@@ -255,4 +257,29 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 	created, err := s.posts.GetByID(ctx, post.ID)
 	if err != nil { return &post, nil }
 	return created, nil
+}
+
+// Search performs full-text search across forum posts and topics, filtering
+// results by forum access level so users only see content they're allowed to view.
+func (s *ForumService) Search(ctx context.Context, query string, perms model.Permissions, forumID *int64, page, perPage int) ([]model.ForumSearchResult, int64, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, 0, fmt.Errorf("%w: query cannot be empty", ErrInvalidSearch)
+	}
+	if utf8.RuneCountInString(query) < 2 {
+		return nil, 0, fmt.Errorf("%w: query must be at least 2 characters", ErrInvalidSearch)
+	}
+	if utf8.RuneCountInString(query) > 200 {
+		return nil, 0, fmt.Errorf("%w: query too long", ErrInvalidSearch)
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 25
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+	return s.posts.Search(ctx, query, forumID, perms.Level, page, perPage)
 }
