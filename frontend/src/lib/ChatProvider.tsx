@@ -29,6 +29,10 @@ export interface ChatContextValue {
   pmUnreadCount: number;
   /** Manually set the PM unread count (e.g. after reading messages) */
   setPmUnreadCount: (count: number) => void;
+  /** Unread notification count, updated in real-time via WebSocket */
+  notifUnreadCount: number;
+  /** Manually set the notification unread count */
+  setNotifUnreadCount: (count: number) => void;
   sendMessage: (text: string) => void;
   deleteMessage: (id: number) => Promise<void>;
   deleteUserMessages: (userId: number) => Promise<void>;
@@ -53,6 +57,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [chatSuspended, setChatSuspended] = useState(false);
   const [mainChatVisible, setMainChatVisible] = useState(false);
   const [pmUnreadCount, setPmUnreadCount] = useState(0);
+  const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const muteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingMoreRef = useRef(false);
   const messagesRef = useRef(messages);
@@ -131,6 +136,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           break;
         case "pm_notification":
           setPmUnreadCount(event.unread_count);
+          break;
+        case "notification":
+          setNotifUnreadCount(event.unread_count);
           break;
         case "error":
           toast.error(event.message);
@@ -312,6 +320,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setMainChatVisible,
         pmUnreadCount,
         setPmUnreadCount,
+        notifUnreadCount,
+        setNotifUnreadCount,
         sendMessage,
         deleteMessage,
         deleteUserMessages,
