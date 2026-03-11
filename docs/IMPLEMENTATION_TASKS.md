@@ -810,7 +810,7 @@
   - Auto-linked to user profile in rendered output
   - Triggers notification (see BE-5.6)
 
-#### BE-5.3: Edit & Delete Posts [S]
+#### BE-5.3: Edit & Delete Posts [S] [DONE]
 **As a** post author or moderator
 **I want** to edit or delete posts
 **So that** content can be corrected or removed
@@ -822,7 +822,7 @@
 - Delete topic: moderator permission required, deletes all posts and read tracking; decrements forum.topic_count and forum.post_count
 - Author can edit own posts; moderators can edit/delete any post
 
-#### BE-5.4: Moderation Tools [S]
+#### BE-5.4: Moderation Tools [S] [DONE]
 **As a** moderator
 **I want** to lock, pin, move, and rename topics
 **So that** I can keep the forum organized
@@ -836,7 +836,7 @@
 - All moderation actions require `can_forum` + moderator/admin role
 - Access check includes `min_group_level` on destination forum for move operations
 
-#### BE-5.5: Forum Search [S]
+#### BE-5.5: Forum Search [S] [DONE]
 **As a** user
 **I want** to search forum posts
 **So that** I can find past discussions
@@ -1267,6 +1267,75 @@
 
 > **Note:** This is a tech-debt task. Should be addressed incrementally — each new PR must not decrease coverage, and dedicated test sprints can bring existing packages up to the threshold.
 
+#### BE-9.7: Forum Post Soft-Delete & Edit History [M]
+**As a** moderator
+**I want** deleted posts to be soft-deleted and edits to be tracked
+**So that** moderation actions are reversible and edit abuse is prevented
+
+**Acceptance Criteria:**
+- Add `deleted_at` timestamp to `forum_posts` (soft-delete instead of hard delete)
+- Add `forum_post_edits` table tracking edit history (post_id, old_body, edited_by, edited_at)
+- Soft-deleted posts show "This post was deleted" placeholder in topic view
+- Staff can view deleted post content and restore posts
+- Edit history viewable by staff (shows diffs or previous versions)
+- Handle dangling `reply_to_post_id` references gracefully (show "deleted post" instead of broken ref)
+
+> **Origin:** Review finding from BE-5.3 — hard delete has no audit trail, no undo, and creates dangling references. Edit-then-delete abuse vector exists without history.
+
+#### BE-9.8: Forum Moderation Reason & Hierarchy [S]
+**As a** staff member
+**I want** moderation actions to require a reason and respect role hierarchy
+**So that** actions are accountable and lower-rank staff can't override higher-rank decisions
+
+**Acceptance Criteria:**
+- All moderation endpoints accept optional `reason` string parameter
+- Reason stored in activity log events (already published via event bus)
+- Moderators cannot act on topics in admin-only forums or on admin-created content
+- Topic owners can lock/delete their own topics (within time window, e.g., 30 minutes)
+
+> **Origin:** Review finding from BE-5.4 — no reason field (unlike warnings/bans), flat moderator hierarchy, zero topic-owner powers.
+
+#### BE-9.9: Extract Shared Search Utilities [S]
+**As a** developer
+**I want** search query building and tsvector utilities shared across features
+**So that** torrent search and forum search don't duplicate code
+
+**Acceptance Criteria:**
+- Extract `buildPrefixQuery` from `repository/postgres/torrent.go` into shared `repository/postgres/search.go`
+- Forum search uses the shared function (remove `buildForumPrefixQuery` duplicate)
+- Support Unicode characters (use `unicode.IsLetter` instead of `[a-zA-Z0-9]` filter)
+- Add `ts_headline` support for generating search result snippets server-side
+- Add unit tests for the shared function (edge cases: CJK, emoji, special chars, very long input)
+
+> **Origin:** Review findings from BE-5.5 — DRY violation between torrent and forum search, Unicode stripped, full post body sent instead of snippet.
+
+#### BE-9.10: Forum Integration Tests for Transactional Paths [S]
+**As a** developer
+**I want** integration tests covering the transactional code paths in forum services
+**So that** the actual production SQL (not just mock fallbacks) is tested
+
+**Acceptance Criteria:**
+- Test `DeletePost` transactional path (counter decrements, last_post recalculation)
+- Test `MoveTopic` transactional path (both forums' counts updated atomically)
+- Test `DeleteTopic` transactional path (cascade + forum counter recalculation)
+- Use test database or `sqlmock` to exercise the `if s.db != nil` branches
+- Verify rollback behavior on partial failures
+
+> **Origin:** Review finding across BE-5.3/5.4 — all service tests use `db=nil` (mock fallback), actual transactional SQL is untested.
+
+#### BE-9.11: Hide Delete Button on First Post & Deep-Link Search Results [S]
+**As a** user
+**I want** the UI to not show delete on the opening post, and search to link to the exact post
+**So that** I don't get confusing errors and can find search matches directly
+
+**Acceptance Criteria:**
+- Backend includes `is_first_post` flag in post response (or frontend checks `post.id === posts[0].id` on first page)
+- Delete button hidden on first post in topic view
+- Forum search results deep-link to the specific post: `/forums/topics/{id}?page=X#post-{postId}`
+- Post anchors added to topic view page (`id="post-{id}"` on each post element)
+
+> **Origin:** Review findings from BE-5.3 and BE-5.5 — delete button shown on first post causes confusing error, search results link to topic page 1 even if match is on page 5.
+
 ---
 
 ### Epic BE-10: Protocol Support
@@ -1637,7 +1706,7 @@
 - Edit/delete buttons (for own posts or moderators)
 - Subscribe/unsubscribe toggle
 
-#### FE-3.4: Forum Search [S]
+#### FE-3.4: Forum Search [S] [DONE]
 **As a** user
 **I want** to search forum content
 **So that** I can find past discussions
@@ -1649,7 +1718,7 @@
 - Click through to post in topic (deep link to correct page/post)
 - Only shows results from forums the user has access to (group level >= min_group_level)
 
-#### FE-3.5: Forum Moderation Tools [M]
+#### FE-3.5: Forum Moderation Tools [M] [DONE]
 **As a** moderator
 **I want** to manage topics and posts
 **So that** the forum stays organized

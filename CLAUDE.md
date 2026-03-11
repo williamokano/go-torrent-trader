@@ -3,7 +3,7 @@
 ## Agent Development Flow
 
 ```
-Receive task → Create branch → Write spec → Implement → Push → Pipeline validates → Merge
+Receive task → Create branch → Evaluate alternatives → Agree on approach → Implement → Review & Challenge → Push → Pipeline validates → Merge
 ```
 
 ### 1. Receive Task
@@ -37,23 +37,39 @@ git worktree remove ../go-torrent-trader-<branch-name>
 
 **Worktree conflict warning:** Parallel worktrees WILL conflict on shared files like `main.go`, `router.go`, and repository interfaces. When running multiple tracks in parallel, merge Track A first, then rebase Track B before pushing. Never push without running tests after a rebase.
 
-### 3. Write Spec (for non-trivial tasks)
+### 3. Evaluate Alternatives (for non-trivial tasks)
 
-Before implementing, document the approach:
+Before implementing, a team of agents must consider alternative solutions for the problem. Each agent proposes a different approach, evaluating trade-offs (complexity, performance, maintainability, consistency with existing patterns). The team must discuss and agree on one approach before any code is written. Document the chosen approach and why alternatives were rejected.
+
+The spec should cover:
 - What changes are needed and why
 - Which files will be modified
 - What tests will be added
 - Any architectural decisions
+- Alternatives considered and why they were rejected
 
 ### 4. Implement
 
+- **Features ship in BE+FE pairs** — every feature must include both backend and frontend in the same PR. A backend endpoint without its corresponding UI (or vice versa) is not considered complete. No half-shipped features.
 - **Tests are mandatory** — every feature or fix must include tests
 - **Coverage >= 80%** — CI gates at 80%. New code must not decrease overall coverage
 - **Mark the story as DONE in `docs/IMPLEMENTATION_TASKS.md`** — every PR must update the backlog
 - **Update affected stories** — when implementation reveals new insights, update related stories in the same PR
 - **Continuously refine the backlog** — findings during implementation feed back into upcoming stories
 
-### 5. Pre-Push Checklist
+### 5. Post-Implementation Review
+
+After implementation is complete but **before pushing**, launch two agents in parallel:
+
+- **Devil's Advocate Agent** — challenges the solution. Questions design decisions, identifies edge cases that weren't handled, proposes scenarios where the implementation could break, and suggests simpler alternatives. The implementer must address every challenge or explain why the current approach is correct.
+- **Code Reviewer Agent** — reviews the actual code for bugs, security issues, performance problems, missing error handling, test coverage gaps, inconsistencies with existing patterns, and adherence to project conventions. Produces a list of findings that must be resolved before pushing.
+
+Both agents run in parallel against the implementation. Findings are triaged by severity:
+
+- **Critical / High / Medium** — must be fixed before pushing. No exceptions.
+- **Minor / Nice-to-have** — triage individually. If the fix is a quick win (< 5 minutes, small change), do it now. If it requires significant changes or touches many files, add it as a refined story to `docs/IMPLEMENTATION_TASKS.md` with a clear description and link to the original review finding. Do not block the PR for minor items that are better handled as follow-up work.
+
+### 6. Pre-Push Checklist
 
 Run ALL checks before pushing:
 
@@ -75,7 +91,7 @@ cd frontend && npm run build && npm test && npm run lint && npm run format:check
 - CI uses `golangci-lint-action@v7` (v6 doesn't support v2)
 - `errcheck` is the most common failure — every `.Close()`, `.Create()`, or error-returning call must be checked or explicitly discarded with `_ =`
 
-### 6. Push & Create PR
+### 7. Push & Create PR
 
 ```bash
 git push -u origin <branch-name>
