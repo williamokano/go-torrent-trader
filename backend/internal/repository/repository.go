@@ -342,6 +342,10 @@ type ForumPostRepository interface {
 	CountByUser(ctx context.Context, userID int64) (int, error)
 	Search(ctx context.Context, query string, forumID *int64, maxGroupLevel int, page, perPage int) ([]model.ForumSearchResult, int64, error)
 	GetFirstPostIDByTopic(ctx context.Context, topicID int64) (int64, error)
+	SoftDelete(ctx context.Context, id int64, deletedBy int64) error
+	Restore(ctx context.Context, id int64) error
+	CreateEdit(ctx context.Context, edit *model.ForumPostEdit) error
+	ListEdits(ctx context.Context, postID int64) ([]model.ForumPostEdit, error)
 }
 
 // CheatFlagRepository defines persistence operations for cheat detection flags.

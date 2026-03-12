@@ -46,9 +46,22 @@ interface PostData {
   reply_to_post_id?: number;
   edited_at?: string;
   edited_by?: number;
+  is_deleted?: boolean;
+  deleted_at?: string;
+  deleted_by?: number;
   created_at: string;
   user_created_at: string;
   user_post_count: number;
+}
+
+interface PostEditData {
+  id: number;
+  post_id: number;
+  edited_by: number;
+  old_body: string;
+  new_body: string;
+  created_at: string;
+  username?: string;
 }
 
 const PER_PAGE = 25;
@@ -98,6 +111,16 @@ export function ForumTopicViewPage() {
   const [modReason, setModReason] = useState("");
   const [showLockConfirm, setShowLockConfirm] = useState(false);
   const [showPinConfirm, setShowPinConfirm] = useState(false);
+
+  // Soft-delete & edit history state
+  const [expandedDeletedPosts, setExpandedDeletedPosts] = useState<Set<number>>(
+    new Set(),
+  );
+  const [editHistoryPostId, setEditHistoryPostId] = useState<number | null>(
+    null,
+  );
+  const [editHistory, setEditHistory] = useState<PostEditData[]>([]);
+  const [editHistoryLoading, setEditHistoryLoading] = useState(false);
 
   const fetchTopic = useCallback(async () => {
     setLoading(true);
@@ -347,6 +370,47 @@ export function ForumTopicViewPage() {
     }
   };
 
+  const handleRestorePost = async (postId: number) => {
+    const ok = await modAction(
+      `/api/v1/forums/posts/${postId}/restore`,
+      "POST",
+    );
+    if (ok) {
+      await fetchTopic();
+    }
+  };
+
+  const handleToggleDeletedContent = (postId: number) => {
+    setExpandedDeletedPosts((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
+      }
+      return next;
+    });
+  };
+
+  const handleViewEditHistory = async (postId: number) => {
+    setEditHistoryPostId(postId);
+    setEditHistoryLoading(true);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/forums/posts/${postId}/edits`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) throw new Error("Failed to load edit history");
+      const data = await res.json();
+      setEditHistory(data.edits ?? []);
+    } catch {
+      setEditHistory([]);
+    } finally {
+      setEditHistoryLoading(false);
+    }
+  };
+
   const handleToggleLock = async () => {
     if (!topic) return;
     const action = topic.locked ? "unlock" : "lock";
@@ -559,7 +623,10 @@ export function ForumTopicViewPage() {
 
       <div className="forum-posts">
         {posts.map((post) => (
-          <div key={post.id} className="forum-post">
+          <div
+            key={post.id}
+            className={`forum-post${post.is_deleted ? " forum-post--deleted" : ""}`}
+          >
             <div className="forum-post__sidebar">
               {post.avatar ? (
                 <img
@@ -590,7 +657,43 @@ export function ForumTopicViewPage() {
                   In reply to post #{post.reply_to_post_id}
                 </div>
               )}
-              {editingPostId === post.id ? (
+              {post.is_deleted ? (
+                <div className="forum-post__deleted-placeholder">
+                  <em style={{ color: "var(--text-muted, #888)" }}>
+                    [This post has been deleted]
+                  </em>
+                  {isMod && (
+                    <div
+                      className="forum-post__actions"
+                      style={{ marginTop: "0.5rem" }}
+                    >
+                      <button
+                        className="forum-post__edit-btn"
+                        onClick={() => handleToggleDeletedContent(post.id)}
+                      >
+                        {expandedDeletedPosts.has(post.id)
+                          ? "Hide Content"
+                          : "View Content"}
+                      </button>
+                      <button
+                        className="forum-post__edit-btn"
+                        onClick={() => handleRestorePost(post.id)}
+                        disabled={modLoading}
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  )}
+                  {isMod && expandedDeletedPosts.has(post.id) && (
+                    <div
+                      className="forum-post__body"
+                      style={{ marginTop: "0.5rem", opacity: 0.6 }}
+                    >
+                      <MarkdownRenderer content={post.body} />
+                    </div>
+                  )}
+                </div>
+              ) : editingPostId === post.id ? (
                 <div className="forum-post__edit-form">
                   <textarea
                     value={editBody}
@@ -625,10 +728,19 @@ export function ForumTopicViewPage() {
                   {post.edited_at && (
                     <div className="forum-post__edited">
                       Edited {timeAgo(post.edited_at)}
+                      {isMod && (
+                        <button
+                          className="forum-post__edit-btn"
+                          style={{ marginLeft: "0.5rem", fontSize: "0.75rem" }}
+                          onClick={() => handleViewEditHistory(post.id)}
+                        >
+                          History
+                        </button>
+                      )}
                     </div>
                   )}
                   <div className="forum-post__actions">
-                    {canReply && (
+                    {canReply && !post.is_deleted && (
                       <button
                         className="forum-post__quote-btn"
                         onClick={() => handleQuote(post)}
@@ -930,6 +1042,83 @@ export function ForumTopicViewPage() {
             disabled={modLoading}
           >
             Delete
+          </button>
+        </div>
+      </Modal>
+
+      {/* Edit History Modal */}
+      <Modal
+        isOpen={editHistoryPostId !== null}
+        onClose={() => setEditHistoryPostId(null)}
+        title="Edit History"
+      >
+        <div className="modal-body">
+          {editHistoryLoading ? (
+            <p>Loading...</p>
+          ) : editHistory.length === 0 ? (
+            <p>No edit history found.</p>
+          ) : (
+            <div style={{ maxHeight: "400px", overflow: "auto" }}>
+              {editHistory.map((edit) => (
+                <div
+                  key={edit.id}
+                  style={{
+                    marginBottom: "1rem",
+                    borderBottom: "1px solid var(--border-color, #333)",
+                    paddingBottom: "0.75rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "var(--text-muted, #888)",
+                      marginBottom: "0.25rem",
+                    }}
+                  >
+                    Edited by{" "}
+                    <strong>
+                      {edit.username ?? `User #${edit.edited_by}`}
+                    </strong>{" "}
+                    {timeAgo(edit.created_at)}
+                  </div>
+                  <div style={{ fontSize: "0.85rem" }}>
+                    <div
+                      style={{
+                        color: "var(--danger-color, #c44)",
+                        marginBottom: "0.25rem",
+                      }}
+                    >
+                      <strong>Before:</strong>
+                      <pre
+                        style={{
+                          whiteSpace: "pre-wrap",
+                          margin: "0.25rem 0",
+                          opacity: 0.7,
+                        }}
+                      >
+                        {edit.old_body}
+                      </pre>
+                    </div>
+                    <div style={{ color: "var(--success-color, #4c4)" }}>
+                      <strong>After:</strong>
+                      <pre
+                        style={{ whiteSpace: "pre-wrap", margin: "0.25rem 0" }}
+                      >
+                        {edit.new_body}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button
+            className="modal-btn modal-btn--secondary"
+            onClick={() => setEditHistoryPostId(null)}
+          >
+            Close
           </button>
         </div>
       </Modal>

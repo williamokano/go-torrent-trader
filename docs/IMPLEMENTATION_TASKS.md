@@ -1235,7 +1235,7 @@
 
 > **Note:** This is a tech-debt task. Should be addressed incrementally — each new PR must not decrease coverage, and dedicated test sprints can bring existing packages up to the threshold.
 
-#### BE-9.7: Forum Post Soft-Delete & Edit History [M]
+#### BE-9.7: Forum Post Soft-Delete & Edit History [M] [DONE]
 **As a** moderator
 **I want** deleted posts to be soft-deleted and edits to be tracked
 **So that** moderation actions are reversible and edit abuse is prevented

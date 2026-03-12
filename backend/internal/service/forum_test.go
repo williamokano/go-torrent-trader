@@ -137,6 +137,11 @@ type mockForumPostRepo struct{
 	firstPostID   int64
 	updated       *model.ForumPost
 	deleted       int64
+	softDeleted   int64
+	softDeletedBy int64
+	restored      int64
+	edits         []model.ForumPostEdit
+	createdEdit   *model.ForumPostEdit
 	searchResults []model.ForumSearchResult
 	searchTotal   int64
 	searchErr     error
@@ -149,6 +154,10 @@ func (m *mockForumPostRepo) Delete(_ context.Context, id int64) error { m.delete
 func (m *mockForumPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockForumPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return m.searchResults, m.searchTotal, m.searchErr }
 func (m *mockForumPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) { return m.firstPostID, nil }
+func (m *mockForumPostRepo) SoftDelete(_ context.Context, id int64, deletedBy int64) error { m.softDeleted = id; m.softDeletedBy = deletedBy; return nil }
+func (m *mockForumPostRepo) Restore(_ context.Context, id int64) error { m.restored = id; return nil }
+func (m *mockForumPostRepo) CreateEdit(_ context.Context, edit *model.ForumPostEdit) error { m.createdEdit = edit; edit.ID = 1; edit.CreatedAt = time.Now(); return nil }
+func (m *mockForumPostRepo) ListEdits(_ context.Context, _ int64) ([]model.ForumPostEdit, error) { return m.edits, nil }
 
 type mockForumUserRepo struct{ user *model.User; err error }
 func (m *mockForumUserRepo) GetByID(_ context.Context, _ int64) (*model.User, error) { return m.user, m.err }
@@ -486,8 +495,8 @@ func TestForumService_DeletePost_AuthorSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if postRepo.deleted != 10 {
-		t.Errorf("expected Delete(10), got %d", postRepo.deleted)
+	if postRepo.softDeleted != 10 {
+		t.Errorf("expected SoftDelete(10), got %d", postRepo.softDeleted)
 	}
 }
 
@@ -1283,5 +1292,157 @@ func TestAdminDeleteForum_HasTopics(t *testing.T) {
 	err := svc.AdminDeleteForum(context.Background(), 1, event.Actor{})
 	if !errors.Is(err, ErrForumHasTopics) {
 		t.Errorf("expected ErrForumHasTopics, got %v", err)
+	}
+}
+
+// --- Soft-delete & Edit History tests ---
+
+func TestForumService_DeletePost_SoftDeletesCalled(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "to soft-delete"},
+		},
+		firstPostID: 1,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+		nil,
+	)
+	err := svc.DeletePost(context.Background(), 10, 5, model.Permissions{Level: 5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.softDeleted != 10 {
+		t.Errorf("expected SoftDelete(10), got %d", postRepo.softDeleted)
+	}
+	if postRepo.softDeletedBy != 5 {
+		t.Errorf("expected SoftDeleteBy=5, got %d", postRepo.softDeletedBy)
+	}
+}
+
+func TestForumService_RestorePost_StaffSuccess(t *testing.T) {
+	now := time.Now()
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "deleted post", DeletedAt: &now, DeletedBy: ptrInt64(99)},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil, nil,
+	)
+	err := svc.RestorePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.restored != 10 {
+		t.Errorf("expected Restore(10), got %d", postRepo.restored)
+	}
+}
+
+func TestForumService_RestorePost_NonStaffDenied(t *testing.T) {
+	now := time.Now()
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "deleted post", DeletedAt: &now},
+		},
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	err := svc.RestorePost(context.Background(), 10, 5, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied, got %v", err)
+	}
+}
+
+func TestForumService_RestorePost_NotDeleted(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "active post"},
+		},
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	err := svc.RestorePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true})
+	if !errors.Is(err, ErrPostNotDeleted) {
+		t.Errorf("expected ErrPostNotDeleted, got %v", err)
+	}
+}
+
+func TestForumService_RestorePost_NotFound(t *testing.T) {
+	postRepo := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{}}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	err := svc.RestorePost(context.Background(), 999, 99, model.Permissions{Level: 200, IsAdmin: true})
+	if !errors.Is(err, ErrPostNotFound) {
+		t.Errorf("expected ErrPostNotFound, got %v", err)
+	}
+}
+
+func TestForumService_ListPostEdits_StaffSuccess(t *testing.T) {
+	edits := []model.ForumPostEdit{
+		{ID: 1, PostID: 10, EditedBy: 5, OldBody: "v1", NewBody: "v2", CreatedAt: time.Now(), Username: "alice"},
+	}
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "v2"},
+		},
+		edits: edits,
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	result, err := svc.ListPostEdits(context.Background(), 10, model.Permissions{Level: 200, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 edit, got %d", len(result))
+	}
+	if result[0].OldBody != "v1" {
+		t.Errorf("expected old body 'v1', got %q", result[0].OldBody)
+	}
+}
+
+func TestForumService_ListPostEdits_NonStaffDenied(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "body"},
+		},
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	_, err := svc.ListPostEdits(context.Background(), 10, model.Permissions{Level: 5})
+	if !errors.Is(err, ErrForumAccessDenied) {
+		t.Errorf("expected ErrForumAccessDenied, got %v", err)
+	}
+}
+
+func TestForumService_EditPost_CreatesEditHistory(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+		nil,
+	)
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.createdEdit == nil {
+		t.Fatal("expected CreateEdit to be called")
+	}
+	if postRepo.createdEdit.OldBody != "old body" {
+		t.Errorf("expected old body 'old body', got %q", postRepo.createdEdit.OldBody)
+	}
+	if postRepo.createdEdit.NewBody != "new body" {
+		t.Errorf("expected new body 'new body', got %q", postRepo.createdEdit.NewBody)
+	}
+	if postRepo.createdEdit.EditedBy != 5 {
+		t.Errorf("expected edited_by=5, got %d", postRepo.createdEdit.EditedBy)
 	}
 }

@@ -661,4 +661,119 @@ describe("ForumTopicViewPage", () => {
       expect(input.value).toBe("Test Topic");
     });
   });
+
+  // --- Soft-delete tests ---
+
+  test("shows deleted placeholder for soft-deleted posts", async () => {
+    const deletedResponse = {
+      ...FAKE_RESPONSE,
+      posts: [
+        FAKE_RESPONSE.posts[0],
+        {
+          ...FAKE_RESPONSE.posts[1],
+          is_deleted: true,
+          deleted_at: "2025-06-01T10:00:00Z",
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(deletedResponse),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("[This post has been deleted]"),
+    ).toBeInTheDocument();
+    // The deleted post body should not be visible
+    expect(screen.queryByText("Reply body")).not.toBeInTheDocument();
+  });
+
+  test("staff sees View Content and Restore buttons on deleted posts", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    const deletedResponse = {
+      ...FAKE_RESPONSE,
+      posts: [
+        FAKE_RESPONSE.posts[0],
+        {
+          ...FAKE_RESPONSE.posts[1],
+          is_deleted: true,
+          deleted_at: "2025-06-01T10:00:00Z",
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(deletedResponse),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(screen.getByText("View Content")).toBeInTheDocument();
+    expect(screen.getByText("Restore")).toBeInTheDocument();
+  });
+
+  test("non-staff does not see View Content or Restore on deleted posts", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 3, username: "charlie", isAdmin: false, isStaff: false },
+      isAuthenticated: true,
+    });
+    const deletedResponse = {
+      ...FAKE_RESPONSE,
+      posts: [
+        FAKE_RESPONSE.posts[0],
+        {
+          ...FAKE_RESPONSE.posts[1],
+          is_deleted: true,
+          deleted_at: "2025-06-01T10:00:00Z",
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(deletedResponse),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("[This post has been deleted]"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("View Content")).not.toBeInTheDocument();
+    expect(screen.queryByText("Restore")).not.toBeInTheDocument();
+  });
+
+  test("staff sees History button on edited posts", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    const editedResponse = {
+      ...FAKE_RESPONSE,
+      posts: [
+        FAKE_RESPONSE.posts[0],
+        {
+          ...FAKE_RESPONSE.posts[1],
+          edited_at: "2025-06-01T10:00:00Z",
+          edited_by: 2,
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(editedResponse),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(screen.getByText("History")).toBeInTheDocument();
+  });
 });

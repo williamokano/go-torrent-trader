@@ -27,6 +27,10 @@ func (m *mockHandlerForumPostRepo) Delete(_ context.Context, _ int64) error { re
 func (m *mockHandlerForumPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockHandlerForumPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return nil, 0, nil }
 func (m *mockHandlerForumPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) { return 0, nil }
+func (m *mockHandlerForumPostRepo) SoftDelete(_ context.Context, _ int64, _ int64) error { return nil }
+func (m *mockHandlerForumPostRepo) Restore(_ context.Context, _ int64) error { return nil }
+func (m *mockHandlerForumPostRepo) CreateEdit(_ context.Context, _ *model.ForumPostEdit) error { return nil }
+func (m *mockHandlerForumPostRepo) ListEdits(_ context.Context, _ int64) ([]model.ForumPostEdit, error) { return nil, nil }
 
 func withForumAuth(r *http.Request, userID int64, perms model.Permissions) *http.Request {
 	ctx := context.WithValue(r.Context(), middleware.UserIDKey, userID)

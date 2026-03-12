@@ -37,6 +37,7 @@ var (
 	ErrInvalidForum             = errors.New("invalid forum")
 	ErrForumHasTopics           = errors.New("forum has topics and cannot be deleted")
 	ErrModHierarchyDenied       = errors.New("insufficient permissions: cannot moderate topics by higher-ranked users")
+	ErrPostNotDeleted           = errors.New("post is not deleted")
 )
 
 const viewCountDebounce = 15 * time.Minute
@@ -392,6 +393,17 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 		return nil, ErrForumAccessDenied
 	}
 
+	// Record edit history before updating
+	edit := &model.ForumPostEdit{
+		PostID:   postID,
+		EditedBy: userID,
+		OldBody:  post.Body,
+		NewBody:  body,
+	}
+	if err := s.posts.CreateEdit(ctx, edit); err != nil {
+		return nil, fmt.Errorf("creating edit history: %w", err)
+	}
+
 	post.Body = body
 	post.EditedBy = &userID
 	if err := s.posts.Update(ctx, post); err != nil {
@@ -461,13 +473,13 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 
 	if s.db != nil {
 		return repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM forum_posts WHERE id = $1", post.ID); err != nil {
-				return fmt.Errorf("delete post: %w", err)
+			if _, err := tx.ExecContext(ctx, "UPDATE forum_posts SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1", post.ID, userID); err != nil {
+				return fmt.Errorf("soft delete post: %w", err)
 			}
 			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = GREATEST(post_count - 1, 0) WHERE id = $1", post.TopicID); err != nil {
 				return fmt.Errorf("decrement topic post count: %w", err)
 			}
-			// Recalculate topic last_post using a single atomic subquery
+			// Recalculate topic last_post using a single atomic subquery (excluding soft-deleted)
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE forum_topics SET
 					last_post_id = sub.id,
@@ -475,7 +487,7 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 					updated_at = NOW()
 				FROM (
 					SELECT id, created_at FROM forum_posts
-					WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1
+					WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1
 				) sub
 				WHERE forum_topics.id = $1`, post.TopicID); err != nil {
 				return fmt.Errorf("recalculate topic last post: %w", err)
@@ -483,13 +495,13 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 			if _, err := tx.ExecContext(ctx, "UPDATE forums SET post_count = GREATEST(post_count - 1, 0) WHERE id = $1", topic.ForumID); err != nil {
 				return fmt.Errorf("decrement forum post count: %w", err)
 			}
-			// Recalculate forum last_post using a single atomic subquery
+			// Recalculate forum last_post using a single atomic subquery (excluding soft-deleted)
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE forums SET last_post_id = sub.id
 				FROM (
 					SELECT p.id FROM forum_posts p
 					JOIN forum_topics t ON t.id = p.topic_id
-					WHERE t.forum_id = $1
+					WHERE t.forum_id = $1 AND p.deleted_at IS NULL
 					ORDER BY p.created_at DESC LIMIT 1
 				) sub
 				WHERE forums.id = $1`, topic.ForumID); err != nil {
@@ -500,8 +512,8 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 	}
 
 	// Non-transactional path (used in tests with nil db)
-	if err := s.posts.Delete(ctx, post.ID); err != nil {
-		return fmt.Errorf("delete post: %w", err)
+	if err := s.posts.SoftDelete(ctx, post.ID, userID); err != nil {
+		return fmt.Errorf("soft delete post: %w", err)
 	}
 	if err := s.topics.IncrementPostCount(ctx, post.TopicID, -1); err != nil {
 		return fmt.Errorf("decrement topic post count: %w", err)
@@ -516,6 +528,102 @@ func (s *ForumService) DeletePost(ctx context.Context, postID int64, userID int6
 		return fmt.Errorf("recalculate forum last post: %w", err)
 	}
 	return nil
+}
+
+// RestorePost restores a soft-deleted forum post. Staff only.
+// It increments topic/forum counters and recalculates last post.
+func (s *ForumService) RestorePost(ctx context.Context, postID int64, userID int64, perms model.Permissions) error {
+	if !perms.IsStaff() {
+		return ErrForumAccessDenied
+	}
+
+	post, err := s.posts.GetByID(ctx, postID)
+	if err != nil {
+		return ErrPostNotFound
+	}
+	if post.DeletedAt == nil {
+		return ErrPostNotDeleted
+	}
+
+	topic, err := s.topics.GetByID(ctx, post.TopicID)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+
+	if s.db != nil {
+		return repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "UPDATE forum_posts SET deleted_at = NULL, deleted_by = NULL WHERE id = $1", post.ID); err != nil {
+				return fmt.Errorf("restore post: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = post_count + 1 WHERE id = $1", post.TopicID); err != nil {
+				return fmt.Errorf("increment topic post count: %w", err)
+			}
+			// Recalculate topic last_post (excluding soft-deleted)
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forum_topics SET
+					last_post_id = sub.id,
+					last_post_at = sub.created_at,
+					updated_at = NOW()
+				FROM (
+					SELECT id, created_at FROM forum_posts
+					WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1
+				) sub
+				WHERE forum_topics.id = $1`, post.TopicID); err != nil {
+				return fmt.Errorf("recalculate topic last post: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE forums SET post_count = post_count + 1 WHERE id = $1", topic.ForumID); err != nil {
+				return fmt.Errorf("increment forum post count: %w", err)
+			}
+			// Recalculate forum last_post (excluding soft-deleted)
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE forums SET last_post_id = sub.id
+				FROM (
+					SELECT p.id FROM forum_posts p
+					JOIN forum_topics t ON t.id = p.topic_id
+					WHERE t.forum_id = $1 AND p.deleted_at IS NULL
+					ORDER BY p.created_at DESC LIMIT 1
+				) sub
+				WHERE forums.id = $1`, topic.ForumID); err != nil {
+				return fmt.Errorf("recalculate forum last post: %w", err)
+			}
+			return nil
+		})
+	}
+
+	// Non-transactional path (used in tests with nil db)
+	if err := s.posts.Restore(ctx, post.ID); err != nil {
+		return fmt.Errorf("restore post: %w", err)
+	}
+	if err := s.topics.IncrementPostCount(ctx, post.TopicID, 1); err != nil {
+		return fmt.Errorf("increment topic post count: %w", err)
+	}
+	if err := s.topics.RecalculateLastPost(ctx, post.TopicID); err != nil {
+		return fmt.Errorf("recalculate topic last post: %w", err)
+	}
+	if err := s.forums.IncrementPostCount(ctx, topic.ForumID, 1); err != nil {
+		return fmt.Errorf("increment forum post count: %w", err)
+	}
+	if err := s.forums.RecalculateLastPost(ctx, topic.ForumID); err != nil {
+		return fmt.Errorf("recalculate forum last post: %w", err)
+	}
+	return nil
+}
+
+// ListPostEdits returns the edit history for a forum post. Staff only.
+func (s *ForumService) ListPostEdits(ctx context.Context, postID int64, perms model.Permissions) ([]model.ForumPostEdit, error) {
+	if !perms.IsStaff() {
+		return nil, ErrForumAccessDenied
+	}
+
+	if _, err := s.posts.GetByID(ctx, postID); err != nil {
+		return nil, ErrPostNotFound
+	}
+
+	edits, err := s.posts.ListEdits(ctx, postID)
+	if err != nil {
+		return nil, fmt.Errorf("list post edits: %w", err)
+	}
+	return edits, nil
 }
 
 func (s *ForumService) requireStaff(perms model.Permissions) error {

@@ -22,7 +22,7 @@ func NewForumPostRepo(db *sql.DB) repository.ForumPostRepository {
 
 func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost, error) {
 	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
-		p.edited_at, p.edited_by, p.created_at,
+		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
 		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id)
 	FROM forum_posts p
@@ -33,7 +33,7 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 	var post model.ForumPost
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&post.ID, &post.TopicID, &post.UserID, &post.Body, &post.ReplyToPostID,
-		&post.EditedAt, &post.EditedBy, &post.CreatedAt,
+		&post.EditedAt, &post.EditedBy, &post.DeletedAt, &post.DeletedBy, &post.CreatedAt,
 		&post.Username, &post.Avatar, &post.GroupName, &post.UserCreatedAt,
 		&post.UserPostCount,
 	)
@@ -46,7 +46,7 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error) {
 	var total int64
 	err := r.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1", topicID,
+		"SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL", topicID,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count posts: %w", err)
@@ -54,7 +54,7 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 
 	offset := (page - 1) * perPage
 	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
-		p.edited_at, p.edited_by, p.created_at,
+		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
 		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id)
 	FROM forum_posts p
@@ -75,7 +75,7 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 		var post model.ForumPost
 		if err := rows.Scan(
 			&post.ID, &post.TopicID, &post.UserID, &post.Body, &post.ReplyToPostID,
-			&post.EditedAt, &post.EditedBy, &post.CreatedAt,
+			&post.EditedAt, &post.EditedBy, &post.DeletedAt, &post.DeletedBy, &post.CreatedAt,
 			&post.Username, &post.Avatar, &post.GroupName, &post.UserCreatedAt,
 			&post.UserPostCount,
 		); err != nil {
@@ -112,7 +112,7 @@ func (r *ForumPostRepo) Delete(ctx context.Context, id int64) error {
 func (r *ForumPostRepo) CountByUser(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM forum_posts WHERE user_id = $1", userID,
+		"SELECT COUNT(*) FROM forum_posts WHERE user_id = $1 AND deleted_at IS NULL", userID,
 	).Scan(&count)
 	return count, err
 }
@@ -125,8 +125,9 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 
 	// Build conditions for the WHERE clause.
 	conditions := []string{
-		"(p.search_vector @@ to_tsquery('english', $1) OR (t.search_vector @@ to_tsquery('english', $1) AND p.id = (SELECT MIN(fp.id) FROM forum_posts fp WHERE fp.topic_id = t.id)))",
+		"(p.search_vector @@ to_tsquery('english', $1) OR (t.search_vector @@ to_tsquery('english', $1) AND p.id = (SELECT MIN(fp.id) FROM forum_posts fp WHERE fp.topic_id = t.id AND fp.deleted_at IS NULL)))",
 		fmt.Sprintf("f.min_group_level <= $%d", 2),
+		"p.deleted_at IS NULL",
 	}
 	args := []any{tsQuery, maxGroupLevel}
 	argIdx := 2
@@ -193,7 +194,56 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 func (r *ForumPostRepo) GetFirstPostIDByTopic(ctx context.Context, topicID int64) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id FROM forum_posts WHERE topic_id = $1 ORDER BY id ASC LIMIT 1", topicID,
+		"SELECT id FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", topicID,
 	).Scan(&id)
 	return id, err
+}
+
+func (r *ForumPostRepo) SoftDelete(ctx context.Context, id int64, deletedBy int64) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_posts SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1",
+		id, deletedBy,
+	)
+	return err
+}
+
+func (r *ForumPostRepo) Restore(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE forum_posts SET deleted_at = NULL, deleted_by = NULL WHERE id = $1",
+		id,
+	)
+	return err
+}
+
+func (r *ForumPostRepo) CreateEdit(ctx context.Context, edit *model.ForumPostEdit) error {
+	return r.db.QueryRowContext(ctx,
+		`INSERT INTO forum_post_edits (post_id, edited_by, old_body, new_body)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at`,
+		edit.PostID, edit.EditedBy, edit.OldBody, edit.NewBody,
+	).Scan(&edit.ID, &edit.CreatedAt)
+}
+
+func (r *ForumPostRepo) ListEdits(ctx context.Context, postID int64) ([]model.ForumPostEdit, error) {
+	query := `SELECT e.id, e.post_id, e.edited_by, e.old_body, e.new_body, e.created_at, u.username
+		FROM forum_post_edits e
+		JOIN users u ON u.id = e.edited_by
+		WHERE e.post_id = $1
+		ORDER BY e.created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, postID)
+	if err != nil {
+		return nil, fmt.Errorf("list edits: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var edits []model.ForumPostEdit
+	for rows.Next() {
+		var e model.ForumPostEdit
+		if err := rows.Scan(&e.ID, &e.PostID, &e.EditedBy, &e.OldBody, &e.NewBody, &e.CreatedAt, &e.Username); err != nil {
+			return nil, fmt.Errorf("scan edit: %w", err)
+		}
+		edits = append(edits, e)
+	}
+	return edits, rows.Err()
 }
