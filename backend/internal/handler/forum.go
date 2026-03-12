@@ -155,12 +155,15 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 		postItems = append(postItems, postResponse(&p))
 	}
 
+	canModerate := h.forumSvc.CanModerate(r.Context(), topic, userID, perms)
+
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"topic":    topicResponse(topic),
-		"posts":    postItems,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
+		"topic":        topicResponse(topic),
+		"posts":        postItems,
+		"total":        total,
+		"page":         page,
+		"per_page":     perPage,
+		"can_moderate": canModerate,
 	})
 }
 

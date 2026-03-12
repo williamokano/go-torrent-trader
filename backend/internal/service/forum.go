@@ -552,6 +552,22 @@ func (s *ForumService) checkModHierarchy(ctx context.Context, perms model.Permis
 	return nil
 }
 
+// CanModerate checks whether the given user/perms can moderate the specified topic.
+// Returns true if the user is staff and passes the hierarchy check, or if the owner
+// is within the grace period.
+func (s *ForumService) CanModerate(ctx context.Context, topic *model.ForumTopic, userID int64, perms model.Permissions) bool {
+	if userID == topic.UserID && perms.CanForum && time.Since(topic.CreatedAt) <= ownerGracePeriod {
+		return true
+	}
+	if !perms.IsStaff() {
+		return false
+	}
+	if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+		return false
+	}
+	return true
+}
+
 // LockTopic locks a topic so no new replies can be posted.
 // Staff can lock any topic (subject to hierarchy). Topic owners can lock their own
 // topics within the grace period (30 minutes from creation).

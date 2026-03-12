@@ -67,6 +67,7 @@ export function ForumTopicViewPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [canModerate, setCanModerate] = useState(false);
 
   const [replyBody, setReplyBody] = useState("");
   const [replyToPostId, setReplyToPostId] = useState<number | null>(null);
@@ -120,6 +121,7 @@ export function ForumTopicViewPage() {
       setTopic(data.topic ?? null);
       setPosts(data.posts ?? []);
       setTotal(data.total ?? 0);
+      setCanModerate(data.can_moderate ?? false);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -318,7 +320,6 @@ export function ForumTopicViewPage() {
     }
   };
 
-  const isMod = !!(user?.isAdmin || user?.isStaff);
 
   const modAction = async (url: string, method: string, body?: object) => {
     setModLoading(true);
@@ -469,7 +470,7 @@ export function ForumTopicViewPage() {
       <div className="topic-view-page__title-row">
         <h1>
           {topic.title}
-          {!isMod && !!user && user.id === topic.user_id && !topic.locked && (
+          {!canModerate && !!user && user.id === topic.user_id && !topic.locked && (
             <button
               className="forum-post__edit-btn"
               style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
@@ -498,7 +499,7 @@ export function ForumTopicViewPage() {
         )}
       </div>
 
-      {isMod && (
+      {canModerate && (
         <div className="forum-mod-toolbar">
           <button
             onClick={() => {

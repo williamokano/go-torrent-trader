@@ -110,9 +110,12 @@ const FAKE_RESPONSE = {
   total: 2,
   page: 1,
   per_page: 25,
+  can_moderate: false,
 };
+const MOD_RESPONSE = { ...FAKE_RESPONSE, can_moderate: true };
 const LOCKED_RESPONSE = {
   ...FAKE_RESPONSE,
+  can_moderate: true,
   topic: { ...FAKE_RESPONSE.topic, locked: true },
 };
 const mockFetch = vi.fn();
@@ -438,6 +441,10 @@ describe("ForumTopicViewPage", () => {
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
@@ -454,6 +461,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 2, username: "mod", isAdmin: false, isStaff: true },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
@@ -478,6 +489,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
@@ -520,6 +535,10 @@ describe("ForumTopicViewPage", () => {
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
@@ -561,6 +580,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
@@ -618,6 +641,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
