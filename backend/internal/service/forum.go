@@ -962,22 +962,43 @@ func (s *ForumService) AdminUpdateCategory(ctx context.Context, id int64, req Up
 }
 
 // AdminDeleteCategory deletes a forum category if it has no forums.
+// Uses a transaction (when db is available) to make the count + delete atomic,
+// preventing a TOCTOU race where a forum could be added between the check and delete.
 func (s *ForumService) AdminDeleteCategory(ctx context.Context, id int64, actor event.Actor) error {
 	cat, err := s.categories.GetByID(ctx, id)
 	if err != nil {
 		return ErrForumCategoryNotFound
 	}
 
-	count, err := s.categories.CountForumsByCategory(ctx, id)
-	if err != nil {
-		return fmt.Errorf("check forums: %w", err)
-	}
-	if count > 0 {
-		return ErrForumCategoryHasForums
-	}
-
-	if err := s.categories.Delete(ctx, id); err != nil {
-		return fmt.Errorf("delete forum category: %w", err)
+	if s.db != nil {
+		err = repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			var count int64
+			if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM forums WHERE category_id = $1", id).Scan(&count); err != nil {
+				return fmt.Errorf("check forums: %w", err)
+			}
+			if count > 0 {
+				return ErrForumCategoryHasForums
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM forum_categories WHERE id = $1", id); err != nil {
+				return fmt.Errorf("delete forum category: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		// Non-transactional fallback (used in tests with nil db)
+		count, err := s.categories.CountForumsByCategory(ctx, id)
+		if err != nil {
+			return fmt.Errorf("check forums: %w", err)
+		}
+		if count > 0 {
+			return ErrForumCategoryHasForums
+		}
+		if err := s.categories.Delete(ctx, id); err != nil {
+			return fmt.Errorf("delete forum category: %w", err)
+		}
 	}
 
 	if s.eventBus != nil {
@@ -1112,22 +1133,43 @@ func (s *ForumService) AdminUpdateForum(ctx context.Context, id int64, req Updat
 }
 
 // AdminDeleteForum deletes a forum if it has no topics.
+// Uses a transaction (when db is available) to make the count + delete atomic,
+// preventing a TOCTOU race where a topic could be added between the check and delete.
 func (s *ForumService) AdminDeleteForum(ctx context.Context, id int64, actor event.Actor) error {
 	forum, err := s.forums.GetByID(ctx, id)
 	if err != nil {
 		return ErrForumNotFound
 	}
 
-	count, err := s.forums.CountTopicsByForum(ctx, id)
-	if err != nil {
-		return fmt.Errorf("check topics: %w", err)
-	}
-	if count > 0 {
-		return ErrForumHasTopics
-	}
-
-	if err := s.forums.Delete(ctx, id); err != nil {
-		return fmt.Errorf("delete forum: %w", err)
+	if s.db != nil {
+		err = repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			var count int64
+			if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1", id).Scan(&count); err != nil {
+				return fmt.Errorf("check topics: %w", err)
+			}
+			if count > 0 {
+				return ErrForumHasTopics
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM forums WHERE id = $1", id); err != nil {
+				return fmt.Errorf("delete forum: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		// Non-transactional fallback (used in tests with nil db)
+		count, err := s.forums.CountTopicsByForum(ctx, id)
+		if err != nil {
+			return fmt.Errorf("check topics: %w", err)
+		}
+		if count > 0 {
+			return ErrForumHasTopics
+		}
+		if err := s.forums.Delete(ctx, id); err != nil {
+			return fmt.Errorf("delete forum: %w", err)
+		}
 	}
 
 	if s.eventBus != nil {

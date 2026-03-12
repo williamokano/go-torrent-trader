@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
+import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import "./admin-forums.css";
 
 interface Group {
@@ -81,6 +82,12 @@ export function AdminForumsPage() {
   const [forumSaving, setForumSaving] = useState(false);
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: "category" | "forum";
+    id: number;
+    name: string;
+  } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     const token = getAccessToken();
@@ -187,31 +194,42 @@ export function AdminForumsPage() {
     }
   };
 
-  const handleDeleteCat = async (id: number) => {
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
     setDeleteError(null);
-    if (
-      !window.confirm("Are you sure you want to delete this forum category?")
-    ) {
-      return;
-    }
-
     const token = getAccessToken();
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/forum-categories/${id}`,
-      {
+
+    const url =
+      deleteTarget.type === "category"
+        ? `${getConfig().API_URL}/api/v1/admin/forum-categories/${deleteTarget.id}`
+        : `${getConfig().API_URL}/api/v1/admin/forums/${deleteTarget.id}`;
+
+    try {
+      const res = await fetch(url, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
-      },
-    );
+      });
 
-    if (res.ok || res.status === 204) {
-      toast.success("Category deleted");
-      fetchData();
-    } else {
-      const data = await res.json().catch(() => null);
-      const msg = data?.error?.message ?? "Failed to delete category";
-      setDeleteError(msg);
-      toast.error(msg);
+      if (res.ok || res.status === 204) {
+        toast.success(
+          deleteTarget.type === "category"
+            ? "Category deleted"
+            : "Forum deleted",
+        );
+        setDeleteTarget(null);
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => null);
+        const msg =
+          data?.error?.message ??
+          `Failed to delete ${deleteTarget.type === "category" ? "category" : "forum"}`;
+        setDeleteError(msg);
+        toast.error(msg);
+        setDeleteTarget(null);
+      }
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -286,30 +304,12 @@ export function AdminForumsPage() {
     }
   };
 
-  const handleDeleteForum = async (id: number) => {
-    setDeleteError(null);
-    if (!window.confirm("Are you sure you want to delete this forum?")) {
-      return;
-    }
+  const handleDeleteForum = (forum: Forum) => {
+    setDeleteTarget({ type: "forum", id: forum.id, name: forum.name });
+  };
 
-    const token = getAccessToken();
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/forums/${id}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-
-    if (res.ok || res.status === 204) {
-      toast.success("Forum deleted");
-      fetchData();
-    } else {
-      const data = await res.json().catch(() => null);
-      const msg = data?.error?.message ?? "Failed to delete forum";
-      setDeleteError(msg);
-      toast.error(msg);
-    }
+  const handleDeleteCat = (cat: ForumCategory) => {
+    setDeleteTarget({ type: "category", id: cat.id, name: cat.name });
   };
 
   const getCategoryName = (id: number): string => {
@@ -387,7 +387,7 @@ export function AdminForumsPage() {
                     </button>
                     <button
                       className="admin-forums__delete-btn"
-                      onClick={() => handleDeleteCat(cat.id)}
+                      onClick={() => handleDeleteCat(cat)}
                     >
                       Delete
                     </button>
@@ -450,7 +450,7 @@ export function AdminForumsPage() {
                     </button>
                     <button
                       className="admin-forums__delete-btn"
-                      onClick={() => handleDeleteForum(forum.id)}
+                      onClick={() => handleDeleteForum(forum)}
                     >
                       Delete
                     </button>
@@ -575,6 +575,24 @@ export function AdminForumsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deleteTarget !== null}
+        title={
+          deleteTarget?.type === "category" ? "Delete Category" : "Delete Forum"
+        }
+        message={
+          deleteTarget
+            ? `Delete ${deleteTarget.type === "category" ? "category" : "forum"} '${deleteTarget.name}'? This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        danger
+        loading={deleteLoading}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

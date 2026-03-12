@@ -199,8 +199,6 @@ describe("AdminForumsPage", () => {
   });
 
   test("shows conflict error when deleting category with forums", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     let callCount = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       callCount++;
@@ -248,8 +246,22 @@ describe("AdminForumsPage", () => {
       expect(screen.getAllByText("General").length).toBeGreaterThanOrEqual(1);
     });
 
+    // Click the Delete button on the first category row to open the confirm modal
     const deleteButtons = screen.getAllByText("Delete");
     fireEvent.click(deleteButtons[0]);
+
+    // Wait for the ConfirmModal to appear and click the confirm button
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Delete Category")).toBeInTheDocument();
+
+    // Click the danger "Delete" confirm button inside the modal
+    const modalDialog = screen.getByRole("dialog");
+    const confirmButton = modalDialog.querySelector(
+      ".modal-btn--danger",
+    ) as HTMLElement;
+    fireEvent.click(confirmButton);
 
     await waitFor(() => {
       expect(
