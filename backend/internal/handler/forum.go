@@ -3,10 +3,12 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"html"
 	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -152,9 +154,10 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isStaff := perms.IsStaff()
+	firstPostID, _ := h.forumSvc.GetFirstPostID(r.Context(), topicID)
 	postItems := make([]map[string]interface{}, 0, len(posts))
 	for i := range posts {
-		if page == 1 && i == 0 {
+		if posts[i].ID == firstPostID {
 			posts[i].IsFirstPost = true
 		}
 		postItems = append(postItems, postResponse(&posts[i], isStaff))
@@ -282,9 +285,10 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	const topicPerPage = 25 // matches the default per_page in HandleGetTopic
 	items := make([]map[string]interface{}, 0, len(results))
 	for _, sr := range results {
-		resultPage := int(math.Ceil(float64(sr.PostNumber) / float64(perPage)))
+		resultPage := int(math.Ceil(float64(sr.PostNumber) / float64(topicPerPage)))
 		if resultPage < 1 {
 			resultPage = 1
 		}
@@ -298,7 +302,7 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 			"user_id":     sr.UserID,
 			"username":    sr.Username,
 			"created_at":  sr.CreatedAt,
-			"snippet":     sr.Snippet,
+			"snippet":     sanitizeSnippet(sr.Snippet),
 			"post_number": sr.PostNumber,
 			"page":        resultPage,
 		})
@@ -606,6 +610,16 @@ func (h *ForumHandler) HandleDeleteTopic(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// sanitizeSnippet HTML-escapes the snippet from ts_headline, then restores
+// only the marker tokens as <mark>/<\/mark> tags. This prevents XSS from
+// user content while preserving search highlighting.
+func sanitizeSnippet(s string) string {
+	s = html.EscapeString(s)
+	s = strings.ReplaceAll(s, "!!MARK_START!!", "<mark>")
+	s = strings.ReplaceAll(s, "!!MARK_END!!", "</mark>")
+	return s
 }
 
 func handleForumError(w http.ResponseWriter, err error) {

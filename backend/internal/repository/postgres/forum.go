@@ -128,21 +128,21 @@ func (r *ForumRepo) RecalculateLastPost(ctx context.Context, forumID int64) erro
 		FROM (
 			SELECT p.id FROM forum_posts p
 			JOIN forum_topics t ON t.id = p.topic_id
-			WHERE t.forum_id = $1
+			WHERE t.forum_id = $1 AND p.deleted_at IS NULL
 			ORDER BY p.created_at DESC LIMIT 1
 		) sub
 		WHERE forums.id = $1`, forumID)
 	if err != nil {
 		return err
 	}
-	// If no posts remain, set last_post_id to NULL
+	// If no non-deleted posts remain, set last_post_id to NULL
 	_, err = r.db.ExecContext(ctx, `
 		UPDATE forums SET last_post_id = NULL
 		WHERE id = $1
 			AND NOT EXISTS (
 				SELECT 1 FROM forum_posts p
 				JOIN forum_topics t ON t.id = p.topic_id
-				WHERE t.forum_id = $1
+				WHERE t.forum_id = $1 AND p.deleted_at IS NULL
 			)`, forumID)
 	return err
 }
@@ -151,8 +151,8 @@ func (r *ForumRepo) RecalculateCounts(ctx context.Context, forumID int64) error 
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE forums SET
 			topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
-			post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
-			last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
+			post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 AND fp.deleted_at IS NULL), 0),
+			last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 AND fp.deleted_at IS NULL ORDER BY fp.created_at DESC LIMIT 1)
 		WHERE id = $1`, forumID)
 	return err
 }

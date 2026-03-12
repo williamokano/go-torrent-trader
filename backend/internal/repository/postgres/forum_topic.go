@@ -122,13 +122,13 @@ func (r *ForumTopicRepo) RecalculateLastPost(ctx context.Context, topicID int64)
 			updated_at = NOW()
 		FROM (
 			SELECT id, created_at FROM forum_posts
-			WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 1
+			WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1
 		) sub
 		WHERE forum_topics.id = $1`, topicID)
 	if err != nil {
 		return err
 	}
-	// If no posts remain, the FROM subquery returns no rows so the UPDATE is a no-op.
+	// If no non-deleted posts remain, the FROM subquery returns no rows so the UPDATE is a no-op.
 	// Handle that by setting last_post fields to NULL.
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE forum_topics SET
@@ -136,7 +136,7 @@ func (r *ForumTopicRepo) RecalculateLastPost(ctx context.Context, topicID int64)
 			last_post_at = NULL,
 			updated_at = NOW()
 		WHERE id = $1
-			AND NOT EXISTS (SELECT 1 FROM forum_posts WHERE topic_id = $1)`, topicID)
+			AND NOT EXISTS (SELECT 1 FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL)`, topicID)
 	if err != nil {
 		return err
 	}

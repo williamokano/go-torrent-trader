@@ -93,14 +93,40 @@ func TestBuildPrefixQuery_LongInput(t *testing.T) {
 	if got == "" {
 		t.Error("BuildPrefixQuery with 100 words returned empty string")
 	}
-	// Should have 100 terms joined by " & "
+	// Should be capped at 20 terms
 	parts := strings.Split(got, " & ")
-	if len(parts) != 100 {
-		t.Errorf("expected 100 parts, got %d", len(parts))
+	if len(parts) != 20 {
+		t.Errorf("expected 20 parts (capped), got %d", len(parts))
 	}
 	for _, p := range parts {
 		if p != "word:*" {
 			t.Errorf("unexpected part: %q", p)
 		}
+	}
+}
+
+func TestBuildPrefixQuery_ExactlyTwentyWords(t *testing.T) {
+	words := make([]string, 20)
+	for i := range words {
+		words[i] = "term"
+	}
+	input := strings.Join(words, " ")
+	got := BuildPrefixQuery(input)
+	parts := strings.Split(got, " & ")
+	if len(parts) != 20 {
+		t.Errorf("expected 20 parts, got %d", len(parts))
+	}
+}
+
+func TestBuildPrefixQuery_TwentyOneWords(t *testing.T) {
+	words := make([]string, 21)
+	for i := range words {
+		words[i] = "term"
+	}
+	input := strings.Join(words, " ")
+	got := BuildPrefixQuery(input)
+	parts := strings.Split(got, " & ")
+	if len(parts) != 20 {
+		t.Errorf("expected 20 parts (truncated from 21), got %d", len(parts))
 	}
 }

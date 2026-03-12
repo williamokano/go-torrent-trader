@@ -152,6 +152,11 @@ func (s *ForumService) ListPosts(ctx context.Context, topicID int64, page, perPa
 	return s.posts.ListByTopic(ctx, topicID, page, perPage)
 }
 
+// GetFirstPostID returns the ID of the first (non-deleted) post in a topic.
+func (s *ForumService) GetFirstPostID(ctx context.Context, topicID int64) (int64, error) {
+	return s.posts.GetFirstPostIDByTopic(ctx, topicID)
+}
+
 // CreateTopic creates a new topic with the first post in a forum.
 // All operations are wrapped in a single database transaction to ensure atomicity.
 func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, perms model.Permissions, title, body string) (*model.ForumTopic, *model.ForumPost, error) {
@@ -393,10 +398,15 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 		return nil, ErrForumAccessDenied
 	}
 
+	// Skip update if body hasn't changed
+	if body == post.Body {
+		return post, nil
+	}
+
 	// Record edit history before updating
 	edit := &model.ForumPostEdit{
 		PostID:   postID,
-		EditedBy: userID,
+		EditedBy: &userID,
 		OldBody:  post.Body,
 		NewBody:  body,
 	}

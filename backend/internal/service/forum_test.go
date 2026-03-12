@@ -1382,7 +1382,7 @@ func TestForumService_RestorePost_NotFound(t *testing.T) {
 
 func TestForumService_ListPostEdits_StaffSuccess(t *testing.T) {
 	edits := []model.ForumPostEdit{
-		{ID: 1, PostID: 10, EditedBy: 5, OldBody: "v1", NewBody: "v2", CreatedAt: time.Now(), Username: "alice"},
+		{ID: 1, PostID: 10, EditedBy: int64Ptr(5), OldBody: "v1", NewBody: "v2", CreatedAt: time.Now(), Username: "alice"},
 	}
 	postRepo := &mockForumPostRepo{
 		postByID: map[int64]*model.ForumPost{
@@ -1442,7 +1442,9 @@ func TestForumService_EditPost_CreatesEditHistory(t *testing.T) {
 	if postRepo.createdEdit.NewBody != "new body" {
 		t.Errorf("expected new body 'new body', got %q", postRepo.createdEdit.NewBody)
 	}
-	if postRepo.createdEdit.EditedBy != 5 {
-		t.Errorf("expected edited_by=5, got %d", postRepo.createdEdit.EditedBy)
+	if postRepo.createdEdit.EditedBy == nil || *postRepo.createdEdit.EditedBy != 5 {
+		t.Errorf("expected edited_by=5, got %v", postRepo.createdEdit.EditedBy)
 	}
 }
+
+func int64Ptr(v int64) *int64 { return &v }

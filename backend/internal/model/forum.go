@@ -79,7 +79,7 @@ type ForumPost struct {
 type ForumPostEdit struct {
 	ID        int64     `json:"id"`
 	PostID    int64     `json:"post_id"`
-	EditedBy  int64     `json:"edited_by"`
+	EditedBy  *int64    `json:"edited_by"`
 	OldBody   string    `json:"old_body"`
 	NewBody   string    `json:"new_body"`
 	CreatedAt time.Time `json:"created_at"`
