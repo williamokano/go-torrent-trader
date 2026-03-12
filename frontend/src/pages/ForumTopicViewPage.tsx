@@ -94,6 +94,9 @@ export function ForumTopicViewPage() {
   const [selectedForumId, setSelectedForumId] = useState<number | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [modLoading, setModLoading] = useState(false);
+  const [modReason, setModReason] = useState("");
+  const [showLockConfirm, setShowLockConfirm] = useState(false);
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
 
   const fetchTopic = useCallback(async () => {
     setLoading(true);
@@ -346,39 +349,48 @@ export function ForumTopicViewPage() {
   const handleToggleLock = async () => {
     if (!topic) return;
     const action = topic.locked ? "unlock" : "lock";
+    const body = modReason.trim() ? { reason: modReason.trim() } : undefined;
     const ok = await modAction(
       `/api/v1/forums/topics/${topic.id}/${action}`,
       "POST",
+      body,
     );
     if (ok) {
       setTopic({ ...topic, locked: !topic.locked });
+      setShowLockConfirm(false);
+      setModReason("");
     }
   };
 
   const handleTogglePin = async () => {
     if (!topic) return;
     const action = topic.pinned ? "unpin" : "pin";
+    const body = modReason.trim() ? { reason: modReason.trim() } : undefined;
     const ok = await modAction(
       `/api/v1/forums/topics/${topic.id}/${action}`,
       "POST",
+      body,
     );
     if (ok) {
       setTopic({ ...topic, pinned: !topic.pinned });
+      setShowPinConfirm(false);
+      setModReason("");
     }
   };
 
   const handleRename = async () => {
     if (!topic || !renameTitle.trim()) return;
+    const body: Record<string, unknown> = { title: renameTitle.trim() };
+    if (modReason.trim()) body.reason = modReason.trim();
     const ok = await modAction(
       `/api/v1/forums/topics/${topic.id}/title`,
       "PUT",
-      {
-        title: renameTitle.trim(),
-      },
+      body,
     );
     if (ok) {
       setTopic({ ...topic, title: renameTitle.trim() });
       setShowRenameModal(false);
+      setModReason("");
     }
   };
 
@@ -410,24 +422,31 @@ export function ForumTopicViewPage() {
   const handleMove = async () => {
     if (!topic || !selectedForumId || selectedForumId === topic.forum_id)
       return;
+    const body: Record<string, unknown> = { forum_id: selectedForumId };
+    if (modReason.trim()) body.reason = modReason.trim();
     const ok = await modAction(
       `/api/v1/forums/topics/${topic.id}/move`,
       "POST",
-      {
-        forum_id: selectedForumId,
-      },
+      body,
     );
     if (ok) {
       setShowMoveModal(false);
+      setModReason("");
       await fetchTopic();
     }
   };
 
   const handleDelete = async () => {
     if (!topic) return;
-    const ok = await modAction(`/api/v1/forums/topics/${topic.id}`, "DELETE");
+    const body = modReason.trim() ? { reason: modReason.trim() } : undefined;
+    const ok = await modAction(
+      `/api/v1/forums/topics/${topic.id}`,
+      "DELETE",
+      body,
+    );
     if (ok) {
       setShowDeleteConfirm(false);
+      setModReason("");
       navigate(`/forums/${topic.forum_id}`);
     }
   };
@@ -481,26 +500,48 @@ export function ForumTopicViewPage() {
 
       {isMod && (
         <div className="forum-mod-toolbar">
-          <button onClick={handleToggleLock} disabled={modLoading}>
+          <button
+            onClick={() => {
+              setModReason("");
+              setShowLockConfirm(true);
+            }}
+            disabled={modLoading}
+          >
             {topic.locked ? "Unlock" : "Lock"}
           </button>
-          <button onClick={handleTogglePin} disabled={modLoading}>
+          <button
+            onClick={() => {
+              setModReason("");
+              setShowPinConfirm(true);
+            }}
+            disabled={modLoading}
+          >
             {topic.pinned ? "Unpin" : "Pin"}
           </button>
           <button
             onClick={() => {
               setRenameTitle(topic.title);
+              setModReason("");
               setShowRenameModal(true);
             }}
             disabled={modLoading}
           >
             Rename
           </button>
-          <button onClick={handleOpenMoveModal} disabled={modLoading}>
+          <button
+            onClick={() => {
+              setModReason("");
+              handleOpenMoveModal();
+            }}
+            disabled={modLoading}
+          >
             Move
           </button>
           <button
-            onClick={() => setShowDeleteConfirm(true)}
+            onClick={() => {
+              setModReason("");
+              setShowDeleteConfirm(true);
+            }}
             className="forum-mod-toolbar__danger"
             disabled={modLoading}
           >
@@ -677,6 +718,82 @@ export function ForumTopicViewPage() {
         </form>
       )}
 
+      {/* Lock/Unlock Confirm */}
+      <Modal
+        isOpen={showLockConfirm}
+        onClose={() => setShowLockConfirm(false)}
+        title={topic.locked ? "Unlock Topic" : "Lock Topic"}
+      >
+        <div className="modal-body">
+          <p style={{ margin: "0 0 0.75rem" }}>
+            {topic.locked
+              ? "This will allow new replies to be posted."
+              : "This will prevent new replies from being posted."}
+          </p>
+          <textarea
+            value={modReason}
+            onChange={(e) => setModReason(e.target.value)}
+            placeholder="Reason (optional)"
+            rows={2}
+            style={{ width: "100%", padding: "0.5rem", fontSize: "0.95rem" }}
+            aria-label="Moderation reason"
+          />
+        </div>
+        <div className="modal-footer">
+          <button
+            className="modal-btn modal-btn--secondary"
+            onClick={() => setShowLockConfirm(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="modal-btn modal-btn--primary"
+            onClick={handleToggleLock}
+            disabled={modLoading}
+          >
+            {topic.locked ? "Unlock" : "Lock"}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Pin/Unpin Confirm */}
+      <Modal
+        isOpen={showPinConfirm}
+        onClose={() => setShowPinConfirm(false)}
+        title={topic.pinned ? "Unpin Topic" : "Pin Topic"}
+      >
+        <div className="modal-body">
+          <p style={{ margin: "0 0 0.75rem" }}>
+            {topic.pinned
+              ? "This topic will no longer be pinned to the top."
+              : "This topic will be pinned to the top of the forum."}
+          </p>
+          <textarea
+            value={modReason}
+            onChange={(e) => setModReason(e.target.value)}
+            placeholder="Reason (optional)"
+            rows={2}
+            style={{ width: "100%", padding: "0.5rem", fontSize: "0.95rem" }}
+            aria-label="Moderation reason"
+          />
+        </div>
+        <div className="modal-footer">
+          <button
+            className="modal-btn modal-btn--secondary"
+            onClick={() => setShowPinConfirm(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="modal-btn modal-btn--primary"
+            onClick={handleTogglePin}
+            disabled={modLoading}
+          >
+            {topic.pinned ? "Unpin" : "Pin"}
+          </button>
+        </div>
+      </Modal>
+
       {/* Rename Modal */}
       <Modal
         isOpen={showRenameModal}
@@ -690,6 +807,19 @@ export function ForumTopicViewPage() {
             onChange={(e) => setRenameTitle(e.target.value)}
             style={{ width: "100%", padding: "0.5rem", fontSize: "0.95rem" }}
             aria-label="New topic title"
+          />
+          <textarea
+            value={modReason}
+            onChange={(e) => setModReason(e.target.value)}
+            placeholder="Reason (optional)"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "0.5rem",
+              fontSize: "0.95rem",
+              marginTop: "0.75rem",
+            }}
+            aria-label="Moderation reason"
           />
         </div>
         <div className="modal-footer">
@@ -731,6 +861,19 @@ export function ForumTopicViewPage() {
               </option>
             ))}
           </select>
+          <textarea
+            value={modReason}
+            onChange={(e) => setModReason(e.target.value)}
+            placeholder="Reason (optional)"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "0.5rem",
+              fontSize: "0.95rem",
+              marginTop: "0.75rem",
+            }}
+            aria-label="Moderation reason"
+          />
         </div>
         <div className="modal-footer">
           <button
@@ -754,16 +897,41 @@ export function ForumTopicViewPage() {
       </Modal>
 
       {/* Delete Confirm */}
-      <ConfirmModal
+      <Modal
         isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
         title="Delete Topic"
-        message="Are you sure you want to delete this topic? This action cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
-        danger={true}
-        onConfirm={handleDelete}
-        onCancel={() => setShowDeleteConfirm(false)}
-      />
+      >
+        <div className="modal-body">
+          <p style={{ margin: "0 0 0.75rem", color: "var(--color-danger)" }}>
+            Are you sure you want to delete this topic? This action cannot be
+            undone.
+          </p>
+          <textarea
+            value={modReason}
+            onChange={(e) => setModReason(e.target.value)}
+            placeholder="Reason (optional)"
+            rows={2}
+            style={{ width: "100%", padding: "0.5rem", fontSize: "0.95rem" }}
+            aria-label="Moderation reason"
+          />
+        </div>
+        <div className="modal-footer">
+          <button
+            className="modal-btn modal-btn--secondary"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="modal-btn modal-btn--danger"
+            onClick={handleDelete}
+            disabled={modLoading}
+          >
+            Delete
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

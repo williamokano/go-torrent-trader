@@ -484,12 +484,23 @@ describe("ForumTopicViewPage", () => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
 
-    // Click Lock button
+    // Click Lock button — opens confirmation modal
+    fireEvent.click(screen.getByText("Lock"));
+
+    // Modal should appear with Lock confirmation button
+    await waitFor(() => {
+      expect(
+        screen.getByText("This will prevent new replies from being posted."),
+      ).toBeInTheDocument();
+    });
+
+    // Click the confirm Lock button in the modal
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ message: "topic locked" }),
     });
-    fireEvent.click(screen.getByText("Lock"));
+    const modalButtons = screen.getAllByText("Lock");
+    fireEvent.click(modalButtons[modalButtons.length - 1]);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -514,11 +525,25 @@ describe("ForumTopicViewPage", () => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
 
+    // Click Pin button — opens confirmation modal
+    fireEvent.click(screen.getByText("Pin"));
+
+    // Modal should appear
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "This topic will be pinned to the top of the forum.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    // Click the confirm Pin button in the modal
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ message: "topic pinned" }),
     });
-    fireEvent.click(screen.getByText("Pin"));
+    const modalButtons = screen.getAllByText("Pin");
+    fireEvent.click(modalButtons[modalButtons.length - 1]);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
