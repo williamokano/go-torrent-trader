@@ -16,11 +16,12 @@ const statsCacheKey = "cache:site_stats"
 
 // SiteStats holds the site-wide statistics returned by the stats endpoint.
 type SiteStats struct {
-	Users    int64 `json:"users"`
-	Torrents int64 `json:"torrents"`
-	Peers    int64 `json:"peers"`
-	Seeders  int64 `json:"seeders"`
-	Leechers int64 `json:"leechers"`
+	Users       int64 `json:"users"`
+	Torrents    int64 `json:"torrents"`
+	Peers       int64 `json:"peers"`
+	Seeders     int64 `json:"seeders"`
+	Leechers    int64 `json:"leechers"`
+	OnlineUsers int64 `json:"online_users"`
 }
 
 // StatsCache wraps the site stats query with a Redis cache layer.
@@ -104,8 +105,9 @@ func (c *StatsCache) queryDB(ctx context.Context) (*SiteStats, error) {
 			(SELECT COUNT(*) FROM torrents WHERE visible = true AND banned = false),
 			(SELECT COUNT(*) FROM peers),
 			(SELECT COUNT(*) FROM peers WHERE seeder = true),
-			(SELECT COUNT(*) FROM peers WHERE seeder = false)
-	`).Scan(&stats.Users, &stats.Torrents, &stats.Peers, &stats.Seeders, &stats.Leechers)
+			(SELECT COUNT(*) FROM peers WHERE seeder = false),
+			(SELECT COUNT(*) FROM users WHERE enabled = true AND last_access > NOW() - INTERVAL '15 minutes')
+	`).Scan(&stats.Users, &stats.Torrents, &stats.Peers, &stats.Seeders, &stats.Leechers, &stats.OnlineUsers)
 	if err != nil {
 		return nil, fmt.Errorf("query site stats: %w", err)
 	}

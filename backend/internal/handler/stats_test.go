@@ -36,8 +36,8 @@ func TestHandleStatsReturnsJSON(t *testing.T) {
 	cache, mock := newTestStatsCache(t)
 
 	mock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers"}).
-			AddRow(100, 500, 42, 30, 12))
+		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers", "online_users"}).
+			AddRow(100, 500, 42, 30, 12, 7))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	rec := httptest.NewRecorder()
@@ -84,8 +84,8 @@ func TestHandleStatsReturnsCachedResult(t *testing.T) {
 
 	// First call: DB hit
 	mock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers"}).
-			AddRow(100, 500, 42, 30, 12))
+		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers", "online_users"}).
+			AddRow(100, 500, 42, 30, 12, 7))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	rec := httptest.NewRecorder()

@@ -89,6 +89,7 @@ export function RootLayout() {
     peers: number;
     seeders: number;
     leechers: number;
+    online_users: number;
   } | null>(null);
 
   useEffect(() => {
@@ -362,6 +363,7 @@ export function RootLayout() {
 
       <footer className="footer">
         <p className="footer__stats">
+          Online: {siteStats ? formatNumber(siteStats.online_users) : "--"} |
           Users: {siteStats ? formatNumber(siteStats.users) : "--"} | Torrents:{" "}
           {siteStats ? formatNumber(siteStats.torrents) : "--"} | Peers:{" "}
           {siteStats ? formatNumber(siteStats.peers) : "--"} | Seeders:{" "}

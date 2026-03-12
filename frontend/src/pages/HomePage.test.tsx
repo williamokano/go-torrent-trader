@@ -30,6 +30,7 @@ const FAKE_STATS = {
   users: 100,
   torrents: 500,
   peers: 73,
+  online_users: 5,
 };
 
 const FAKE_TORRENTS = [
