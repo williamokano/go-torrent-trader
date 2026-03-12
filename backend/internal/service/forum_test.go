@@ -1309,7 +1309,7 @@ func TestForumService_DeletePost_SoftDeletesCalled(t *testing.T) {
 		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
 		postRepo,
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
-		nil,
+		nil, nil,
 	)
 	err := svc.DeletePost(context.Background(), 10, 5, model.Permissions{Level: 5})
 	if err != nil {
@@ -1333,7 +1333,7 @@ func TestForumService_RestorePost_StaffSuccess(t *testing.T) {
 	svc := NewForumService(nil, nil,
 		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
 		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
-		postRepo, nil, nil,
+		postRepo, nil, nil, nil,
 	)
 	err := svc.RestorePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true})
 	if err != nil {
@@ -1351,7 +1351,7 @@ func TestForumService_RestorePost_NonStaffDenied(t *testing.T) {
 			10: {ID: 10, TopicID: 1, UserID: 5, Body: "deleted post", DeletedAt: &now},
 		},
 	}
-	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
 	err := svc.RestorePost(context.Background(), 10, 5, model.Permissions{Level: 5})
 	if !errors.Is(err, ErrForumAccessDenied) {
 		t.Errorf("expected ErrForumAccessDenied, got %v", err)
@@ -1364,7 +1364,7 @@ func TestForumService_RestorePost_NotDeleted(t *testing.T) {
 			10: {ID: 10, TopicID: 1, UserID: 5, Body: "active post"},
 		},
 	}
-	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
 	err := svc.RestorePost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true})
 	if !errors.Is(err, ErrPostNotDeleted) {
 		t.Errorf("expected ErrPostNotDeleted, got %v", err)
@@ -1373,7 +1373,7 @@ func TestForumService_RestorePost_NotDeleted(t *testing.T) {
 
 func TestForumService_RestorePost_NotFound(t *testing.T) {
 	postRepo := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{}}
-	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
 	err := svc.RestorePost(context.Background(), 999, 99, model.Permissions{Level: 200, IsAdmin: true})
 	if !errors.Is(err, ErrPostNotFound) {
 		t.Errorf("expected ErrPostNotFound, got %v", err)
@@ -1390,7 +1390,7 @@ func TestForumService_ListPostEdits_StaffSuccess(t *testing.T) {
 		},
 		edits: edits,
 	}
-	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
 	result, err := svc.ListPostEdits(context.Background(), 10, model.Permissions{Level: 200, IsAdmin: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1409,7 +1409,7 @@ func TestForumService_ListPostEdits_NonStaffDenied(t *testing.T) {
 			10: {ID: 10, TopicID: 1, UserID: 5, Body: "body"},
 		},
 	}
-	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil)
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
 	_, err := svc.ListPostEdits(context.Background(), 10, model.Permissions{Level: 5})
 	if !errors.Is(err, ErrForumAccessDenied) {
 		t.Errorf("expected ErrForumAccessDenied, got %v", err)
@@ -1427,7 +1427,7 @@ func TestForumService_EditPost_CreatesEditHistory(t *testing.T) {
 		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
 		postRepo,
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
-		nil,
+		nil, nil,
 	)
 	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
 	if err != nil {

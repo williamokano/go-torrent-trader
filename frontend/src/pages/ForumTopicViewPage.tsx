@@ -662,7 +662,7 @@ export function ForumTopicViewPage() {
                   <em style={{ color: "var(--text-muted, #888)" }}>
                     [This post has been deleted]
                   </em>
-                  {isMod && (
+                  {(user?.isAdmin || user?.isStaff) && (
                     <div
                       className="forum-post__actions"
                       style={{ marginTop: "0.5rem" }}
@@ -684,7 +684,7 @@ export function ForumTopicViewPage() {
                       </button>
                     </div>
                   )}
-                  {isMod && expandedDeletedPosts.has(post.id) && (
+                  {(user?.isAdmin || user?.isStaff) && expandedDeletedPosts.has(post.id) && (
                     <div
                       className="forum-post__body"
                       style={{ marginTop: "0.5rem", opacity: 0.6 }}
@@ -728,7 +728,7 @@ export function ForumTopicViewPage() {
                   {post.edited_at && (
                     <div className="forum-post__edited">
                       Edited {timeAgo(post.edited_at)}
-                      {isMod && (
+                      {(user?.isAdmin || user?.isStaff) && (
                         <button
                           className="forum-post__edit-btn"
                           style={{ marginLeft: "0.5rem", fontSize: "0.75rem" }}
