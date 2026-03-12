@@ -1263,7 +1263,7 @@
 
 > **Origin:** Review finding from BE-5.4 — no reason field (unlike warnings/bans), flat moderator hierarchy, zero topic-owner powers.
 
-#### BE-9.9: Extract Shared Search Utilities [S]
+#### BE-9.9: Extract Shared Search Utilities [S] [DONE]
 **As a** developer
 **I want** search query building and tsvector utilities shared across features
 **So that** torrent search and forum search don't duplicate code

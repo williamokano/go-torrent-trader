@@ -117,31 +117,8 @@ func (r *ForumPostRepo) CountByUser(ctx context.Context, userID int64) (int, err
 	return count, err
 }
 
-// buildForumPrefixQuery converts user input into a tsquery with prefix matching.
-// "forum rules" -> "forum:* & rules:*"
-// Special characters are stripped to prevent tsquery syntax errors.
-func buildForumPrefixQuery(search string) string {
-	words := strings.Fields(search)
-	var parts []string
-	for _, w := range words {
-		cleaned := strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-				return r
-			}
-			return -1
-		}, w)
-		if cleaned != "" {
-			parts = append(parts, cleaned+":*")
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " & ")
-}
-
 func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64, maxGroupLevel int, page, perPage int) ([]model.ForumSearchResult, int64, error) {
-	tsQuery := buildForumPrefixQuery(query)
+	tsQuery := BuildPrefixQuery(query)
 	if tsQuery == "" {
 		return nil, 0, nil
 	}
@@ -182,7 +159,8 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 	args = append(args, offset)
 	offsetArg := argIdx
 
-	dataQuery := fmt.Sprintf(`SELECT p.id, p.body, t.id, t.title, f.id, f.name, p.user_id, u.username, p.created_at
+	dataQuery := fmt.Sprintf(`SELECT p.id, p.body, t.id, t.title, f.id, f.name, p.user_id, u.username, p.created_at,
+		ts_headline('english', p.body, to_tsquery('english', $1), 'MaxWords=30,MinWords=15,StartSel=<mark>,StopSel=</mark>') AS snippet
 		FROM forum_posts p
 		JOIN forum_topics t ON t.id = p.topic_id
 		JOIN forums f ON f.id = t.forum_id
@@ -203,6 +181,7 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 		if err := rows.Scan(
 			&sr.PostID, &sr.Body, &sr.TopicID, &sr.TopicTitle,
 			&sr.ForumID, &sr.ForumName, &sr.UserID, &sr.Username, &sr.CreatedAt,
+			&sr.Snippet,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan forum search result: %w", err)
 		}

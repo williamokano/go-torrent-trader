@@ -17,6 +17,7 @@ interface SearchResult {
   user_id: number;
   username: string;
   created_at: string;
+  snippet?: string;
 }
 
 interface ForumOption {
@@ -240,7 +241,11 @@ export function ForumSearchPage() {
                   </Link>
                 </div>
                 <div className="forum-search-result__snippet">
-                  {truncateBody(r.body)}
+                  {r.snippet ? (
+                    <span dangerouslySetInnerHTML={{ __html: r.snippet }} />
+                  ) : (
+                    truncateBody(r.body)
+                  )}
                 </div>
                 <div className="forum-search-result__meta">
                   <Link to={`/forums/${r.forum_id}`}>{r.forum_name}</Link>

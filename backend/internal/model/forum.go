@@ -83,4 +83,5 @@ type ForumSearchResult struct {
 	UserID     int64
 	Username   string
 	CreatedAt  time.Time
+	Snippet    string
 }
