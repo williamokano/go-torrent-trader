@@ -81,7 +81,6 @@ export function AdminForumsPage() {
   const [forumForm, setForumForm] = useState<ForumFormData>(emptyForumForm);
   const [forumSaving, setForumSaving] = useState(false);
 
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     type: "category" | "forum";
     id: number;
@@ -103,7 +102,6 @@ export function AdminForumsPage() {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
-      setDeleteError(null);
       if (catRes.ok) {
         const data = await catRes.json();
         setCategories(data.categories ?? []);
@@ -197,7 +195,6 @@ export function AdminForumsPage() {
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     setDeleteLoading(true);
-    setDeleteError(null);
     const token = getAccessToken();
 
     const url =
@@ -224,7 +221,6 @@ export function AdminForumsPage() {
         const msg =
           data?.error?.message ??
           `Failed to delete ${deleteTarget.type === "category" ? "category" : "forum"}`;
-        setDeleteError(msg);
         toast.error(msg);
         setDeleteTarget(null);
       }
@@ -347,8 +343,6 @@ export function AdminForumsPage() {
   return (
     <div>
       <h1>Forum Administration</h1>
-
-      {deleteError && <p className="admin-forums__error">{deleteError}</p>}
 
       {/* Forum Categories Section */}
       <div className="admin-forums__section">
