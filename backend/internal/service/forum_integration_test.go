@@ -1,3 +1,8 @@
+// forum_integration_test.go contains sqlmock-based tests that exercise the transactional
+// (s.db != nil) code paths in ForumService. These are NOT true database integration tests —
+// they validate transaction control flow (BEGIN/COMMIT/ROLLBACK) and SQL execution order
+// using mock expectations. The actual SQL correctness is not verified against PostgreSQL.
+// For the repository interface paths (s.db == nil), see forum_test.go.
 package service
 
 import (
@@ -47,7 +52,8 @@ func TestDeletePost_Transactional(t *testing.T) {
 		forumByID: map[int64]*model.Forum{forumID: {ID: forumID, MinGroupLevel: 0}},
 	}
 
-	svc := NewForumService(db, nil, forums, topics, posts, nil, nil)
+	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
 
 	// Expect: BEGIN -> DELETE post -> decrement topic post_count ->
 	// recalculate topic last_post -> decrement forum post_count ->
@@ -105,7 +111,8 @@ func TestDeletePost_Transactional_Rollback(t *testing.T) {
 		forumByID: map[int64]*model.Forum{forumID: {ID: forumID, MinGroupLevel: 0}},
 	}
 
-	svc := NewForumService(db, nil, forums, topics, posts, nil, nil)
+	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
 
 	// DELETE succeeds but the topic post_count update fails -> ROLLBACK
 	mock.ExpectBegin()
@@ -155,7 +162,8 @@ func TestDeletePost_Transactional_BeginFails(t *testing.T) {
 		forumByID: map[int64]*model.Forum{forumID: {ID: forumID, MinGroupLevel: 0}},
 	}
 
-	svc := NewForumService(db, nil, forums, topics, posts, nil, nil)
+	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
 
 	mock.ExpectBegin().WillReturnError(fmt.Errorf("db: too many connections"))
 
@@ -165,6 +173,126 @@ func TestDeletePost_Transactional_BeginFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "beginning transaction") {
 		t.Errorf("expected error to contain 'beginning transaction', got: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DeletePost -- COMMIT failure
+// ---------------------------------------------------------------------------
+
+func TestDeletePost_Transactional_CommitFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	postID := int64(10)
+	topicID := int64(1)
+	forumID := int64(2)
+
+	posts := &mockForumPostRepo{
+		postByID:    map[int64]*model.ForumPost{postID: {ID: postID, TopicID: topicID, UserID: 1}},
+		firstPostID: 5,
+	}
+	topics := &mockForumTopicRepo{
+		topicByID: map[int64]*model.ForumTopic{topicID: {ID: topicID, ForumID: forumID}},
+	}
+	forums := &mockForumRepo{
+		forumByID: map[int64]*model.Forum{forumID: {ID: forumID, MinGroupLevel: 0}},
+	}
+	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
+
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+
+	// All SQL succeeds but COMMIT fails
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM forum_posts WHERE id =").
+		WithArgs(postID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forum_topics SET post_count =").
+		WithArgs(topicID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forum_topics SET").
+		WithArgs(topicID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forums SET post_count =").
+		WithArgs(forumID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forums SET last_post_id =").
+		WithArgs(forumID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit().WillReturnError(fmt.Errorf("commit failed"))
+
+	err = svc.DeletePost(context.Background(), postID, 1, txStaffPerms)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "committing transaction") {
+		t.Errorf("expected error to contain 'committing transaction', got: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DeletePost -- non-admin owner happy path
+// ---------------------------------------------------------------------------
+
+func TestDeletePost_Transactional_OwnerNonStaff(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	postID := int64(10)
+	topicID := int64(1)
+	forumID := int64(2)
+	userID := int64(42)
+
+	posts := &mockForumPostRepo{
+		postByID:    map[int64]*model.ForumPost{postID: {ID: postID, TopicID: topicID, UserID: userID}},
+		firstPostID: 5, // different from postID so it is not the first post
+	}
+	topics := &mockForumTopicRepo{
+		topicByID: map[int64]*model.ForumTopic{topicID: {ID: topicID, ForumID: forumID}},
+	}
+	forums := &mockForumRepo{
+		forumByID: map[int64]*model.Forum{forumID: {ID: forumID, MinGroupLevel: 0}},
+	}
+	users := &mockForumUserRepo{user: &model.User{ID: userID, Username: "alice", CanForum: true}}
+
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+
+	nonStaffPerms := model.Permissions{Level: 1, IsAdmin: false, CanForum: true}
+
+	// Expect same transaction flow as staff happy path
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM forum_posts WHERE id =").
+		WithArgs(postID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forum_topics SET post_count =").
+		WithArgs(topicID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forum_topics SET").
+		WithArgs(topicID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forums SET post_count =").
+		WithArgs(forumID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE forums SET last_post_id =").
+		WithArgs(forumID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err = svc.DeletePost(context.Background(), postID, userID, nonStaffPerms)
+	if err != nil {
+		t.Fatalf("DeletePost: unexpected error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
