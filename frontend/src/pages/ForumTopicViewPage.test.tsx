@@ -4,6 +4,7 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
+import { ToastProvider } from "@/components/toast";
 
 vi.mock("@/features/auth/token", () => ({
   getAccessToken: () => "fake-token",
@@ -109,9 +110,12 @@ const FAKE_RESPONSE = {
   total: 2,
   page: 1,
   per_page: 25,
+  can_moderate: false,
 };
+const MOD_RESPONSE = { ...FAKE_RESPONSE, can_moderate: true };
 const LOCKED_RESPONSE = {
   ...FAKE_RESPONSE,
+  can_moderate: true,
   topic: { ...FAKE_RESPONSE.topic, locked: true },
 };
 const mockFetch = vi.fn();
@@ -132,11 +136,13 @@ beforeEach(() => {
 
 function renderPage() {
   return render(
-    <MemoryRouter initialEntries={["/forums/topics/1"]}>
-      <Routes>
-        <Route path="/forums/topics/:id" element={<ForumTopicViewPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter initialEntries={["/forums/topics/1"]}>
+        <Routes>
+          <Route path="/forums/topics/:id" element={<ForumTopicViewPage />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
   );
 }
 
@@ -435,6 +441,10 @@ describe("ForumTopicViewPage", () => {
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
@@ -451,6 +461,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 2, username: "mod", isAdmin: false, isStaff: true },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
@@ -476,17 +490,32 @@ describe("ForumTopicViewPage", () => {
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
 
-    // Click Lock button
+    // Click Lock button — opens confirmation modal
+    fireEvent.click(screen.getByText("Lock"));
+
+    // Modal should appear with Lock confirmation button
+    await waitFor(() => {
+      expect(
+        screen.getByText("This will prevent new replies from being posted."),
+      ).toBeInTheDocument();
+    });
+
+    // Click the confirm Lock button in the modal
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ message: "topic locked" }),
     });
-    fireEvent.click(screen.getByText("Lock"));
+    const modalButtons = screen.getAllByText("Lock");
+    fireEvent.click(modalButtons[modalButtons.length - 1]);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -506,16 +535,34 @@ describe("ForumTopicViewPage", () => {
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
 
+    // Click Pin button — opens confirmation modal
+    fireEvent.click(screen.getByText("Pin"));
+
+    // Modal should appear
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "This topic will be pinned to the top of the forum.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    // Click the confirm Pin button in the modal
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ message: "topic pinned" }),
     });
-    fireEvent.click(screen.getByText("Pin"));
+    const modalButtons = screen.getAllByText("Pin");
+    fireEvent.click(modalButtons[modalButtons.length - 1]);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -533,6 +580,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
@@ -590,6 +641,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {

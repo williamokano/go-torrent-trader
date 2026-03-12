@@ -4,6 +4,7 @@ package model
 type Permissions struct {
 	GroupID     int64  `json:"group_id"`
 	GroupName   string `json:"group_name"`
+	Username    string `json:"username"`
 	Level       int    `json:"level"`
 	CanUpload   bool   `json:"can_upload"`
 	CanDownload bool   `json:"can_download"`

@@ -278,6 +278,69 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		}
 		return fmt.Sprintf("cheat flag (%s) raised for %s on %s", e.FlagType, e.Username, torrent), e.Actor
 	})
+
+	listen(event.ForumTopicLocked, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicLockedEvent)
+		msg := fmt.Sprintf("%s locked topic: %s", e.Actor.Username, e.TopicTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
+
+	listen(event.ForumTopicUnlocked, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicUnlockedEvent)
+		msg := fmt.Sprintf("%s unlocked topic: %s", e.Actor.Username, e.TopicTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
+
+	listen(event.ForumTopicPinned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicPinnedEvent)
+		msg := fmt.Sprintf("%s pinned topic: %s", e.Actor.Username, e.TopicTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
+
+	listen(event.ForumTopicUnpinned, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicUnpinnedEvent)
+		msg := fmt.Sprintf("%s unpinned topic: %s", e.Actor.Username, e.TopicTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
+
+	listen(event.ForumTopicRenamed, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicRenamedEvent)
+		msg := fmt.Sprintf("%s renamed topic: %s -> %s", e.Actor.Username, e.OldTitle, e.NewTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
+
+	listen(event.ForumTopicMoved, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicMovedEvent)
+		msg := fmt.Sprintf("%s moved topic: %s", e.Actor.Username, e.TopicTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
+
+	listen(event.ForumTopicDeleted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ForumTopicDeletedEvent)
+		msg := fmt.Sprintf("%s deleted topic: %s", e.Actor.Username, e.TopicTitle)
+		if e.Reason != "" {
+			msg = fmt.Sprintf("%s (reason: %s)", msg, e.Reason)
+		}
+		return msg, e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.
