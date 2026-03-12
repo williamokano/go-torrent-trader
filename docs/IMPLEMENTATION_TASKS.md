@@ -1306,7 +1306,7 @@
 
 ---
 
-#### BE-9.12: Forum FK ON DELETE RESTRICT & Atomic Delete Checks [S]
+#### BE-9.12: Forum FK ON DELETE RESTRICT & Atomic Delete Checks [S] [DONE]
 **As a** developer
 **I want** forum category and forum deletes to be safe against race conditions
 **So that** concurrent admin operations cannot accidentally cascade-delete data

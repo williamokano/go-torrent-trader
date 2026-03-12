@@ -53,7 +53,7 @@ func TestDeletePost_Transactional(t *testing.T) {
 	}
 
 	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
-	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	// Expect: BEGIN -> DELETE post -> decrement topic post_count ->
 	// recalculate topic last_post -> decrement forum post_count ->
@@ -112,7 +112,7 @@ func TestDeletePost_Transactional_Rollback(t *testing.T) {
 	}
 
 	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
-	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	// DELETE succeeds but the topic post_count update fails -> ROLLBACK
 	mock.ExpectBegin()
@@ -163,7 +163,7 @@ func TestDeletePost_Transactional_BeginFails(t *testing.T) {
 	}
 
 	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
-	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	mock.ExpectBegin().WillReturnError(fmt.Errorf("db: too many connections"))
 
@@ -206,7 +206,7 @@ func TestDeletePost_Transactional_CommitFails(t *testing.T) {
 	}
 	users := &mockForumUserRepo{user: &model.User{ID: 1, Username: "admin", CanForum: true}}
 
-	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	// All SQL succeeds but COMMIT fails
 	mock.ExpectBegin()
@@ -267,7 +267,7 @@ func TestDeletePost_Transactional_OwnerNonStaff(t *testing.T) {
 	}
 	users := &mockForumUserRepo{user: &model.User{ID: userID, Username: "alice", CanForum: true}}
 
-	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	nonStaffPerms := model.Permissions{Level: 1, IsAdmin: false, CanForum: true}
 
@@ -324,7 +324,7 @@ func TestMoveTopic_Transactional(t *testing.T) {
 		},
 	}
 
-	svc := NewForumService(db, nil, forums, topics, nil, nil, nil)
+	svc := NewForumService(db, nil, forums, topics, nil, nil, nil, nil)
 
 	// Expect: BEGIN -> UPDATE forum_id -> recalculate old forum -> recalculate new forum -> COMMIT
 	mock.ExpectBegin()
@@ -339,7 +339,7 @@ func TestMoveTopic_Transactional(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	err = svc.MoveTopic(context.Background(), topicID, txStaffPerms, newForumID, txActor())
+	err = svc.MoveTopic(context.Background(), topicID, txStaffPerms, newForumID, txActor(), "")
 	if err != nil {
 		t.Fatalf("MoveTopic: unexpected error: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestMoveTopic_Transactional_Rollback(t *testing.T) {
 		},
 	}
 
-	svc := NewForumService(db, nil, forums, topics, nil, nil, nil)
+	svc := NewForumService(db, nil, forums, topics, nil, nil, nil, nil)
 
 	// UPDATE forum_id succeeds but old-forum recalculation fails -> ROLLBACK
 	mock.ExpectBegin()
@@ -385,7 +385,7 @@ func TestMoveTopic_Transactional_Rollback(t *testing.T) {
 		WillReturnError(fmt.Errorf("db: disk full"))
 	mock.ExpectRollback()
 
-	err = svc.MoveTopic(context.Background(), topicID, txStaffPerms, newForumID, txActor())
+	err = svc.MoveTopic(context.Background(), topicID, txStaffPerms, newForumID, txActor(), "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -415,7 +415,7 @@ func TestDeleteTopic_Transactional(t *testing.T) {
 		topicByID: map[int64]*model.ForumTopic{topicID: {ID: topicID, ForumID: forumID, Title: "Doomed Topic"}},
 	}
 
-	svc := NewForumService(db, nil, nil, topics, nil, nil, nil)
+	svc := NewForumService(db, nil, nil, topics, nil, nil, nil, nil)
 
 	// Expect: BEGIN -> DELETE topic -> recalculate forum counts -> COMMIT
 	mock.ExpectBegin()
@@ -427,7 +427,7 @@ func TestDeleteTopic_Transactional(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	err = svc.DeleteTopic(context.Background(), topicID, txStaffPerms, txActor())
+	err = svc.DeleteTopic(context.Background(), topicID, int64(1), txStaffPerms, txActor(), "")
 	if err != nil {
 		t.Fatalf("DeleteTopic: unexpected error: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestDeleteTopic_Transactional_Rollback(t *testing.T) {
 		topicByID: map[int64]*model.ForumTopic{topicID: {ID: topicID, ForumID: forumID, Title: "Doomed Topic"}},
 	}
 
-	svc := NewForumService(db, nil, nil, topics, nil, nil, nil)
+	svc := NewForumService(db, nil, nil, topics, nil, nil, nil, nil)
 
 	// DELETE topic succeeds but forum recalculation fails -> ROLLBACK
 	mock.ExpectBegin()
@@ -466,7 +466,7 @@ func TestDeleteTopic_Transactional_Rollback(t *testing.T) {
 		WillReturnError(fmt.Errorf("db: timeout"))
 	mock.ExpectRollback()
 
-	err = svc.DeleteTopic(context.Background(), topicID, txStaffPerms, txActor())
+	err = svc.DeleteTopic(context.Background(), topicID, int64(1), txStaffPerms, txActor(), "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -498,7 +498,7 @@ func TestCreateTopic_Transactional(t *testing.T) {
 	}
 	users := &mockForumUserRepo{user: &model.User{ID: userID, Username: "alice", CanForum: true}}
 
-	svc := NewForumService(db, nil, forums, nil, nil, users, nil)
+	svc := NewForumService(db, nil, forums, nil, nil, users, nil, nil)
 
 	// Expect: BEGIN -> INSERT topic -> INSERT post -> UPDATE topic counts -> UPDATE forum counts -> COMMIT
 	mock.ExpectBegin()
@@ -556,7 +556,7 @@ func TestCreateTopic_Transactional_Rollback(t *testing.T) {
 	}
 	users := &mockForumUserRepo{user: &model.User{ID: userID, Username: "alice", CanForum: true}}
 
-	svc := NewForumService(db, nil, forums, nil, nil, users, nil)
+	svc := NewForumService(db, nil, forums, nil, nil, users, nil, nil)
 
 	// INSERT topic succeeds, INSERT post fails -> ROLLBACK
 	mock.ExpectBegin()
@@ -611,7 +611,7 @@ func TestCreatePost_Transactional(t *testing.T) {
 		},
 	}
 
-	svc := NewForumService(db, nil, forums, topics, posts, users, nil)
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	// Expect: BEGIN -> INSERT post -> UPDATE topic counts -> UPDATE forum counts -> COMMIT
 	mock.ExpectBegin()
@@ -664,7 +664,7 @@ func TestCreatePost_Transactional_Rollback(t *testing.T) {
 	}
 	users := &mockForumUserRepo{user: &model.User{ID: userID, Username: "bob", CanForum: true}}
 
-	svc := NewForumService(db, nil, forums, topics, nil, users, nil)
+	svc := NewForumService(db, nil, forums, topics, nil, users, nil, nil)
 
 	// INSERT post succeeds, UPDATE topic counts fails -> ROLLBACK
 	mock.ExpectBegin()
