@@ -18,6 +18,7 @@ interface SiteStats {
   users: number;
   torrents: number;
   peers: number;
+  online_users: number;
 }
 
 export function HomePage() {
@@ -160,6 +161,12 @@ export function HomePage() {
                 {formatNumber(stats.peers)}
               </div>
               <div className="home__stat-label">Peers</div>
+            </div>
+            <div className="home__stat-card">
+              <div className="home__stat-value">
+                {formatNumber(stats.online_users)}
+              </div>
+              <div className="home__stat-label">Online</div>
             </div>
           </div>
         ) : null}
