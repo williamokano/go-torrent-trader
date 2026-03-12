@@ -286,6 +286,7 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 			"user_id":     sr.UserID,
 			"username":    sr.Username,
 			"created_at":  sr.CreatedAt,
+			"snippet":     sr.Snippet,
 		})
 	}
 

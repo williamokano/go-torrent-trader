@@ -59,31 +59,6 @@ func (r *TorrentRepo) GetByInfoHash(ctx context.Context, infoHash []byte) (*mode
 	return scanTorrent(r.db.QueryRowContext(ctx, query, infoHash))
 }
 
-// allowedSortColumns restricts the columns that can be used for ORDER BY.
-// buildPrefixQuery converts user input into a tsquery with prefix matching.
-// "frie beyond" → "frie:* & beyond:*"
-// Special characters are stripped to prevent tsquery syntax errors.
-func buildPrefixQuery(search string) string {
-	words := strings.Fields(search)
-	var parts []string
-	for _, w := range words {
-		// Strip any tsquery operators to prevent injection
-		cleaned := strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-				return r
-			}
-			return -1
-		}, w)
-		if cleaned != "" {
-			parts = append(parts, cleaned+":*")
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " & ")
-}
-
 var allowedSortColumns = map[string]string{
 	"name":       "t.name",
 	"created_at": "t.created_at",
@@ -146,7 +121,7 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		} else {
 			// 3+ chars: use PostgreSQL full-text search with prefix matching.
 			// Convert "frie beyond" → "frie:* & beyond:*" for prefix search.
-			prefixQuery := buildPrefixQuery(opts.Search)
+			prefixQuery := BuildPrefixQuery(opts.Search)
 			if prefixQuery != "" {
 				conditions = append(conditions, fmt.Sprintf("t.search_vector @@ to_tsquery('english', %s)", nextArg()))
 				args = append(args, prefixQuery)
@@ -188,7 +163,7 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	orderClause := fmt.Sprintf("%s %s", sortCol, sortOrder)
 	if useFullText && opts.SortBy == "" {
 		orderClause = fmt.Sprintf("ts_rank(t.search_vector, to_tsquery('english', %s)) DESC, %s", nextArg(), orderClause)
-		args = append(args, buildPrefixQuery(opts.Search))
+		args = append(args, BuildPrefixQuery(opts.Search))
 	}
 
 	// Pagination defaults.

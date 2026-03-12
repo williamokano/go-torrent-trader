@@ -49,6 +49,8 @@ const SEARCH_RESPONSE = {
       user_id: 1,
       username: "alice",
       created_at: "2025-06-01T10:00:00Z",
+      snippet:
+        "This is a <mark>test</mark> post body with some content for searching",
     },
     {
       post_id: 11,
@@ -209,6 +211,21 @@ describe("ForumSearchPage", () => {
         screen.getByText("Search failed. Please try again."),
       ).toBeInTheDocument();
     });
+  });
+
+  test("renders snippet with HTML when available, falls back to truncated body", async () => {
+    renderPage("/forums/search?q=test");
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic Title")).toBeInTheDocument();
+    });
+    // First result has a snippet with <mark> tags — rendered via dangerouslySetInnerHTML
+    const snippetElements = document.querySelectorAll(
+      ".forum-search-result__snippet",
+    );
+    expect(snippetElements[0].querySelector("mark")).toBeTruthy();
+    expect(snippetElements[0].textContent).toContain("test");
+    // Second result has no snippet — falls back to truncated body text
+    expect(snippetElements[1].textContent).toBe("Another result body");
   });
 
   test("renders forum filter dropdown", async () => {
