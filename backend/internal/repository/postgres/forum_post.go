@@ -194,17 +194,24 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 func (r *ForumPostRepo) GetFirstPostIDByTopic(ctx context.Context, topicID int64) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", topicID,
+		"SELECT id FROM forum_posts WHERE topic_id = $1 ORDER BY id ASC LIMIT 1", topicID,
 	).Scan(&id)
 	return id, err
 }
 
 func (r *ForumPostRepo) SoftDelete(ctx context.Context, id int64, deletedBy int64) error {
-	_, err := r.db.ExecContext(ctx,
-		"UPDATE forum_posts SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1",
+	res, err := r.db.ExecContext(ctx,
+		"UPDATE forum_posts SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1 AND deleted_at IS NULL",
 		id, deletedBy,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *ForumPostRepo) Restore(ctx context.Context, id int64) error {

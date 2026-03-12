@@ -150,9 +150,10 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isStaff := perms.IsStaff()
 	postItems := make([]map[string]interface{}, 0, len(posts))
 	for _, p := range posts {
-		postItems = append(postItems, postResponse(&p))
+		postItems = append(postItems, postResponse(&p, isStaff))
 	}
 
 	canModerate := h.forumSvc.CanModerate(r.Context(), topic, userID, perms)
@@ -199,7 +200,7 @@ func (h *ForumHandler) HandleCreateTopic(w http.ResponseWriter, r *http.Request)
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"topic": topicResponse(topic),
-		"post":  postResponse(post),
+		"post":  postResponse(post, true),
 	})
 }
 
@@ -234,7 +235,7 @@ func (h *ForumHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"post": postResponse(post),
+		"post": postResponse(post, true),
 	})
 }
 
@@ -331,7 +332,7 @@ func (h *ForumHandler) HandleEditPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"post": postResponse(post),
+		"post": postResponse(post, true),
 	})
 }
 
@@ -687,7 +688,11 @@ func topicResponse(t *model.ForumTopic) map[string]interface{} {
 	return resp
 }
 
-func postResponse(p *model.ForumPost) map[string]interface{} {
+func postResponse(p *model.ForumPost, isStaff bool) map[string]interface{} {
+	body := p.Body
+	if p.DeletedAt != nil && !isStaff {
+		body = ""
+	}
 	resp := map[string]interface{}{
 		"id":              p.ID,
 		"topic_id":        p.TopicID,
@@ -695,7 +700,7 @@ func postResponse(p *model.ForumPost) map[string]interface{} {
 		"username":        p.Username,
 		"avatar":          p.Avatar,
 		"group_name":      p.GroupName,
-		"body":            p.Body,
+		"body":            body,
 		"created_at":      p.CreatedAt,
 		"user_created_at": p.UserCreatedAt,
 		"user_post_count": p.UserPostCount,
