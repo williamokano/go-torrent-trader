@@ -1250,7 +1250,7 @@
 
 > **Origin:** Review finding from BE-5.3 — hard delete has no audit trail, no undo, and creates dangling references. Edit-then-delete abuse vector exists without history.
 
-#### BE-9.8: Forum Moderation Reason & Hierarchy [S]
+#### BE-9.8: Forum Moderation Reason & Hierarchy [S] [DONE]
 **As a** staff member
 **I want** moderation actions to require a reason and respect role hierarchy
 **So that** actions are accountable and lower-rank staff can't override higher-rank decisions

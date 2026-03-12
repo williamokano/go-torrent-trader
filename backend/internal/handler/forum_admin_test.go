@@ -215,7 +215,7 @@ func setupForumAdminRouter() (http.Handler, service.SessionStore, *mockForumCate
 
 	catRepo := newMockForumCategoryRepo()
 	forumRepo := newMockForumAdminForumRepo()
-	forumSvc := service.NewForumService(nil, catRepo, forumRepo, &mockForumAdminTopicRepo{}, &mockForumAdminPostRepo{}, userRepo, bus)
+	forumSvc := service.NewForumService(nil, catRepo, forumRepo, &mockForumAdminTopicRepo{}, &mockForumAdminPostRepo{}, userRepo, nil, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,

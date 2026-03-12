@@ -350,24 +350,28 @@ type ForumTopicLockedEvent struct {
 	Base
 	TopicID    int64  `json:"topic_id"`
 	TopicTitle string `json:"topic_title"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ForumTopicUnlockedEvent struct {
 	Base
 	TopicID    int64  `json:"topic_id"`
 	TopicTitle string `json:"topic_title"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ForumTopicPinnedEvent struct {
 	Base
 	TopicID    int64  `json:"topic_id"`
 	TopicTitle string `json:"topic_title"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ForumTopicUnpinnedEvent struct {
 	Base
 	TopicID    int64  `json:"topic_id"`
 	TopicTitle string `json:"topic_title"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ForumTopicRenamedEvent struct {
@@ -375,6 +379,7 @@ type ForumTopicRenamedEvent struct {
 	TopicID  int64  `json:"topic_id"`
 	OldTitle string `json:"old_title"`
 	NewTitle string `json:"new_title"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type ForumTopicMovedEvent struct {
@@ -383,6 +388,7 @@ type ForumTopicMovedEvent struct {
 	TopicTitle   string `json:"topic_title"`
 	OldForumID   int64  `json:"old_forum_id"`
 	NewForumID   int64  `json:"new_forum_id"`
+	Reason       string `json:"reason,omitempty"`
 }
 
 type ForumTopicDeletedEvent struct {
@@ -390,6 +396,7 @@ type ForumTopicDeletedEvent struct {
 	TopicID    int64  `json:"topic_id"`
 	TopicTitle string `json:"topic_title"`
 	ForumID    int64  `json:"forum_id"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ForumCategoryCreatedEvent struct {

@@ -362,8 +362,19 @@ func actorFromRequest(r *http.Request) event.Actor {
 	return event.Actor{ID: userID}
 }
 
+// parseModReasonBody parses an optional reason from the request body.
+// Returns empty string if body is empty or unparseable (reason is optional).
+func parseModReasonBody(r *http.Request) string {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	return body.Reason
+}
+
 // HandleLockTopic handles POST /api/v1/forums/topics/{id}/lock — lock a topic.
 func (h *ForumHandler) HandleLockTopic(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserIDFromContext(r.Context())
 	perms := middleware.PermissionsFromContext(r.Context())
 	actor := actorFromRequest(r)
 
@@ -373,7 +384,9 @@ func (h *ForumHandler) HandleLockTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.forumSvc.LockTopic(r.Context(), topicID, perms, actor); err != nil {
+	reason := parseModReasonBody(r)
+
+	if err := h.forumSvc.LockTopic(r.Context(), topicID, userID, perms, actor, reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -392,7 +405,9 @@ func (h *ForumHandler) HandleUnlockTopic(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.forumSvc.UnlockTopic(r.Context(), topicID, perms, actor); err != nil {
+	reason := parseModReasonBody(r)
+
+	if err := h.forumSvc.UnlockTopic(r.Context(), topicID, perms, actor, reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -411,7 +426,9 @@ func (h *ForumHandler) HandlePinTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.forumSvc.PinTopic(r.Context(), topicID, perms, actor); err != nil {
+	reason := parseModReasonBody(r)
+
+	if err := h.forumSvc.PinTopic(r.Context(), topicID, perms, actor, reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -430,7 +447,9 @@ func (h *ForumHandler) HandleUnpinTopic(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.forumSvc.UnpinTopic(r.Context(), topicID, perms, actor); err != nil {
+	reason := parseModReasonBody(r)
+
+	if err := h.forumSvc.UnpinTopic(r.Context(), topicID, perms, actor, reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -454,7 +473,8 @@ func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request)
 	}
 
 	var body struct {
-		Title string `json:"title"`
+		Title  string `json:"title"`
+		Reason string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
@@ -463,7 +483,7 @@ func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request)
 
 	actor := actorFromRequest(r)
 
-	if err := h.forumSvc.RenameTopic(r.Context(), topicID, userID, perms, body.Title, actor); err != nil {
+	if err := h.forumSvc.RenameTopic(r.Context(), topicID, userID, perms, body.Title, actor, body.Reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -482,7 +502,8 @@ func (h *ForumHandler) HandleMoveTopic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		ForumID int64 `json:"forum_id"`
+		ForumID int64  `json:"forum_id"`
+		Reason  string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
@@ -495,7 +516,7 @@ func (h *ForumHandler) HandleMoveTopic(w http.ResponseWriter, r *http.Request) {
 
 	actor := actorFromRequest(r)
 
-	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID, actor); err != nil {
+	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID, actor, body.Reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -505,6 +526,7 @@ func (h *ForumHandler) HandleMoveTopic(w http.ResponseWriter, r *http.Request) {
 
 // HandleDeleteTopic handles DELETE /api/v1/forums/topics/{id} — delete a topic and its posts.
 func (h *ForumHandler) HandleDeleteTopic(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserIDFromContext(r.Context())
 	perms := middleware.PermissionsFromContext(r.Context())
 
 	topicID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -513,9 +535,10 @@ func (h *ForumHandler) HandleDeleteTopic(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	reason := parseModReasonBody(r)
 	actor := actorFromRequest(r)
 
-	if err := h.forumSvc.DeleteTopic(r.Context(), topicID, perms, actor); err != nil {
+	if err := h.forumSvc.DeleteTopic(r.Context(), topicID, userID, perms, actor, reason); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -535,6 +558,8 @@ func handleForumError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "topic is locked")
 	case errors.Is(err, service.ErrForumAccessDenied):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have access to this forum")
+	case errors.Is(err, service.ErrModHierarchyDenied):
+		ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions: cannot moderate topics by higher-ranked users")
 	case errors.Is(err, service.ErrPostEditDenied):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "not authorized to edit this post")
 	case errors.Is(err, service.ErrPostDeleteDenied):

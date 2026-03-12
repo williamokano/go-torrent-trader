@@ -35,9 +35,11 @@ var (
 	ErrInvalidForumCategory     = errors.New("invalid forum category")
 	ErrInvalidForum             = errors.New("invalid forum")
 	ErrForumHasTopics           = errors.New("forum has topics and cannot be deleted")
+	ErrModHierarchyDenied       = errors.New("insufficient permissions: cannot moderate topics by higher-ranked users")
 )
 
 const viewCountDebounce = 15 * time.Minute
+const ownerGracePeriod = 30 * time.Minute
 
 type ForumService struct {
 	db         *sql.DB
@@ -46,13 +48,14 @@ type ForumService struct {
 	topics     repository.ForumTopicRepository
 	posts      repository.ForumPostRepository
 	users      repository.UserRepository
+	groups     repository.GroupRepository
 	eventBus     event.Bus
 	viewMu       sync.Mutex
 	viewDebounce map[string]time.Time
 }
 
-func NewForumService(db *sql.DB, categories repository.ForumCategoryRepository, forums repository.ForumRepository, topics repository.ForumTopicRepository, posts repository.ForumPostRepository, users repository.UserRepository, eventBus event.Bus) *ForumService {
-	return &ForumService{db: db, categories: categories, forums: forums, topics: topics, posts: posts, users: users, eventBus: eventBus, viewDebounce: make(map[string]time.Time)}
+func NewForumService(db *sql.DB, categories repository.ForumCategoryRepository, forums repository.ForumRepository, topics repository.ForumTopicRepository, posts repository.ForumPostRepository, users repository.UserRepository, groups repository.GroupRepository, eventBus event.Bus) *ForumService {
+	return &ForumService{db: db, categories: categories, forums: forums, topics: topics, posts: posts, users: users, groups: groups, eventBus: eventBus, viewDebounce: make(map[string]time.Time)}
 }
 
 func (s *ForumService) ListCategories(ctx context.Context, perms model.Permissions) ([]model.ForumCategory, error) {
@@ -521,15 +524,52 @@ func (s *ForumService) requireStaff(perms model.Permissions) error {
 	return nil
 }
 
-// LockTopic locks a topic so no new replies can be posted. Staff/admin only.
-func (s *ForumService) LockTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
-	if err := s.requireStaff(perms); err != nil {
-		return err
+// checkModHierarchy ensures a non-admin moderator cannot moderate topics
+// created by admin-level users. Admins bypass this check entirely.
+// If users or groups repositories are nil (e.g. in tests), the check is skipped.
+func (s *ForumService) checkModHierarchy(ctx context.Context, perms model.Permissions, topicAuthorID int64) error {
+	if perms.IsAdmin {
+		return nil
 	}
+	if s.users == nil || s.groups == nil {
+		return nil
+	}
+	// Look up the topic author, then their group to check IsAdmin.
+	author, err := s.users.GetByID(ctx, topicAuthorID)
+	if err != nil {
+		return fmt.Errorf("get topic author: %w", err)
+	}
+	authorGroup, gErr := s.groups.GetByID(ctx, author.GroupID)
+	if gErr != nil {
+		return fmt.Errorf("get author group: %w", gErr)
+	}
+	if authorGroup.IsAdmin {
+		return ErrModHierarchyDenied
+	}
+	return nil
+}
+
+// LockTopic locks a topic so no new replies can be posted.
+// Staff can lock any topic (subject to hierarchy). Topic owners can lock their own
+// topics within the grace period (30 minutes from creation).
+func (s *ForumService) LockTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, actor event.Actor, reason string) error {
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
 		return ErrTopicNotFound
 	}
+
+	// Owner self-action: allow lock within grace period without staff
+	if userID == topic.UserID && !perms.IsStaff() && time.Since(topic.CreatedAt) <= ownerGracePeriod {
+		// Owner can lock within grace period — skip staff and hierarchy checks
+	} else {
+		if err := s.requireStaff(perms); err != nil {
+			return err
+		}
+		if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+			return err
+		}
+	}
+
 	if err := s.topics.SetLocked(ctx, topicID, true); err != nil {
 		return err
 	}
@@ -538,19 +578,23 @@ func (s *ForumService) LockTopic(ctx context.Context, topicID int64, perms model
 			Base:       event.NewBase(event.ForumTopicLocked, actor),
 			TopicID:    topicID,
 			TopicTitle: topic.Title,
+			Reason:     reason,
 		})
 	}
 	return nil
 }
 
 // UnlockTopic unlocks a previously locked topic. Staff/admin only.
-func (s *ForumService) UnlockTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+func (s *ForumService) UnlockTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor, reason string) error {
 	if err := s.requireStaff(perms); err != nil {
 		return err
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
 		return ErrTopicNotFound
+	}
+	if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+		return err
 	}
 	if err := s.topics.SetLocked(ctx, topicID, false); err != nil {
 		return err
@@ -560,19 +604,23 @@ func (s *ForumService) UnlockTopic(ctx context.Context, topicID int64, perms mod
 			Base:       event.NewBase(event.ForumTopicUnlocked, actor),
 			TopicID:    topicID,
 			TopicTitle: topic.Title,
+			Reason:     reason,
 		})
 	}
 	return nil
 }
 
 // PinTopic pins a topic to the top of its forum listing. Staff/admin only.
-func (s *ForumService) PinTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+func (s *ForumService) PinTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor, reason string) error {
 	if err := s.requireStaff(perms); err != nil {
 		return err
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
 		return ErrTopicNotFound
+	}
+	if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+		return err
 	}
 	if err := s.topics.SetPinned(ctx, topicID, true); err != nil {
 		return err
@@ -582,19 +630,23 @@ func (s *ForumService) PinTopic(ctx context.Context, topicID int64, perms model.
 			Base:       event.NewBase(event.ForumTopicPinned, actor),
 			TopicID:    topicID,
 			TopicTitle: topic.Title,
+			Reason:     reason,
 		})
 	}
 	return nil
 }
 
 // UnpinTopic removes the pin from a topic. Staff/admin only.
-func (s *ForumService) UnpinTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
+func (s *ForumService) UnpinTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor, reason string) error {
 	if err := s.requireStaff(perms); err != nil {
 		return err
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
 		return ErrTopicNotFound
+	}
+	if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+		return err
 	}
 	if err := s.topics.SetPinned(ctx, topicID, false); err != nil {
 		return err
@@ -604,6 +656,7 @@ func (s *ForumService) UnpinTopic(ctx context.Context, topicID int64, perms mode
 			Base:       event.NewBase(event.ForumTopicUnpinned, actor),
 			TopicID:    topicID,
 			TopicTitle: topic.Title,
+			Reason:     reason,
 		})
 	}
 	return nil
@@ -611,7 +664,7 @@ func (s *ForumService) UnpinTopic(ctx context.Context, topicID int64, perms mode
 
 // RenameTopic changes a topic's title. The topic author or staff can rename.
 // Non-staff authors cannot rename locked topics and must have can_forum privilege.
-func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, title string, actor event.Actor) error {
+func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, title string, actor event.Actor, reason string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return fmt.Errorf("%w: title cannot be empty", ErrInvalidTopic)
@@ -643,6 +696,11 @@ func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID in
 		if topic.Locked {
 			return ErrTopicLocked
 		}
+	} else {
+		// Staff: check hierarchy
+		if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+			return err
+		}
 	}
 
 	oldTitle := topic.Title
@@ -655,6 +713,7 @@ func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID in
 			TopicID:  topicID,
 			OldTitle: oldTitle,
 			NewTitle: title,
+			Reason:   reason,
 		})
 	}
 	return nil
@@ -664,13 +723,16 @@ func (s *ForumService) RenameTopic(ctx context.Context, topicID int64, userID in
 // Uses a transaction to update topic forum_id and recalculate counts on both forums.
 // Note: staff can intentionally move topics to forums with higher MinGroupLevel,
 // which may hide the topic from its original author. This is expected moderation behavior.
-func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model.Permissions, targetForumID int64, actor event.Actor) error {
+func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model.Permissions, targetForumID int64, actor event.Actor, reason string) error {
 	if err := s.requireStaff(perms); err != nil {
 		return err
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
 		return ErrTopicNotFound
+	}
+	if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+		return err
 	}
 	if topic.ForumID == targetForumID {
 		return ErrSameForum
@@ -687,6 +749,7 @@ func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model
 				TopicTitle: topic.Title,
 				OldForumID: oldForumID,
 				NewForumID: targetForumID,
+				Reason:     reason,
 			})
 		}
 	}
@@ -735,16 +798,27 @@ func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model
 	return nil
 }
 
-// DeleteTopic deletes a topic and all its posts. Staff/admin only.
-// Uses a transaction to delete the topic (CASCADE deletes posts) and recalculate forum counts.
-func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, perms model.Permissions, actor event.Actor) error {
-	if err := s.requireStaff(perms); err != nil {
-		return ErrTopicDeleteDenied
-	}
+// DeleteTopic deletes a topic and all its posts.
+// Staff can delete any topic (subject to hierarchy). Topic owners can delete their own
+// topics within the grace period (30 minutes from creation).
+func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, actor event.Actor, reason string) error {
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
 		return ErrTopicNotFound
 	}
+
+	// Owner self-action: allow delete within grace period without staff
+	if userID == topic.UserID && !perms.IsStaff() && time.Since(topic.CreatedAt) <= ownerGracePeriod {
+		// Owner can delete within grace period — skip staff and hierarchy checks
+	} else {
+		if err := s.requireStaff(perms); err != nil {
+			return ErrTopicDeleteDenied
+		}
+		if err := s.checkModHierarchy(ctx, perms, topic.UserID); err != nil {
+			return err
+		}
+	}
+
 	forumID := topic.ForumID
 	topicTitle := topic.Title
 	publishEvent := func() {
@@ -754,6 +828,7 @@ func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, perms mod
 				TopicID:    topicID,
 				TopicTitle: topicTitle,
 				ForumID:    forumID,
+				Reason:     reason,
 			})
 		}
 	}
