@@ -352,7 +352,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		}, nil
 	}
 
-	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip)
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
@@ -398,7 +398,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 		return nil, nil, ErrInvalidCredentials
 	}
 
-	tokens, err := s.createSession(ctx, user.ID, user.GroupID, ip)
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create session: %w", err)
 	}
@@ -746,7 +746,7 @@ func hashToken(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, ip string) (*AuthTokens, error) {
+func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, username, ip string) (*AuthTokens, error) {
 	accessToken, err := GenerateToken()
 	if err != nil {
 		return nil, err
@@ -765,6 +765,7 @@ func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, 
 		}
 		perms = model.PermissionsFromGroup(group)
 	}
+	perms.Username = username
 
 	now := time.Now()
 	session := &Session{

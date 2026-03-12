@@ -1037,6 +1037,11 @@ func TestForumService_ModHierarchy_ModeratorCannotModerateAdminTopic(t *testing.
 	if err := svc.DeleteTopic(context.Background(), 1, 50, modPerms, event.Actor{ID: 50}, ""); !errors.Is(err, ErrModHierarchyDenied) {
 		t.Errorf("DeleteTopic: expected ErrModHierarchyDenied, got %v", err)
 	}
+
+	// RenameTopic (staff moderator trying to rename admin-authored topic)
+	if err := svc.RenameTopic(context.Background(), 1, 50, modPerms, "New Title", event.Actor{ID: 50}, ""); !errors.Is(err, ErrModHierarchyDenied) {
+		t.Errorf("RenameTopic: expected ErrModHierarchyDenied, got %v", err)
+	}
 }
 
 func TestForumService_ModHierarchy_AdminCanModerateModeratorTopic(t *testing.T) {
@@ -1064,7 +1069,7 @@ func TestForumService_OwnerSelfLock_WithinGracePeriod(t *testing.T) {
 	svc := NewForumService(nil, nil, nil, topicRepo, nil, nil, nil, nil)
 
 	// Owner (userID=5) can lock within 30 min grace period (no staff required)
-	ownerPerms := model.Permissions{Level: 5}
+	ownerPerms := model.Permissions{Level: 5, CanForum: true}
 	if err := svc.LockTopic(context.Background(), 1, 5, ownerPerms, event.Actor{ID: 5}, ""); err != nil {
 		t.Fatalf("owner should be able to self-lock within grace period: %v", err)
 	}
@@ -1091,7 +1096,7 @@ func TestForumService_OwnerSelfDelete_WithinGracePeriod(t *testing.T) {
 	svc := NewForumService(nil, nil, forumRepo, topicRepo, nil, nil, nil, nil)
 
 	// Owner (userID=5) can delete within 30 min grace period (no staff required)
-	ownerPerms := model.Permissions{Level: 5}
+	ownerPerms := model.Permissions{Level: 5, CanForum: true}
 	if err := svc.DeleteTopic(context.Background(), 1, 5, ownerPerms, event.Actor{ID: 5}, ""); err != nil {
 		t.Fatalf("owner should be able to self-delete within grace period: %v", err)
 	}

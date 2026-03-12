@@ -116,6 +116,7 @@ func (s *UserService) GetFullProfile(ctx context.Context, userID int64) (*OwnerP
 		group, err := s.groups.GetByID(ctx, user.GroupID)
 		if err == nil {
 			perms := model.PermissionsFromGroup(group)
+			perms.Username = user.Username
 			op.Permissions = &perms
 		}
 	}

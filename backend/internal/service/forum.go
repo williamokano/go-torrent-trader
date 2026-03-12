@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -532,12 +533,14 @@ func (s *ForumService) checkModHierarchy(ctx context.Context, perms model.Permis
 		return nil
 	}
 	if s.users == nil || s.groups == nil {
+		log.Printf("WARNING: hierarchy check skipped, users or groups repository is nil")
 		return nil
 	}
 	// Look up the topic author, then their group to check IsAdmin.
 	author, err := s.users.GetByID(ctx, topicAuthorID)
 	if err != nil {
-		return fmt.Errorf("get topic author: %w", err)
+		// Author deleted or not found — allow moderation
+		return nil
 	}
 	authorGroup, gErr := s.groups.GetByID(ctx, author.GroupID)
 	if gErr != nil {
@@ -559,7 +562,7 @@ func (s *ForumService) LockTopic(ctx context.Context, topicID int64, userID int6
 	}
 
 	// Owner self-action: allow lock within grace period without staff
-	if userID == topic.UserID && !perms.IsStaff() && time.Since(topic.CreatedAt) <= ownerGracePeriod {
+	if userID == topic.UserID && !perms.IsStaff() && perms.CanForum && time.Since(topic.CreatedAt) <= ownerGracePeriod {
 		// Owner can lock within grace period — skip staff and hierarchy checks
 	} else {
 		if err := s.requireStaff(perms); err != nil {
@@ -808,7 +811,7 @@ func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, userID in
 	}
 
 	// Owner self-action: allow delete within grace period without staff
-	if userID == topic.UserID && !perms.IsStaff() && time.Since(topic.CreatedAt) <= ownerGracePeriod {
+	if userID == topic.UserID && !perms.IsStaff() && perms.CanForum && time.Since(topic.CreatedAt) <= ownerGracePeriod {
 		// Owner can delete within grace period — skip staff and hierarchy checks
 	} else {
 		if err := s.requireStaff(perms); err != nil {

@@ -355,20 +355,23 @@ func (h *ForumHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) 
 }
 
 // actorFromRequest builds an event.Actor from the request context.
-// Username is not available in the middleware context, so only ID is set.
-// Event listeners can look up the username from the user repository if needed.
 func actorFromRequest(r *http.Request) event.Actor {
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	return event.Actor{ID: userID}
+	perms := middleware.PermissionsFromContext(r.Context())
+	return event.Actor{ID: userID, Username: perms.Username}
 }
 
 // parseModReasonBody parses an optional reason from the request body.
 // Returns empty string if body is empty or unparseable (reason is optional).
+// Reason is truncated to 500 characters.
 func parseModReasonBody(r *http.Request) string {
 	var body struct {
 		Reason string `json:"reason"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if len(body.Reason) > 500 {
+		body.Reason = body.Reason[:500]
+	}
 	return body.Reason
 }
 
