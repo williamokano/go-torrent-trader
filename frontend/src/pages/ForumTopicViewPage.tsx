@@ -13,6 +13,7 @@ import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { Pagination } from "@/components/Pagination";
 import { Modal, ConfirmModal } from "@/components/modal";
+import { useToast } from "@/components/toast";
 import "./forums.css";
 
 interface TopicData {
@@ -57,6 +58,7 @@ export function ForumTopicViewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const toast = useToast();
 
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
 
@@ -334,7 +336,7 @@ export function ForumTopicViewPage() {
       }
       return true;
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
       return false;
     } finally {
       setModLoading(false);

@@ -4,6 +4,7 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ForumTopicViewPage } from "@/pages/ForumTopicViewPage";
+import { ToastProvider } from "@/components/toast";
 
 vi.mock("@/features/auth/token", () => ({
   getAccessToken: () => "fake-token",
@@ -132,11 +133,13 @@ beforeEach(() => {
 
 function renderPage() {
   return render(
-    <MemoryRouter initialEntries={["/forums/topics/1"]}>
-      <Routes>
-        <Route path="/forums/topics/:id" element={<ForumTopicViewPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter initialEntries={["/forums/topics/1"]}>
+        <Routes>
+          <Route path="/forums/topics/:id" element={<ForumTopicViewPage />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
   );
 }
 
