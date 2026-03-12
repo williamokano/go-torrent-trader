@@ -1277,7 +1277,7 @@
 
 > **Origin:** Review findings from BE-5.5 — DRY violation between torrent and forum search, Unicode stripped, full post body sent instead of snippet.
 
-#### BE-9.10: Forum Integration Tests for Transactional Paths [S]
+#### BE-9.10: Forum Integration Tests for Transactional Paths [S] [DONE]
 **As a** developer
 **I want** integration tests covering the transactional code paths in forum services
 **So that** the actual production SQL (not just mock fallbacks) is tested
