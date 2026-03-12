@@ -296,6 +296,8 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Post("/topics/{id}/posts", forums.HandleCreatePost)
 					r.Put("/posts/{id}", forums.HandleEditPost)
 					r.Delete("/posts/{id}", forums.HandleDeletePost)
+					r.Post("/posts/{id}/restore", forums.HandleRestorePost)
+					r.Get("/posts/{id}/edits", forums.HandleListPostEdits)
 					r.Delete("/topics/{id}", forums.HandleDeleteTopic)
 
 					// Moderation endpoints (staff only enforced at service layer)

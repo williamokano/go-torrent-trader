@@ -59,8 +59,8 @@ func TestDeletePost_Transactional(t *testing.T) {
 	// recalculate topic last_post -> decrement forum post_count ->
 	// recalculate forum last_post -> COMMIT
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM forum_posts WHERE id =").
-		WithArgs(postID).
+	mock.ExpectExec("UPDATE forum_posts SET deleted_at = NOW").
+		WithArgs(postID, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").
 		WithArgs(topicID).
@@ -116,8 +116,8 @@ func TestDeletePost_Transactional_Rollback(t *testing.T) {
 
 	// DELETE succeeds but the topic post_count update fails -> ROLLBACK
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM forum_posts WHERE id =").
-		WithArgs(postID).
+	mock.ExpectExec("UPDATE forum_posts SET deleted_at = NOW").
+		WithArgs(postID, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").
 		WithArgs(topicID).
@@ -210,8 +210,8 @@ func TestDeletePost_Transactional_CommitFails(t *testing.T) {
 
 	// All SQL succeeds but COMMIT fails
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM forum_posts WHERE id =").
-		WithArgs(postID).
+	mock.ExpectExec("UPDATE forum_posts SET deleted_at = NOW").
+		WithArgs(postID, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").
 		WithArgs(topicID).
@@ -273,8 +273,8 @@ func TestDeletePost_Transactional_OwnerNonStaff(t *testing.T) {
 
 	// Expect same transaction flow as staff happy path
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM forum_posts WHERE id =").
-		WithArgs(postID).
+	mock.ExpectExec("UPDATE forum_posts SET deleted_at = NOW").
+		WithArgs(postID, userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").
 		WithArgs(topicID).

@@ -205,6 +205,10 @@ func (m *mockForumAdminPostRepo) Delete(_ context.Context, _ int64) error { retu
 func (m *mockForumAdminPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockForumAdminPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return nil, 0, nil }
 func (m *mockForumAdminPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) { return 0, nil }
+func (m *mockForumAdminPostRepo) SoftDelete(_ context.Context, _ int64, _ int64) error { return nil }
+func (m *mockForumAdminPostRepo) Restore(_ context.Context, _ int64) error { return nil }
+func (m *mockForumAdminPostRepo) CreateEdit(_ context.Context, _ *model.ForumPostEdit) error { return nil }
+func (m *mockForumAdminPostRepo) ListEdits(_ context.Context, _ int64) ([]model.ForumPostEdit, error) { return nil, nil }
 
 func setupForumAdminRouter() (http.Handler, service.SessionStore, *mockForumCategoryRepo, *mockForumAdminForumRepo) {
 	userRepo := newMockUserRepo()

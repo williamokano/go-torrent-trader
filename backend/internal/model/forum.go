@@ -62,6 +62,8 @@ type ForumPost struct {
 	ReplyToPostID  *int64
 	EditedAt       *time.Time
 	EditedBy       *int64
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	DeletedBy      *int64     `json:"deleted_by,omitempty"`
 	CreatedAt      time.Time
 
 	// Denormalized fields (populated by queries)
@@ -70,6 +72,17 @@ type ForumPost struct {
 	GroupName      string
 	UserCreatedAt  time.Time
 	UserPostCount  int
+}
+
+// ForumPostEdit tracks edit history for a forum post.
+type ForumPostEdit struct {
+	ID        int64     `json:"id"`
+	PostID    int64     `json:"post_id"`
+	EditedBy  int64     `json:"edited_by"`
+	OldBody   string    `json:"old_body"`
+	NewBody   string    `json:"new_body"`
+	CreatedAt time.Time `json:"created_at"`
+	Username  string    `json:"username,omitempty"`
 }
 
 // ForumSearchResult represents a single search result from forum full-text search.

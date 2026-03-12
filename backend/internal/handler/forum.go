@@ -150,9 +150,10 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isStaff := perms.IsStaff()
 	postItems := make([]map[string]interface{}, 0, len(posts))
 	for _, p := range posts {
-		postItems = append(postItems, postResponse(&p))
+		postItems = append(postItems, postResponse(&p, isStaff))
 	}
 
 	canModerate := h.forumSvc.CanModerate(r.Context(), topic, userID, perms)
@@ -199,7 +200,7 @@ func (h *ForumHandler) HandleCreateTopic(w http.ResponseWriter, r *http.Request)
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"topic": topicResponse(topic),
-		"post":  postResponse(post),
+		"post":  postResponse(post, true),
 	})
 }
 
@@ -234,7 +235,7 @@ func (h *ForumHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"post": postResponse(post),
+		"post": postResponse(post, true),
 	})
 }
 
@@ -331,7 +332,7 @@ func (h *ForumHandler) HandleEditPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"post": postResponse(post),
+		"post": postResponse(post, true),
 	})
 }
 
@@ -356,6 +357,50 @@ func (h *ForumHandler) HandleDeletePost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleRestorePost handles POST /api/v1/forums/posts/{id}/restore -- staff only, restores a soft-deleted post.
+func (h *ForumHandler) HandleRestorePost(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	postID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || postID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid post ID")
+		return
+	}
+
+	if err := h.forumSvc.RestorePost(r.Context(), postID, userID, perms); err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleListPostEdits handles GET /api/v1/forums/posts/{id}/edits -- staff only, returns edit history.
+func (h *ForumHandler) HandleListPostEdits(w http.ResponseWriter, r *http.Request) {
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	postID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || postID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid post ID")
+		return
+	}
+
+	edits, err := h.forumSvc.ListPostEdits(r.Context(), postID, perms)
+	if err != nil {
+		handleForumError(w, err)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"edits": edits,
+	})
 }
 
 // actorFromRequest builds an event.Actor from the request context.
@@ -575,6 +620,8 @@ func handleForumError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "cannot delete the first post of a topic; delete the topic instead")
 	case errors.Is(err, service.ErrTopicDeleteDenied):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "you cannot delete this topic")
+	case errors.Is(err, service.ErrPostNotDeleted):
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "post is not deleted")
 	case errors.Is(err, service.ErrSameForum):
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "topic is already in this forum")
 	case errors.Is(err, service.ErrInvalidTopic):
@@ -641,7 +688,11 @@ func topicResponse(t *model.ForumTopic) map[string]interface{} {
 	return resp
 }
 
-func postResponse(p *model.ForumPost) map[string]interface{} {
+func postResponse(p *model.ForumPost, isStaff bool) map[string]interface{} {
+	body := p.Body
+	if p.DeletedAt != nil && !isStaff {
+		body = ""
+	}
 	resp := map[string]interface{}{
 		"id":              p.ID,
 		"topic_id":        p.TopicID,
@@ -649,10 +700,11 @@ func postResponse(p *model.ForumPost) map[string]interface{} {
 		"username":        p.Username,
 		"avatar":          p.Avatar,
 		"group_name":      p.GroupName,
-		"body":            p.Body,
+		"body":            body,
 		"created_at":      p.CreatedAt,
 		"user_created_at": p.UserCreatedAt,
 		"user_post_count": p.UserPostCount,
+		"is_deleted":      p.DeletedAt != nil,
 	}
 	if p.ReplyToPostID != nil {
 		resp["reply_to_post_id"] = *p.ReplyToPostID
@@ -662,6 +714,12 @@ func postResponse(p *model.ForumPost) map[string]interface{} {
 	}
 	if p.EditedBy != nil {
 		resp["edited_by"] = *p.EditedBy
+	}
+	if p.DeletedAt != nil {
+		resp["deleted_at"] = *p.DeletedAt
+	}
+	if p.DeletedBy != nil {
+		resp["deleted_by"] = *p.DeletedBy
 	}
 	return resp
 }
