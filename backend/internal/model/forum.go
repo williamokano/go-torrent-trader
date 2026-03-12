@@ -72,6 +72,7 @@ type ForumPost struct {
 	GroupName      string
 	UserCreatedAt  time.Time
 	UserPostCount  int
+	IsFirstPost    bool
 }
 
 // ForumPostEdit tracks edit history for a forum post.
@@ -97,4 +98,5 @@ type ForumSearchResult struct {
 	Username   string
 	CreatedAt  time.Time
 	Snippet    string
+	PostNumber int
 }

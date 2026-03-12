@@ -49,6 +49,7 @@ interface PostData {
   is_deleted?: boolean;
   deleted_at?: string;
   deleted_by?: number;
+  is_first_post?: boolean;
   created_at: string;
   user_created_at: string;
   user_post_count: number;
@@ -168,6 +169,17 @@ export function ForumTopicViewPage() {
       .then((d) => setSubscribed(d?.subscribed ?? false))
       .catch(() => {});
   }, [id]);
+
+  // Scroll to post anchor if URL has a hash like #post-123
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith("#post-")) {
+      const el = document.getElementById(hash.slice(1));
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [posts]);
 
   const handleToggleSubscription = async () => {
     if (!id) return;
@@ -625,6 +637,7 @@ export function ForumTopicViewPage() {
         {posts.map((post) => (
           <div
             key={post.id}
+            id={`post-${post.id}`}
             className={`forum-post${post.is_deleted ? " forum-post--deleted" : ""}`}
           >
             <div className="forum-post__sidebar">
@@ -756,12 +769,14 @@ export function ForumTopicViewPage() {
                         >
                           Edit
                         </button>
-                        <button
-                          className="forum-post__delete-btn"
-                          onClick={() => setDeletePostId(post.id)}
-                        >
-                          Delete
-                        </button>
+                        {!post.is_first_post && (
+                          <button
+                            className="forum-post__delete-btn"
+                            onClick={() => setDeletePostId(post.id)}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

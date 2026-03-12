@@ -1291,7 +1291,7 @@
 
 > **Origin:** Review finding across BE-5.3/5.4 — all service tests use `db=nil` (mock fallback), actual transactional SQL is untested.
 
-#### BE-9.11: Hide Delete Button on First Post & Deep-Link Search Results [S]
+#### BE-9.11: Hide Delete Button on First Post & Deep-Link Search Results [DONE]
 **As a** user
 **I want** the UI to not show delete on the opening post, and search to link to the exact post
 **So that** I don't get confusing errors and can find search matches directly

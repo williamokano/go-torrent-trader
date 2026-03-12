@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -152,8 +153,11 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 
 	isStaff := perms.IsStaff()
 	postItems := make([]map[string]interface{}, 0, len(posts))
-	for _, p := range posts {
-		postItems = append(postItems, postResponse(&p, isStaff))
+	for i := range posts {
+		if page == 1 && i == 0 {
+			posts[i].IsFirstPost = true
+		}
+		postItems = append(postItems, postResponse(&posts[i], isStaff))
 	}
 
 	canModerate := h.forumSvc.CanModerate(r.Context(), topic, userID, perms)
@@ -280,6 +284,10 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 
 	items := make([]map[string]interface{}, 0, len(results))
 	for _, sr := range results {
+		resultPage := int(math.Ceil(float64(sr.PostNumber) / float64(perPage)))
+		if resultPage < 1 {
+			resultPage = 1
+		}
 		items = append(items, map[string]interface{}{
 			"post_id":     sr.PostID,
 			"body":        sr.Body,
@@ -291,6 +299,8 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 			"username":    sr.Username,
 			"created_at":  sr.CreatedAt,
 			"snippet":     sr.Snippet,
+			"post_number": sr.PostNumber,
+			"page":        resultPage,
 		})
 	}
 
@@ -705,6 +715,7 @@ func postResponse(p *model.ForumPost, isStaff bool) map[string]interface{} {
 		"user_created_at": p.UserCreatedAt,
 		"user_post_count": p.UserPostCount,
 		"is_deleted":      p.DeletedAt != nil,
+		"is_first_post":   p.IsFirstPost,
 	}
 	if p.ReplyToPostID != nil {
 		resp["reply_to_post_id"] = *p.ReplyToPostID
