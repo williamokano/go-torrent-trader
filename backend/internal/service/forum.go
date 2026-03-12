@@ -152,7 +152,8 @@ func (s *ForumService) ListPosts(ctx context.Context, topicID int64, page, perPa
 	return s.posts.ListByTopic(ctx, topicID, page, perPage)
 }
 
-// GetFirstPostID returns the ID of the first (non-deleted) post in a topic.
+// GetFirstPostID returns the ID of the first post in a topic by insertion order,
+// regardless of deletion status. Used to prevent deleting the opening post.
 func (s *ForumService) GetFirstPostID(ctx context.Context, topicID int64) (int64, error) {
 	return s.posts.GetFirstPostIDByTopic(ctx, topicID)
 }

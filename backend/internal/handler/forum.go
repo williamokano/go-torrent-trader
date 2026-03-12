@@ -154,7 +154,10 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isStaff := perms.IsStaff()
-	firstPostID, _ := h.forumSvc.GetFirstPostID(r.Context(), topicID)
+	firstPostID, err := h.forumSvc.GetFirstPostID(r.Context(), topicID)
+	if err != nil {
+		slog.Warn("failed to get first post ID", "topic_id", topicID, "error", err)
+	}
 	postItems := make([]map[string]interface{}, 0, len(posts))
 	for i := range posts {
 		if posts[i].ID == firstPostID {
@@ -285,7 +288,9 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	const topicPerPage = 25 // matches the default per_page in HandleGetTopic
+	// Must match PER_PAGE in frontend/src/pages/ForumTopicViewPage.tsx and
+	// the default perPage in HandleGetTopic. Deep-link page numbers depend on this.
+	const topicPerPage = 25
 	items := make([]map[string]interface{}, 0, len(results))
 	for _, sr := range results {
 		resultPage := int(math.Ceil(float64(sr.PostNumber) / float64(topicPerPage)))

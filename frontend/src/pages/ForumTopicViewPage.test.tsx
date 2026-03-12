@@ -211,6 +211,10 @@ describe("ForumTopicViewPage", () => {
       user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
@@ -227,6 +231,10 @@ describe("ForumTopicViewPage", () => {
     mockUseAuth.mockReturnValue({
       user: { id: 99, username: "mod", isAdmin: false, isStaff: true },
       isAuthenticated: true,
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
     });
     renderPage();
     await waitFor(() => {
