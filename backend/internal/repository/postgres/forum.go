@@ -123,27 +123,15 @@ func (r *ForumRepo) UpdateLastPost(ctx context.Context, forumID int64, postID in
 }
 
 func (r *ForumRepo) RecalculateLastPost(ctx context.Context, forumID int64) error {
+	// Single statement: scalar subquery returns NULL when no non-deleted posts exist.
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE forums SET last_post_id = sub.id
-		FROM (
+		UPDATE forums SET last_post_id = (
 			SELECT p.id FROM forum_posts p
 			JOIN forum_topics t ON t.id = p.topic_id
 			WHERE t.forum_id = $1 AND p.deleted_at IS NULL
 			ORDER BY p.created_at DESC LIMIT 1
-		) sub
-		WHERE forums.id = $1`, forumID)
-	if err != nil {
-		return err
-	}
-	// If no non-deleted posts remain, set last_post_id to NULL
-	_, err = r.db.ExecContext(ctx, `
-		UPDATE forums SET last_post_id = NULL
-		WHERE id = $1
-			AND NOT EXISTS (
-				SELECT 1 FROM forum_posts p
-				JOIN forum_topics t ON t.id = p.topic_id
-				WHERE t.forum_id = $1 AND p.deleted_at IS NULL
-			)`, forumID)
+		)
+		WHERE id = $1`, forumID)
 	return err
 }
 

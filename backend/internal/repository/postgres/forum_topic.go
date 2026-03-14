@@ -115,33 +115,15 @@ func (r *ForumTopicRepo) UpdateLastPost(ctx context.Context, topicID int64, post
 }
 
 func (r *ForumTopicRepo) RecalculateLastPost(ctx context.Context, topicID int64) error {
+	// Single statement: scalar subquery returns NULL when no non-deleted posts exist,
+	// which naturally sets last_post_id and last_post_at to NULL.
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE forum_topics SET
-			last_post_id = sub.id,
-			last_post_at = sub.created_at,
+			last_post_id = (SELECT id FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
+			last_post_at = (SELECT created_at FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
 			updated_at = NOW()
-		FROM (
-			SELECT id, created_at FROM forum_posts
-			WHERE topic_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1
-		) sub
-		WHERE forum_topics.id = $1`, topicID)
-	if err != nil {
-		return err
-	}
-	// If no non-deleted posts remain, the FROM subquery returns no rows so the UPDATE is a no-op.
-	// Handle that by setting last_post fields to NULL.
-	res, err := r.db.ExecContext(ctx, `
-		UPDATE forum_topics SET
-			last_post_id = NULL,
-			last_post_at = NULL,
-			updated_at = NOW()
-		WHERE id = $1
-			AND NOT EXISTS (SELECT 1 FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL)`, topicID)
-	if err != nil {
-		return err
-	}
-	_ = res
-	return nil
+		WHERE id = $1`, topicID)
+	return err
 }
 
 func (r *ForumTopicRepo) SetLocked(ctx context.Context, id int64, locked bool) error {
