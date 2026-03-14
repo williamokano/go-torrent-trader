@@ -1447,4 +1447,32 @@ func TestForumService_EditPost_CreatesEditHistory(t *testing.T) {
 	}
 }
 
+func TestForumService_EditPost_UnchangedBodySkipsUpdate(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "same body"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+		nil, nil,
+	)
+	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "same body")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if post.Body != "same body" {
+		t.Errorf("expected body unchanged, got %q", post.Body)
+	}
+	if postRepo.updated != nil {
+		t.Error("expected no Update call, but post was updated")
+	}
+	if postRepo.createdEdit != nil {
+		t.Error("expected no CreateEdit call, but edit was created")
+	}
+}
+
 func int64Ptr(v int64) *int64 { return &v }

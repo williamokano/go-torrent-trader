@@ -747,9 +747,9 @@ func postResponse(p *model.ForumPost, isStaff bool) map[string]interface{} {
 	}
 	if p.DeletedAt != nil {
 		resp["deleted_at"] = *p.DeletedAt
-	}
-	if p.DeletedBy != nil {
-		resp["deleted_by"] = *p.DeletedBy
+		if isStaff && p.DeletedBy != nil {
+			resp["deleted_by"] = *p.DeletedBy
+		}
 	}
 	return resp
 }

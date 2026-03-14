@@ -424,7 +424,7 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 	// Re-fetch to get updated edited_at and denormalized fields
 	updated, err := s.posts.GetByID(ctx, postID)
 	if err != nil {
-		return post, nil
+		return nil, fmt.Errorf("re-fetch post after edit: %w", err)
 	}
 	return updated, nil
 }
