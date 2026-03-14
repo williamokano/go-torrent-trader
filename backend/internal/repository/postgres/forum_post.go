@@ -24,7 +24,7 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
 		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
-		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id)
+		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id AND deleted_at IS NULL)
 	FROM forum_posts p
 	JOIN users u ON u.id = p.user_id
 	JOIN groups g ON g.id = u.group_id
@@ -46,7 +46,7 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error) {
 	var total int64
 	err := r.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1 AND deleted_at IS NULL", topicID,
+		"SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1", topicID,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count posts: %w", err)
@@ -56,7 +56,7 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
 		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
-		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id)
+		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id AND deleted_at IS NULL)
 	FROM forum_posts p
 	JOIN users u ON u.id = p.user_id
 	JOIN groups g ON g.id = u.group_id
@@ -161,7 +161,8 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 	offsetArg := argIdx
 
 	dataQuery := fmt.Sprintf(`SELECT p.id, p.body, t.id, t.title, f.id, f.name, p.user_id, u.username, p.created_at,
-		ts_headline('english', p.body, to_tsquery('english', $1), 'MaxWords=30,MinWords=15,StartSel=<mark>,StopSel=</mark>') AS snippet
+		ts_headline('english', p.body, to_tsquery('english', $1), 'MaxWords=30,MinWords=15,StartSel=!!MARK_START!!,StopSel=!!MARK_END!!') AS snippet,
+		(SELECT COUNT(*) FROM forum_posts fp2 WHERE fp2.topic_id = p.topic_id AND fp2.id <= p.id) AS post_number
 		FROM forum_posts p
 		JOIN forum_topics t ON t.id = p.topic_id
 		JOIN forums f ON f.id = t.forum_id
@@ -182,7 +183,7 @@ func (r *ForumPostRepo) Search(ctx context.Context, query string, forumID *int64
 		if err := rows.Scan(
 			&sr.PostID, &sr.Body, &sr.TopicID, &sr.TopicTitle,
 			&sr.ForumID, &sr.ForumName, &sr.UserID, &sr.Username, &sr.CreatedAt,
-			&sr.Snippet,
+			&sr.Snippet, &sr.PostNumber,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan forum search result: %w", err)
 		}
@@ -207,7 +208,10 @@ func (r *ForumPostRepo) SoftDelete(ctx context.Context, id int64, deletedBy int6
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
 	if n == 0 {
 		return sql.ErrNoRows
 	}
@@ -232,9 +236,9 @@ func (r *ForumPostRepo) CreateEdit(ctx context.Context, edit *model.ForumPostEdi
 }
 
 func (r *ForumPostRepo) ListEdits(ctx context.Context, postID int64) ([]model.ForumPostEdit, error) {
-	query := `SELECT e.id, e.post_id, e.edited_by, e.old_body, e.new_body, e.created_at, u.username
+	query := `SELECT e.id, e.post_id, e.edited_by, e.old_body, e.new_body, e.created_at, COALESCE(u.username, '')
 		FROM forum_post_edits e
-		JOIN users u ON u.id = e.edited_by
+		LEFT JOIN users u ON u.id = e.edited_by
 		WHERE e.post_id = $1
 		ORDER BY e.created_at DESC`
 

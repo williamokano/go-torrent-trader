@@ -27,5 +27,9 @@ func BuildPrefixQuery(search string) string {
 	if len(parts) == 0 {
 		return ""
 	}
+	// Cap at 20 terms to prevent excessive query complexity.
+	if len(parts) > 20 {
+		parts = parts[:20]
+	}
 	return strings.Join(parts, " & ")
 }

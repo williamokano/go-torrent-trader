@@ -91,6 +91,7 @@ const FAKE_RESPONSE = {
       username: "alice",
       group_name: "User",
       body: "First post body",
+      is_first_post: true,
       created_at: "2025-05-01T10:00:00Z",
       user_created_at: "2025-01-01T00:00:00Z",
       user_post_count: 10,
@@ -102,6 +103,7 @@ const FAKE_RESPONSE = {
       username: "bob",
       group_name: "User",
       body: "Reply body",
+      is_first_post: false,
       created_at: "2025-05-02T10:00:00Z",
       user_created_at: "2025-02-01T00:00:00Z",
       user_post_count: 5,
@@ -188,8 +190,8 @@ describe("ForumTopicViewPage", () => {
     expect(screen.queryByText("Post a Reply")).not.toBeInTheDocument();
   });
 
-  test("shows edit and delete buttons for post author", async () => {
-    // user id=1 is author of post id=1 (alice's post)
+  test("shows edit button but hides delete on first post for author", async () => {
+    // user id=1 is author of post id=1 (alice's post) which is is_first_post
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
       isAuthenticated: true,
@@ -199,41 +201,51 @@ describe("ForumTopicViewPage", () => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
     const editBtns = screen.getAllByText("Edit");
-    const deleteBtns = screen.getAllByText("Delete");
-    // User owns post 1 but not post 2 — should see 1 edit and 1 delete
+    // User owns post 1 — should see 1 edit (on first post) but NO delete (first post hidden)
     expect(editBtns).toHaveLength(1);
-    expect(deleteBtns).toHaveLength(1);
+    expect(screen.queryByText("Delete")).not.toBeInTheDocument();
   });
 
-  test("shows edit and delete buttons for admin on all posts", async () => {
+  test("shows edit on all posts and delete only on non-first posts for admin", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
     const editBtns = screen.getAllByText("Edit");
     const deleteBtns = screen.getAllByText("Delete");
-    // Admin can edit/delete all posts + mod toolbar Delete button
+    // Admin can edit all 2 posts, but delete is hidden on first post
+    // Delete buttons: 1 (post actions on non-first post) + 1 (mod toolbar) = 2
     expect(editBtns).toHaveLength(2);
-    expect(deleteBtns.length).toBeGreaterThanOrEqual(2);
+    expect(deleteBtns).toHaveLength(2);
   });
 
-  test("shows edit and delete buttons for staff on all posts", async () => {
+  test("shows edit on all posts and delete only on non-first posts for staff", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: 99, username: "mod", isAdmin: false, isStaff: true },
       isAuthenticated: true,
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(MOD_RESPONSE),
+    });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
     const editBtns = screen.getAllByText("Edit");
     const deleteBtns = screen.getAllByText("Delete");
+    // Staff can edit all 2 posts, but delete is hidden on first post
+    // Delete buttons: 1 (post actions on non-first post) + 1 (mod toolbar) = 2
     expect(editBtns).toHaveLength(2);
-    expect(deleteBtns.length).toBeGreaterThanOrEqual(2);
+    expect(deleteBtns).toHaveLength(2);
   });
 
   test("hides edit and delete buttons for non-author non-admin", async () => {
@@ -349,7 +361,7 @@ describe("ForumTopicViewPage", () => {
   test("delete post button opens confirm modal", async () => {
     const usr = userEvent.setup();
     mockUseAuth.mockReturnValue({
-      user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
+      user: { id: 2, username: "bob", isAdmin: false, isStaff: false },
       isAuthenticated: true,
     });
     renderPage();
@@ -360,6 +372,15 @@ describe("ForumTopicViewPage", () => {
     await usr.click(screen.getByText("Delete"));
     expect(screen.getByTestId("confirm-modal")).toBeInTheDocument();
     expect(screen.getByText("Delete Post")).toBeInTheDocument();
+  });
+
+  test("posts have anchor ids for deep-linking", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    expect(document.getElementById("post-1")).toBeInTheDocument();
+    expect(document.getElementById("post-2")).toBeInTheDocument();
   });
 
   test("confirming delete calls DELETE and removes post", async () => {
@@ -396,8 +417,7 @@ describe("ForumTopicViewPage", () => {
     });
   });
 
-  test("delete first post shows error message", async () => {
-    const usr = userEvent.setup();
+  test("first post does not have delete button (hidden by is_first_post)", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
       isAuthenticated: true,
@@ -406,32 +426,23 @@ describe("ForumTopicViewPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
+    // Alice owns post 1 (first post) — should see Edit but NOT Delete
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.queryByText("Delete")).not.toBeInTheDocument();
+  });
 
-    await usr.click(screen.getByText("Delete"));
-
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      json: () =>
-        Promise.resolve({
-          error: {
-            message: "Cannot delete the first post. Delete the topic instead.",
-          },
-        }),
+  test("non-first post has delete button for its author", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 2, username: "bob", isAdmin: false, isStaff: false },
+      isAuthenticated: true,
     });
-
-    const modalDeleteBtn = screen
-      .getByTestId("confirm-modal")
-      .querySelector("button");
-    await usr.click(modalDeleteBtn!);
-
+    renderPage();
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Cannot delete the first post. Delete the topic instead.",
-        ),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
+    // Bob owns post 2 (not first post) — should see both Edit and Delete
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.getByText("Delete")).toBeInTheDocument();
   });
 
   // --- Moderation tests ---

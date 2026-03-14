@@ -18,6 +18,8 @@ interface SearchResult {
   username: string;
   created_at: string;
   snippet?: string;
+  post_number: number;
+  page: number;
 }
 
 interface ForumOption {
@@ -236,7 +238,9 @@ export function ForumSearchPage() {
             {results.map((r) => (
               <div key={r.post_id} className="forum-search-result">
                 <div className="forum-search-result__topic">
-                  <Link to={`/forums/topics/${r.topic_id}`}>
+                  <Link
+                    to={`/forums/topics/${r.topic_id}?page=${r.page}#post-${r.post_id}`}
+                  >
                     {r.topic_title}
                   </Link>
                 </div>
