@@ -53,6 +53,9 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 	}
 
 	offset := (page - 1) * perPage
+	// The p.id tiebreaker keeps pagination deterministic when two posts share a
+	// created_at, and makes this order match the id-rank that Search computes as
+	// post_number — the deep-link page number is derived from that rank.
 	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
 		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
@@ -61,7 +64,7 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 	JOIN users u ON u.id = p.user_id
 	JOIN groups g ON g.id = u.group_id
 	WHERE p.topic_id = $1
-	ORDER BY p.created_at ASC
+	ORDER BY p.created_at ASC, p.id ASC
 	LIMIT $2 OFFSET $3`
 
 	rows, err := r.db.QueryContext(ctx, query, topicID, perPage, offset)
