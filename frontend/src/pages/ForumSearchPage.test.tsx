@@ -51,6 +51,8 @@ const SEARCH_RESPONSE = {
       created_at: "2025-06-01T10:00:00Z",
       snippet:
         "This is a <mark>test</mark> post body with some content for searching",
+      post_number: 3,
+      page: 1,
     },
     {
       post_id: 11,
@@ -62,6 +64,8 @@ const SEARCH_RESPONSE = {
       user_id: 2,
       username: "bob",
       created_at: "2025-06-02T12:00:00Z",
+      post_number: 30,
+      page: 2,
     },
   ],
   total: 2,
@@ -226,6 +230,17 @@ describe("ForumSearchPage", () => {
     expect(snippetElements[0].textContent).toContain("test");
     // Second result has no snippet — falls back to truncated body text
     expect(snippetElements[1].textContent).toBe("Another result body");
+  });
+
+  test("search result links include page and post anchor for deep-linking", async () => {
+    renderPage("/forums/search?q=test");
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic Title")).toBeInTheDocument();
+    });
+    const link1 = screen.getByText("Test Topic Title").closest("a");
+    expect(link1?.getAttribute("href")).toBe("/forums/topics/5?page=1#post-10");
+    const link2 = screen.getByText("Another Topic").closest("a");
+    expect(link2?.getAttribute("href")).toBe("/forums/topics/6?page=2#post-11");
   });
 
   test("renders forum filter dropdown", async () => {

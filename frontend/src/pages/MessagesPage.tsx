@@ -542,8 +542,14 @@ export function MessagesPage() {
                     >
                       <td>
                         <UsernameDisplay
-                          userId={tab === "inbox" ? msg.sender_id : msg.receiver_id}
-                          username={tab === "inbox" ? msg.sender_username : msg.receiver_username}
+                          userId={
+                            tab === "inbox" ? msg.sender_id : msg.receiver_id
+                          }
+                          username={
+                            tab === "inbox"
+                              ? msg.sender_username
+                              : msg.receiver_username
+                          }
                           className="messages__user-link"
                         />
                       </td>

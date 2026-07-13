@@ -315,7 +315,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         isStaff: user?.isStaff ?? false,
         muted,
         muteExpiresAt,
-        chatSuspended: chatSuspended || (user?.can_chat === false),
+        chatSuspended: chatSuspended || user?.can_chat === false,
         mainChatVisible,
         setMainChatVisible,
         pmUnreadCount,

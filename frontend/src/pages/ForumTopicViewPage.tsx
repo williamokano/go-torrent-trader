@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Link,
   useNavigate,
@@ -49,6 +49,7 @@ interface PostData {
   is_deleted?: boolean;
   deleted_at?: string;
   deleted_by?: number;
+  is_first_post?: boolean;
   created_at: string;
   user_created_at: string;
   user_post_count: number;
@@ -95,6 +96,8 @@ export function ForumTopicViewPage() {
   const [deletePostId, setDeletePostId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const hasScrolledToAnchor = useRef(false);
 
   // Subscription state
   const [subscribed, setSubscribed] = useState(false);
@@ -168,6 +171,19 @@ export function ForumTopicViewPage() {
       .then((d) => setSubscribed(d?.subscribed ?? false))
       .catch(() => {});
   }, [id]);
+
+  // Scroll to post anchor if URL has a hash like #post-123 (once only)
+  useEffect(() => {
+    if (hasScrolledToAnchor.current) return;
+    const hash = window.location.hash;
+    if (hash && hash.startsWith("#post-")) {
+      const el = document.getElementById(hash.slice(1));
+      if (el) {
+        hasScrolledToAnchor.current = true;
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [posts]);
 
   const handleToggleSubscription = async () => {
     if (!id) return;
@@ -342,7 +358,6 @@ export function ForumTopicViewPage() {
       setDeleting(false);
     }
   };
-
 
   const modAction = async (url: string, method: string, body?: object) => {
     setModLoading(true);
@@ -534,18 +549,21 @@ export function ForumTopicViewPage() {
       <div className="topic-view-page__title-row">
         <h1>
           {topic.title}
-          {!canModerate && !!user && user.id === topic.user_id && !topic.locked && (
-            <button
-              className="forum-post__edit-btn"
-              style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
-              onClick={() => {
-                setRenameTitle(topic.title);
-                setShowRenameModal(true);
-              }}
-            >
-              Edit Title
-            </button>
-          )}
+          {!canModerate &&
+            !!user &&
+            user.id === topic.user_id &&
+            !topic.locked && (
+              <button
+                className="forum-post__edit-btn"
+                style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
+                onClick={() => {
+                  setRenameTitle(topic.title);
+                  setShowRenameModal(true);
+                }}
+              >
+                Edit Title
+              </button>
+            )}
         </h1>
         {!!user && (
           <button
@@ -625,6 +643,7 @@ export function ForumTopicViewPage() {
         {posts.map((post) => (
           <div
             key={post.id}
+            id={`post-${post.id}`}
             className={`forum-post${post.is_deleted ? " forum-post--deleted" : ""}`}
           >
             <div className="forum-post__sidebar">
@@ -684,14 +703,15 @@ export function ForumTopicViewPage() {
                       </button>
                     </div>
                   )}
-                  {(user?.isAdmin || user?.isStaff) && expandedDeletedPosts.has(post.id) && (
-                    <div
-                      className="forum-post__body"
-                      style={{ marginTop: "0.5rem", opacity: 0.6 }}
-                    >
-                      <MarkdownRenderer content={post.body} />
-                    </div>
-                  )}
+                  {(user?.isAdmin || user?.isStaff) &&
+                    expandedDeletedPosts.has(post.id) && (
+                      <div
+                        className="forum-post__body"
+                        style={{ marginTop: "0.5rem", opacity: 0.6 }}
+                      >
+                        <MarkdownRenderer content={post.body} />
+                      </div>
+                    )}
                 </div>
               ) : editingPostId === post.id ? (
                 <div className="forum-post__edit-form">
@@ -756,12 +776,14 @@ export function ForumTopicViewPage() {
                         >
                           Edit
                         </button>
-                        <button
-                          className="forum-post__delete-btn"
-                          onClick={() => setDeletePostId(post.id)}
-                        >
-                          Delete
-                        </button>
+                        {!post.is_first_post && (
+                          <button
+                            className="forum-post__delete-btn"
+                            onClick={() => setDeletePostId(post.id)}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

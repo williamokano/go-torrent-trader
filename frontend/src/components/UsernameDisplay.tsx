@@ -17,7 +17,11 @@ export function UsernameDisplay({
   className,
 }: UsernameDisplayProps) {
   return (
-    <span className={className ? `username-display ${className}` : "username-display"}>
+    <span
+      className={
+        className ? `username-display ${className}` : "username-display"
+      }
+    >
       {noLink ? (
         <span>{username}</span>
       ) : (

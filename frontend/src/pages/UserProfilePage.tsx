@@ -401,17 +401,20 @@ export function UserProfilePage() {
             <h2 className="profile-restrictions__title">Active Restrictions</h2>
             {profile.can_download === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
-                {isOwnProfile ? "Your" : "This user's"} download privileges are currently suspended.
+                {isOwnProfile ? "Your" : "This user's"} download privileges are
+                currently suspended.
               </p>
             )}
             {profile.can_upload === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
-                {isOwnProfile ? "Your" : "This user's"} upload privileges are currently suspended.
+                {isOwnProfile ? "Your" : "This user's"} upload privileges are
+                currently suspended.
               </p>
             )}
             {profile.can_chat === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
-                {isOwnProfile ? "Your" : "This user's"} chat privileges are currently suspended.
+                {isOwnProfile ? "Your" : "This user's"} chat privileges are
+                currently suspended.
               </p>
             )}
           </div>

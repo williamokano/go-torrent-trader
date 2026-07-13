@@ -358,3 +358,36 @@ func TestHandleDeleteTopic_InvalidID(t *testing.T) {
 	h.HandleDeleteTopic(w, req)
 	if w.Code != http.StatusBadRequest { t.Errorf("expected 400, got %d", w.Code) }
 }
+
+func TestSanitizeSnippet(t *testing.T) {
+	tests := []struct {
+		name, input, want string
+	}{
+		{"markers converted to mark tags",
+			"hello !!MARK_START!!world!!MARK_END!! test",
+			"hello <mark>world</mark> test"},
+		{"html escaped before marker replacement",
+			"!!MARK_START!!<script>alert(1)</script>!!MARK_END!!",
+			"<mark>&lt;script&gt;alert(1)&lt;/script&gt;</mark>"},
+		{"no markers",
+			"plain text",
+			"plain text"},
+		{"empty string",
+			"",
+			""},
+		{"html in body without markers",
+			`<img src=x onerror=alert(1)>`,
+			"&lt;img src=x onerror=alert(1)&gt;"},
+		{"ampersand handling",
+			"A &amp; B !!MARK_START!!match!!MARK_END!!",
+			"A &amp;amp; B <mark>match</mark>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeSnippet(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeSnippet(%q)\n  got:  %q\n  want: %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

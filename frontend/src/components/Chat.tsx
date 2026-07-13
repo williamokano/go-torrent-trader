@@ -151,7 +151,13 @@ export function Chat() {
             <input
               className="chat__input"
               type="text"
-              placeholder={chatSuspended ? "Chat suspended" : muted ? "You are muted" : "Type a message..."}
+              placeholder={
+                chatSuspended
+                  ? "Chat suspended"
+                  : muted
+                    ? "You are muted"
+                    : "Type a message..."
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
