@@ -328,10 +328,7 @@ export function AdminWarningsPage() {
               {warnings.map((w) => (
                 <tr key={w.id}>
                   <td>
-                    <UsernameDisplay
-                      userId={w.user_id}
-                      username={w.username}
-                    />
+                    <UsernameDisplay userId={w.user_id} username={w.username} />
                   </td>
                   <td>{warningTypeLabel(w.type)}</td>
                   <td className="admin-warnings__reason-cell" title={w.reason}>

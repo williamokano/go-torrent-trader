@@ -204,8 +204,6 @@
   color: var(--color-danger, #dc3545);
 }
 
-
-
 .header__hamburger {
   display: none;
   background: none;

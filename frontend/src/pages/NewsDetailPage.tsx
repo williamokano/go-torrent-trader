@@ -73,7 +73,10 @@ export function NewsDetailPage() {
           <span>By {article.author_name ?? "Unknown"}</span>
           <span>{formatDate(article.created_at)}</span>
         </div>
-        <MarkdownRenderer content={article.body} className="news__detail-body" />
+        <MarkdownRenderer
+          content={article.body}
+          className="news__detail-body"
+        />
       </article>
     </div>
   );

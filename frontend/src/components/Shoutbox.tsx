@@ -150,7 +150,13 @@ export function Shoutbox() {
         <input
           className="shoutbox__input"
           type="text"
-          placeholder={chatSuspended ? "Chat suspended" : muted ? "You are muted" : "Type a message..."}
+          placeholder={
+            chatSuspended
+              ? "Chat suspended"
+              : muted
+                ? "You are muted"
+                : "Type a message..."
+          }
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}

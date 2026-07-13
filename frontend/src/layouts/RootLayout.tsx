@@ -53,7 +53,13 @@ export function RootLayout() {
   const location = useLocation();
   const closeMenu = () => setMenuOpen(false);
 
-  const { pmUnreadCount, setPmUnreadCount, notifUnreadCount, setNotifUnreadCount, connected } = useChat();
+  const {
+    pmUnreadCount,
+    setPmUnreadCount,
+    notifUnreadCount,
+    setNotifUnreadCount,
+    connected,
+  } = useChat();
   const prevConnectedRef = useRef(connected);
 
   // Fetch unread count on mount and on WS reconnection (laptop sleep, network blip).

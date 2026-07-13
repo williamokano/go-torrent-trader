@@ -561,9 +561,7 @@ describe("ForumTopicViewPage", () => {
     // Modal should appear
     await waitFor(() => {
       expect(
-        screen.getByText(
-          "This topic will be pinned to the top of the forum.",
-        ),
+        screen.getByText("This topic will be pinned to the top of the forum."),
       ).toBeInTheDocument();
     });
 

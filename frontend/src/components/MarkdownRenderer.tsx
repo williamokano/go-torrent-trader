@@ -12,18 +12,17 @@ interface MarkdownRendererProps {
 // Extend the default sanitize schema to allow <details>/<summary> for spoilers
 const sanitizeSchema = {
   ...defaultSchema,
-  tagNames: [
-    ...(defaultSchema.tagNames ?? []),
-    "details",
-    "summary",
-  ],
+  tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
 };
 
 /**
  * Renders Markdown content safely. Supports GFM (tables, strikethrough,
  * task lists, autolinks) and raw HTML (sanitized to prevent XSS).
  */
-export function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className = "",
+}: MarkdownRendererProps) {
   return (
     <div className={`markdown-body ${className}`.trim()}>
       <ReactMarkdown

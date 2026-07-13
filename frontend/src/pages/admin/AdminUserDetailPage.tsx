@@ -542,7 +542,10 @@ export function AdminUserDetailPage() {
           </button>
         ) : (
           <span className="admin-user-detail__banned-badge">
-            Banned{user.disabled_until ? ` (until ${timeAgo(user.disabled_until)})` : " (permanent)"}
+            Banned
+            {user.disabled_until
+              ? ` (until ${timeAgo(user.disabled_until)})`
+              : " (permanent)"}
           </span>
         )}
       </div>
@@ -812,7 +815,10 @@ export function AdminUserDetailPage() {
             onChange={(e) => setRestrictionReason(e.target.value)}
           />
           <div className="admin-user-detail__field-group">
-            <label htmlFor="restriction-expiry" className="admin-user-detail__field-label">
+            <label
+              htmlFor="restriction-expiry"
+              className="admin-user-detail__field-label"
+            >
               Expires At (optional)
             </label>
             <input

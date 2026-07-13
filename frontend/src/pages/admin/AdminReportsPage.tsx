@@ -160,7 +160,10 @@ export function AdminReportsPage() {
                   <td>
                     <UsernameDisplay
                       userId={report.reporter_id}
-                      username={report.reporter_username || `User #${report.reporter_id}`}
+                      username={
+                        report.reporter_username ||
+                        `User #${report.reporter_id}`
+                      }
                       className="admin-reports__link"
                     />
                   </td>

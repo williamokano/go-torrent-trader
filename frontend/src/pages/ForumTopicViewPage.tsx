@@ -359,7 +359,6 @@ export function ForumTopicViewPage() {
     }
   };
 
-
   const modAction = async (url: string, method: string, body?: object) => {
     setModLoading(true);
     setError(null);
@@ -550,18 +549,21 @@ export function ForumTopicViewPage() {
       <div className="topic-view-page__title-row">
         <h1>
           {topic.title}
-          {!canModerate && !!user && user.id === topic.user_id && !topic.locked && (
-            <button
-              className="forum-post__edit-btn"
-              style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
-              onClick={() => {
-                setRenameTitle(topic.title);
-                setShowRenameModal(true);
-              }}
-            >
-              Edit Title
-            </button>
-          )}
+          {!canModerate &&
+            !!user &&
+            user.id === topic.user_id &&
+            !topic.locked && (
+              <button
+                className="forum-post__edit-btn"
+                style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
+                onClick={() => {
+                  setRenameTitle(topic.title);
+                  setShowRenameModal(true);
+                }}
+              >
+                Edit Title
+              </button>
+            )}
         </h1>
         {!!user && (
           <button
@@ -701,14 +703,15 @@ export function ForumTopicViewPage() {
                       </button>
                     </div>
                   )}
-                  {(user?.isAdmin || user?.isStaff) && expandedDeletedPosts.has(post.id) && (
-                    <div
-                      className="forum-post__body"
-                      style={{ marginTop: "0.5rem", opacity: 0.6 }}
-                    >
-                      <MarkdownRenderer content={post.body} />
-                    </div>
-                  )}
+                  {(user?.isAdmin || user?.isStaff) &&
+                    expandedDeletedPosts.has(post.id) && (
+                      <div
+                        className="forum-post__body"
+                        style={{ marginTop: "0.5rem", opacity: 0.6 }}
+                      >
+                        <MarkdownRenderer content={post.body} />
+                      </div>
+                    )}
                 </div>
               ) : editingPostId === post.id ? (
                 <div className="forum-post__edit-form">

@@ -19,7 +19,16 @@ type WSMessage =
   | { type: "chat_suspended"; reason: string }
   | { type: "chat_restored" }
   | { type: "pm_notification"; unread_count: number }
-  | { type: "notification"; notification: { id: number; type: string; data: Record<string, unknown>; created_at: string }; unread_count: number }
+  | {
+      type: "notification";
+      notification: {
+        id: number;
+        type: string;
+        data: Record<string, unknown>;
+        created_at: string;
+      };
+      unread_count: number;
+    }
   | { type: "error"; message: string };
 
 export type ChatListener = (
@@ -35,7 +44,16 @@ export type ChatListener = (
     | { type: "chat_suspended"; reason: string }
     | { type: "chat_restored" }
     | { type: "pm_notification"; unread_count: number }
-    | { type: "notification"; notification: { id: number; type: string; data: Record<string, unknown>; created_at: string }; unread_count: number }
+    | {
+        type: "notification";
+        notification: {
+          id: number;
+          type: string;
+          data: Record<string, unknown>;
+          created_at: string;
+        };
+        unread_count: number;
+      }
     | { type: "error"; message: string },
 ) => void;
 
