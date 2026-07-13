@@ -57,12 +57,24 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 			}
 		}
 
-		// 3. Resolve expired privilege restrictions
+		// 4. Resolve expired privilege restrictions
 		if deps.RestrictionSvc != nil {
 			if resolved, err := deps.RestrictionSvc.ResolveExpired(ctx); err != nil {
 				slog.Error("maintenance: failed to resolve expired restrictions", "error", err)
 			} else if resolved > 0 {
 				slog.Info("maintenance: resolved expired restrictions", "count", resolved)
+			}
+		}
+
+		// 5. Purge read notifications past the retention window. A non-positive
+		// retention disables the purge — without that guard a misconfigured zero
+		// would set the cutoff to now and delete every read notification.
+		if deps.NotificationRepo != nil && deps.NotificationRetention > 0 {
+			cutoff := time.Now().Add(-deps.NotificationRetention)
+			if purged, err := deps.NotificationRepo.DeleteOld(ctx, cutoff); err != nil {
+				slog.Error("maintenance: failed to purge old notifications", "error", err)
+			} else if purged > 0 {
+				slog.Info("maintenance: purged old notifications", "count", purged, "cutoff", cutoff)
 			}
 		}
 

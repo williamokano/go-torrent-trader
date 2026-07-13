@@ -633,11 +633,16 @@
 **So that** users can be mentioned in comments and forum posts
 
 **Acceptance Criteria:**
-- `GET /api/v1/users/search?q=prefix`
+- ~~`GET /api/v1/users/search?q=prefix`~~ — superseded, see below
 - Returns matching users (id, username, avatar) limited to 10 results
 - Prefix match on username
 - Requires authentication
 - Used by frontend for typeahead in comment/post editors
+
+**Status (audited 2026-07-14) — rescoped: the backend half already exists.**
+- `GET /api/v1/users?search=<q>&per_page=<n>` (`MemberHandler.HandleList`, auth-required) already does username search with pagination, and the PM compose screen (`frontend/src/pages/MessagesPage.tsx`) uses it for typeahead today. A second dedicated `/users/search` endpoint would duplicate it — **do not build it.**
+- Mention *notifications* also already work: `backend/internal/listener/notification.go` parses `@username` via `mentionRegex` and emits `forum_mention`.
+- REMAINING WORK IS FRONTEND ONLY — extract the typeahead from `MessagesPage` into a reusable component and wire it into the forum post and comment editors, which have no mention autocomplete. Best folded into FE-0.7's `MarkdownEditor`.
 
 #### BE-3.13: Rich Torrent Metadata [M] [RESEARCH]
 **As an** uploader
@@ -1343,7 +1348,7 @@
 
 > **Origin:** Deferred from BE-5.9.
 
-#### BE-9.15: Notification Cleanup in Maintenance Worker [XS]
+#### BE-9.15: Notification Cleanup in Maintenance Worker [DONE]
 **As a** developer
 **I want** old read notifications to be automatically purged
 **So that** the notifications table doesn't grow unboundedly
@@ -1353,6 +1358,8 @@
 - Configurable retention period (default 90 days for read notifications)
 
 > **Origin:** Review finding from BE-5.6 implementation — DeleteOld exists but is not called.
+
+**Implementation:** `DeleteOld` (which already scoped its delete to `is_read = TRUE`) is now called as step 5 of the maintenance job. Retention is `NOTIFICATION_RETENTION` (default `2160h` / 90 days). A non-positive retention **disables** the purge rather than setting the cutoff to now — otherwise a misconfigured `0` would delete every read notification.
 
 #### BE-9.16: Notification Listener & Handler Test Coverage [S]
 **As a** developer
@@ -1470,7 +1477,7 @@
 - `Badge`: role badges, status indicators
 - All components theme-aware (use CSS custom properties)
 
-#### FE-0.7: Markdown Rendering System [M]
+#### FE-0.7: Markdown Rendering System [PARTIAL — renderer shipped; editor, spoiler plugin, and most surfaces still missing]
 **As a** user
 **I want** rich text formatting in descriptions, comments, forum posts, PMs, news, and chat
 **So that** content is readable and expressive
@@ -1487,6 +1494,14 @@
 - Used across: torrent descriptions, comments, forum posts, PMs, news articles, chat messages
 - Formatting reference page (FE-6.3) updated to show Markdown syntax instead of BBCode
 - Lightweight: no heavy editor frameworks — just a textarea with helpers + the rendering library
+
+**Status (audited 2026-07-14):**
+- DONE — `MarkdownRenderer` (`frontend/src/components/MarkdownRenderer.tsx`) with `react-markdown` + `remark-gfm` + `rehype-raw` + `rehype-sanitize`; the sanitize schema allows `<details>`/`<summary>`.
+- DONE — theme-aware styling (`frontend/src/components/markdown.css`).
+- MISSING — the `!!spoiler!!` remark plugin. The sanitize schema permits the tags, but `remarkPlugins` is only `[remarkGfm]`, so `!!text!!` never becomes a `<details>` element. Allowing the tag is not the same as producing it.
+- MISSING — `MarkdownEditor` (toolbar + preview toggle). No such component exists.
+- MISSING — most surfaces. `MarkdownRenderer` is only used on Home, News (list + detail), and forum topic view. Torrent descriptions, comments, PMs, and chat still render unformatted.
+- UNVERIFIED — FE-6.3 formatting reference page still describes BBCode.
 
 > **Note:** No BBCode support. The original TorrentTrader used BBCode; this reimplementation standardizes on Markdown. Legacy content is converted during migration (MT-1.5).
 

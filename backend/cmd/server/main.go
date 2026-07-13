@@ -281,6 +281,9 @@ func run() int {
 		RestrictionSvc:  restrictionService,
 		AdminSvc:        adminService,
 		SendToUser:      chatHub.SendToUser,
+
+		NotificationRepo:      notificationRepo,
+		NotificationRetention: cfg.Worker.NotificationRetention,
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)

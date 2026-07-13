@@ -2,6 +2,7 @@ package worker
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -24,4 +25,9 @@ type WorkerDeps struct {
 	RestrictionSvc  *service.RestrictionService
 	AdminSvc        *service.AdminService
 	SendToUser      SendToUserFunc
+
+	NotificationRepo repository.NotificationRepository
+	// NotificationRetention is how long read notifications are kept before the
+	// maintenance job purges them. Zero or negative disables the purge.
+	NotificationRetention time.Duration
 }
