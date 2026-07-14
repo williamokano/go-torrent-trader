@@ -1263,18 +1263,20 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
   - `config` — test validation and edge cases
   - `database` — test connection and migration error handling
 
-**Status (audited 2026-07-14): IN PROGRESS — overall 42.1% → 61.2%.**
+**Status (audited 2026-07-15): NEARLY MET — overall 42.1% → 79.5% (floor 79).**
 
 | Package | Coverage | Note |
 |---|---:|---|
-| `repository/postgres` | **80.7%** | target met (BE-9.17) |
-| `service` | ~72% | |
+| `repository/postgres` | **92.5%** | target met (BE-9.17, then deepened) |
+| `handler` | **~88%** | httptest + real-router authz walk (BE-9.16, BE-9.11 fixes) |
 | `listener` | ~86% | notification listener covered (BE-9.16) |
-| `handler` | ~44% | **the remaining gap** |
-| `worker` | ~43% | |
+| `service` | ~73% | the largest remaining block (816 uncovered) |
+| `worker` | ~34% | ratio-warning helpers covered; the handlers need a warning-repo stub |
+| `middleware` | ~63% | |
 
-- The single largest remaining block is `internal/handler` (~1,600 uncovered statements). Fully untested files: `chat_ws.go` (221 stmts — WebSocket, awkward to unit-test and may warrant a different approach), `chat_admin.go`, `warning.go`, `message.go`, `news.go`, `chat.go`, `site_settings.go`, `cheat_flag.go`, `categories.go`.
-- The `httptest` + hand-written-mock pattern already exists in `forum_test.go` / `notification_test.go`; these files simply never had it applied.
+- The remaining ~0.5 point to 80% sits in `internal/service` and `internal/worker`, both of which need service-layer test harnesses rather than more handler tests.
+- `internal/handler` includes a **route-authorization walk** (`route_authz_test.go`): it enumerates the real router with `chi.Walk` and asserts every `/admin/**` route rejects an anonymous caller (401) and an ordinary member (403). This catches a privilege-escalation regression that the direct-handler tests structurally cannot, and it covers new routes automatically. Verified by moving the backup routes out of the `RequireAdmin` group and watching it fail.
+- `chat_ws.go` is covered (81%) by a real-connection harness (BE-9.16 follow-up) rather than being excluded.
 - Raise `COVERAGE_FLOOR` after each increment. Never lower it to turn a red build green.
 - All new code must ship with tests above the threshold
 - Add `go test -coverprofile` to CI with coverage check step
