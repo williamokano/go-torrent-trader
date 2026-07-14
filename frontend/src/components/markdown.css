@@ -150,3 +150,30 @@
 .markdown-body details[open] summary {
   margin-bottom: 0.5em;
 }
+
+/* Paragraphs holding a spoiler are rendered as <div> (a <details> may not
+   nest inside a <p>), so they need the paragraph spacing back. */
+.markdown-body__paragraph {
+  margin: 0 0 0.5em;
+}
+
+/* Inline mode: single-line surfaces such as chat. */
+.markdown-body--inline {
+  display: inline;
+}
+
+.markdown-body--inline details {
+  display: inline-block;
+  margin: 0;
+  padding: 0 0.4em;
+  vertical-align: baseline;
+}
+
+.markdown-body--inline details summary {
+  display: inline;
+  font-weight: 400;
+}
+
+.markdown-body--inline details[open] summary {
+  margin-bottom: 0;
+}

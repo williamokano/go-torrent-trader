@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { Pagination } from "@/components/Pagination";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useChat } from "@/lib/useChat";
 import { formatDate } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
@@ -345,7 +347,10 @@ export function MessagesPage() {
             <span>{formatDate(selectedMessage.created_at)}</span>
           </div>
         </div>
-        <div className="messages__detail-body">{selectedMessage.body}</div>
+        <MarkdownRenderer
+          content={selectedMessage.body}
+          className="messages__detail-body"
+        />
         <div className="messages__detail-actions">
           <button
             type="button"
@@ -483,22 +488,18 @@ export function MessagesPage() {
               />
             </div>
             <div className="messages__form-group">
-              <label htmlFor="msg-body" className="messages__form-label">
-                Message
-              </label>
-              <textarea
+              <MarkdownEditor
                 id="msg-body"
-                className="messages__form-textarea"
+                label="Message"
                 value={composeBody}
-                onChange={(e) => setComposeBody(e.target.value)}
-                required
+                onChange={setComposeBody}
                 placeholder="Write your message..."
               />
             </div>
             <button
               type="submit"
               className="messages__form-btn"
-              disabled={sending}
+              disabled={sending || !composeBody.trim()}
             >
               {sending ? "Sending..." : "Send Message"}
             </button>

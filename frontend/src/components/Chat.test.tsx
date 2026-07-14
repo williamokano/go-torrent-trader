@@ -528,4 +528,54 @@ describe("Chat", () => {
       expect(screen.getByText("carol msg")).toBeInTheDocument();
     });
   });
+  test("renders chat messages as inline markdown", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "alice",
+      isStaff: false,
+      isAdmin: false,
+    };
+    mockAuth.isAuthenticated = true;
+
+    const { container } = renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "backfill",
+        messages: [
+          {
+            id: 1,
+            user_id: 2,
+            username: "bob",
+            message: '**hi** !!spoiler!! <script>alert("xss")</script>',
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: 2,
+            user_id: 3,
+            username: "carol",
+            message: "# not a heading in chat",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(container.querySelector("strong")?.textContent).toBe("hi");
+    });
+
+    // Spoilers work, XSS is stripped, block elements are dropped inline.
+    expect(container.querySelector("details")).toBeInTheDocument();
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("alert");
+    expect(container.querySelector("h1")).not.toBeInTheDocument();
+    expect(container.textContent).toContain("not a heading in chat");
+  });
 });

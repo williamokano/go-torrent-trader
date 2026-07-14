@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useChat } from "@/lib/useChat";
 import { ConfirmModal } from "@/components/modal";
 import { ChatModMenu } from "./ChatModMenu";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import "./shoutbox.css";
 
 function formatTime(iso: string): string {
@@ -126,7 +127,11 @@ export function Shoutbox() {
                 {msg.username}
               </Link>
             )}
-            <span className="shoutbox__message-text">{msg.message}</span>
+            <MarkdownRenderer
+              content={msg.message}
+              className="shoutbox__message-text"
+              inline
+            />
             {isStaff && (
               <button
                 className="shoutbox__message-delete"

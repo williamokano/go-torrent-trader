@@ -11,6 +11,7 @@ import { useAuth } from "@/features/auth";
 import { timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { Pagination } from "@/components/Pagination";
 import { Modal, ConfirmModal } from "@/components/modal";
 import { useToast } from "@/components/toast";
@@ -715,10 +716,10 @@ export function ForumTopicViewPage() {
                 </div>
               ) : editingPostId === post.id ? (
                 <div className="forum-post__edit-form">
-                  <textarea
+                  <MarkdownEditor
                     value={editBody}
-                    onChange={(e) => setEditBody(e.target.value)}
-                    placeholder="Edit your post... (Markdown supported)"
+                    onChange={setEditBody}
+                    placeholder="Edit your post..."
                   />
                   {editError && (
                     <div className="forum-post__error">{editError}</div>
@@ -832,11 +833,11 @@ export function ForumTopicViewPage() {
               </button>
             </div>
           )}
-          <textarea
+          <MarkdownEditor
+            label="Reply"
             value={replyBody}
-            onChange={(e) => setReplyBody(e.target.value)}
-            placeholder="Write your reply... (Markdown supported)"
-            required
+            onChange={setReplyBody}
+            placeholder="Write your reply..."
           />
           {submitError && (
             <div className="forum-post__error">{submitError}</div>

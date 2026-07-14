@@ -1,0 +1,126 @@
+.markdown-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs, 0.35rem);
+  margin-bottom: var(--space-md, 1rem);
+}
+
+.markdown-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm, 0.5rem);
+  flex-wrap: wrap;
+}
+
+.markdown-editor__label {
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.markdown-editor__tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.markdown-editor__tab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--text-sm, 0.875rem);
+  padding: 0.2rem 0.6rem;
+}
+
+.markdown-editor__tab:hover {
+  color: var(--color-text-primary);
+}
+
+.markdown-editor__tab--active {
+  background-color: var(--color-bg-tertiary, #2a2a2a);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.markdown-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.markdown-editor__btn {
+  background-color: var(--color-bg-tertiary, #2a2a2a);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--text-sm, 0.875rem);
+  line-height: 1.4;
+  padding: 0.2rem 0.55rem;
+}
+
+.markdown-editor__btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.markdown-editor__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.markdown-editor__btn--bold {
+  font-weight: 700;
+}
+
+.markdown-editor__btn--italic {
+  font-style: italic;
+}
+
+.markdown-editor__btn--code {
+  font-family: var(--font-mono, monospace);
+}
+
+.markdown-editor__textarea {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--text-base, 1rem);
+  padding: var(--space-sm, 0.5rem);
+  resize: vertical;
+  width: 100%;
+}
+
+.markdown-editor__textarea:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.markdown-editor__preview {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  min-height: 6rem;
+  padding: var(--space-sm, 0.5rem);
+}
+
+.markdown-editor__preview-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.markdown-editor__hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs, 0.75rem);
+  margin: 0;
+}
+
+.markdown-editor__hint a {
+  color: var(--color-accent);
+}

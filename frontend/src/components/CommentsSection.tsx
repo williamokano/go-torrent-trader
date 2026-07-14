@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pagination } from "@/components/Pagination";
-import { Textarea } from "@/components/form";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
@@ -232,10 +233,10 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
 
       {user && (
         <form className="comments-section__form" onSubmit={handleSubmit}>
-          <Textarea
+          <MarkdownEditor
             label="Add a comment"
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={setBody}
             rows={3}
             placeholder="Write your comment..."
           />
@@ -278,10 +279,10 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
 
                 {editingId === comment.id ? (
                   <div className="comments-section__edit-form">
-                    <Textarea
+                    <MarkdownEditor
                       label="Edit comment"
                       value={editBody}
-                      onChange={(e) => setEditBody(e.target.value)}
+                      onChange={setEditBody}
                       rows={3}
                     />
                     <div className="comments-section__edit-actions">
@@ -303,7 +304,10 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
                     </div>
                   </div>
                 ) : (
-                  <p className="comments-section__body">{comment.body}</p>
+                  <MarkdownRenderer
+                    content={comment.body}
+                    className="comments-section__body"
+                  />
                 )}
 
                 {canManageComment(comment) && editingId !== comment.id && (

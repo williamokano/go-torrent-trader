@@ -4,6 +4,7 @@ import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import type { AdminNewsArticle } from "@/types/news";
 import "./admin-news.css";
 
@@ -254,12 +255,11 @@ export function AdminNewsPage() {
                 />
               </div>
               <div className="admin-news__modal-field">
-                <label htmlFor="news-body">Body</label>
-                <textarea
+                <MarkdownEditor
                   id="news-body"
+                  label="Body"
                   value={formBody}
-                  onChange={(e) => setFormBody(e.target.value)}
-                  required
+                  onChange={setFormBody}
                   placeholder="Article content..."
                   rows={8}
                 />

@@ -642,7 +642,7 @@
 **Status (audited 2026-07-14) — rescoped: the backend half already exists.**
 - `GET /api/v1/users?search=<q>&per_page=<n>` (`MemberHandler.HandleList`, auth-required) already does username search with pagination, and the PM compose screen (`frontend/src/pages/MessagesPage.tsx`) uses it for typeahead today. A second dedicated `/users/search` endpoint would duplicate it — **do not build it.**
 - Mention *notifications* also already work: `backend/internal/listener/notification.go` parses `@username` via `mentionRegex` and emits `forum_mention`.
-- REMAINING WORK IS FRONTEND ONLY — extract the typeahead from `MessagesPage` into a reusable component and wire it into the forum post and comment editors, which have no mention autocomplete. Best folded into FE-0.7's `MarkdownEditor`.
+- REMAINING WORK IS FRONTEND ONLY — extract the typeahead from `MessagesPage` into a reusable component and wire it into the forum post and comment editors, which have no mention autocomplete. FE-0.7 shipped `frontend/src/components/MarkdownEditor.tsx` (now used by comments, forum posts, PMs, torrent descriptions and news), so the `@` typeahead should hook into that single component and every compose surface gets it at once.
 
 #### BE-3.13: Rich Torrent Metadata [M] [RESEARCH]
 **As an** uploader
@@ -1513,12 +1513,12 @@
 - `Modal`: accessible dialog with overlay, close on escape/outside click
 - `Toast` notifications: success, error, info, auto-dismiss
 - `MarkdownRenderer`: shared component for rendering Markdown content — see FE-0.7
-- `MarkdownEditor`: toolbar with common formatting, preview toggle — **use a library** (e.g., `@uiw/react-markdown-editor`), do NOT build from scratch
+- `MarkdownEditor`: toolbar with common formatting, preview toggle — shipped in FE-0.7 as a plain textarea + toolbar (no editor framework), per FE-0.7's "lightweight" acceptance criterion
 - `Avatar`: user avatar with fallback to initials
 - `Badge`: role badges, status indicators
 - All components theme-aware (use CSS custom properties)
 
-#### FE-0.7: Markdown Rendering System [PARTIAL — renderer shipped; editor, spoiler plugin, and most surfaces still missing]
+#### FE-0.7: Markdown Rendering System [DONE]
 **As a** user
 **I want** rich text formatting in descriptions, comments, forum posts, PMs, news, and chat
 **So that** content is readable and expressive
@@ -1536,13 +1536,15 @@
 - Formatting reference page (FE-6.3) updated to show Markdown syntax instead of BBCode
 - Lightweight: no heavy editor frameworks — just a textarea with helpers + the rendering library
 
-**Status (audited 2026-07-14):**
-- DONE — `MarkdownRenderer` (`frontend/src/components/MarkdownRenderer.tsx`) with `react-markdown` + `remark-gfm` + `rehype-raw` + `rehype-sanitize`; the sanitize schema allows `<details>`/`<summary>`.
-- DONE — theme-aware styling (`frontend/src/components/markdown.css`).
-- MISSING — the `!!spoiler!!` remark plugin. The sanitize schema permits the tags, but `remarkPlugins` is only `[remarkGfm]`, so `!!text!!` never becomes a `<details>` element. Allowing the tag is not the same as producing it.
-- MISSING — `MarkdownEditor` (toolbar + preview toggle). No such component exists.
-- MISSING — most surfaces. `MarkdownRenderer` is only used on Home, News (list + detail), and forum topic view. Torrent descriptions, comments, PMs, and chat still render unformatted.
-- DONE — FE-6.3's formatting reference (`frontend/src/pages/FormattingPage.tsx`) does teach Markdown, not BBCode. Re-verified 2026-07-14.
+**Status (completed 2026-07-14):**
+- `MarkdownRenderer` (`frontend/src/components/MarkdownRenderer.tsx`) — `react-markdown` + `remark-gfm` + `rehype-raw` + `rehype-sanitize`, theme-aware styling (`markdown.css`).
+- `!!spoiler!!` remark plugin (`frontend/src/components/remarkSpoiler.ts`) — emits `<details><summary>Spoiler</summary>…</details>`. Matches across sibling nodes (`!!**Ending**: he dies!!`), applies CommonMark-style flanking rules so `Wow!! Amazing!!` is not a spoiler, and never fires inside code spans/blocks. A paragraph containing a spoiler renders as a `<div>` because `<details>` may not nest inside a `<p>`.
+- `MarkdownEditor` (`frontend/src/components/MarkdownEditor.tsx`) — plain textarea + toolbar (bold, italic, link, image, code, quote, spoiler, list) inserting syntax at the cursor, with a Write/Preview toggle rendering through `MarkdownRenderer`. No editor framework.
+- Surfaces wired: torrent descriptions (detail view + upload/edit forms), comments (display + compose + edit), PMs (detail + compose), forum topics/posts (new topic, reply, edit — display already existed), news (admin compose — display already existed), chat + shoutbox (inline mode).
+- Chat/shoutbox use `MarkdownRenderer inline`: rendered in a `<span>` with block elements (headings, tables, images, blockquotes) unwrapped to their text, so a one-line message cannot break the layout. Inline emphasis, code, links and spoilers work.
+- Sanitization unchanged and enforced: only `<details>`/`<summary>` added to the default schema; no `dangerouslySetInnerHTML` anywhere. XSS payloads (`<script>`, `onerror=`, `javascript:` URLs, `<iframe>`) are covered by tests on the renderer, editor preview, comments, PMs, torrent descriptions and chat.
+- FE-6.3's formatting reference (`frontend/src/pages/FormattingPage.tsx`) already documented `!!hidden text!!`; the syntax it advertises now actually works.
+- NFO fields stay a plain textarea on purpose — NFOs are pre-formatted ASCII art and are rendered by `NfoViewer`, not Markdown.
 
 > **Note:** No BBCode support. The original TorrentTrader used BBCode; this reimplementation standardizes on Markdown. Legacy content is converted during migration (MT-1.5).
 
