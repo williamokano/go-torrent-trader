@@ -1248,7 +1248,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 #### BE-9.5: Backfill Torrent File Lists [S] [REMOVED — no legacy data to backfill; if needed, handle during MT-1.2 torrent migration]
 
-#### BE-9.6: Increase Test Coverage to 80% [M]
+#### BE-9.6: Increase Test Coverage to 80% [DONE]
 **As a** developer
 **I want** comprehensive test coverage across all packages
 **So that** regressions are caught early and code quality is maintained
@@ -1263,7 +1263,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
   - `config` — test validation and edge cases
   - `database` — test connection and migration error handling
 
-**Status (audited 2026-07-15): NEARLY MET — overall 42.1% → 79.5% (floor 79).**
+**Status (2026-07-15): DONE — overall 42.1% → 80.4% (floor 80).**
 
 | Package | Coverage | Note |
 |---|---:|---|
