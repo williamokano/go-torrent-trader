@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ToastContext } from "./ToastContext";
 import "@/components/toast/toast.css";
@@ -61,10 +61,17 @@ export function ToastProvider({
     [addToast],
   );
 
+  // Stable identity: every callback above is already useCallback-stable, so the
+  // only churn was this object literal. Without the memo useToast() returns a
+  // fresh value on every provider render — and the provider re-renders on every
+  // toast add and auto-dismiss — which refires any effect that depends on it.
+  const value = useMemo(
+    () => ({ success, error, info, warning, removeToast }),
+    [success, error, info, warning, removeToast],
+  );
+
   return (
-    <ToastContext.Provider
-      value={{ success, error, info, warning, removeToast }}
-    >
+    <ToastContext.Provider value={value}>
       {children}
       <div className="toast-container" aria-live="polite">
         {toasts.map((toast) => (

@@ -121,7 +121,7 @@ export function AdminForumsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchData();
