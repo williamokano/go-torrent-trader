@@ -106,6 +106,28 @@ tasks:
     cmds:
       - go test ./...
 
+  backend:coverage:
+    desc: Run backend tests and report coverage against the CI floor
+    dir: '{{.BACKEND_DIR}}'
+    vars:
+      # Keep these in sync with .github/workflows/backend.yml
+      COVERAGE_FLOOR: '43.0'
+      COVERAGE_EXCLUDE: '/backend/(cmd/server|internal/testutil)/'
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - grep -Ev '{{.COVERAGE_EXCLUDE}}' coverage.out > coverage.filtered.out
+      - |
+        total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {print $NF}' | tr -d '%')
+        echo "coverage: ${total}% (CI floor {{.COVERAGE_FLOOR}}%)"
+        awk -v total="$total" -v floor='{{.COVERAGE_FLOOR}}' 'BEGIN {
+          if (total + 0 < floor + 0) {
+            printf "coverage %s%% is below the %s%% floor — CI will fail\n", total, floor
+            exit 1
+          }
+        }'
+      - go tool cover -html=coverage.filtered.out -o coverage.html
+      - echo "line-by-line report written to backend/coverage.html"
+
   backend:lint:
     desc: Lint backend code
     dir: '{{.BACKEND_DIR}}'

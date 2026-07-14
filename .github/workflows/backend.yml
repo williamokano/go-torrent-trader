@@ -36,6 +36,21 @@ jobs:
       - run: go test -race -coverprofile=coverage.out ./...
         working-directory: backend
 
+      # Drop packages that coverage cannot say anything useful about, so the
+      # percentage describes business logic rather than being diluted by code
+      # nobody would ever write tests *for*:
+      #   cmd/server       — process bootstrap and dependency wiring
+      #   internal/testutil — test helpers; they are test code, not tested code
+      # Their tests still RUN (this filters the profile, not the test set) —
+      # only the coverage denominator changes.
+      - name: Filter coverage profile
+        working-directory: backend
+        env:
+          COVERAGE_EXCLUDE: '/backend/(cmd/server|internal/testutil)/'
+        run: |
+          grep -Ev "$COVERAGE_EXCLUDE" coverage.out > coverage.filtered.out
+          echo "excluded $(( $(wc -l < coverage.out) - $(wc -l < coverage.filtered.out) )) profile blocks matching $COVERAGE_EXCLUDE"
+
       # Coverage floor. CLAUDE.md targets 80%; the floor starts at the level
       # coverage is actually at, so it stops eroding now instead of blocking
       # every PR until we reach the target. Ratchet it up as coverage improves,
@@ -43,11 +58,11 @@ jobs:
       - name: Enforce coverage floor
         working-directory: backend
         env:
-          COVERAGE_FLOOR: '42.0'
+          COVERAGE_FLOOR: '43.0'
         run: |
-          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}' | tr -d '%')
+          total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {print $NF}' | tr -d '%')
           if [ -z "$total" ]; then
-            echo "::error::could not parse a coverage total from coverage.out"
+            echo "::error::could not parse a coverage total from coverage.filtered.out"
             exit 1
           fi
           echo "coverage: ${total}% (floor ${COVERAGE_FLOOR}%)"
