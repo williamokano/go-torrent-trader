@@ -232,3 +232,22 @@ func TestListener_BackupDeleted(t *testing.T) {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
 }
+
+func TestListener_BackupDownloaded(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.BackupDownloadedEvent{
+		Base: event.NewBase(event.BackupDownloaded, event.Actor{ID: 3, Username: "admin"}),
+		Name: "backup-20260714T031500Z-a1b2c3d4.dump",
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].EventType != "backup_downloaded" {
+		t.Errorf("expected backup_downloaded, got %s", repo.logs[0].EventType)
+	}
+	if repo.logs[0].Message != "admin downloaded database backup: backup-20260714T031500Z-a1b2c3d4.dump" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+}

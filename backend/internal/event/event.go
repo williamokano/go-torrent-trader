@@ -65,6 +65,7 @@ const (
 	TorrentCommented        Type = "torrent_commented"
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
+	BackupDownloaded        Type = "backup_downloaded"
 )
 
 // Event is the base interface for all domain events.
@@ -481,8 +482,18 @@ type BackupCreatedEvent struct {
 	Size int64  `json:"size"`
 }
 
-// BackupDeletedEvent is published when a database backup file is deleted.
+// BackupDeletedEvent is published when a database backup file is deleted,
+// either by an admin or by retention pruning (actor "system").
 type BackupDeletedEvent struct {
+	Base
+	Name string `json:"name"`
+}
+
+// BackupDownloadedEvent is published when an admin downloads a backup. A dump
+// contains every password hash, email and passkey on the site, so pulling one
+// off the server is the most sensitive action in the admin panel — it gets an
+// audit trail of its own.
+type BackupDownloadedEvent struct {
 	Base
 	Name string `json:"name"`
 }

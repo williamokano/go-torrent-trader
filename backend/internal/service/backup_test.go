@@ -114,7 +114,7 @@ func TestOpenAndDeleteRejectPathTraversal(t *testing.T) {
 	}
 
 	for _, name := range []string{"../../etc/passwd", "../passwd", "/etc/passwd", "..", "subdir/x.dump"} {
-		if _, _, err := svc.Open(name); !errors.Is(err, ErrInvalidBackupName) {
+		if _, _, err := svc.Open(context.Background(), name, event.Actor{ID: 1}); !errors.Is(err, ErrInvalidBackupName) {
 			t.Errorf("Open(%q) = %v, want ErrInvalidBackupName", name, err)
 		}
 		if err := svc.Delete(context.Background(), name, event.Actor{ID: 1}); !errors.Is(err, ErrInvalidBackupName) {
@@ -143,7 +143,7 @@ func TestOpenRejectsSymlinkInsideBackupDir(t *testing.T) {
 		t.Fatalf("creating symlink: %v", err)
 	}
 
-	if _, _, err := svc.Open("backup-20260714T031500Z-deadbeef.dump"); !errors.Is(err, ErrInvalidBackupName) {
+	if _, _, err := svc.Open(context.Background(), "backup-20260714T031500Z-deadbeef.dump", event.Actor{ID: 1}); !errors.Is(err, ErrInvalidBackupName) {
 		t.Errorf("Open(symlink) = %v, want ErrInvalidBackupName", err)
 	}
 	if err := svc.Delete(context.Background(), "backup-20260714T031500Z-deadbeef.dump", event.Actor{ID: 1}); !errors.Is(err, ErrInvalidBackupName) {
@@ -372,7 +372,7 @@ func TestListOpenDeleteRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 backup named %s, got %+v", created.Name, backups)
 	}
 
-	rc, size, err := svc.Open(created.Name)
+	rc, size, err := svc.Open(ctx, created.Name, event.Actor{ID: 1, Username: "admin"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestListOpenDeleteRoundTrip(t *testing.T) {
 		t.Errorf("expected 1 backup_deleted event, got %d", len(deleted))
 	}
 
-	if _, _, err := svc.Open(created.Name); !errors.Is(err, ErrBackupNotFound) {
+	if _, _, err := svc.Open(ctx, created.Name, event.Actor{ID: 1}); !errors.Is(err, ErrBackupNotFound) {
 		t.Errorf("Open after delete = %v, want ErrBackupNotFound", err)
 	}
 	if err := svc.Delete(ctx, created.Name, event.Actor{ID: 1}); !errors.Is(err, ErrBackupNotFound) {
@@ -466,26 +466,8 @@ func TestCreatePrunesBeyondRetention(t *testing.T) {
 	}
 }
 
-func TestNewBackupServiceClearsStalePartials(t *testing.T) {
-	dir := t.TempDir()
-	stale := filepath.Join(dir, "backup-20260101T010000Z-aaaaaaaa.dump.partial")
-	if err := os.WriteFile(stale, []byte("half a dump"), 0o600); err != nil {
-		t.Fatalf("writing stale partial: %v", err)
-	}
-
-	if _, err := NewBackupService(BackupServiceConfig{
-		DatabaseURL: testDatabaseURL,
-		Dir:         dir,
-		PgDumpPath:  "pg_dump",
-		Timeout:     time.Minute,
-	}, nil); err != nil {
-		t.Fatalf("NewBackupService: %v", err)
-	}
-
-	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("expected stale partial to be removed, stat err = %v", err)
-	}
-}
+// Stale-partial cleanup at startup is covered by TestCleanPartialsSparesInFlightDumps,
+// which also pins down the age rule that keeps a concurrent replica's dump safe.
 
 func TestNewBackupServiceCreatesDirAndDefaults(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "backups")
@@ -584,4 +566,187 @@ func writeBackupFile(t *testing.T, dir, name string, modTime time.Time) string {
 		t.Fatalf("chtimes %s: %v", name, err)
 	}
 	return name
+}
+
+// --- audit trail ------------------------------------------------------------
+
+func TestOpenPublishesDownloadEvent(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	var downloaded []*event.BackupDownloadedEvent
+	bus.Subscribe(event.BackupDownloaded, func(_ context.Context, evt event.Event) error {
+		downloaded = append(downloaded, evt.(*event.BackupDownloadedEvent))
+		return nil
+	})
+
+	svc := newTestBackupService(t, fakePgDump(t, "DUMP"), 0, bus)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, event.Actor{ID: 1, Username: "admin"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rc, _, err := svc.Open(ctx, created.Name, event.Actor{ID: 5, Username: "sneaky-admin"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_ = rc.Close()
+
+	// Downloading the whole database must leave a trace.
+	if len(downloaded) != 1 {
+		t.Fatalf("expected 1 backup_downloaded event, got %d", len(downloaded))
+	}
+	if downloaded[0].Name != created.Name {
+		t.Errorf("expected event for %s, got %s", created.Name, downloaded[0].Name)
+	}
+	if downloaded[0].Actor.Username != "sneaky-admin" {
+		t.Errorf("expected the downloading admin as actor, got %q", downloaded[0].Actor.Username)
+	}
+
+	// A rejected download must not be logged as one.
+	downloaded = nil
+	if _, _, err := svc.Open(ctx, "../../etc/passwd", event.Actor{ID: 5}); err == nil {
+		t.Fatal("expected traversal to be rejected")
+	}
+	if len(downloaded) != 0 {
+		t.Errorf("expected no event for a rejected download, got %d", len(downloaded))
+	}
+}
+
+func TestPrunePublishesDeleteEventsAsSystem(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	var deleted []*event.BackupDeletedEvent
+	bus.Subscribe(event.BackupDeleted, func(_ context.Context, evt event.Event) error {
+		deleted = append(deleted, evt.(*event.BackupDeletedEvent))
+		return nil
+	})
+
+	svc := newTestBackupService(t, fakePgDump(t, "DUMP"), 1, bus)
+	pruned := writeBackupFile(t, svc.Dir(), "backup-20260101T010000Z-aaaaaaaa.dump", time.Now().Add(-2*time.Hour))
+
+	if _, err := svc.Create(context.Background(), event.Actor{ID: 1, Username: "admin"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// A backup disappearing with no audit entry is indistinguishable from tampering.
+	if len(deleted) != 1 {
+		t.Fatalf("expected 1 backup_deleted event from pruning, got %d", len(deleted))
+	}
+	if deleted[0].Name != pruned {
+		t.Errorf("expected prune event for %s, got %s", pruned, deleted[0].Name)
+	}
+	if deleted[0].Actor.Username != SystemActor.Username {
+		t.Errorf("expected retention prune attributed to %q, got %q", SystemActor.Username, deleted[0].Actor.Username)
+	}
+}
+
+// --- partial files ----------------------------------------------------------
+
+func TestPartialFilesAreInvisibleToTheAPI(t *testing.T) {
+	svc := newTestBackupService(t, fakePgDump(t, "DUMP"), 0, nil)
+	ctx := context.Background()
+
+	name := "backup-20260714T031500Z-a1b2c3d4.dump"
+	writeBackupFile(t, svc.Dir(), name+partialSuffix, time.Now())
+
+	backups, err := svc.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(backups) != 0 {
+		t.Errorf("expected in-progress dump to be hidden from List, got %+v", backups)
+	}
+	// The .partial exists, but the finished name it will get does not — an admin
+	// must not be able to download or delete a half-written dump.
+	if _, _, err := svc.Open(ctx, name, event.Actor{ID: 1}); !errors.Is(err, ErrBackupNotFound) {
+		t.Errorf("Open(in-progress) = %v, want ErrBackupNotFound", err)
+	}
+	if err := svc.Delete(ctx, name, event.Actor{ID: 1}); !errors.Is(err, ErrBackupNotFound) {
+		t.Errorf("Delete(in-progress) = %v, want ErrBackupNotFound", err)
+	}
+	if _, _, err := svc.Open(ctx, name+partialSuffix, event.Actor{ID: 1}); !errors.Is(err, ErrInvalidBackupName) {
+		t.Errorf("Open(.partial) = %v, want ErrInvalidBackupName", err)
+	}
+}
+
+func TestCleanPartialsSparesInFlightDumps(t *testing.T) {
+	dir := t.TempDir()
+
+	fresh := filepath.Join(dir, "backup-20260714T031500Z-aaaaaaaa.dump.partial")
+	stale := filepath.Join(dir, "backup-20260101T010000Z-bbbbbbbb.dump.partial")
+	for _, path := range []string{fresh, stale} {
+		if err := os.WriteFile(path, []byte("half a dump"), 0o600); err != nil {
+			t.Fatalf("writing partial: %v", err)
+		}
+	}
+	// Older than the dump timeout: nothing can still be writing it.
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	if _, err := NewBackupService(BackupServiceConfig{
+		DatabaseURL: testDatabaseURL,
+		Dir:         dir,
+		PgDumpPath:  "pg_dump",
+		Timeout:     30 * time.Minute,
+	}, nil); err != nil {
+		t.Fatalf("NewBackupService: %v", err)
+	}
+
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected the stale partial to be removed, stat err = %v", err)
+	}
+	// Another replica sharing the backup volume may still be writing this one.
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("a recent partial was deleted — that could belong to a running dump: %v", err)
+	}
+}
+
+func TestCreateBackupFileIsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permissions")
+	}
+	svc := newTestBackupService(t, fakePgDump(t, "DUMP"), 0, nil)
+
+	backup, err := svc.Create(context.Background(), event.Actor{ID: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(svc.Dir(), backup.Name))
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	// The dump holds every password hash on the site.
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("expected backup file mode 0600, got %#o", perm)
+	}
+}
+
+func TestPgEnvFromURLForwardsTLSSettings(t *testing.T) {
+	env, err := pgEnvFromURL("postgres://u:p@h:5432/db?sslmode=verify-full&sslcert=/c/client.crt&sslkey=/c/client.key&sslrootcert=/c/ca.crt")
+	if err != nil {
+		t.Fatalf("pgEnvFromURL: %v", err)
+	}
+	joined := strings.Join(env, "\n")
+	for _, want := range []string{
+		"PGSSLMODE=verify-full",
+		"PGSSLCERT=/c/client.crt",
+		"PGSSLKEY=/c/client.key",
+		"PGSSLROOTCERT=/c/ca.crt",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected %q in env, got %v", want, env)
+		}
+	}
+}
+
+func TestPgEnvFromURLRejectsKeywordValueDSN(t *testing.T) {
+	// pgx accepts libpq keyword/value DSNs, so the app may well be configured
+	// with one. pg_dump cannot be driven from it here — the caller must degrade
+	// (disable backups) rather than crash.
+	if _, err := pgEnvFromURL("host=postgres user=tt password=pw dbname=tt sslmode=disable"); err == nil {
+		t.Fatal("expected keyword/value DSN to be rejected")
+	}
 }

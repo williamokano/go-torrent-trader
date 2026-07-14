@@ -20,7 +20,7 @@ import (
 type BackupManager interface {
 	Create(ctx context.Context, actor event.Actor) (*model.Backup, error)
 	List(ctx context.Context) ([]model.Backup, error)
-	Open(name string) (io.ReadCloser, int64, error)
+	Open(ctx context.Context, name string, actor event.Actor) (io.ReadCloser, int64, error)
 	Delete(ctx context.Context, name string, actor event.Actor) error
 }
 
@@ -73,7 +73,9 @@ func (h *BackupHandler) HandleDownloadBackup(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	file, size, err := h.backups.Open(name)
+	// Open records the download in the activity log — a dump is the whole
+	// database, so who pulled one and when is worth knowing.
+	file, size, err := h.backups.Open(r.Context(), name, actorFromRequest(r))
 	if err != nil {
 		h.writeBackupError(w, err, "failed to download backup")
 		return

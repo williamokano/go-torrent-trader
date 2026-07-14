@@ -276,7 +276,7 @@ describe("AdminBackupsPage", () => {
     vi.stubGlobal("fetch", mockFetch);
   });
 
-  test("shows an error when loading the list fails", async () => {
+  test("shows an error when loading the list fails, without refetching in a loop", async () => {
     mockFetch.mockRejectedValue(new Error("network down"));
 
     renderPage();
@@ -284,5 +284,12 @@ describe("AdminBackupsPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Failed to load backups")).toBeInTheDocument();
     });
+
+    // The error toast re-renders the toast provider. If the fetch effect
+    // depended on the (unmemoized) toast context value, that would refire it —
+    // failing again, toasting again, forever. One call, and it stays one.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

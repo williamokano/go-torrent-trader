@@ -1100,12 +1100,20 @@
   (`backup-<UTC timestamp>-<8 hex>.dump`) and `ValidateBackupName` rejects anything else — path separators, `..`,
   absolute paths — at both the handler and the service. `resolveExisting` additionally requires a **regular file**
   (`Lstat`), so a symlink planted in the backup directory cannot be used to read or delete a file elsewhere.
-- Only one dump runs at a time (409 `backup_in_progress`). The dump is detached from the caller's context
-  (`context.WithoutCancel`) so closing the browser tab does not kill it, but is bounded by `BACKUP_TIMEOUT`.
+- Only one dump runs at a time per process (409 `backup_in_progress`; the scheduled job stands down instead of
+  retrying). The dump is detached from the caller's context (`context.WithoutCancel`) so closing the browser tab does
+  not kill it, but is bounded by `BACKUP_TIMEOUT`. Dump files are chmod 0600.
 - Config: `BACKUP_DIR`, `PG_DUMP_PATH`, `BACKUP_TIMEOUT` (30m), `BACKUP_RETENTION` (0 = keep all),
   `BACKUP_SCHEDULE_CRON` (empty = off). Scheduled backups run as the asynq task `backup:database`.
-- `backup_created` / `backup_deleted` events feed the activity log (scheduled backups log as `system`).
+- `backup_created` / `backup_deleted` / `backup_downloaded` events feed the activity log. Downloads are audited
+  because a dump is the entire database; retention prunes and scheduled backups are attributed to `system`.
+- A misconfigured backup directory, or a `DATABASE_URL` in libpq keyword form (which pgx accepts but pg_dump cannot be
+  driven from here), **disables backups with a warning** rather than failing server startup.
 - The backend image now ships `postgresql16-client`; keep it in step with the Postgres server major version.
+
+**Known limitation:** the single-dump guard is per-process. With several replicas sharing the backup volume each can
+run its own dump — wasteful but safe, since every dump writes to a uniquely named file and startup only sweeps
+`*.partial` files older than `BACKUP_TIMEOUT`, never one a peer may still be writing.
 
 #### BE-8.8: Admin Password & Passkey Reset [S] [DONE]
 **As an** admin or staff member
@@ -1432,6 +1440,20 @@
 - `task backend:coverage` reproduces the CI gate locally and emits an HTML report — DONE
 
 > **Origin:** Audit finding. Three rules in CLAUDE.md were enforced by nothing and had all drifted: `format:check` failed on 18 frontend files, `gofmt` on 49 backend files, and the claimed "CI gates at 80%" coverage gate **did not exist** — `backend.yml` wrote `coverage.out` and discarded it while real coverage sat at 42%. A standard nobody enforces is worse than no standard: it buys false confidence.
+
+---
+
+#### BE-9.19: Memoize the Toast Context Value [S]
+**As a** developer
+**I want** `useToast()` to return a stable identity
+**So that** data-fetching effects don't refire on every toast
+
+**Acceptance Criteria:**
+- `ToastProvider` wraps its context value in `useMemo`, with `success`/`error`/`info`/`warning`/`removeToast` wrapped in `useCallback` (`frontend/src/components/toast/Toast.tsx:65`)
+- The `// eslint-disable-next-line react-hooks/exhaustive-deps` escape hatches and the `}, []` fetch callbacks across the admin pages are reverted to honest dependency arrays
+- A test asserts a failing list fetch produces exactly one request (no refetch loop)
+
+> **Origin:** Review finding from BE-8.7. `ToastProvider` passes an object literal as its context value, so `useToast()` returns a fresh identity on every provider render — and the provider re-renders on every toast add *and* auto-dismiss. Any `useCallback(fetch, [toast])` feeding a `useEffect` therefore refires on each toast; on the error path that is self-sustaining (fetch fails → error toast → new `toast` → refetch → fails …), measured at ~324 requests in 500ms. Every admin page dodges this today by omitting `toast` from the dependency array, which silences the symptom, carries an ESLint warning, and leaves the trap armed for the next page. Fixing the provider fixes all of them at once — deliberately deferred out of BE-8.7 because it touches a shared component that parallel branches also modify.
 
 ---
 

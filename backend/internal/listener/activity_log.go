@@ -353,6 +353,12 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		actor := resolveActor(userRepo, e.Actor)
 		return fmt.Sprintf("%s deleted database backup: %s", actor, e.Name), e.Actor
 	})
+
+	listen(event.BackupDownloaded, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.BackupDownloadedEvent)
+		actor := resolveActor(userRepo, e.Actor)
+		return fmt.Sprintf("%s downloaded database backup: %s", actor, e.Name), e.Actor
+	})
 }
 
 // resolveUsername looks up a username by user ID, falling back to "User #ID" on error.

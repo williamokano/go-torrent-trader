@@ -49,8 +49,9 @@ func (m *backupManagerStub) List(_ context.Context) ([]model.Backup, error) {
 	return m.list, m.listErr
 }
 
-func (m *backupManagerStub) Open(name string) (io.ReadCloser, int64, error) {
+func (m *backupManagerStub) Open(_ context.Context, name string, actor event.Actor) (io.ReadCloser, int64, error) {
 	m.openedNames = append(m.openedNames, name)
+	m.lastActor = actor
 	if m.openErr != nil {
 		return nil, 0, m.openErr
 	}

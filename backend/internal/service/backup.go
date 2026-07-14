@@ -39,6 +39,10 @@ var (
 // backupTimeLayout is the UTC timestamp layout embedded in backup file names.
 const backupTimeLayout = "20060102T150405Z"
 
+// SystemActor attributes an action to the server itself — a scheduled backup or
+// a retention prune — rather than to a human admin.
+var SystemActor = event.Actor{Username: "system"}
+
 // backupNamePattern matches exactly the names Create generates. Names are never
 // taken from user input — download and delete accept a name and it must match
 // this pattern before it is ever joined onto a filesystem path.
@@ -88,6 +92,10 @@ type BackupService struct {
 	// not leak into the process list.
 	connEnv []string
 	bus     event.Bus
+	// running serialises dumps within this process. It is deliberately not a
+	// distributed lock: with several replicas sharing a backup volume, each can
+	// still run its own dump. That wastes I/O but is safe — every dump writes to
+	// a uniquely named file.
 	running atomic.Bool
 	now     func() time.Time
 }
@@ -192,6 +200,12 @@ func (s *BackupService) Create(ctx context.Context, actor event.Actor) (*model.B
 		return nil, fmt.Errorf("finalising backup: %w", err)
 	}
 
+	// pg_dump creates the file under the process umask (typically 0644). This is
+	// the most sensitive file the app writes — lock it to the owner.
+	if err := os.Chmod(dest, 0o600); err != nil {
+		slog.Warn("could not restrict backup file permissions", "name", name, "error", err)
+	}
+
 	info, err := os.Stat(dest)
 	if err != nil {
 		return nil, fmt.Errorf("stat backup: %w", err)
@@ -260,9 +274,9 @@ func (s *BackupService) List(_ context.Context) ([]model.Backup, error) {
 	return backups, nil
 }
 
-// Open returns a reader for the named backup along with its size. The caller
-// must close the reader.
-func (s *BackupService) Open(name string) (io.ReadCloser, int64, error) {
+// Open returns a reader for the named backup along with its size, and records
+// the download in the activity log. The caller must close the reader.
+func (s *BackupService) Open(ctx context.Context, name string, actor event.Actor) (io.ReadCloser, int64, error) {
 	path, info, err := s.resolveExisting(name)
 	if err != nil {
 		return nil, 0, err
@@ -274,6 +288,14 @@ func (s *BackupService) Open(name string) (io.ReadCloser, int64, error) {
 		}
 		return nil, 0, fmt.Errorf("opening backup: %w", err)
 	}
+
+	if s.bus != nil {
+		s.bus.Publish(ctx, &event.BackupDownloadedEvent{
+			Base: event.NewBase(event.BackupDownloaded, actor),
+			Name: name,
+		})
+	}
+
 	return f, info.Size(), nil
 }
 
@@ -338,6 +360,10 @@ func (s *BackupService) resolveExisting(name string) (string, os.FileInfo, error
 // prune deletes the oldest backups beyond the retention count. Retention of 0
 // keeps everything. Failures are logged, never fatal — a successful dump must
 // not be reported as a failure because housekeeping went wrong.
+//
+// Pruned files are audited like any other deletion, attributed to "system":
+// a backup vanishing with no activity-log entry is indistinguishable from
+// someone covering their tracks.
 func (s *BackupService) prune(ctx context.Context) {
 	if s.retention <= 0 {
 		return
@@ -357,18 +383,34 @@ func (s *BackupService) prune(ctx context.Context) {
 			continue
 		}
 		slog.Info("backup prune: deleted old backup", "name", old.Name)
+		if s.bus != nil {
+			s.bus.Publish(ctx, &event.BackupDeletedEvent{
+				Base: event.NewBase(event.BackupDeleted, SystemActor),
+				Name: old.Name,
+			})
+		}
 	}
 }
 
-// cleanPartials removes leftover *.partial files from dumps interrupted by a
-// crash or shutdown. Safe at startup: nothing can legitimately be in progress.
+// cleanPartials removes *.partial files left behind by a dump that was
+// interrupted by a crash or shutdown.
+//
+// Only partials older than the dump timeout are removed. A newer one may belong
+// to a dump still running in another replica (the backup directory can be a
+// shared volume) — deleting that file would pull the destination out from under
+// a live pg_dump.
 func (s *BackupService) cleanPartials() {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		return
 	}
+	cutoff := s.now().Add(-s.timeout)
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), partialSuffix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(s.dir, entry.Name())); err != nil {
@@ -420,8 +462,17 @@ func pgEnvFromURL(raw string) ([]string, error) {
 	if password, ok := u.User.Password(); ok && password != "" {
 		env = append(env, "PGPASSWORD="+password)
 	}
-	if sslmode := u.Query().Get("sslmode"); sslmode != "" {
-		env = append(env, "PGSSLMODE="+sslmode)
+	// TLS settings, so a deployment using verify-full or client certificates can
+	// still be dumped.
+	for param, pgVar := range map[string]string{
+		"sslmode":     "PGSSLMODE",
+		"sslcert":     "PGSSLCERT",
+		"sslkey":      "PGSSLKEY",
+		"sslrootcert": "PGSSLROOTCERT",
+	} {
+		if v := u.Query().Get(param); v != "" {
+			env = append(env, pgVar+"="+v)
+		}
 	}
 	return env, nil
 }

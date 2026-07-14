@@ -39,7 +39,12 @@ export function AdminBackupsPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+    // `toast` is intentionally not a dependency: the toast context value is a
+    // fresh object on every provider render, so depending on it would re-run the
+    // effect below on every toast — including the error toast this raises, which
+    // would spin into a refetch loop. Same as the other admin pages.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchBackups();
