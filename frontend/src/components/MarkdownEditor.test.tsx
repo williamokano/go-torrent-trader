@@ -1,0 +1,178 @@
+import { useState } from "react";
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { afterEach, describe, test, expect } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import { MarkdownEditor } from "./MarkdownEditor";
+
+afterEach(cleanup);
+
+/** Controlled harness — the editor pushes every change up to its parent. */
+function Harness({ initial = "" }: { initial?: string }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <MemoryRouter>
+      <MarkdownEditor label="Body" value={value} onChange={setValue} />
+    </MemoryRouter>
+  );
+}
+
+function setup(initial = "") {
+  render(<Harness initial={initial} />);
+  return screen.getByLabelText("Body") as HTMLTextAreaElement;
+}
+
+/** Places the caret / selection inside the textarea, like a real user would. */
+function select(textarea: HTMLTextAreaElement, start: number, end = start) {
+  textarea.focus();
+  textarea.setSelectionRange(start, end);
+}
+
+describe("MarkdownEditor", () => {
+  test("renders a plain textarea with the toolbar", () => {
+    const textarea = setup("hello");
+
+    expect(textarea.tagName).toBe("TEXTAREA");
+    expect(textarea.value).toBe("hello");
+
+    for (const name of [
+      "Bold",
+      "Italic",
+      "Link",
+      "Image",
+      "Code",
+      "Blockquote",
+      "Spoiler (click to reveal)",
+      "Bulleted list",
+    ]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+  });
+
+  test("typing propagates to onChange", () => {
+    const textarea = setup();
+    fireEvent.change(textarea, { target: { value: "typed" } });
+    expect(textarea.value).toBe("typed");
+  });
+
+  describe("toolbar insertion", () => {
+    test("wraps the current selection", () => {
+      const textarea = setup("hello world");
+      select(textarea, 6, 11);
+
+      fireEvent.click(screen.getByRole("button", { name: "Bold" }));
+
+      expect(textarea.value).toBe("hello **world**");
+    });
+
+    test("inserts at the cursor when nothing is selected", () => {
+      const textarea = setup("hello world");
+      select(textarea, 5);
+
+      fireEvent.click(screen.getByRole("button", { name: "Italic" }));
+
+      expect(textarea.value).toBe("hello*italic text* world");
+      // The placeholder is left selected so typing replaces it.
+      expect(textarea.selectionStart).toBe(6);
+      expect(textarea.selectionEnd).toBe(6 + "italic text".length);
+    });
+
+    test("inserts a spoiler", () => {
+      const textarea = setup("the butler did it");
+      select(textarea, 11, 17);
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Spoiler (click to reveal)" }),
+      );
+
+      expect(textarea.value).toBe("the butler !!did it!!");
+    });
+
+    test("inserts a link with a placeholder URL", () => {
+      const textarea = setup("");
+      select(textarea, 0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Link" }));
+
+      expect(textarea.value).toBe("[link text](https://)");
+    });
+
+    test("inserts an image", () => {
+      const textarea = setup("");
+      select(textarea, 0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Image" }));
+
+      expect(textarea.value).toBe("![alt text](https://)");
+    });
+
+    test("wraps a selection in inline code", () => {
+      const textarea = setup("run npm ci now");
+      select(textarea, 4, 10);
+
+      fireEvent.click(screen.getByRole("button", { name: "Code" }));
+
+      expect(textarea.value).toBe("run `npm ci` now");
+    });
+
+    test("prefixes every selected line for quotes", () => {
+      const textarea = setup("first\nsecond\nthird");
+      select(textarea, 0, 12);
+
+      fireEvent.click(screen.getByRole("button", { name: "Blockquote" }));
+
+      expect(textarea.value).toBe("> first\n> second\nthird");
+    });
+
+    test("prefixes the current line for lists", () => {
+      const textarea = setup("one\ntwo");
+      select(textarea, 5);
+
+      fireEvent.click(screen.getByRole("button", { name: "Bulleted list" }));
+
+      expect(textarea.value).toBe("one\n- two");
+    });
+  });
+
+  describe("preview toggle", () => {
+    test("renders the markdown and hides the textarea", () => {
+      setup("**bold** and !!hidden!!");
+
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+      expect(screen.queryByLabelText("Body")).not.toBeInTheDocument();
+      const preview = screen.getByTestId("markdown-preview");
+      expect(preview.querySelector("strong")?.textContent).toBe("bold");
+      expect(preview.querySelector("details")).toBeInTheDocument();
+    });
+
+    test("sanitizes XSS payloads in the preview", () => {
+      setup('<script>alert("xss")</script><img src=x onerror="alert(1)">');
+
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+      const preview = screen.getByTestId("markdown-preview");
+      expect(preview.querySelector("script")).not.toBeInTheDocument();
+      expect(preview.innerHTML).not.toContain("onerror");
+      expect(preview.innerHTML).not.toContain("alert");
+    });
+
+    test("shows a placeholder when there is nothing to preview", () => {
+      setup("   ");
+
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+      expect(screen.getByText("Nothing to preview.")).toBeInTheDocument();
+    });
+
+    test("returns to the textarea with the content intact", () => {
+      setup("draft text");
+
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+      fireEvent.click(screen.getByRole("button", { name: "Write" }));
+
+      expect((screen.getByLabelText("Body") as HTMLTextAreaElement).value).toBe(
+        "draft text",
+      );
+    });
+  });
+});

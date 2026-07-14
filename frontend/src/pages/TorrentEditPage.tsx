@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/api";
 import { Input, Select, Textarea, Checkbox } from "@/components/form";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
@@ -212,10 +213,10 @@ export function TorrentEditPage() {
             onChange={(e) => setName(e.target.value)}
           />
 
-          <Textarea
+          <MarkdownEditor
             label="Description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             rows={5}
           />
 

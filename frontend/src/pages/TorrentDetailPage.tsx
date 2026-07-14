@@ -5,6 +5,7 @@ import { Textarea } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
 import { ReportModal } from "@/components/ReportModal";
 import { CommentsSection } from "@/components/CommentsSection";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { RatingWidget } from "@/components/RatingWidget";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/features/auth";
@@ -450,9 +451,10 @@ export function TorrentDetailPage() {
       {torrent.description && (
         <div className="torrent-detail__description">
           <h2 className="torrent-detail__description-title">Description</h2>
-          <div className="torrent-detail__description-body">
-            {torrent.description}
-          </div>
+          <MarkdownRenderer
+            content={torrent.description}
+            className="torrent-detail__description-body"
+          />
         </div>
       )}
 

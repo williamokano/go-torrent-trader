@@ -113,6 +113,66 @@ beforeEach(() => {
   );
 });
 
+describe("CommentsSection markdown", () => {
+  function mockComment(body: string) {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          comments: [
+            {
+              id: 1,
+              user_id: 5,
+              username: "alice",
+              body,
+              created_at: "2026-03-05T10:00:00Z",
+              updated_at: "2026-03-05T10:00:00Z",
+            },
+          ],
+          total: 1,
+          page: 1,
+          per_page: 10,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  }
+
+  test("renders comment bodies as markdown", async () => {
+    mockComment("**seeded** and !!spoiler!!");
+    const { container } = renderComments();
+
+    await waitFor(() => {
+      expect(container.querySelector("strong")?.textContent).toBe("seeded");
+    });
+    expect(container.querySelector("details")).toBeInTheDocument();
+  });
+
+  test("sanitizes XSS payloads in comment bodies", async () => {
+    mockComment('<script>alert("xss")</script><img src=x onerror="alert(1)">');
+    const { container } = renderComments();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading comments...")).not.toBeInTheDocument();
+    });
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("onerror");
+    expect(container.innerHTML).not.toContain("alert");
+  });
+
+  test("composes comments with the markdown editor", async () => {
+    mockComment("hello");
+    renderComments();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Add a comment")).toBeInTheDocument();
+    });
+    expect(screen.getAllByRole("button", { name: "Bold" })).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: "Preview" })).not.toHaveLength(
+      0,
+    );
+  });
+});
+
 describe("CommentsSection", () => {
   test("shows loading state initially", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));

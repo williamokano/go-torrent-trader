@@ -160,6 +160,42 @@ function renderDetailPage(
   );
 }
 
+describe("TorrentDetailPage markdown description", () => {
+  function mockDescription(description: string) {
+    mockGET.mockResolvedValue({
+      data: { torrent: { ...FAKE_TORRENT, description } },
+      error: undefined,
+    });
+  }
+
+  test("renders the description as markdown", async () => {
+    mockDescription("## Release notes\n\n- **1080p**\n- !!plot twist!!");
+    const { container } = renderDetailPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Release notes" }),
+      ).toBeInTheDocument();
+    });
+    expect(container.querySelector("strong")?.textContent).toBe("1080p");
+    expect(container.querySelector("details")).toBeInTheDocument();
+  });
+
+  test("sanitizes XSS payloads in the description", async () => {
+    mockDescription(
+      '<script>alert("xss")</script><img src=x onerror="alert(1)">',
+    );
+    const { container } = renderDetailPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Description")).toBeInTheDocument();
+    });
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("onerror");
+    expect(container.innerHTML).not.toContain("alert");
+  });
+});
+
 describe("TorrentDetailPage", () => {
   test("shows loading state initially", () => {
     mockGET.mockReturnValue(new Promise(() => {}));

@@ -275,9 +275,7 @@ describe("ForumTopicViewPage", () => {
     });
 
     await usr.click(screen.getByText("Edit"));
-    const textarea = screen.getByPlaceholderText(
-      "Edit your post... (Markdown supported)",
-    );
+    const textarea = screen.getByPlaceholderText("Edit your post...");
     expect(textarea).toBeInTheDocument();
     expect(textarea).toHaveValue("First post body");
     expect(screen.getByText("Save")).toBeInTheDocument();
@@ -319,9 +317,7 @@ describe("ForumTopicViewPage", () => {
     });
 
     await usr.click(screen.getByText("Edit"));
-    const textarea = screen.getByPlaceholderText(
-      "Edit your post... (Markdown supported)",
-    );
+    const textarea = screen.getByPlaceholderText("Edit your post...");
     await usr.clear(textarea);
     await usr.type(textarea, "Updated body");
 

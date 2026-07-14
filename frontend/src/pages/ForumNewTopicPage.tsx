@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import "./forums.css";
 
 export function ForumNewTopicPage() {
@@ -97,13 +98,12 @@ export function ForumNewTopicPage() {
           required
         />
 
-        <label htmlFor="topic-body">Body</label>
-        <textarea
+        <MarkdownEditor
           id="topic-body"
+          label="Body"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Write your post... (Markdown supported)"
-          required
+          onChange={setBody}
+          placeholder="Write your post..."
         />
 
         {error && (

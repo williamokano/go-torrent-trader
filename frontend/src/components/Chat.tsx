@@ -4,6 +4,7 @@ import { useAuth } from "@/features/auth";
 import { useChat } from "@/lib/useChat";
 import { ConfirmModal } from "@/components/modal";
 import { ChatModMenu } from "./ChatModMenu";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import "./chat.css";
 
 function formatTime(iso: string): string {
@@ -127,7 +128,11 @@ export function Chat() {
                     {msg.username}
                   </Link>
                 )}
-                <span className="chat__message-text">{msg.message}</span>
+                <MarkdownRenderer
+                  content={msg.message}
+                  className="chat__message-text"
+                  inline
+                />
                 {isStaff && (
                   <button
                     className="chat__message-delete"

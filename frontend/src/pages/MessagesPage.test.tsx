@@ -124,6 +124,77 @@ function renderMessagesPage() {
   );
 }
 
+describe("MessagesPage markdown", () => {
+  function renderDetail(body: string) {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/unread-count")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ unread_count: 0 }),
+        });
+      }
+      if (/\/api\/v1\/messages\/1$/.test(url)) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ message: { ...FAKE_INBOX[0], body } }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            messages: FAKE_INBOX,
+            total: 2,
+            page: 1,
+            per_page: 25,
+          }),
+      });
+    });
+
+    return render(
+      <MemoryRouter initialEntries={["/messages?msg=1"]}>
+        <MessagesPage />
+      </MemoryRouter>,
+    );
+  }
+
+  test("renders the message body as markdown", async () => {
+    const { container } = renderDetail("**urgent** and !!secret!!");
+
+    await waitFor(() => {
+      expect(container.querySelector("strong")?.textContent).toBe("urgent");
+    });
+    expect(container.querySelector("details")).toBeInTheDocument();
+  });
+
+  test("sanitizes XSS payloads in the message body", async () => {
+    const { container } = renderDetail(
+      '<script>alert("xss")</script><img src=x onerror="alert(1)">',
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("onerror");
+    expect(container.innerHTML).not.toContain("alert");
+  });
+
+  test("composes messages with the markdown editor", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Compose"));
+
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+  });
+});
+
 describe("MessagesPage", () => {
   test("renders page title", () => {
     renderMessagesPage();

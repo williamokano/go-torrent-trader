@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
 import { Input, Select, Textarea, Checkbox } from "@/components/form";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { useToast } from "@/components/toast";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
@@ -217,10 +218,10 @@ export function UploadPage() {
             placeholder="Auto-filled from torrent file"
           />
 
-          <Textarea
+          <MarkdownEditor
             label="Description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             rows={5}
             placeholder="Describe the torrent contents..."
           />
