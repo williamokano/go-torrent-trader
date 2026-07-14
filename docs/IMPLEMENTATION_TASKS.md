@@ -1228,13 +1228,27 @@
 
 **Acceptance Criteria:**
 - Minimum 80% test coverage per package (handler, service, repository, worker, middleware)
-- CI gates on coverage threshold — build fails if coverage drops below 80%
+- CI gates on coverage threshold — build fails if coverage drops below the floor (see BE-9.18; the floor ratchets rather than sitting at 80, which would red-line every PR until the target is reached)
 - Current low-coverage packages to prioritize:
   - `handler` — add tests for dashboard, admin, chat, news, warning, user activity handlers
   - `worker` — add tests for maintenance, ratio warning, cleanup jobs
   - `repository/postgres` — add integration tests or improve mock coverage
   - `config` — test validation and edge cases
   - `database` — test connection and migration error handling
+
+**Status (audited 2026-07-14): IN PROGRESS — overall 42.1% → 61.2%.**
+
+| Package | Coverage | Note |
+|---|---:|---|
+| `repository/postgres` | **80.7%** | target met (BE-9.17) |
+| `service` | ~72% | |
+| `listener` | ~86% | notification listener covered (BE-9.16) |
+| `handler` | ~44% | **the remaining gap** |
+| `worker` | ~43% | |
+
+- The single largest remaining block is `internal/handler` (~1,600 uncovered statements). Fully untested files: `chat_ws.go` (221 stmts — WebSocket, awkward to unit-test and may warrant a different approach), `chat_admin.go`, `warning.go`, `message.go`, `news.go`, `chat.go`, `site_settings.go`, `cheat_flag.go`, `categories.go`.
+- The `httptest` + hand-written-mock pattern already exists in `forum_test.go` / `notification_test.go`; these files simply never had it applied.
+- Raise `COVERAGE_FLOOR` after each increment. Never lower it to turn a red build green.
 - All new code must ship with tests above the threshold
 - Add `go test -coverprofile` to CI with coverage check step
 
@@ -1373,6 +1387,33 @@
 
 > **Origin:** Review finding from BE-5.6 implementation.
 
+#### BE-9.17: Repository Integration Test Harness (testcontainers) [DONE]
+**As a** developer
+**I want** the repository layer tested against a real PostgreSQL
+**So that** wrong-but-valid SQL and unappliable migrations are caught before release
+
+**Acceptance Criteria:**
+- `TestMain` in `internal/repository/postgres` starts a throwaway Postgres 16 container (matching docker-compose) and applies the **real goose migrations** to it — DONE
+- `go test -short` skips the container for Docker-less environments — DONE
+- Revive the pre-existing `user`/`peer`/`torrent` integration tests, which skipped unless `TEST_DATABASE_URL` was set and so had **never once run** — DONE
+- Repository coverage: 1.9% → **80.7%** — DONE
+
+> **Found by this harness on its first run:** migration `039_create_forums.sql` could **never be applied to a clean database**. 007 already creates the forum tables, so 039's `CREATE TABLE IF NOT EXISTS` silently skipped and the next statement indexed a `category_id` column that was never added. Every fresh install — including any new production deploy — failed to bootstrap. Fixed by editing 039 in place to `ALTER` rather than `CREATE`; a follow-up migration could not repair it because goose stops *at* 039 and never reaches a later file. Because the harness applies the real migrations on every CI run, a migration that cannot apply to a clean database now fails the build.
+
+#### BE-9.18: CI Quality Gates (coverage floor, gofmt, prettier) [DONE]
+**As a** developer
+**I want** the quality rules in CLAUDE.md to actually be enforced by CI
+**So that** documented standards cannot silently drift
+
+**Acceptance Criteria:**
+- Backend coverage floor enforced in `.github/workflows/backend.yml` via `COVERAGE_FLOOR`, ratcheting upward — DONE
+- `cmd/server` (bootstrap) and `internal/testutil` (test helpers) excluded from the coverage denominator via `COVERAGE_EXCLUDE` — DONE
+- `gofmt` enforced through the `formatters` block in `.golangci.yml` (the lint job already ran; nothing was checking format) — DONE
+- `npm run format:check` added to the frontend lint job — DONE
+- `task backend:coverage` reproduces the CI gate locally and emits an HTML report — DONE
+
+> **Origin:** Audit finding. Three rules in CLAUDE.md were enforced by nothing and had all drifted: `format:check` failed on 18 frontend files, `gofmt` on 49 backend files, and the claimed "CI gates at 80%" coverage gate **did not exist** — `backend.yml` wrote `coverage.out` and discarded it while real coverage sat at 42%. A standard nobody enforces is worse than no standard: it buys false confidence.
+
 ---
 
 ### Epic BE-10: Protocol Support
@@ -1501,7 +1542,7 @@
 - MISSING — the `!!spoiler!!` remark plugin. The sanitize schema permits the tags, but `remarkPlugins` is only `[remarkGfm]`, so `!!text!!` never becomes a `<details>` element. Allowing the tag is not the same as producing it.
 - MISSING — `MarkdownEditor` (toolbar + preview toggle). No such component exists.
 - MISSING — most surfaces. `MarkdownRenderer` is only used on Home, News (list + detail), and forum topic view. Torrent descriptions, comments, PMs, and chat still render unformatted.
-- UNVERIFIED — FE-6.3 formatting reference page still describes BBCode.
+- DONE — FE-6.3's formatting reference (`frontend/src/pages/FormattingPage.tsx`) does teach Markdown, not BBCode. Re-verified 2026-07-14.
 
 > **Note:** No BBCode support. The original TorrentTrader used BBCode; this reimplementation standardizes on Markdown. Legacy content is converted during migration (MT-1.5).
 
