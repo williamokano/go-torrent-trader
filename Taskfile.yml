@@ -111,7 +111,7 @@ tasks:
     dir: '{{.BACKEND_DIR}}'
     vars:
       # Keep these in sync with .github/workflows/backend.yml
-      COVERAGE_FLOOR: '46.0'
+      COVERAGE_FLOOR: '59.0'
       COVERAGE_EXCLUDE: '/backend/(cmd/server|internal/testutil)/'
     cmds:
       - go test -coverprofile=coverage.out ./...
