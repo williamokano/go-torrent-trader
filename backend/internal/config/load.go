@@ -58,7 +58,8 @@ func Load() (*Config, error) {
 			StatsTTL: 30 * time.Second,
 		},
 		Worker: WorkerConfig{
-			EnableScheduler: true,
+			EnableScheduler:       true,
+			NotificationRetention: 90 * 24 * time.Hour,
 		},
 	}
 
@@ -153,6 +154,13 @@ func Load() (*Config, error) {
 		cfg.Worker.EnableScheduler, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ENABLE_SCHEDULER %q: %w", v, err)
+		}
+	}
+
+	if v := os.Getenv("NOTIFICATION_RETENTION"); v != "" {
+		cfg.Worker.NotificationRetention, err = time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid NOTIFICATION_RETENTION %q: %w", v, err)
 		}
 	}
 

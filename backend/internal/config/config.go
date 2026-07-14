@@ -25,6 +25,9 @@ type CacheConfig struct {
 // WorkerConfig holds background worker settings.
 type WorkerConfig struct {
 	EnableScheduler bool // ENABLE_SCHEDULER, default true
+	// NotificationRetention is how long read notifications are kept before the
+	// maintenance job purges them. Zero disables the purge.
+	NotificationRetention time.Duration // NOTIFICATION_RETENTION, default 2160h (90 days)
 }
 
 // SessionConfig holds session store settings.
