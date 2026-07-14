@@ -430,11 +430,14 @@ func (h *TorrentAdminHandler) HandleDeleteTorrent(w http.ResponseWriter, r *http
 
 	adminPerms := middleware.PermissionsFromContext(r.Context())
 	if err := h.torrentSvc.DeleteTorrent(r.Context(), torrentID, actorID, adminPerms); err != nil {
-		if errors.Is(err, service.ErrTorrentNotFound) {
+		switch {
+		case errors.Is(err, service.ErrTorrentNotFound):
 			ErrorResponse(w, http.StatusNotFound, "not_found", "torrent not found")
-			return
+		case errors.Is(err, service.ErrForbidden):
+			ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions to delete this torrent")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete torrent")
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete torrent")
 		return
 	}
 

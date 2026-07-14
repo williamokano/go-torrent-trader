@@ -58,7 +58,7 @@ jobs:
       - name: Enforce coverage floor
         working-directory: backend
         env:
-          COVERAGE_FLOOR: '59.0'
+          COVERAGE_FLOOR: '76.0'
         run: |
           total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {print $NF}' | tr -d '%')
           if [ -z "$total" ]; then

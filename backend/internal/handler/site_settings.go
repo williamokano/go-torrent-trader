@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -75,7 +77,15 @@ func (h *SiteSettingsHandler) HandleUpdateSetting(w http.ResponseWriter, r *http
 
 	actor := event.Actor{ID: userID}
 	if err := h.settings.Set(r.Context(), key, req.Value, actor); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+		// Only a rejected value is the client's fault. Everything else is a
+		// storage failure, and must not be reported as a 400 carrying the
+		// internal error text.
+		if errors.Is(err, service.ErrInvalidSetting) {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		slog.Error("failed to update site setting", "key", key, "error", err)
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to update setting")
 		return
 	}
 

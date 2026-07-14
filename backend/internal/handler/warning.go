@@ -93,12 +93,9 @@ func (h *WarningHandler) HandleListWarnings(w http.ResponseWriter, r *http.Reque
 	if search := r.URL.Query().Get("search"); search != "" {
 		opts.Search = search
 	}
-	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
-		opts.Page, _ = strconv.Atoi(pageStr)
-	}
-	if ppStr := r.URL.Query().Get("per_page"); ppStr != "" {
-		opts.PerPage, _ = strconv.Atoi(ppStr)
-	}
+	// See activity_log.go: echoing the raw query values reports per_page: 0 for
+	// a response the service actually paginated at 25.
+	opts.Page, opts.PerPage = parsePagination(r)
 
 	warnings, total, err := h.warnings.ListWarnings(r.Context(), opts)
 	if err != nil {

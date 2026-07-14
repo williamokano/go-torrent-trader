@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -9,6 +10,11 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
+
+// ErrInvalidSetting marks a rejected value, as opposed to a storage failure.
+// Without it the caller cannot tell "you sent a bad value" from "the database
+// is down", and has to blanket both as one status.
+var ErrInvalidSetting = errors.New("invalid setting value")
 
 const (
 	// SettingRegistrationMode controls whether registration is open or invite-only.
@@ -86,7 +92,8 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	switch key {
 	case SettingRegistrationMode:
 		if value != RegistrationModeOpen && value != RegistrationModeInviteOnly {
-			return fmt.Errorf("invalid registration mode: must be %q or %q", RegistrationModeOpen, RegistrationModeInviteOnly)
+			return fmt.Errorf("%w: registration mode must be %q or %q",
+				ErrInvalidSetting, RegistrationModeOpen, RegistrationModeInviteOnly)
 		}
 	}
 
