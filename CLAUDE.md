@@ -52,7 +52,7 @@ The spec should cover:
 
 - **Features ship in BE+FE pairs** — every feature must include both backend and frontend in the same PR. A backend endpoint without its corresponding UI (or vice versa) is not considered complete. No half-shipped features.
 - **Tests are mandatory** — every feature or fix must include tests
-- **Coverage >= 80%** — CI gates at 80%. New code must not decrease overall coverage
+- **Coverage** — 80% is the target; **CI currently gates at the `COVERAGE_FLOOR` in `.github/workflows/backend.yml` (42%)**. The floor ratchets up as coverage improves — raise it when you raise coverage, and never lower it to turn a red build green. New code must not decrease overall coverage
 - **Mark the story as DONE in `docs/IMPLEMENTATION_TASKS.md`** — every PR must update the backlog
 - **Update affected stories** — when implementation reveals new insights, update related stories in the same PR
 - **Continuously refine the backlog** — findings during implementation feed back into upcoming stories

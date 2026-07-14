@@ -103,9 +103,9 @@ func (m *mockActivityTorrentRepo) List(_ context.Context, opts repository.ListTo
 func (m *mockActivityTorrentRepo) ListByUploader(context.Context, int64, int) ([]model.Torrent, error) {
 	return nil, nil
 }
-func (m *mockActivityTorrentRepo) Create(context.Context, *model.Torrent) error  { return nil }
-func (m *mockActivityTorrentRepo) Update(context.Context, *model.Torrent) error  { return nil }
-func (m *mockActivityTorrentRepo) Delete(context.Context, int64) error           { return nil }
+func (m *mockActivityTorrentRepo) Create(context.Context, *model.Torrent) error { return nil }
+func (m *mockActivityTorrentRepo) Update(context.Context, *model.Torrent) error { return nil }
+func (m *mockActivityTorrentRepo) Delete(context.Context, int64) error          { return nil }
 func (m *mockActivityTorrentRepo) IncrementSeeders(context.Context, int64, int) error {
 	return nil
 }
@@ -120,29 +120,35 @@ func (m *mockActivityTorrentRepo) IncrementTimesCompleted(context.Context, int64
 
 type mockActivityUserRepo struct{}
 
-func (m *mockActivityUserRepo) GetByID(context.Context, int64) (*model.User, error)        { return nil, nil }
-func (m *mockActivityUserRepo) GetByUsername(context.Context, string) (*model.User, error)  { return nil, nil }
-func (m *mockActivityUserRepo) GetByEmail(context.Context, string) (*model.User, error)     { return nil, nil }
-func (m *mockActivityUserRepo) GetByPasskey(context.Context, string) (*model.User, error)   { return nil, nil }
-func (m *mockActivityUserRepo) Count(context.Context) (int64, error)                        { return 0, nil }
-func (m *mockActivityUserRepo) Create(context.Context, *model.User) error                   { return nil }
-func (m *mockActivityUserRepo) Update(context.Context, *model.User) error                   { return nil }
-func (m *mockActivityUserRepo) IncrementStats(context.Context, int64, int64, int64) error   { return nil }
+func (m *mockActivityUserRepo) GetByID(context.Context, int64) (*model.User, error) { return nil, nil }
+func (m *mockActivityUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (m *mockActivityUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (m *mockActivityUserRepo) GetByPasskey(context.Context, string) (*model.User, error) {
+	return nil, nil
+}
+func (m *mockActivityUserRepo) Count(context.Context) (int64, error)                      { return 0, nil }
+func (m *mockActivityUserRepo) Create(context.Context, *model.User) error                 { return nil }
+func (m *mockActivityUserRepo) Update(context.Context, *model.User) error                 { return nil }
+func (m *mockActivityUserRepo) IncrementStats(context.Context, int64, int64, int64) error { return nil }
 func (m *mockActivityUserRepo) List(context.Context, repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil
 }
 func (m *mockActivityUserRepo) ListStaff(context.Context) ([]model.User, error) { return nil, nil }
-func (m *mockActivityUserRepo) UpdateLastAccess(context.Context, int64) error    { return nil }
+func (m *mockActivityUserRepo) UpdateLastAccess(context.Context, int64) error   { return nil }
 
 // --- mock FileStorage (minimal) ---
 
 type mockActivityStorage struct{}
 
-func (m *mockActivityStorage) Put(context.Context, string, io.Reader) error        { return nil }
-func (m *mockActivityStorage) Get(context.Context, string) (io.ReadCloser, error)  { return nil, nil }
-func (m *mockActivityStorage) Delete(context.Context, string) error                { return nil }
-func (m *mockActivityStorage) Exists(context.Context, string) (bool, error)        { return false, nil }
-func (m *mockActivityStorage) URL(context.Context, string) (string, error)         { return "", nil }
+func (m *mockActivityStorage) Put(context.Context, string, io.Reader) error       { return nil }
+func (m *mockActivityStorage) Get(context.Context, string) (io.ReadCloser, error) { return nil, nil }
+func (m *mockActivityStorage) Delete(context.Context, string) error               { return nil }
+func (m *mockActivityStorage) Exists(context.Context, string) (bool, error)       { return false, nil }
+func (m *mockActivityStorage) URL(context.Context, string) (string, error)        { return "", nil }
 
 // --- mock EventBus (minimal) ---
 
@@ -155,7 +161,7 @@ func (m *mockActivityBus) Subscribe(event.Type, event.Handler)  {}
 
 type mockActivityReseedRepo struct{}
 
-func (m *mockActivityReseedRepo) Create(context.Context, *model.ReseedRequest) error         { return nil }
+func (m *mockActivityReseedRepo) Create(context.Context, *model.ReseedRequest) error { return nil }
 func (m *mockActivityReseedRepo) ExistsByTorrentAndUser(context.Context, int64, int64) (bool, error) {
 	return false, nil
 }
@@ -163,7 +169,7 @@ func (m *mockActivityReseedRepo) CountByTorrent(context.Context, int64) (int, er
 
 // Ensure mock interfaces are satisfied at compile time.
 var (
-	_ repository.TorrentRepository      = (*mockActivityTorrentRepo)(nil)
+	_ repository.TorrentRepository       = (*mockActivityTorrentRepo)(nil)
 	_ repository.UserRepository          = (*mockActivityUserRepo)(nil)
 	_ storage.FileStorage                = (*mockActivityStorage)(nil)
 	_ event.Bus                          = (*mockActivityBus)(nil)

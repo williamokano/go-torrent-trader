@@ -26,9 +26,9 @@ type CreateReportRequest struct {
 type ResolveReportAction string
 
 const (
-	ResolveOnly          ResolveReportAction = "resolve"
-	ResolveAndWarn       ResolveReportAction = "warn"
-	ResolveAndDelete     ResolveReportAction = "delete"
+	ResolveOnly      ResolveReportAction = "resolve"
+	ResolveAndWarn   ResolveReportAction = "warn"
+	ResolveAndDelete ResolveReportAction = "delete"
 )
 
 // ResolveReportRequest holds the input for resolving a report with an action.
@@ -38,10 +38,10 @@ type ResolveReportRequest struct {
 
 // ReportService handles report business logic.
 type ReportService struct {
-	reports  repository.ReportRepository
-	torrents repository.TorrentRepository
-	users    repository.UserRepository
-	eventBus event.Bus
+	reports    repository.ReportRepository
+	torrents   repository.TorrentRepository
+	users      repository.UserRepository
+	eventBus   event.Bus
 	warningSvc *WarningService
 	torrentSvc *TorrentService
 }

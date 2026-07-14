@@ -76,7 +76,7 @@ func (r *mockUserRepo) GetByEmail(context.Context, string) (*model.User, error) 
 func (r *mockUserRepo) GetByPasskey(context.Context, string) (*model.User, error) {
 	return nil, nil
 }
-func (r *mockUserRepo) Count(context.Context) (int64, error) { return 0, nil }
+func (r *mockUserRepo) Count(context.Context) (int64, error)      { return 0, nil }
 func (r *mockUserRepo) Create(context.Context, *model.User) error { return nil }
 func (r *mockUserRepo) Update(context.Context, *model.User) error { return nil }
 func (r *mockUserRepo) IncrementStats(context.Context, int64, int64, int64) error {

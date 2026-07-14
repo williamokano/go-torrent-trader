@@ -84,9 +84,9 @@ func (s *CheatDetectionService) checkImpossibleUploadSpeed(ctx context.Context, 
 
 	details := map[string]interface{}{
 		"upload_delta_bytes": input.UploadDelta,
-		"time_delta_secs":   timeDelta.Seconds(),
-		"speed_mb_s":        speedMBs,
-		"threshold_mb_s":    maxSpeed,
+		"time_delta_secs":    timeDelta.Seconds(),
+		"speed_mb_s":         speedMBs,
+		"threshold_mb_s":     maxSpeed,
 	}
 
 	s.createFlag(ctx, input, model.CheatFlagImpossibleUploadSpeed, details)
@@ -109,7 +109,7 @@ func (s *CheatDetectionService) checkUploadNoDownloaders(ctx context.Context, in
 
 	details := map[string]interface{}{
 		"upload_delta_bytes": input.UploadDelta,
-		"leechers":          input.Leechers,
+		"leechers":           input.Leechers,
 	}
 
 	s.createFlag(ctx, input, model.CheatFlagUploadNoDownloaders, details)

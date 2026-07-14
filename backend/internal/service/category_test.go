@@ -11,10 +11,10 @@ import (
 
 // mockCategoryRepo is an in-memory category repository for service tests.
 type mockCategoryRepo struct {
-	mu             sync.Mutex
-	categories     []*model.Category
-	nextID         int64
-	torrentCounts  map[int64]int64
+	mu            sync.Mutex
+	categories    []*model.Category
+	nextID        int64
+	torrentCounts map[int64]int64
 }
 
 func newMockCategoryRepo() *mockCategoryRepo {

@@ -36,6 +36,28 @@ jobs:
       - run: go test -race -coverprofile=coverage.out ./...
         working-directory: backend
 
+      # Coverage floor. CLAUDE.md targets 80%; the floor starts at the level
+      # coverage is actually at, so it stops eroding now instead of blocking
+      # every PR until we reach the target. Ratchet it up as coverage improves,
+      # and never lower it to make a red build go green.
+      - name: Enforce coverage floor
+        working-directory: backend
+        env:
+          COVERAGE_FLOOR: '42.0'
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}' | tr -d '%')
+          if [ -z "$total" ]; then
+            echo "::error::could not parse a coverage total from coverage.out"
+            exit 1
+          fi
+          echo "coverage: ${total}% (floor ${COVERAGE_FLOOR}%)"
+          awk -v total="$total" -v floor="$COVERAGE_FLOOR" 'BEGIN {
+            if (total + 0 < floor + 0) {
+              printf "::error::coverage %s%% is below the %s%% floor\n", total, floor
+              exit 1
+            }
+          }'
+
   build:
     runs-on: ubuntu-latest
     needs: test

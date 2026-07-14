@@ -221,7 +221,7 @@ func (m *mockEscalationUserRepo) GetByEmail(_ context.Context, _ string) (*model
 func (m *mockEscalationUserRepo) GetByPasskey(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil
 }
-func (m *mockEscalationUserRepo) Count(_ context.Context) (int64, error)    { return 0, nil }
+func (m *mockEscalationUserRepo) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockEscalationUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
 func (m *mockEscalationUserRepo) Update(_ context.Context, u *model.User) error {
 	m.mu.Lock()
@@ -255,10 +255,10 @@ func (m *mockEscalationSessionStore) GetByAccessToken(_ string) *service.Session
 func (m *mockEscalationSessionStore) GetByRefreshToken(_ string) *service.Session {
 	return nil
 }
-func (m *mockEscalationSessionStore) Delete(_ string)                              {}
-func (m *mockEscalationSessionStore) DeleteByUserIDExcept(_ int64, _ string)       {}
-func (m *mockEscalationSessionStore) Rotate(_ string, _ *service.Session) error    { return nil }
-func (m *mockEscalationSessionStore) TouchLastActive(_ string)                     {}
+func (m *mockEscalationSessionStore) Delete(_ string)                           {}
+func (m *mockEscalationSessionStore) DeleteByUserIDExcept(_ int64, _ string)    {}
+func (m *mockEscalationSessionStore) Rotate(_ string, _ *service.Session) error { return nil }
+func (m *mockEscalationSessionStore) TouchLastActive(_ string)                  {}
 
 func (m *mockEscalationSessionStore) DeleteByUserID(userID int64) {
 	m.mu.Lock()

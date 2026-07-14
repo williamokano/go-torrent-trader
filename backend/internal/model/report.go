@@ -15,5 +15,5 @@ type Report struct {
 
 	// Enrichment fields (populated by JOINs, not persisted)
 	ReporterUsername string
-	TorrentName     string
+	TorrentName      string
 }

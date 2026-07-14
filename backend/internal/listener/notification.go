@@ -57,11 +57,11 @@ func RegisterNotificationListeners(
 		// 1. forum_reply: notify the author of the replied-to post
 		if e.ReplyToUserID != nil && *e.ReplyToUserID != authorID {
 			data := marshalData(map[string]interface{}{
-				"post_id":       e.PostID,
-				"topic_id":      e.TopicID,
-				"topic_title":   e.TopicTitle,
-				"forum_id":      e.ForumID,
-				"actor_id":      authorID,
+				"post_id":        e.PostID,
+				"topic_id":       e.TopicID,
+				"topic_title":    e.TopicTitle,
+				"forum_id":       e.ForumID,
+				"actor_id":       authorID,
 				"actor_username": e.Actor.Username,
 			})
 			if _, err := notifSvc.Create(ctx, *e.ReplyToUserID, authorID, model.NotifForumReply, data); err != nil {

@@ -147,7 +147,7 @@ func (m *mockUserRepoForRestrictions) GetByEmail(_ context.Context, _ string) (*
 func (m *mockUserRepoForRestrictions) GetByPasskey(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
-func (m *mockUserRepoForRestrictions) Count(_ context.Context) (int64, error) { return 0, nil }
+func (m *mockUserRepoForRestrictions) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockUserRepoForRestrictions) Create(_ context.Context, _ *model.User) error { return nil }
 func (m *mockUserRepoForRestrictions) Update(_ context.Context, u *model.User) error {
 	m.mu.Lock()

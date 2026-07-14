@@ -189,7 +189,7 @@ func (m *mockUserRepoForWarnings) GetByEmail(_ context.Context, _ string) (*mode
 func (m *mockUserRepoForWarnings) GetByPasskey(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
-func (m *mockUserRepoForWarnings) Count(_ context.Context) (int64, error) { return 0, nil }
+func (m *mockUserRepoForWarnings) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockUserRepoForWarnings) Create(_ context.Context, _ *model.User) error { return nil }
 func (m *mockUserRepoForWarnings) Update(_ context.Context, u *model.User) error {
 	m.mu.Lock()

@@ -17,17 +17,17 @@ import (
 )
 
 var (
-	ErrInvalidCredentials   = errors.New("invalid credentials")
-	ErrUsernameTaken        = errors.New("username already taken")
-	ErrEmailTaken           = errors.New("email already taken")
-	ErrInvalidToken         = errors.New("invalid or expired token")
-	ErrValidationFailed     = errors.New("validation failed")
-	ErrResetRateLimitExceed = errors.New("too many password reset requests")
-	ErrInvalidResetToken    = errors.New("invalid or expired reset token")
-	ErrInviteRequired    = errors.New("invite code is required")
-	ErrInvalidInviteCode = errors.New("invalid or expired invite code")
-	ErrBannedEmail       = errors.New("email is banned")
-	ErrBannedIP          = errors.New("IP address is banned")
+	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrUsernameTaken           = errors.New("username already taken")
+	ErrEmailTaken              = errors.New("email already taken")
+	ErrInvalidToken            = errors.New("invalid or expired token")
+	ErrValidationFailed        = errors.New("validation failed")
+	ErrResetRateLimitExceed    = errors.New("too many password reset requests")
+	ErrInvalidResetToken       = errors.New("invalid or expired reset token")
+	ErrInviteRequired          = errors.New("invite code is required")
+	ErrInvalidInviteCode       = errors.New("invalid or expired invite code")
+	ErrBannedEmail             = errors.New("email is banned")
+	ErrBannedIP                = errors.New("IP address is banned")
 	ErrEmailNotConfirmed       = errors.New("email not confirmed")
 	ErrInvalidConfirmToken     = errors.New("invalid or expired confirmation token")
 	ErrConfirmRateLimitExceed  = errors.New("too many confirmation email requests, please wait 5 minutes")
@@ -89,18 +89,18 @@ type ResetPasswordRequest struct {
 }
 
 const (
-	resetTokenRateLimit      = 3               // max reset requests per email per hour
-	resetTokenTTL            = 1 * time.Hour   // reset token expiry
-	confirmTokenTTL          = 24 * time.Hour  // email confirmation token expiry
-	confirmResendCooldown    = 5 * time.Minute // minimum wait between resends
+	resetTokenRateLimit   = 3               // max reset requests per email per hour
+	resetTokenTTL         = 1 * time.Hour   // reset token expiry
+	confirmTokenTTL       = 24 * time.Hour  // email confirmation token expiry
+	confirmResendCooldown = 5 * time.Minute // minimum wait between resends
 )
 
 // RegisterResult holds the result of a registration attempt.
 type RegisterResult struct {
-	User                      *model.User   `json:"user,omitempty"`
-	Tokens                    *AuthTokens   `json:"tokens,omitempty"`
-	EmailConfirmationRequired bool          `json:"email_confirmation_required,omitempty"`
-	Message                   string        `json:"message,omitempty"`
+	User                      *model.User `json:"user,omitempty"`
+	Tokens                    *AuthTokens `json:"tokens,omitempty"`
+	EmailConfirmationRequired bool        `json:"email_confirmation_required,omitempty"`
+	Message                   string      `json:"message,omitempty"`
 }
 
 // ResendConfirmationRequest holds input for resending a confirmation email.
@@ -122,21 +122,21 @@ type TaskEnqueuer interface {
 
 // AuthService handles authentication business logic.
 type AuthService struct {
-	users              repository.UserRepository
-	groups             repository.GroupRepository
-	sessions           SessionStore
-	passwordResets     PasswordResetStore
-	emailConfirmations EmailConfirmationStore
-	email              EmailSender
-	taskEnqueuer       TaskEnqueuer
-	siteName           string
-	siteBaseURL        string
-	accessTokenTTL     time.Duration
-	refreshTokenTTL    time.Duration
-	eventBus           event.Bus
-	siteSettings       *SiteSettingsService
-	inviteService      *InviteService
-	banChecker         BanChecker
+	users               repository.UserRepository
+	groups              repository.GroupRepository
+	sessions            SessionStore
+	passwordResets      PasswordResetStore
+	emailConfirmations  EmailConfirmationStore
+	email               EmailSender
+	taskEnqueuer        TaskEnqueuer
+	siteName            string
+	siteBaseURL         string
+	accessTokenTTL      time.Duration
+	refreshTokenTTL     time.Duration
+	eventBus            event.Bus
+	siteSettings        *SiteSettingsService
+	inviteService       *InviteService
+	banChecker          BanChecker
 	requireEmailConfirm bool
 }
 

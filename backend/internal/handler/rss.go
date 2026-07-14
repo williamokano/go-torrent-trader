@@ -13,9 +13,9 @@ import (
 
 // RSSConfig holds the site metadata needed for RSS feed generation.
 type RSSConfig struct {
-	SiteName    string
-	BaseURL     string // frontend URL (for torrent detail links)
-	ApiURL      string // backend URL (for download enclosure URLs)
+	SiteName string
+	BaseURL  string // frontend URL (for torrent detail links)
+	ApiURL   string // backend URL (for download enclosure URLs)
 }
 
 // RSSHandler handles RSS feed HTTP endpoints.

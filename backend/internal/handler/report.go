@@ -142,11 +142,11 @@ func handleReportError(w http.ResponseWriter, err error) {
 func reportResponse(r *model.Report) map[string]interface{} {
 	resp := map[string]interface{}{
 		"id":                r.ID,
-		"reporter_id":      r.ReporterID,
+		"reporter_id":       r.ReporterID,
 		"reporter_username": r.ReporterUsername,
-		"reason":           r.Reason,
-		"resolved":         r.Resolved,
-		"created_at":       r.CreatedAt,
+		"reason":            r.Reason,
+		"resolved":          r.Resolved,
+		"created_at":        r.CreatedAt,
 	}
 	if r.TorrentID != nil {
 		resp["torrent_id"] = *r.TorrentID

@@ -21,26 +21,26 @@ import (
 )
 
 var (
-	ErrDuplicateTorrent      = errors.New("torrent with this info_hash already exists")
-	ErrTorrentNotFound       = errors.New("torrent not found")
-	ErrInvalidTorrent        = errors.New("invalid torrent file")
-	ErrForbidden             = errors.New("forbidden")
+	ErrDuplicateTorrent       = errors.New("torrent with this info_hash already exists")
+	ErrTorrentNotFound        = errors.New("torrent not found")
+	ErrInvalidTorrent         = errors.New("invalid torrent file")
+	ErrForbidden              = errors.New("forbidden")
 	ErrDuplicateReseedRequest = errors.New("you have already requested a reseed for this torrent")
 )
 
 // torrentMeta represents the top-level structure of a .torrent file.
 type torrentMeta struct {
-	Announce string          `bencode:"announce"`
+	Announce string             `bencode:"announce"`
 	Info     bencode.RawMessage `bencode:"info"`
 }
 
 // torrentInfo holds the decoded info dictionary fields we need.
 type torrentInfo struct {
-	Name        string           `bencode:"name"`
-	PieceLength int64            `bencode:"piece length"`
-	Pieces      string           `bencode:"pieces"`
-	Length      int64            `bencode:"length"`       // single-file mode
-	Files       []torrentFile    `bencode:"files"`        // multi-file mode
+	Name        string        `bencode:"name"`
+	PieceLength int64         `bencode:"piece length"`
+	Pieces      string        `bencode:"pieces"`
+	Length      int64         `bencode:"length"` // single-file mode
+	Files       []torrentFile `bencode:"files"`  // multi-file mode
 }
 
 type torrentFile struct {

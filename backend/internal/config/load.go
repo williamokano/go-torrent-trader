@@ -35,13 +35,13 @@ func Load() (*Config, error) {
 			From: envOrDefault("SMTP_FROM", "noreply@torrenttrader.local"),
 		},
 		Storage: StorageConfig{
-			Type:       envOrDefault("STORAGE_TYPE", "local"),
-			LocalPath:  envOrDefault("STORAGE_LOCAL_PATH", "./uploads"),
-			S3Endpoint: os.Getenv("S3_ENDPOINT"),
+			Type:        envOrDefault("STORAGE_TYPE", "local"),
+			LocalPath:   envOrDefault("STORAGE_LOCAL_PATH", "./uploads"),
+			S3Endpoint:  os.Getenv("S3_ENDPOINT"),
 			S3AccessKey: os.Getenv("S3_ACCESS_KEY"),
 			S3SecretKey: os.Getenv("S3_SECRET_KEY"),
-			S3Bucket:   os.Getenv("S3_BUCKET"),
-			S3UseSSL:   false,
+			S3Bucket:    os.Getenv("S3_BUCKET"),
+			S3UseSSL:    false,
 		},
 		Tracker: TrackerConfig{
 			AnnounceInterval:    1800,

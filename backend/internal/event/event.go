@@ -9,21 +9,21 @@ import (
 type Type string
 
 const (
-	UserRegistered Type = "user_registered"
-	UserLogin      Type = "user_login"
-	UserBanned       Type = "user_banned"
-	UserUnbanned     Type = "user_unbanned"
-	UserWarned       Type = "user_warned"
-	UserUnwarned     Type = "user_unwarned"
-	UserGroupChanged Type = "user_group_changed"
-	UserDeleted      Type = "user_deleted"
-	TorrentUploaded Type = "torrent_uploaded"
-	TorrentEdited   Type = "torrent_edited"
-	TorrentDeleted  Type = "torrent_deleted"
-	TorrentReported Type = "torrent_reported"
-	ReportResolved  Type = "report_resolved"
-	CommentCreated    Type = "comment_created"
-	CommentDeleted    Type = "comment_deleted"
+	UserRegistered          Type = "user_registered"
+	UserLogin               Type = "user_login"
+	UserBanned              Type = "user_banned"
+	UserUnbanned            Type = "user_unbanned"
+	UserWarned              Type = "user_warned"
+	UserUnwarned            Type = "user_unwarned"
+	UserGroupChanged        Type = "user_group_changed"
+	UserDeleted             Type = "user_deleted"
+	TorrentUploaded         Type = "torrent_uploaded"
+	TorrentEdited           Type = "torrent_edited"
+	TorrentDeleted          Type = "torrent_deleted"
+	TorrentReported         Type = "torrent_reported"
+	ReportResolved          Type = "report_resolved"
+	CommentCreated          Type = "comment_created"
+	CommentDeleted          Type = "comment_deleted"
 	ReseedRequested         Type = "reseed_requested"
 	InviteCreated           Type = "invite_created"
 	InviteRedeemed          Type = "invite_redeemed"
@@ -97,7 +97,7 @@ type Base struct {
 	Actor     Actor     `json:"actor"`
 }
 
-func (b Base) EventType() Type      { return b.Type }
+func (b Base) EventType() Type       { return b.Type }
 func (b Base) OccurredAt() time.Time { return b.Timestamp }
 
 // NewBase creates a Base with the given type and actor.
@@ -384,11 +384,11 @@ type ForumTopicRenamedEvent struct {
 
 type ForumTopicMovedEvent struct {
 	Base
-	TopicID      int64  `json:"topic_id"`
-	TopicTitle   string `json:"topic_title"`
-	OldForumID   int64  `json:"old_forum_id"`
-	NewForumID   int64  `json:"new_forum_id"`
-	Reason       string `json:"reason,omitempty"`
+	TopicID    int64  `json:"topic_id"`
+	TopicTitle string `json:"topic_title"`
+	OldForumID int64  `json:"old_forum_id"`
+	NewForumID int64  `json:"new_forum_id"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type ForumTopicDeletedEvent struct {
@@ -457,10 +457,10 @@ type ForumPostCreatedEvent struct {
 
 type ForumTopicCreatedEvent struct {
 	Base
-	TopicID    int64  `json:"topic_id"`
-	TopicTitle string `json:"topic_title"`
-	ForumID    int64  `json:"forum_id"`
-	FirstPostID int64 `json:"first_post_id"`
+	TopicID     int64  `json:"topic_id"`
+	TopicTitle  string `json:"topic_title"`
+	ForumID     int64  `json:"forum_id"`
+	FirstPostID int64  `json:"first_post_id"`
 }
 
 type TorrentCommentedEvent struct {

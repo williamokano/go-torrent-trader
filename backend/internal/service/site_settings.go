@@ -21,10 +21,10 @@ const (
 	RegistrationModeInviteOnly = "invite_only"
 
 	// Chat anti-spam settings keys.
-	SettingChatRateLimitWindow  = "chat_rate_limit_window"
-	SettingChatRateLimitMax     = "chat_rate_limit_max"
-	SettingChatSpamStrikeCount  = "chat_spam_strike_count"
-	SettingChatSpamMuteMinutes  = "chat_spam_mute_minutes"
+	SettingChatRateLimitWindow    = "chat_rate_limit_window"
+	SettingChatRateLimitMax       = "chat_rate_limit_max"
+	SettingChatSpamStrikeCount    = "chat_spam_strike_count"
+	SettingChatSpamMuteMinutes    = "chat_spam_mute_minutes"
 	SettingChatStrikeResetSeconds = "chat_strike_reset_seconds"
 	SettingChatRateLimitMessage   = "chat_rate_limit_message"
 	SettingChatSpamMuteMessage    = "chat_spam_mute_message"
@@ -46,10 +46,10 @@ const (
 	SettingWaitTimeTiers       = "wait_time_tiers"
 
 	// Cheat detection settings keys.
-	SettingCheatDetectionEnabled       = "cheat_detection_enabled"
-	SettingCheatMaxUploadSpeedMBs      = "cheat_max_upload_speed_mb_s"
+	SettingCheatDetectionEnabled         = "cheat_detection_enabled"
+	SettingCheatMaxUploadSpeedMBs        = "cheat_max_upload_speed_mb_s"
 	SettingCheatLeftMismatchTolerancePct = "cheat_left_mismatch_tolerance_pct"
-	SettingCheatFlagCooldownHours      = "cheat_flag_cooldown_hours"
+	SettingCheatFlagCooldownHours        = "cheat_flag_cooldown_hours"
 )
 
 // SiteSettingsService handles site settings business logic.
