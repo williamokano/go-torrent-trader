@@ -36,7 +36,6 @@ func setupAdminRouterWithRepo() (http.Handler, service.SessionStore, *mockUserRe
 	return router, sessions, userRepo
 }
 
-
 func TestHandleListUsers_AdminOnly(t *testing.T) {
 	router, sessions := setupAdminRouter()
 

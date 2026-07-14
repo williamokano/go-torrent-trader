@@ -16,10 +16,10 @@ import (
 // --- mock implementations ---
 
 type mockCheatFlagRepo struct {
-	mu      sync.Mutex
-	flags   []model.CheatFlag
-	nextID  int64
-	recent  map[string]bool // key: "userID:flagType"
+	mu        sync.Mutex
+	flags     []model.CheatFlag
+	nextID    int64
+	recent    map[string]bool // key: "userID:flagType"
 	createErr error
 	recentErr error
 }
@@ -148,14 +148,14 @@ func TestCheckImpossibleUploadSpeed(t *testing.T) {
 		{
 			name:        "speed exceeds threshold",
 			uploadDelta: 200 * 1024 * 1024, // 200MB
-			timeDelta:   1 * time.Minute,    // = ~3.3 MB/s over 60s, but 200MB/60s = 3.3 MB/s... need higher delta
+			timeDelta:   1 * time.Minute,   // = ~3.3 MB/s over 60s, but 200MB/60s = 3.3 MB/s... need higher delta
 			maxSpeedMB:  "1",               // set low threshold to trigger
 			wantFlag:    true,
 		},
 		{
 			name:        "speed within threshold",
 			uploadDelta: 50 * 1024 * 1024, // 50MB
-			timeDelta:   1 * time.Minute,   // ~0.83 MB/s
+			timeDelta:   1 * time.Minute,  // ~0.83 MB/s
 			maxSpeedMB:  "100",
 			wantFlag:    false,
 		},
@@ -186,7 +186,7 @@ func TestCheckImpossibleUploadSpeed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newMockCheatFlagRepo()
 			svc := newTestCheatDetectionService(repo, map[string]string{
-				"cheat_detection_enabled":   "true",
+				"cheat_detection_enabled":     "true",
 				"cheat_max_upload_speed_mb_s": tt.maxSpeedMB,
 			})
 
@@ -385,7 +385,7 @@ func TestCooldownPreventsFlag(t *testing.T) {
 	repo.setRecent(1, 100, model.CheatFlagUploadNoDownloaders)
 
 	svc := newTestCheatDetectionService(repo, map[string]string{
-		"cheat_detection_enabled":    "true",
+		"cheat_detection_enabled":   "true",
 		"cheat_flag_cooldown_hours": "6",
 	})
 

@@ -33,26 +33,26 @@ const (
 	revalidateEveryN = 5
 
 	// Default rate limit settings (used if site settings unavailable).
-	defaultRateLimitWindowSecs  = 10
-	defaultRateLimitMaxMsgs     = 10
-	defaultSpamStrikeCount      = 3
-	defaultSpamMuteMinutes      = 5
-	defaultStrikeResetSeconds   = 60
+	defaultRateLimitWindowSecs = 10
+	defaultRateLimitMaxMsgs    = 10
+	defaultSpamStrikeCount     = 3
+	defaultSpamMuteMinutes     = 5
+	defaultStrikeResetSeconds  = 60
 )
 
 // ChatClient represents a connected WebSocket client.
 type ChatClient struct {
-	hub         *ChatHub
-	conn        *websocket.Conn
-	closeOnce   sync.Once // Ensures conn.Close() is called exactly once.
-	userID      int64
-	accessToken string           // For periodic re-validation.
-	perms       model.Permissions
-	send           chan []byte       // Buffered channel of outbound messages.
-	lastMsg        time.Time         // Rate limiting: time of last sent message.
-	msgCount       int               // Rate limiting: messages in current window.
-	strikeCount    int               // Anti-spam: consecutive rate limit violations.
-	lastStrikeTime time.Time         // Anti-spam: when the last strike occurred.
+	hub            *ChatHub
+	conn           *websocket.Conn
+	closeOnce      sync.Once // Ensures conn.Close() is called exactly once.
+	userID         int64
+	accessToken    string // For periodic re-validation.
+	perms          model.Permissions
+	send           chan []byte // Buffered channel of outbound messages.
+	lastMsg        time.Time   // Rate limiting: time of last sent message.
+	msgCount       int         // Rate limiting: messages in current window.
+	strikeCount    int         // Anti-spam: consecutive rate limit violations.
+	lastStrikeTime time.Time   // Anti-spam: when the last strike occurred.
 }
 
 // closeConn safely closes the WebSocket connection exactly once.
@@ -80,7 +80,7 @@ type chatSpamSettings struct {
 
 // ChatHub manages WebSocket connections for the shoutbox.
 type ChatHub struct {
-	chatSvc        *service.ChatService
+	chatSvc         *service.ChatService
 	sessionStore    service.SessionStore
 	siteSettingsSvc *service.SiteSettingsService
 	eventBus        event.Bus

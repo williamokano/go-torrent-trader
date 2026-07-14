@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	ErrRestrictionNotFound    = errors.New("restriction not found")
-	ErrInvalidRestriction     = errors.New("invalid restriction")
+	ErrRestrictionNotFound      = errors.New("restriction not found")
+	ErrInvalidRestriction       = errors.New("invalid restriction")
 	ErrRestrictionAlreadyLifted = errors.New("restriction already lifted")
 )
 

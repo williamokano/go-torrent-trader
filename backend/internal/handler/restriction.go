@@ -124,8 +124,8 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 		if !*req.CanChat {
 			// Chat suspended
 			payload, err := json.Marshal(map[string]interface{}{
-				"type":    "chat_suspended",
-				"reason":  req.Reason,
+				"type":   "chat_suspended",
+				"reason": req.Reason,
 			})
 			if err == nil {
 				h.hub.SendToUser(userID, payload)
@@ -165,17 +165,17 @@ func (h *RestrictionHandler) HandleListRestrictions(w http.ResponseWriter, r *ht
 	items := make([]map[string]interface{}, len(restrictions))
 	for i, restriction := range restrictions {
 		item := map[string]interface{}{
-			"id":               restriction.ID,
-			"user_id":          restriction.UserID,
-			"restriction_type": restriction.RestrictionType,
-			"reason":           restriction.Reason,
-			"issued_by":        restriction.IssuedBy,
+			"id":                 restriction.ID,
+			"user_id":            restriction.UserID,
+			"restriction_type":   restriction.RestrictionType,
+			"reason":             restriction.Reason,
+			"issued_by":          restriction.IssuedBy,
 			"issued_by_username": restriction.IssuedByUsername,
-			"expires_at":       restriction.ExpiresAt,
-			"lifted_at":        restriction.LiftedAt,
-			"lifted_by":        restriction.LiftedBy,
+			"expires_at":         restriction.ExpiresAt,
+			"lifted_at":          restriction.LiftedAt,
+			"lifted_by":          restriction.LiftedBy,
 			"lifted_by_username": restriction.LiftedByUsername,
-			"created_at":       restriction.CreatedAt.Format(time.RFC3339),
+			"created_at":         restriction.CreatedAt.Format(time.RFC3339),
 		}
 		items[i] = item
 	}

@@ -11,20 +11,20 @@ import (
 
 // DashboardStats holds the aggregated admin dashboard data.
 type DashboardStats struct {
-	Users          UserStats              `json:"users"`
-	Torrents       TorrentStats           `json:"torrents"`
-	Peers          PeerStats              `json:"peers"`
-	PendingReports int64                  `json:"pending_reports"`
-	ActiveWarnings int64                  `json:"active_warnings"`
-	ActiveMutes    int64                  `json:"active_mutes"`
+	Users          UserStats                `json:"users"`
+	Torrents       TorrentStats             `json:"torrents"`
+	Peers          PeerStats                `json:"peers"`
+	PendingReports int64                    `json:"pending_reports"`
+	ActiveWarnings int64                    `json:"active_warnings"`
+	ActiveMutes    int64                    `json:"active_mutes"`
 	RecentActivity []map[string]interface{} `json:"recent_activity"`
 }
 
 // UserStats holds user-related dashboard counts.
 type UserStats struct {
-	Total   int64 `json:"total"`
-	Today   int64 `json:"today"`
-	Week    int64 `json:"week"`
+	Total int64 `json:"total"`
+	Today int64 `json:"today"`
+	Week  int64 `json:"week"`
 }
 
 // TorrentStats holds torrent-related dashboard counts.

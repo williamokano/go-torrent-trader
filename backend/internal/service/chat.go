@@ -20,9 +20,9 @@ var (
 )
 
 const (
-	maxChatMessageLength  = 500
-	defaultChatLimit      = 50
-	maxChatLimit          = 100
+	maxChatMessageLength   = 500
+	defaultChatLimit       = 50
+	maxChatLimit           = 100
 	maxMuteDurationMinutes = 43200 // 30 days
 )
 
@@ -42,10 +42,10 @@ func NewChatService(
 	bus event.Bus,
 ) *ChatService {
 	return &ChatService{
-		messages:  messages,
-		mutes:     mutes,
-		users:     users,
-		eventBus:  bus,
+		messages: messages,
+		mutes:    mutes,
+		users:    users,
+		eventBus: bus,
 	}
 }
 

@@ -65,13 +65,13 @@ type SMTPConfig struct {
 
 // StorageConfig holds file storage settings.
 type StorageConfig struct {
-	Type       string // STORAGE_TYPE, default "local" (local|s3)
-	LocalPath  string // STORAGE_LOCAL_PATH, default "./uploads"
-	S3Endpoint string // S3_ENDPOINT
+	Type        string // STORAGE_TYPE, default "local" (local|s3)
+	LocalPath   string // STORAGE_LOCAL_PATH, default "./uploads"
+	S3Endpoint  string // S3_ENDPOINT
 	S3AccessKey string // S3_ACCESS_KEY
 	S3SecretKey string // S3_SECRET_KEY
-	S3Bucket   string // S3_BUCKET
-	S3UseSSL   bool   // S3_USE_SSL, default false
+	S3Bucket    string // S3_BUCKET
+	S3UseSSL    bool   // S3_USE_SSL, default false
 }
 
 // TrackerConfig holds BitTorrent tracker settings.
@@ -83,9 +83,9 @@ type TrackerConfig struct {
 
 // SiteConfig holds general site metadata.
 type SiteConfig struct {
-	Name                   string // SITE_NAME, default "TorrentTrader"
-	Description            string // SITE_DESCRIPTION, default "Private BitTorrent Tracker"
-	BaseURL                string // SITE_BASE_URL, default "http://localhost:5173" — website (frontend) URL, used in emails and links
-	ApiURL                 string // API_URL, default "http://localhost:8080" — backend API URL, used for announce/scrape URLs
-	RegistrationEmailConfirm bool // REGISTRATION_EMAIL_CONFIRM, default false — require email confirmation on registration
+	Name                     string // SITE_NAME, default "TorrentTrader"
+	Description              string // SITE_DESCRIPTION, default "Private BitTorrent Tracker"
+	BaseURL                  string // SITE_BASE_URL, default "http://localhost:5173" — website (frontend) URL, used in emails and links
+	ApiURL                   string // API_URL, default "http://localhost:8080" — backend API URL, used for announce/scrape URLs
+	RegistrationEmailConfirm bool   // REGISTRATION_EMAIL_CONFIRM, default false — require email confirmation on registration
 }

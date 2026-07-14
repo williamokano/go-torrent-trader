@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	ErrMessageNotFound  = errors.New("message not found")
-	ErrInvalidMessage   = errors.New("invalid message")
+	ErrMessageNotFound   = errors.New("message not found")
+	ErrInvalidMessage    = errors.New("invalid message")
 	ErrCannotMessageSelf = errors.New("cannot send message to yourself")
 )
 

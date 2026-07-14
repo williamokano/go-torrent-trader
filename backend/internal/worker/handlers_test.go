@@ -69,12 +69,12 @@ func (m *mockTorrentRepo) GetByInfoHash(_ context.Context, _ []byte) (*model.Tor
 func (m *mockTorrentRepo) List(_ context.Context, _ repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
 	return nil, 0, nil
 }
-func (m *mockTorrentRepo) Create(_ context.Context, _ *model.Torrent) error              { return nil }
-func (m *mockTorrentRepo) Update(_ context.Context, _ *model.Torrent) error              { return nil }
-func (m *mockTorrentRepo) Delete(_ context.Context, _ int64) error                       { return nil }
-func (m *mockTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error      { return nil }
-func (m *mockTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error      { return nil }
-func (m *mockTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error { return nil }
+func (m *mockTorrentRepo) Create(_ context.Context, _ *model.Torrent) error          { return nil }
+func (m *mockTorrentRepo) Update(_ context.Context, _ *model.Torrent) error          { return nil }
+func (m *mockTorrentRepo) Delete(_ context.Context, _ int64) error                   { return nil }
+func (m *mockTorrentRepo) IncrementSeeders(_ context.Context, _ int64, _ int) error  { return nil }
+func (m *mockTorrentRepo) IncrementLeechers(_ context.Context, _ int64, _ int) error { return nil }
+func (m *mockTorrentRepo) IncrementTimesCompleted(_ context.Context, _ int64) error  { return nil }
 func (m *mockTorrentRepo) ListByUploader(_ context.Context, _ int64, _ int) ([]model.Torrent, error) {
 	return nil, nil
 }

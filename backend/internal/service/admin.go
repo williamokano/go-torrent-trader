@@ -26,38 +26,38 @@ var (
 
 // AdminUserView is the user representation returned by admin endpoints.
 type AdminUserView struct {
-	ID         int64   `json:"id"`
-	Username   string  `json:"username"`
-	Email      string  `json:"email"`
-	GroupID    int64   `json:"group_id"`
-	GroupName  string  `json:"group_name"`
-	Avatar     *string `json:"avatar"`
-	Title      *string `json:"title"`
-	Info       *string `json:"info"`
-	Uploaded   int64   `json:"uploaded"`
-	Downloaded int64   `json:"downloaded"`
-	Enabled    bool    `json:"enabled"`
-	Warned     bool    `json:"warned"`
-	Donor      bool    `json:"donor"`
-	Parked      bool    `json:"parked"`
-	Passkey     *string `json:"passkey"`
-	Invites     int     `json:"invites"`
-	CanDownload bool    `json:"can_download"`
-	CanUpload   bool    `json:"can_upload"`
-	CanChat        bool    `json:"can_chat"`
-	CanForum       bool    `json:"can_forum"`
-	DisabledUntil  *string `json:"disabled_until"`
-	CreatedAt      string  `json:"created_at"`
-	LastAccess     *string `json:"last_access"`
+	ID            int64   `json:"id"`
+	Username      string  `json:"username"`
+	Email         string  `json:"email"`
+	GroupID       int64   `json:"group_id"`
+	GroupName     string  `json:"group_name"`
+	Avatar        *string `json:"avatar"`
+	Title         *string `json:"title"`
+	Info          *string `json:"info"`
+	Uploaded      int64   `json:"uploaded"`
+	Downloaded    int64   `json:"downloaded"`
+	Enabled       bool    `json:"enabled"`
+	Warned        bool    `json:"warned"`
+	Donor         bool    `json:"donor"`
+	Parked        bool    `json:"parked"`
+	Passkey       *string `json:"passkey"`
+	Invites       int     `json:"invites"`
+	CanDownload   bool    `json:"can_download"`
+	CanUpload     bool    `json:"can_upload"`
+	CanChat       bool    `json:"can_chat"`
+	CanForum      bool    `json:"can_forum"`
+	DisabledUntil *string `json:"disabled_until"`
+	CreatedAt     string  `json:"created_at"`
+	LastAccess    *string `json:"last_access"`
 }
 
 // AdminUserDetailView extends AdminUserView with additional detail data.
 type AdminUserDetailView struct {
 	AdminUserView
-	Ratio          float64                  `json:"ratio"`
-	RecentUploads  []AdminTorrentSummary    `json:"recent_uploads"`
-	WarningsCount  int                      `json:"warnings_count"`
-	ModNotes       []AdminModNoteView       `json:"mod_notes"`
+	Ratio         float64               `json:"ratio"`
+	RecentUploads []AdminTorrentSummary `json:"recent_uploads"`
+	WarningsCount int                   `json:"warnings_count"`
+	ModNotes      []AdminModNoteView    `json:"mod_notes"`
 }
 
 // AdminTorrentSummary is a lightweight torrent representation for admin views.
@@ -471,18 +471,18 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 
 func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView {
 	view := AdminUserView{
-		ID:         u.ID,
-		Username:   u.Username,
-		Email:      u.Email,
-		GroupID:    u.GroupID,
-		GroupName:  groupName,
-		Uploaded:   u.Uploaded,
-		Downloaded: u.Downloaded,
-		Avatar:     u.Avatar,
-		Title:      u.Title,
-		Info:       u.Info,
-		Enabled:    u.Enabled,
-		Warned:     u.Warned,
+		ID:          u.ID,
+		Username:    u.Username,
+		Email:       u.Email,
+		GroupID:     u.GroupID,
+		GroupName:   groupName,
+		Uploaded:    u.Uploaded,
+		Downloaded:  u.Downloaded,
+		Avatar:      u.Avatar,
+		Title:       u.Title,
+		Info:        u.Info,
+		Enabled:     u.Enabled,
+		Warned:      u.Warned,
 		Donor:       u.Donor,
 		Parked:      u.Parked,
 		Passkey:     u.Passkey,
@@ -684,16 +684,16 @@ var ErrCommonEmailProvider = fmt.Errorf("cannot ban common email provider domain
 // commonEmailProviders is a set of popular email domains that should never be
 // domain-banned because it would block legitimate users at scale.
 var commonEmailProviders = map[string]bool{
-	"gmail.com":       true,
-	"yahoo.com":       true,
-	"outlook.com":     true,
-	"hotmail.com":     true,
-	"icloud.com":      true,
-	"protonmail.com":  true,
-	"aol.com":         true,
-	"mail.com":        true,
-	"zoho.com":        true,
-	"yandex.com":      true,
+	"gmail.com":      true,
+	"yahoo.com":      true,
+	"outlook.com":    true,
+	"hotmail.com":    true,
+	"icloud.com":     true,
+	"protonmail.com": true,
+	"aol.com":        true,
+	"mail.com":       true,
+	"zoho.com":       true,
+	"yandex.com":     true,
 }
 
 // QuickBanResult holds detailed results of the quick ban operation.

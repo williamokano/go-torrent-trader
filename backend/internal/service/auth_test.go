@@ -14,8 +14,8 @@ import (
 
 // mockUserRepo is an in-memory user repository for testing.
 type mockUserRepo struct {
-	mu    sync.Mutex
-	users []*model.User
+	mu     sync.Mutex
+	users  []*model.User
 	nextID int64
 }
 

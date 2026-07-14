@@ -46,9 +46,9 @@ func (r *announceUserRepo) GetByUsername(context.Context, string) (*model.User, 
 func (r *announceUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
-func (r *announceUserRepo) Count(context.Context) (int64, error)              { return 0, nil }
-func (r *announceUserRepo) Create(context.Context, *model.User) error         { return nil }
-func (r *announceUserRepo) Update(context.Context, *model.User) error         { return nil }
+func (r *announceUserRepo) Count(context.Context) (int64, error)      { return 0, nil }
+func (r *announceUserRepo) Create(context.Context, *model.User) error { return nil }
+func (r *announceUserRepo) Update(context.Context, *model.User) error { return nil }
 func (r *announceUserRepo) IncrementStats(context.Context, int64, int64, int64) error {
 	return nil
 }

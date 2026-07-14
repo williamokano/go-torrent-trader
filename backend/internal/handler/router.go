@@ -36,14 +36,14 @@ type Deps struct {
 	RestrictionService  *service.RestrictionService
 	ForumService        *service.ForumService
 	ChatHub             *ChatHub
-	PeerRepo             repository.PeerRepository
-	UserRepo             repository.UserRepository
-	CategoryRepo         repository.CategoryRepository
-	TransferHistoryRepo  repository.TransferHistoryRepository
-	DashboardRepo        repository.DashboardRepository
-	CheatFlagRepo        repository.CheatFlagRepository
-	NotificationService  *service.NotificationService
-	RSSConfig            *RSSConfig
+	PeerRepo            repository.PeerRepository
+	UserRepo            repository.UserRepository
+	CategoryRepo        repository.CategoryRepository
+	TransferHistoryRepo repository.TransferHistoryRepository
+	DashboardRepo       repository.DashboardRepository
+	CheatFlagRepo       repository.CheatFlagRepository
+	NotificationService *service.NotificationService
+	RSSConfig           *RSSConfig
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.

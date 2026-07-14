@@ -185,9 +185,9 @@ func (m *mockTorrentRepoForComment) GetByInfoHash(context.Context, []byte) (*mod
 func (m *mockTorrentRepoForComment) List(context.Context, repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
 	return nil, 0, nil
 }
-func (m *mockTorrentRepoForComment) Create(context.Context, *model.Torrent) error  { return nil }
-func (m *mockTorrentRepoForComment) Update(context.Context, *model.Torrent) error  { return nil }
-func (m *mockTorrentRepoForComment) Delete(context.Context, int64) error            { return nil }
+func (m *mockTorrentRepoForComment) Create(context.Context, *model.Torrent) error { return nil }
+func (m *mockTorrentRepoForComment) Update(context.Context, *model.Torrent) error { return nil }
+func (m *mockTorrentRepoForComment) Delete(context.Context, int64) error          { return nil }
 func (m *mockTorrentRepoForComment) IncrementSeeders(context.Context, int64, int) error {
 	return nil
 }

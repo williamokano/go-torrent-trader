@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -172,7 +172,6 @@ func run() int {
 	listener.RegisterActivityLogListeners(eventBus, activityLogService, userRepo)
 	listener.RegisterReseedEmailListener(eventBus, emailSender, cfg.Site.BaseURL)
 
-
 	banRepo := postgres.NewBanRepo(db)
 	banService := service.NewBanService(banRepo, eventBus)
 	authService.SetBanChecker(banService)
@@ -231,16 +230,16 @@ func run() int {
 	listener.RegisterNotificationListeners(eventBus, notificationService, userRepo, forumPostRepo, topicSubscriptionRepo)
 
 	deps := &handler.Deps{
-		DB:             db,
-		StatsCache:     statsCache,
-		AuthService:    authService,
-		SessionStore:   sessionStore,
-		UserService:    userService,
-		MemberService:  memberService,
-		TorrentService: torrentService,
-		TrackerService: trackerService,
-		ReportService:      reportService,
-		CommentService:     commentService,
+		DB:                  db,
+		StatsCache:          statsCache,
+		AuthService:         authService,
+		SessionStore:        sessionStore,
+		UserService:         userService,
+		MemberService:       memberService,
+		TorrentService:      torrentService,
+		TrackerService:      trackerService,
+		ReportService:       reportService,
+		CommentService:      commentService,
 		InviteService:       inviteService,
 		AdminService:        adminService,
 		CategoryService:     categoryService,
@@ -248,12 +247,12 @@ func run() int {
 		SiteSettingsService: siteSettingsService,
 		BanService:          banService,
 		MessageService:      messageService,
-		WarningService:     warningService,
-		NewsService:        newsService,
-		RestrictionService: restrictionService,
-		ForumService:       forumService,
-		ChatService:        chatService,
-		ChatHub:            chatHub,
+		WarningService:      warningService,
+		NewsService:         newsService,
+		RestrictionService:  restrictionService,
+		ForumService:        forumService,
+		ChatService:         chatService,
+		ChatHub:             chatHub,
 		PeerRepo:            peerRepo,
 		UserRepo:            userRepo,
 		CategoryRepo:        categoryRepo,

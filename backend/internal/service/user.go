@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrUserNotFound       = fmt.Errorf("user not found")
-	ErrIncorrectPassword  = fmt.Errorf("incorrect password")
+	ErrUserNotFound      = fmt.Errorf("user not found")
+	ErrIncorrectPassword = fmt.Errorf("incorrect password")
 )
 
 // UpdateProfileRequest holds the input for updating a user's profile.
@@ -37,37 +37,37 @@ type RecentUpload struct {
 
 // PublicProfile is the profile data visible to any authenticated user.
 type PublicProfile struct {
-	ID              int64          `json:"id"`
-	Username        string         `json:"username"`
-	GroupID         int64          `json:"group_id"`
-	GroupName       string         `json:"group_name"`
-	Avatar          *string        `json:"avatar"`
-	Title           *string        `json:"title"`
-	Info            *string        `json:"info"`
-	Uploaded        int64          `json:"uploaded"`
-	Downloaded      int64          `json:"downloaded"`
-	Ratio           float64        `json:"ratio"`
-	SeedingCount    int            `json:"seeding_count"`
-	LeechingCount   int            `json:"leeching_count"`
-	Donor           bool           `json:"donor"`
-	Warned          bool           `json:"warned"`
-	CreatedAt       string         `json:"created_at"`
-	InvitedByID     *int64         `json:"invited_by_id,omitempty"`
-	InvitedByName   *string        `json:"invited_by_name,omitempty"`
-	RecentUploads   []RecentUpload `json:"recent_uploads"`
-	CanDownload     bool           `json:"can_download"`
-	CanUpload       bool           `json:"can_upload"`
-	CanChat         bool           `json:"can_chat"`
-	CanForum        bool           `json:"can_forum"`
+	ID            int64          `json:"id"`
+	Username      string         `json:"username"`
+	GroupID       int64          `json:"group_id"`
+	GroupName     string         `json:"group_name"`
+	Avatar        *string        `json:"avatar"`
+	Title         *string        `json:"title"`
+	Info          *string        `json:"info"`
+	Uploaded      int64          `json:"uploaded"`
+	Downloaded    int64          `json:"downloaded"`
+	Ratio         float64        `json:"ratio"`
+	SeedingCount  int            `json:"seeding_count"`
+	LeechingCount int            `json:"leeching_count"`
+	Donor         bool           `json:"donor"`
+	Warned        bool           `json:"warned"`
+	CreatedAt     string         `json:"created_at"`
+	InvitedByID   *int64         `json:"invited_by_id,omitempty"`
+	InvitedByName *string        `json:"invited_by_name,omitempty"`
+	RecentUploads []RecentUpload `json:"recent_uploads"`
+	CanDownload   bool           `json:"can_download"`
+	CanUpload     bool           `json:"can_upload"`
+	CanChat       bool           `json:"can_chat"`
+	CanForum      bool           `json:"can_forum"`
 }
 
 // OwnerProfile extends PublicProfile with fields only visible to the profile owner.
 type OwnerProfile struct {
 	PublicProfile
-	Email       string            `json:"email"`
-	Passkey     string            `json:"passkey"`
-	Invites     int               `json:"invites"`
-	LastLogin   *string           `json:"last_login"`
+	Email       string             `json:"email"`
+	Passkey     string             `json:"passkey"`
+	Invites     int                `json:"invites"`
+	LastLogin   *string            `json:"last_login"`
 	Permissions *model.Permissions `json:"permissions,omitempty"`
 }
 
@@ -211,16 +211,16 @@ func (s *UserService) RegeneratePasskey(ctx context.Context, userID int64) (stri
 
 func (s *UserService) buildPublicProfile(ctx context.Context, u *model.User) PublicProfile {
 	pub := PublicProfile{
-		ID:         u.ID,
-		Username:   u.Username,
-		GroupID:    u.GroupID,
-		Avatar:     u.Avatar,
-		Title:      u.Title,
-		Info:       u.Info,
-		Uploaded:   u.Uploaded,
-		Downloaded: u.Downloaded,
-		Ratio:      calculateRatio(u.Uploaded, u.Downloaded),
-		Donor:      u.Donor,
+		ID:          u.ID,
+		Username:    u.Username,
+		GroupID:     u.GroupID,
+		Avatar:      u.Avatar,
+		Title:       u.Title,
+		Info:        u.Info,
+		Uploaded:    u.Uploaded,
+		Downloaded:  u.Downloaded,
+		Ratio:       calculateRatio(u.Uploaded, u.Downloaded),
+		Donor:       u.Donor,
 		Warned:      u.Warned,
 		CanDownload: u.CanDownload,
 		CanUpload:   u.CanUpload,

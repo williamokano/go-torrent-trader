@@ -17,40 +17,40 @@ import (
 )
 
 var (
-	ErrForumNotFound            = errors.New("forum not found")
-	ErrTopicNotFound            = errors.New("topic not found")
-	ErrTopicLocked              = errors.New("topic is locked")
-	ErrForumAccessDenied        = errors.New("forum access denied")
-	ErrInvalidTopic             = errors.New("invalid topic")
-	ErrInvalidPost              = errors.New("invalid post")
-	ErrInvalidReply             = errors.New("invalid reply reference")
-	ErrInvalidSearch            = errors.New("invalid search query")
-	ErrPostNotFound             = errors.New("post not found")
-	ErrPostEditDenied           = errors.New("not authorized to edit this post")
-	ErrPostDeleteDenied         = errors.New("not authorized to delete this post")
-	ErrCannotDeleteFirstPost    = errors.New("cannot delete the first post of a topic; delete the topic instead")
-	ErrSameForum                = errors.New("topic is already in this forum")
-	ErrTopicDeleteDenied        = errors.New("topic delete denied")
-	ErrForumCategoryNotFound    = errors.New("forum category not found")
-	ErrForumCategoryHasForums   = errors.New("forum category has forums and cannot be deleted")
-	ErrInvalidForumCategory     = errors.New("invalid forum category")
-	ErrInvalidForum             = errors.New("invalid forum")
-	ErrForumHasTopics           = errors.New("forum has topics and cannot be deleted")
-	ErrModHierarchyDenied       = errors.New("insufficient permissions: cannot moderate topics by higher-ranked users")
-	ErrPostNotDeleted           = errors.New("post is not deleted")
+	ErrForumNotFound          = errors.New("forum not found")
+	ErrTopicNotFound          = errors.New("topic not found")
+	ErrTopicLocked            = errors.New("topic is locked")
+	ErrForumAccessDenied      = errors.New("forum access denied")
+	ErrInvalidTopic           = errors.New("invalid topic")
+	ErrInvalidPost            = errors.New("invalid post")
+	ErrInvalidReply           = errors.New("invalid reply reference")
+	ErrInvalidSearch          = errors.New("invalid search query")
+	ErrPostNotFound           = errors.New("post not found")
+	ErrPostEditDenied         = errors.New("not authorized to edit this post")
+	ErrPostDeleteDenied       = errors.New("not authorized to delete this post")
+	ErrCannotDeleteFirstPost  = errors.New("cannot delete the first post of a topic; delete the topic instead")
+	ErrSameForum              = errors.New("topic is already in this forum")
+	ErrTopicDeleteDenied      = errors.New("topic delete denied")
+	ErrForumCategoryNotFound  = errors.New("forum category not found")
+	ErrForumCategoryHasForums = errors.New("forum category has forums and cannot be deleted")
+	ErrInvalidForumCategory   = errors.New("invalid forum category")
+	ErrInvalidForum           = errors.New("invalid forum")
+	ErrForumHasTopics         = errors.New("forum has topics and cannot be deleted")
+	ErrModHierarchyDenied     = errors.New("insufficient permissions: cannot moderate topics by higher-ranked users")
+	ErrPostNotDeleted         = errors.New("post is not deleted")
 )
 
 const viewCountDebounce = 15 * time.Minute
 const ownerGracePeriod = 30 * time.Minute
 
 type ForumService struct {
-	db         *sql.DB
-	categories repository.ForumCategoryRepository
-	forums     repository.ForumRepository
-	topics     repository.ForumTopicRepository
-	posts      repository.ForumPostRepository
-	users      repository.UserRepository
-	groups     repository.GroupRepository
+	db           *sql.DB
+	categories   repository.ForumCategoryRepository
+	forums       repository.ForumRepository
+	topics       repository.ForumTopicRepository
+	posts        repository.ForumPostRepository
+	users        repository.UserRepository
+	groups       repository.GroupRepository
 	eventBus     event.Bus
 	viewMu       sync.Mutex
 	viewDebounce map[string]time.Time
@@ -101,9 +101,15 @@ func (s *ForumService) ListTopics(ctx context.Context, forumID int64, perms mode
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	if page <= 0 { page = 1 }
-	if perPage <= 0 { perPage = 25 }
-	if perPage > 100 { perPage = 100 }
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 25
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
 	topics, total, err := s.topics.ListByForum(ctx, forumID, page, perPage)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("list topics: %w", err)
@@ -146,9 +152,15 @@ func (s *ForumService) shouldIncrementView(userID, topicID int64) bool {
 }
 
 func (s *ForumService) ListPosts(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error) {
-	if page <= 0 { page = 1 }
-	if perPage <= 0 { perPage = 25 }
-	if perPage > 100 { perPage = 100 }
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 25
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
 	return s.posts.ListByTopic(ctx, topicID, page, perPage)
 }
 
@@ -216,16 +228,30 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 		}
 	} else {
 		tp := &model.ForumTopic{ForumID: forumID, UserID: userID, Title: title}
-		if err := s.topics.Create(ctx, tp); err != nil { return nil, nil, fmt.Errorf("create topic: %w", err) }
+		if err := s.topics.Create(ctx, tp); err != nil {
+			return nil, nil, fmt.Errorf("create topic: %w", err)
+		}
 		topic = *tp
 		pp := &model.ForumPost{TopicID: topic.ID, UserID: userID, Body: body}
-		if err := s.posts.Create(ctx, pp); err != nil { return nil, nil, fmt.Errorf("create post: %w", err) }
+		if err := s.posts.Create(ctx, pp); err != nil {
+			return nil, nil, fmt.Errorf("create post: %w", err)
+		}
 		post = *pp
-		if err := s.topics.IncrementPostCount(ctx, topic.ID, 1); err != nil { return nil, nil, fmt.Errorf("update topic post count: %w", err) }
-		if err := s.topics.UpdateLastPost(ctx, topic.ID, post.ID, post.CreatedAt); err != nil { return nil, nil, fmt.Errorf("update topic last post: %w", err) }
-		if err := s.forums.IncrementTopicCount(ctx, forumID, 1); err != nil { return nil, nil, fmt.Errorf("update forum topic count: %w", err) }
-		if err := s.forums.IncrementPostCount(ctx, forumID, 1); err != nil { return nil, nil, fmt.Errorf("update forum post count: %w", err) }
-		if err := s.forums.UpdateLastPost(ctx, forumID, post.ID); err != nil { return nil, nil, fmt.Errorf("update forum last post: %w", err) }
+		if err := s.topics.IncrementPostCount(ctx, topic.ID, 1); err != nil {
+			return nil, nil, fmt.Errorf("update topic post count: %w", err)
+		}
+		if err := s.topics.UpdateLastPost(ctx, topic.ID, post.ID, post.CreatedAt); err != nil {
+			return nil, nil, fmt.Errorf("update topic last post: %w", err)
+		}
+		if err := s.forums.IncrementTopicCount(ctx, forumID, 1); err != nil {
+			return nil, nil, fmt.Errorf("update forum topic count: %w", err)
+		}
+		if err := s.forums.IncrementPostCount(ctx, forumID, 1); err != nil {
+			return nil, nil, fmt.Errorf("update forum post count: %w", err)
+		}
+		if err := s.forums.UpdateLastPost(ctx, forumID, post.ID); err != nil {
+			return nil, nil, fmt.Errorf("update forum last post: %w", err)
+		}
 	}
 	topic.PostCount = 1
 	topic.LastPostAt = &post.CreatedAt
@@ -260,21 +286,37 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 		return nil, fmt.Errorf("%w: body cannot be empty", ErrInvalidPost)
 	}
 	topic, err := s.topics.GetByID(ctx, topicID)
-	if err != nil { return nil, ErrTopicNotFound }
-	if topic.Locked && !perms.IsStaff() { return nil, ErrTopicLocked }
+	if err != nil {
+		return nil, ErrTopicNotFound
+	}
+	if topic.Locked && !perms.IsStaff() {
+		return nil, ErrTopicLocked
+	}
 	forum, err := s.forums.GetByID(ctx, topic.ForumID)
-	if err != nil { return nil, ErrForumNotFound }
-	if forum.MinGroupLevel > perms.Level { return nil, ErrForumAccessDenied }
+	if err != nil {
+		return nil, ErrForumNotFound
+	}
+	if forum.MinGroupLevel > perms.Level {
+		return nil, ErrForumAccessDenied
+	}
 	// can_forum=false only blocks writing (CreateTopic, CreatePost).
 	// Reading forums is always allowed if the user's group level meets min_group_level.
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil { return nil, fmt.Errorf("get user: %w", err) }
-	if !user.CanForum { return nil, ErrForumAccessDenied }
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if !user.CanForum {
+		return nil, ErrForumAccessDenied
+	}
 	// Validate reply_to_post_id: referenced post must exist and belong to the same topic.
 	if replyToPostID != nil {
 		replyPost, rpErr := s.posts.GetByID(ctx, *replyToPostID)
-		if rpErr != nil { return nil, fmt.Errorf("%w: referenced post not found", ErrInvalidReply) }
-		if replyPost.TopicID != topicID { return nil, fmt.Errorf("%w: referenced post belongs to a different topic", ErrInvalidReply) }
+		if rpErr != nil {
+			return nil, fmt.Errorf("%w: referenced post not found", ErrInvalidReply)
+		}
+		if replyPost.TopicID != topicID {
+			return nil, fmt.Errorf("%w: referenced post belongs to a different topic", ErrInvalidReply)
+		}
 	}
 	var post model.ForumPost
 	if s.db != nil {
@@ -291,18 +333,32 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 			}
 			return nil
 		})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		pp := &model.ForumPost{TopicID: topicID, UserID: userID, Body: body, ReplyToPostID: replyToPostID}
-		if err := s.posts.Create(ctx, pp); err != nil { return nil, fmt.Errorf("create post: %w", err) }
+		if err := s.posts.Create(ctx, pp); err != nil {
+			return nil, fmt.Errorf("create post: %w", err)
+		}
 		post = *pp
-		if err := s.topics.IncrementPostCount(ctx, topicID, 1); err != nil { return nil, fmt.Errorf("update topic post count: %w", err) }
-		if err := s.topics.UpdateLastPost(ctx, topicID, post.ID, post.CreatedAt); err != nil { return nil, fmt.Errorf("update topic last post: %w", err) }
-		if err := s.forums.IncrementPostCount(ctx, topic.ForumID, 1); err != nil { return nil, fmt.Errorf("update forum post count: %w", err) }
-		if err := s.forums.UpdateLastPost(ctx, topic.ForumID, post.ID); err != nil { return nil, fmt.Errorf("update forum last post: %w", err) }
+		if err := s.topics.IncrementPostCount(ctx, topicID, 1); err != nil {
+			return nil, fmt.Errorf("update topic post count: %w", err)
+		}
+		if err := s.topics.UpdateLastPost(ctx, topicID, post.ID, post.CreatedAt); err != nil {
+			return nil, fmt.Errorf("update topic last post: %w", err)
+		}
+		if err := s.forums.IncrementPostCount(ctx, topic.ForumID, 1); err != nil {
+			return nil, fmt.Errorf("update forum post count: %w", err)
+		}
+		if err := s.forums.UpdateLastPost(ctx, topic.ForumID, post.ID); err != nil {
+			return nil, fmt.Errorf("update forum last post: %w", err)
+		}
 	}
 	created, err := s.posts.GetByID(ctx, post.ID)
-	if err != nil { return &post, nil }
+	if err != nil {
+		return &post, nil
+	}
 
 	if s.eventBus != nil {
 		// Resolve reply-to user ID for the notification listener

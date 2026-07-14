@@ -26,9 +26,9 @@ type Forum struct {
 	CreatedAt     time.Time
 
 	// Denormalized last post info (populated by queries)
-	LastPostAt       *time.Time
-	LastPostUsername  *string
-	LastPostTopicID  *int64
+	LastPostAt         *time.Time
+	LastPostUsername   *string
+	LastPostTopicID    *int64
 	LastPostTopicTitle *string
 }
 
@@ -49,30 +49,30 @@ type ForumTopic struct {
 
 	// Denormalized fields (populated by queries)
 	Username         string
-	LastPostUsername  *string
+	LastPostUsername *string
 	ForumName        string
 }
 
 // ForumPost is a reply within a topic.
 type ForumPost struct {
-	ID             int64
-	TopicID        int64
-	UserID         int64
-	Body           string
-	ReplyToPostID  *int64
-	EditedAt       *time.Time
-	EditedBy       *int64
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
-	DeletedBy      *int64     `json:"deleted_by,omitempty"`
-	CreatedAt      time.Time
+	ID            int64
+	TopicID       int64
+	UserID        int64
+	Body          string
+	ReplyToPostID *int64
+	EditedAt      *time.Time
+	EditedBy      *int64
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	DeletedBy     *int64     `json:"deleted_by,omitempty"`
+	CreatedAt     time.Time
 
 	// Denormalized fields (populated by queries)
-	Username       string
-	Avatar         *string
-	GroupName      string
-	UserCreatedAt  time.Time
-	UserPostCount  int
-	IsFirstPost    bool
+	Username      string
+	Avatar        *string
+	GroupName     string
+	UserCreatedAt time.Time
+	UserPostCount int
+	IsFirstPost   bool
 }
 
 // ForumPostEdit tracks edit history for a forum post.

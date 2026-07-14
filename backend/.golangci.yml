@@ -10,3 +10,9 @@ linters:
     - staticcheck
     - unused
     - ineffassign
+
+# Enforced by the same `golangci-lint run` the lint job already executes, so
+# unformatted code fails CI instead of accumulating silently.
+formatters:
+  enable:
+    - gofmt

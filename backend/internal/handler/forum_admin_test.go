@@ -172,43 +172,71 @@ func (m *mockForumAdminForumRepo) CountTopicsByForum(_ context.Context, forumID 
 	return m.topicCounts[forumID], nil
 }
 
-func (m *mockForumAdminForumRepo) IncrementTopicCount(_ context.Context, _ int64, _ int) error { return nil }
-func (m *mockForumAdminForumRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error  { return nil }
-func (m *mockForumAdminForumRepo) UpdateLastPost(_ context.Context, _ int64, _ int64) error     { return nil }
-func (m *mockForumAdminForumRepo) RecalculateLastPost(_ context.Context, _ int64) error         { return nil }
-func (m *mockForumAdminForumRepo) RecalculateCounts(_ context.Context, _ int64) error           { return nil }
+func (m *mockForumAdminForumRepo) IncrementTopicCount(_ context.Context, _ int64, _ int) error {
+	return nil
+}
+func (m *mockForumAdminForumRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error {
+	return nil
+}
+func (m *mockForumAdminForumRepo) UpdateLastPost(_ context.Context, _ int64, _ int64) error {
+	return nil
+}
+func (m *mockForumAdminForumRepo) RecalculateLastPost(_ context.Context, _ int64) error { return nil }
+func (m *mockForumAdminForumRepo) RecalculateCounts(_ context.Context, _ int64) error   { return nil }
 
 // mockForumAdminTopicRepo satisfies ForumTopicRepository with no-op methods.
 type mockForumAdminTopicRepo struct{}
 
-func (m *mockForumAdminTopicRepo) GetByID(_ context.Context, _ int64) (*model.ForumTopic, error)                   { return nil, sql.ErrNoRows }
-func (m *mockForumAdminTopicRepo) ListByForum(_ context.Context, _ int64, _, _ int) ([]model.ForumTopic, int64, error) { return nil, 0, nil }
-func (m *mockForumAdminTopicRepo) Create(_ context.Context, _ *model.ForumTopic) error                             { return nil }
-func (m *mockForumAdminTopicRepo) IncrementViewCount(_ context.Context, _ int64) error                             { return nil }
-func (m *mockForumAdminTopicRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error                      { return nil }
-func (m *mockForumAdminTopicRepo) UpdateLastPost(_ context.Context, _ int64, _ int64, _ time.Time) error           { return nil }
-func (m *mockForumAdminTopicRepo) RecalculateLastPost(_ context.Context, _ int64) error                            { return nil }
-func (m *mockForumAdminTopicRepo) SetLocked(_ context.Context, _ int64, _ bool) error                              { return nil }
-func (m *mockForumAdminTopicRepo) SetPinned(_ context.Context, _ int64, _ bool) error                              { return nil }
-func (m *mockForumAdminTopicRepo) UpdateTitle(_ context.Context, _ int64, _ string) error                          { return nil }
-func (m *mockForumAdminTopicRepo) UpdateForumID(_ context.Context, _ int64, _ int64) error                         { return nil }
-func (m *mockForumAdminTopicRepo) Delete(_ context.Context, _ int64) error                                         { return nil }
+func (m *mockForumAdminTopicRepo) GetByID(_ context.Context, _ int64) (*model.ForumTopic, error) {
+	return nil, sql.ErrNoRows
+}
+func (m *mockForumAdminTopicRepo) ListByForum(_ context.Context, _ int64, _, _ int) ([]model.ForumTopic, int64, error) {
+	return nil, 0, nil
+}
+func (m *mockForumAdminTopicRepo) Create(_ context.Context, _ *model.ForumTopic) error { return nil }
+func (m *mockForumAdminTopicRepo) IncrementViewCount(_ context.Context, _ int64) error { return nil }
+func (m *mockForumAdminTopicRepo) IncrementPostCount(_ context.Context, _ int64, _ int) error {
+	return nil
+}
+func (m *mockForumAdminTopicRepo) UpdateLastPost(_ context.Context, _ int64, _ int64, _ time.Time) error {
+	return nil
+}
+func (m *mockForumAdminTopicRepo) RecalculateLastPost(_ context.Context, _ int64) error   { return nil }
+func (m *mockForumAdminTopicRepo) SetLocked(_ context.Context, _ int64, _ bool) error     { return nil }
+func (m *mockForumAdminTopicRepo) SetPinned(_ context.Context, _ int64, _ bool) error     { return nil }
+func (m *mockForumAdminTopicRepo) UpdateTitle(_ context.Context, _ int64, _ string) error { return nil }
+func (m *mockForumAdminTopicRepo) UpdateForumID(_ context.Context, _ int64, _ int64) error {
+	return nil
+}
+func (m *mockForumAdminTopicRepo) Delete(_ context.Context, _ int64) error { return nil }
 
 // mockForumAdminPostRepo satisfies ForumPostRepository with no-op methods.
 type mockForumAdminPostRepo struct{}
 
-func (m *mockForumAdminPostRepo) GetByID(_ context.Context, _ int64) (*model.ForumPost, error) { return nil, sql.ErrNoRows }
-func (m *mockForumAdminPostRepo) ListByTopic(_ context.Context, _ int64, _, _ int) ([]model.ForumPost, int64, error) { return nil, 0, nil }
-func (m *mockForumAdminPostRepo) Create(_ context.Context, _ *model.ForumPost) error { return nil }
-func (m *mockForumAdminPostRepo) Update(_ context.Context, _ *model.ForumPost) error { return nil }
-func (m *mockForumAdminPostRepo) Delete(_ context.Context, _ int64) error { return nil }
+func (m *mockForumAdminPostRepo) GetByID(_ context.Context, _ int64) (*model.ForumPost, error) {
+	return nil, sql.ErrNoRows
+}
+func (m *mockForumAdminPostRepo) ListByTopic(_ context.Context, _ int64, _, _ int) ([]model.ForumPost, int64, error) {
+	return nil, 0, nil
+}
+func (m *mockForumAdminPostRepo) Create(_ context.Context, _ *model.ForumPost) error  { return nil }
+func (m *mockForumAdminPostRepo) Update(_ context.Context, _ *model.ForumPost) error  { return nil }
+func (m *mockForumAdminPostRepo) Delete(_ context.Context, _ int64) error             { return nil }
 func (m *mockForumAdminPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
-func (m *mockForumAdminPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) { return nil, 0, nil }
-func (m *mockForumAdminPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) { return 0, nil }
+func (m *mockForumAdminPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) {
+	return nil, 0, nil
+}
+func (m *mockForumAdminPostRepo) GetFirstPostIDByTopic(_ context.Context, _ int64) (int64, error) {
+	return 0, nil
+}
 func (m *mockForumAdminPostRepo) SoftDelete(_ context.Context, _ int64, _ int64) error { return nil }
-func (m *mockForumAdminPostRepo) Restore(_ context.Context, _ int64) error { return nil }
-func (m *mockForumAdminPostRepo) CreateEdit(_ context.Context, _ *model.ForumPostEdit) error { return nil }
-func (m *mockForumAdminPostRepo) ListEdits(_ context.Context, _ int64) ([]model.ForumPostEdit, error) { return nil, nil }
+func (m *mockForumAdminPostRepo) Restore(_ context.Context, _ int64) error             { return nil }
+func (m *mockForumAdminPostRepo) CreateEdit(_ context.Context, _ *model.ForumPostEdit) error {
+	return nil
+}
+func (m *mockForumAdminPostRepo) ListEdits(_ context.Context, _ int64) ([]model.ForumPostEdit, error) {
+	return nil, nil
+}
 
 func setupForumAdminRouter() (http.Handler, service.SessionStore, *mockForumCategoryRepo, *mockForumAdminForumRepo) {
 	userRepo := newMockUserRepo()

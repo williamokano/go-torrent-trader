@@ -384,15 +384,15 @@ func (h *AdminHandler) HandleListTorrents(w http.ResponseWriter, r *http.Request
 	items := make([]map[string]interface{}, len(torrents))
 	for i, t := range torrents {
 		items[i] = map[string]interface{}{
-			"id":         t.ID,
-			"name":       t.Name,
-			"size":       t.Size,
-			"seeders":    t.Seeders,
-			"leechers":   t.Leechers,
+			"id":          t.ID,
+			"name":        t.Name,
+			"size":        t.Size,
+			"seeders":     t.Seeders,
+			"leechers":    t.Leechers,
 			"uploader_id": t.UploaderID,
-			"uploader":   t.UploaderName,
-			"banned":     t.Banned,
-			"created_at": t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"uploader":    t.UploaderName,
+			"banned":      t.Banned,
+			"created_at":  t.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 	}
 

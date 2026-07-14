@@ -149,7 +149,7 @@ func (m *mockNewsUserRepo) List(context.Context, repository.ListUsersOptions) ([
 	return nil, 0, nil
 }
 func (m *mockNewsUserRepo) ListStaff(context.Context) ([]model.User, error) { return nil, nil }
-func (m *mockNewsUserRepo) UpdateLastAccess(context.Context, int64) error    { return nil }
+func (m *mockNewsUserRepo) UpdateLastAccess(context.Context, int64) error   { return nil }
 
 func TestNewsService_Create(t *testing.T) {
 	newsRepo := newMockNewsRepo()

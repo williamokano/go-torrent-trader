@@ -801,7 +801,7 @@ func newAdminServiceForBanTests(t *testing.T) (*AdminService, *mockUserRepo, *mo
 func TestQuickBanUser_Basic(t *testing.T) {
 	svc, userRepo, _, warningRepo, messageRepo, sessions := newAdminServiceForBanTests(t)
 
-	admin := createTestUserForAdmin(t, userRepo, 1) // level 100
+	admin := createTestUserForAdmin(t, userRepo, 1)  // level 100
 	target := createTestUserForAdmin(t, userRepo, 5) // level 20
 	ip := "192.168.1.100"
 	target.IP = &ip

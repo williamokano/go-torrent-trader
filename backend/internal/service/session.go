@@ -20,17 +20,17 @@ type SessionStore interface {
 
 // Session represents an authenticated user session.
 type Session struct {
-	UserID           int64              `json:"user_id"`
-	GroupID          int64              `json:"group_id"`
-	Permissions      model.Permissions  `json:"permissions"`
-	AccessToken      string             `json:"access_token"`
-	RefreshToken     string             `json:"refresh_token"`
-	DeviceName       string             `json:"device_name"`
-	IP               string             `json:"ip"`
-	CreatedAt        time.Time          `json:"created_at"`
-	LastActive       time.Time          `json:"last_active"`
-	ExpiresAt        time.Time          `json:"expires_at"`
-	RefreshExpiresAt time.Time          `json:"refresh_expires_at"`
+	UserID           int64             `json:"user_id"`
+	GroupID          int64             `json:"group_id"`
+	Permissions      model.Permissions `json:"permissions"`
+	AccessToken      string            `json:"access_token"`
+	RefreshToken     string            `json:"refresh_token"`
+	DeviceName       string            `json:"device_name"`
+	IP               string            `json:"ip"`
+	CreatedAt        time.Time         `json:"created_at"`
+	LastActive       time.Time         `json:"last_active"`
+	ExpiresAt        time.Time         `json:"expires_at"`
+	RefreshExpiresAt time.Time         `json:"refresh_expires_at"`
 }
 
 // SessionStoreConfig holds configuration for the session store factory.

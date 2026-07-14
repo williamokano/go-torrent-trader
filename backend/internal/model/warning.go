@@ -4,7 +4,7 @@ import "time"
 
 // Warning types
 const (
-	WarningTypeManual   = "manual"
+	WarningTypeManual    = "manual"
 	WarningTypeRatioSoft = "ratio_soft"
 	WarningTypeRatioBan  = "ratio_ban"
 )
@@ -33,7 +33,7 @@ type Warning struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 
 	// Joined fields (populated by queries with JOINs)
-	Username       string  `json:"username,omitempty"`
-	IssuedByName   *string `json:"issued_by_name,omitempty"`
-	LiftedByName   *string `json:"lifted_by_name,omitempty"`
+	Username     string  `json:"username,omitempty"`
+	IssuedByName *string `json:"issued_by_name,omitempty"`
+	LiftedByName *string `json:"lifted_by_name,omitempty"`
 }
