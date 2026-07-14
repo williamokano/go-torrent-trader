@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,9 @@ import (
 // --- chat repository stubs --------------------------------------------------
 
 type stubChatMessageRepo struct {
+	mu          sync.Mutex
+	createdMsgs []model.ChatMessage
+
 	recent    []model.ChatMessage
 	before    []model.ChatMessage
 	deleted   []int64
@@ -33,8 +37,23 @@ type stubChatMessageRepo struct {
 	bulkErr   error
 }
 
-func (s *stubChatMessageRepo) Create(_ context.Context, _ *model.ChatMessage) error {
-	return s.createErr
+func (s *stubChatMessageRepo) Create(_ context.Context, msg *model.ChatMessage) error {
+	if s.createErr != nil {
+		return s.createErr
+	}
+	// The WebSocket tests drive this from the hub's own goroutines, so the
+	// recorder has to be safe for concurrent use.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createdMsgs = append(s.createdMsgs, *msg)
+	return nil
+}
+
+// created returns the messages that were actually persisted.
+func (s *stubChatMessageRepo) created() []model.ChatMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]model.ChatMessage(nil), s.createdMsgs...)
 }
 func (s *stubChatMessageRepo) ListRecent(_ context.Context, limit int) ([]model.ChatMessage, error) {
 	s.lastLimit = limit
@@ -61,6 +80,8 @@ func (s *stubChatMessageRepo) DeleteByUserID(_ context.Context, userID int64) (i
 }
 
 type stubChatMuteRepo struct {
+	mu sync.Mutex
+
 	active   *model.ChatMute
 	list     []repository.ChatMuteWithNames
 	total    int64
@@ -79,6 +100,9 @@ func (s *stubChatMuteRepo) Create(_ context.Context, mute *model.ChatMute) error
 	if s.createErr != nil {
 		return s.createErr
 	}
+	// The hub auto-mutes from its own goroutine.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	mute.ID = int64(len(s.created) + 1)
 	s.created = append(s.created, mute)
 	return nil
