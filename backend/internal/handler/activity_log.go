@@ -31,12 +31,11 @@ func (h *ActivityLogHandler) HandleList(w http.ResponseWriter, r *http.Request) 
 			opts.ActorID = &aid
 		}
 	}
-	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
-		opts.Page, _ = strconv.Atoi(pageStr)
-	}
-	if ppStr := r.URL.Query().Get("per_page"); ppStr != "" {
-		opts.PerPage, _ = strconv.Atoi(ppStr)
-	}
+	// Resolve the defaults here rather than passing 0s down and echoing them
+	// back: the service silently substitutes page 1 / 25 per page, so the raw
+	// values would tell the client `per_page: 0` for a response that actually
+	// holds 25 rows — and any client computing total/per_page divides by zero.
+	opts.Page, opts.PerPage = parsePagination(r)
 
 	logs, total, err := h.logs.List(r.Context(), opts)
 	if err != nil {
