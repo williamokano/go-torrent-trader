@@ -1,0 +1,306 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
+)
+
+func TestUserRepoCreateAndLookups(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	if u.ID == 0 || u.CreatedAt.IsZero() {
+		t.Fatalf("Create did not populate ID/CreatedAt: %+v", u)
+	}
+
+	t.Run("by id", func(t *testing.T) {
+		got, err := repo.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if got.Username != u.Username {
+			t.Errorf("username = %q, want %q", got.Username, u.Username)
+		}
+	})
+
+	t.Run("by username", func(t *testing.T) {
+		got, err := repo.GetByUsername(ctx, u.Username)
+		if err != nil {
+			t.Fatalf("GetByUsername: %v", err)
+		}
+		if got.ID != u.ID {
+			t.Errorf("id = %d, want %d", got.ID, u.ID)
+		}
+	})
+
+	t.Run("by email", func(t *testing.T) {
+		got, err := repo.GetByEmail(ctx, u.Email)
+		if err != nil {
+			t.Fatalf("GetByEmail: %v", err)
+		}
+		if got.ID != u.ID {
+			t.Errorf("id = %d, want %d", got.ID, u.ID)
+		}
+	})
+
+	t.Run("missing id reports no rows", func(t *testing.T) {
+		if _, err := repo.GetByID(ctx, 999999); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("err = %v, want sql.ErrNoRows", err)
+		}
+	})
+}
+
+func TestUserRepoGetByPasskey(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+	u.Passkey = ptr(uniq("passkey"))
+	if err := repo.Update(ctx, u); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByPasskey(ctx, *u.Passkey)
+	if err != nil {
+		t.Fatalf("GetByPasskey: %v", err)
+	}
+	if got.ID != u.ID {
+		t.Errorf("id = %d, want %d", got.ID, u.ID)
+	}
+}
+
+func TestUserRepoUpdatePersistsChanges(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	u.Enabled = false
+	u.Donor = true
+	u.Invites = 5
+	u.Title = ptr("Elite")
+	if err := repo.Update(ctx, u); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Enabled || !got.Donor || got.Invites != 5 || got.Title == nil || *got.Title != "Elite" {
+		t.Errorf("update did not persist: enabled=%v donor=%v invites=%d title=%v",
+			got.Enabled, got.Donor, got.Invites, got.Title)
+	}
+}
+
+func TestUserRepoIncrementStatsAccumulates(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	if err := repo.IncrementStats(ctx, u.ID, 100, 50); err != nil {
+		t.Fatalf("IncrementStats: %v", err)
+	}
+	// A second call must add to the first, not overwrite it.
+	if err := repo.IncrementStats(ctx, u.ID, 10, 5); err != nil {
+		t.Fatalf("IncrementStats: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Uploaded != 110 || got.Downloaded != 55 {
+		t.Errorf("uploaded=%d downloaded=%d, want 110/55 (increments must accumulate)", got.Uploaded, got.Downloaded)
+	}
+}
+
+func TestUserRepoUpdateLastAccess(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	if err := repo.UpdateLastAccess(ctx, u.ID); err != nil {
+		t.Fatalf("UpdateLastAccess: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.LastAccess == nil {
+		t.Error("last_access is still NULL after UpdateLastAccess")
+	}
+}
+
+func TestUserRepoCountAndList(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	a := newUser(t, db)
+	newUser(t, db)
+	newUser(t, db)
+
+	count, err := repo.Count(ctx)
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("Count = %d, want 3", count)
+	}
+
+	t.Run("search narrows to one", func(t *testing.T) {
+		users, total, err := repo.List(ctx, repository.ListUsersOptions{
+			Search: a.Username, Page: 1, PerPage: 10,
+		})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if total != 1 || len(users) != 1 || users[0].ID != a.ID {
+			t.Errorf("search for %q returned total=%d users=%d, want exactly the one user", a.Username, total, len(users))
+		}
+	})
+
+	t.Run("pagination splits the result", func(t *testing.T) {
+		page1, total, err := repo.List(ctx, repository.ListUsersOptions{Page: 1, PerPage: 2})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if total != 3 || len(page1) != 2 {
+			t.Errorf("page 1: total=%d len=%d, want total 3 and 2 rows", total, len(page1))
+		}
+
+		page2, _, err := repo.List(ctx, repository.ListUsersOptions{Page: 2, PerPage: 2})
+		if err != nil {
+			t.Fatalf("List page 2: %v", err)
+		}
+		if len(page2) != 1 {
+			t.Errorf("page 2: len=%d, want the remaining 1 row", len(page2))
+		}
+	})
+
+	t.Run("enabled filter", func(t *testing.T) {
+		a.Enabled = false
+		if err := repo.Update(ctx, a); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		users, _, err := repo.List(ctx, repository.ListUsersOptions{
+			Enabled: ptr(false), Page: 1, PerPage: 10,
+		})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(users) != 1 || users[0].ID != a.ID {
+			t.Errorf("enabled=false returned %d users, want just the disabled one", len(users))
+		}
+	})
+}
+
+// DisabledUntilBefore backs the maintenance job that re-enables expired bans,
+// so it must match only users whose ban window has actually elapsed.
+func TestUserRepoListDisabledUntilBefore(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+
+	expired := newUser(t, db)
+	expired.DisabledUntil = ptr(time.Now().Add(-48 * time.Hour))
+	if err := repo.Update(ctx, expired); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	stillBanned := newUser(t, db)
+	stillBanned.DisabledUntil = ptr(time.Now().Add(24 * time.Hour))
+	if err := repo.Update(ctx, stillBanned); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	// A user with no ban at all must never match.
+	newUser(t, db)
+
+	users, _, err := repo.List(ctx, repository.ListUsersOptions{
+		DisabledUntilBefore: ptr(time.Now()), Page: 1, PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != expired.ID {
+		t.Errorf("got %d users, want only the one whose ban has expired", len(users))
+	}
+}
+
+func TestUserRepoListStaff(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	// Promote into the highest-level group, which is what makes a user staff.
+	var staffGroup int64
+	if err := db.QueryRow(`SELECT id FROM groups ORDER BY level DESC LIMIT 1`).Scan(&staffGroup); err != nil {
+		t.Fatalf("finding staff group: %v", err)
+	}
+	u.GroupID = staffGroup
+	if err := repo.Update(ctx, u); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	staff, err := repo.ListStaff(ctx)
+	if err != nil {
+		t.Fatalf("ListStaff: %v", err)
+	}
+	for _, s := range staff {
+		if s.ID == u.ID {
+			return
+		}
+	}
+	t.Errorf("promoted user %d not present in ListStaff (%d returned)", u.ID, len(staff))
+}
+
+func TestGroupRepoListAndGet(t *testing.T) {
+	db := requireDB(t)
+	ctx := context.Background()
+
+	repo := NewGroupRepo(db)
+
+	groups, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(groups) == 0 {
+		t.Fatal("no groups — the migrations should have seeded them")
+	}
+
+	got, err := repo.GetByID(ctx, groups[0].ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Name != groups[0].Name {
+		t.Errorf("name = %q, want %q", got.Name, groups[0].Name)
+	}
+}
