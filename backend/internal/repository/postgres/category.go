@@ -96,7 +96,9 @@ func (r *CategoryRepo) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("delete category rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("category not found")
+		// sql.ErrNoRows so callers can errors.Is it into a 404, matching every
+		// other repository. A bare fmt.Errorf here is opaque to the service.
+		return sql.ErrNoRows
 	}
 	return nil
 }

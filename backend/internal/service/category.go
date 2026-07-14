@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
@@ -136,6 +137,12 @@ func (s *CategoryService) Delete(ctx context.Context, id int64) error {
 	}
 
 	if err := s.categories.Delete(ctx, id); err != nil {
+		// The GetByID above narrows the window, but the row can still vanish
+		// before the delete lands (a concurrent delete). Map that to the same
+		// not-found the caller already handles rather than a 500.
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrCategoryNotFound
+		}
 		return fmt.Errorf("delete category: %w", err)
 	}
 	return nil

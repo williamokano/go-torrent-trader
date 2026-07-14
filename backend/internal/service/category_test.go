@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ type mockCategoryRepo struct {
 	categories    []*model.Category
 	nextID        int64
 	torrentCounts map[int64]int64
+	deleteErr     error
 }
 
 func newMockCategoryRepo() *mockCategoryRepo {
@@ -69,6 +71,11 @@ func (m *mockCategoryRepo) Update(_ context.Context, cat *model.Category) error 
 func (m *mockCategoryRepo) Delete(_ context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// deleteErr simulates a concurrent delete: the row is gone by the time the
+	// DELETE runs, even though GetByID found it moments earlier.
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	for i, c := range m.categories {
 		if c.ID == id {
 			m.categories = append(m.categories[:i], m.categories[i+1:]...)
@@ -278,5 +285,26 @@ func TestGenerateSlug(t *testing.T) {
 				t.Errorf("generateSlug(%q) = %q, want %q", tt.name, got, tt.expected)
 			}
 		})
+	}
+}
+
+// If the category is deleted by a concurrent request between the existence
+// check and the DELETE, the service must still report not-found (mapped from
+// the repo's sql.ErrNoRows) rather than a generic 500.
+func TestCategoryServiceDeleteRaceMapsToNotFound(t *testing.T) {
+	repo := newMockCategoryRepo()
+	svc := NewCategoryService(repo)
+
+	cat := &model.Category{Name: "Movies", Slug: "movies"}
+	if err := repo.Create(context.Background(), cat); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// The row exists for the GetByID pre-check, but the DELETE finds it gone.
+	repo.deleteErr = sql.ErrNoRows
+
+	err := svc.Delete(context.Background(), cat.ID)
+	if !errors.Is(err, ErrCategoryNotFound) {
+		t.Errorf("Delete race error = %v, want ErrCategoryNotFound so the handler answers 404", err)
 	}
 }
