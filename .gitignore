@@ -43,3 +43,4 @@ coverage.out
 coverage.filtered.out
 coverage.html
 backend/uploads/
+backend/backups/

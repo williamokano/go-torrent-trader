@@ -15,6 +15,20 @@ type Config struct {
 	Site     SiteConfig
 	Cache    CacheConfig
 	Worker   WorkerConfig
+	Backup   BackupConfig
+}
+
+// BackupConfig holds database backup settings.
+type BackupConfig struct {
+	Dir        string        // BACKUP_DIR, default "./backups" — where pg_dump files are written
+	PgDumpPath string        // PG_DUMP_PATH, default "pg_dump" — resolved via PATH when not absolute
+	Timeout    time.Duration // BACKUP_TIMEOUT, default 30m — hard limit for a single pg_dump run
+	// Retention is how many backup files to keep. After a successful backup the
+	// oldest files beyond this count are deleted. Zero keeps everything.
+	Retention int // BACKUP_RETENTION, default 0 (keep all)
+	// ScheduleCron is a cron spec (e.g. "0 3 * * *") for automatic backups.
+	// Empty disables scheduled backups.
+	ScheduleCron string // BACKUP_SCHEDULE_CRON, default "" (disabled)
 }
 
 // CacheConfig holds cache-related settings.

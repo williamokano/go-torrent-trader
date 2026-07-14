@@ -216,6 +216,20 @@ func run() int {
 	forumPostRepo := postgres.NewForumPostRepo(db)
 	forumService := service.NewForumService(db, forumCategoryRepo, forumRepo, forumTopicRepo, forumPostRepo, userRepo, groupRepo, eventBus)
 
+	// Database backups (pg_dump) — admin-triggered and optionally scheduled.
+	backupService, err := service.NewBackupService(service.BackupServiceConfig{
+		DatabaseURL: cfg.Database.URL,
+		Dir:         cfg.Backup.Dir,
+		PgDumpPath:  cfg.Backup.PgDumpPath,
+		Timeout:     cfg.Backup.Timeout,
+		Retention:   cfg.Backup.Retention,
+	}, eventBus)
+	if err != nil {
+		slog.Error("failed to initialize backup service", "error", err)
+		return 1
+	}
+	slog.Info("backup service initialized", "dir", backupService.Dir(), "retention", cfg.Backup.Retention)
+
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
@@ -260,6 +274,7 @@ func run() int {
 		DashboardRepo:       dashboardRepo,
 		CheatFlagRepo:       cheatFlagRepo,
 		NotificationService: notificationService,
+		BackupService:       backupService,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,
@@ -279,6 +294,7 @@ func run() int {
 		ChatSvc:         chatService,
 		RestrictionSvc:  restrictionService,
 		AdminSvc:        adminService,
+		BackupSvc:       backupService,
 		SendToUser:      chatHub.SendToUser,
 
 		NotificationRepo:      notificationRepo,
@@ -310,6 +326,14 @@ func run() int {
 		if err := worker.RegisterPeriodicTasks(scheduler); err != nil {
 			slog.Error("failed to register periodic tasks", "error", err)
 			return 1
+		}
+
+		if cfg.Backup.ScheduleCron != "" {
+			if err := worker.RegisterBackupTask(scheduler, cfg.Backup.ScheduleCron); err != nil {
+				slog.Error("failed to register scheduled backup", "error", err)
+				return 1
+			}
+			slog.Info("scheduled backups enabled", "cron", cfg.Backup.ScheduleCron)
 		}
 
 		go func() {

@@ -1076,17 +1076,36 @@
 - Online users: who's currently active
 - SQL/application error log (or integrate with external logging)
 
-#### BE-8.7: Database Backup [S]
+#### BE-8.7: Database Backup [S] [DONE]
 **As an** admin
 **I want** to create and download database backups
 **So that** I have disaster recovery capability
 
 **Acceptance Criteria:**
-- Trigger backup via admin panel
-- Creates pg_dump compressed file
-- Download backup file
-- List/delete old backups
-- Optional: scheduled backups via cron job
+- Trigger backup via admin panel ✅
+- Creates pg_dump compressed file ✅
+- Download backup file ✅
+- List/delete old backups ✅
+- Optional: scheduled backups via cron job ✅
+
+**Implementation:**
+- Admin-only endpoints (`RequireAdmin`): `POST /api/v1/admin/backups` (create), `GET /api/v1/admin/backups` (list),
+  `GET /api/v1/admin/backups/{name}/download`, `DELETE /api/v1/admin/backups/{name}`.
+- Admin UI at `/admin/backups` (`AdminBackupsPage`): create button, table with size/age, download and delete (confirm modal).
+- `service.BackupService` shells out to `pg_dump --format=custom --compress=9` via `exec.CommandContext` with an
+  argument slice — **no shell**. Credentials reach pg_dump through libpq env vars (`PGPASSWORD`, `PGHOST`, …), never
+  argv, so they cannot be read from the process list. Dumps write to `<name>.partial` and are renamed on success;
+  stale partials are cleared at startup.
+- Backups are files, not rows: the backup directory is the source of truth. Names are server-generated
+  (`backup-<UTC timestamp>-<8 hex>.dump`) and `ValidateBackupName` rejects anything else — path separators, `..`,
+  absolute paths — at both the handler and the service. `resolveExisting` additionally requires a **regular file**
+  (`Lstat`), so a symlink planted in the backup directory cannot be used to read or delete a file elsewhere.
+- Only one dump runs at a time (409 `backup_in_progress`). The dump is detached from the caller's context
+  (`context.WithoutCancel`) so closing the browser tab does not kill it, but is bounded by `BACKUP_TIMEOUT`.
+- Config: `BACKUP_DIR`, `PG_DUMP_PATH`, `BACKUP_TIMEOUT` (30m), `BACKUP_RETENTION` (0 = keep all),
+  `BACKUP_SCHEDULE_CRON` (empty = off). Scheduled backups run as the asynq task `backup:database`.
+- `backup_created` / `backup_deleted` events feed the activity log (scheduled backups log as `system`).
+- The backend image now ships `postgresql16-client`; keep it in step with the Postgres server major version.
 
 #### BE-8.8: Admin Password & Passkey Reset [S] [DONE]
 **As an** admin or staff member

@@ -55,3 +55,21 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 
 	return nil
 }
+
+// RegisterBackupTask registers the periodic database backup on the given cron
+// spec (e.g. "0 3 * * *"). It is separate from RegisterPeriodicTasks because
+// scheduled backups are opt-in: main only calls this when BACKUP_SCHEDULE_CRON
+// is set.
+func RegisterBackupTask(scheduler *asynq.Scheduler, cronSpec string) error {
+	if cronSpec == "" {
+		return nil
+	}
+	backupTask, err := NewBackupTask()
+	if err != nil {
+		return fmt.Errorf("create backup task: %w", err)
+	}
+	if _, err := scheduler.Register(cronSpec, backupTask); err != nil {
+		return fmt.Errorf("register backup (cron %q): %w", cronSpec, err)
+	}
+	return nil
+}

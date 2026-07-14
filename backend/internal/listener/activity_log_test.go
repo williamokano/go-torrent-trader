@@ -175,3 +175,60 @@ func TestListener_ActorCarriesUsername(t *testing.T) {
 		t.Errorf("expected actor_id 42, got %v", repo.logs[0].ActorID)
 	}
 }
+
+func TestListener_BackupCreated(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.BackupCreatedEvent{
+		Base: event.NewBase(event.BackupCreated, event.Actor{ID: 1, Username: "alice"}),
+		Name: "backup-20260714T031500Z-a1b2c3d4.dump",
+		Size: 4096,
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].EventType != "backup_created" {
+		t.Errorf("expected backup_created, got %s", repo.logs[0].EventType)
+	}
+	if repo.logs[0].Message != "alice created database backup: backup-20260714T031500Z-a1b2c3d4.dump" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+}
+
+func TestListener_BackupCreatedByScheduler(t *testing.T) {
+	repo, bus := setup()
+
+	// Scheduled backups have no human actor.
+	bus.Publish(context.Background(), &event.BackupCreatedEvent{
+		Base: event.NewBase(event.BackupCreated, event.Actor{Username: "system"}),
+		Name: "backup-20260714T031500Z-a1b2c3d4.dump",
+		Size: 4096,
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].ActorID != nil {
+		t.Errorf("expected nil actor_id for a scheduled backup, got %v", *repo.logs[0].ActorID)
+	}
+	if repo.logs[0].Message != "system created database backup: backup-20260714T031500Z-a1b2c3d4.dump" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+}
+
+func TestListener_BackupDeleted(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.BackupDeletedEvent{
+		Base: event.NewBase(event.BackupDeleted, event.Actor{ID: 2, Username: "admin"}),
+		Name: "backup-20260714T031500Z-a1b2c3d4.dump",
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].Message != "admin deleted database backup: backup-20260714T031500Z-a1b2c3d4.dump" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+}

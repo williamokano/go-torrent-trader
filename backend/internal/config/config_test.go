@@ -348,3 +348,94 @@ func TestLoadInvalidS3UseSSL(t *testing.T) {
 		t.Fatal("expected error for invalid S3_USE_SSL")
 	}
 }
+
+func TestLoadBackupDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Backup.Dir != "./backups" {
+		t.Errorf("expected Backup.Dir ./backups, got %s", cfg.Backup.Dir)
+	}
+	if cfg.Backup.PgDumpPath != "pg_dump" {
+		t.Errorf("expected Backup.PgDumpPath pg_dump, got %s", cfg.Backup.PgDumpPath)
+	}
+	if cfg.Backup.Timeout != 30*time.Minute {
+		t.Errorf("expected Backup.Timeout 30m, got %s", cfg.Backup.Timeout)
+	}
+	if cfg.Backup.Retention != 0 {
+		t.Errorf("expected Backup.Retention 0, got %d", cfg.Backup.Retention)
+	}
+	if cfg.Backup.ScheduleCron != "" {
+		t.Errorf("expected Backup.ScheduleCron empty (scheduled backups off), got %q", cfg.Backup.ScheduleCron)
+	}
+}
+
+func TestLoadBackupEnvVarsSet(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("BACKUP_DIR", "/var/backups/tt")
+	t.Setenv("PG_DUMP_PATH", "/usr/bin/pg_dump")
+	t.Setenv("BACKUP_TIMEOUT", "45m")
+	t.Setenv("BACKUP_RETENTION", "7")
+	t.Setenv("BACKUP_SCHEDULE_CRON", "0 3 * * *")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Backup.Dir != "/var/backups/tt" {
+		t.Errorf("expected Backup.Dir /var/backups/tt, got %s", cfg.Backup.Dir)
+	}
+	if cfg.Backup.PgDumpPath != "/usr/bin/pg_dump" {
+		t.Errorf("expected Backup.PgDumpPath /usr/bin/pg_dump, got %s", cfg.Backup.PgDumpPath)
+	}
+	if cfg.Backup.Timeout != 45*time.Minute {
+		t.Errorf("expected Backup.Timeout 45m, got %s", cfg.Backup.Timeout)
+	}
+	if cfg.Backup.Retention != 7 {
+		t.Errorf("expected Backup.Retention 7, got %d", cfg.Backup.Retention)
+	}
+	if cfg.Backup.ScheduleCron != "0 3 * * *" {
+		t.Errorf("expected Backup.ScheduleCron '0 3 * * *', got %q", cfg.Backup.ScheduleCron)
+	}
+}
+
+func TestLoadInvalidBackupTimeout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("BACKUP_TIMEOUT", "forever")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for invalid BACKUP_TIMEOUT")
+	}
+}
+
+func TestLoadZeroBackupTimeout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("BACKUP_TIMEOUT", "0s")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for zero BACKUP_TIMEOUT")
+	}
+}
+
+func TestLoadInvalidBackupRetention(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("BACKUP_RETENTION", "many")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for invalid BACKUP_RETENTION")
+	}
+}
+
+func TestLoadNegativeBackupRetention(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("BACKUP_RETENTION", "-1")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for negative BACKUP_RETENTION")
+	}
+}

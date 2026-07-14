@@ -66,6 +66,14 @@ services:
 
       # Worker
       ENABLE_SCHEDULER: "${ENABLE_SCHEDULER:-true}"
+
+      # Database backups (admin panel → Backups)
+      BACKUP_DIR: "/app/backups"
+      BACKUP_TIMEOUT: "${BACKUP_TIMEOUT:-30m}"
+      BACKUP_RETENTION: "${BACKUP_RETENTION:-0}"
+      BACKUP_SCHEDULE_CRON: "${BACKUP_SCHEDULE_CRON:-}"
+    volumes:
+      - backup_data:/app/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -155,6 +163,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  backup_data:
 
 networks:
   torrenttrader:

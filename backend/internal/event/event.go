@@ -63,6 +63,8 @@ const (
 	ForumPostCreated        Type = "forum_post_created"
 	ForumTopicCreated       Type = "forum_topic_created"
 	TorrentCommented        Type = "torrent_commented"
+	BackupCreated           Type = "backup_created"
+	BackupDeleted           Type = "backup_deleted"
 )
 
 // Event is the base interface for all domain events.
@@ -469,4 +471,18 @@ type TorrentCommentedEvent struct {
 	TorrentID   int64  `json:"torrent_id"`
 	TorrentName string `json:"torrent_name"`
 	UploaderID  int64  `json:"uploader_id"`
+}
+
+// BackupCreatedEvent is published when a database backup file is written.
+// A scheduled backup carries an actor with no ID and the username "system".
+type BackupCreatedEvent struct {
+	Base
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// BackupDeletedEvent is published when a database backup file is deleted.
+type BackupDeletedEvent struct {
+	Base
+	Name string `json:"name"`
 }
