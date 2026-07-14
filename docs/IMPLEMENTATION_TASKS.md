@@ -1361,7 +1361,7 @@
 
 **Implementation:** `DeleteOld` (which already scoped its delete to `is_read = TRUE`) is now called as step 5 of the maintenance job. Retention is `NOTIFICATION_RETENTION` (default `2160h` / 90 days). A non-positive retention **disables** the purge rather than setting the cutoff to now — otherwise a misconfigured `0` would delete every read notification.
 
-#### BE-9.16: Notification Listener & Handler Test Coverage [S]
+#### BE-9.16: Notification Listener & Handler Test Coverage [DONE]
 **As a** developer
 **I want** tests for the notification listener and HTTP handlers
 **So that** event-to-notification mapping and API responses are verified
