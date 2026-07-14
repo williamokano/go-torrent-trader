@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -256,6 +257,13 @@ func TestCategoryRepoCRUD(t *testing.T) {
 	}
 	if _, err := repo.GetByID(ctx, cat.ID); err == nil {
 		t.Error("GetByID succeeded after Delete")
+	}
+
+	// Deleting a row that is already gone must report sql.ErrNoRows, so the
+	// service can map it to a 404 like every other repository — not a bare
+	// error that falls through to a 500.
+	if err := repo.Delete(ctx, cat.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("Delete of a missing category = %v, want sql.ErrNoRows", err)
 	}
 }
 
