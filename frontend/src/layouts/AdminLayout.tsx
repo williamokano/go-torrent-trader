@@ -76,6 +76,11 @@ export function AdminLayout() {
             Forums
           </NavLink>
         )}
+        {isAdmin && (
+          <NavLink to="/admin/backups" className={navLinkClass}>
+            Backups
+          </NavLink>
+        )}
       </nav>
       <div className="admin-layout__content">
         <Outlet />

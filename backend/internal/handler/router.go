@@ -43,6 +43,7 @@ type Deps struct {
 	DashboardRepo       repository.DashboardRepository
 	CheatFlagRepo       repository.CheatFlagRepository
 	NotificationService *service.NotificationService
+	BackupService       BackupManager
 	RSSConfig           *RSSConfig
 }
 
@@ -425,6 +426,15 @@ func NewRouter(deps *Deps) chi.Router {
 						cheatFlags := NewCheatFlagHandler(deps.CheatFlagRepo)
 						r.Get("/cheat-flags", cheatFlags.HandleListCheatFlags)
 						r.Put("/cheat-flags/{id}/dismiss", cheatFlags.HandleDismissCheatFlag)
+					}
+
+					// Database backup endpoints
+					if deps.BackupService != nil {
+						backups := NewBackupHandler(deps.BackupService)
+						r.Get("/backups", backups.HandleListBackups)
+						r.Post("/backups", backups.HandleCreateBackup)
+						r.Get("/backups/{name}/download", backups.HandleDownloadBackup)
+						r.Delete("/backups/{name}", backups.HandleDeleteBackup)
 					}
 
 					// Forum admin management endpoints

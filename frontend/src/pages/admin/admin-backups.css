@@ -1,0 +1,106 @@
+.admin-backups__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.admin-backups__header h1 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.admin-backups__create-btn {
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.admin-backups__create-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.admin-backups__create-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-backups__hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-lg);
+  line-height: 1.5;
+}
+
+.admin-backups__hint code {
+  font-family: monospace;
+  font-size: var(--text-xs);
+}
+
+.admin-backups__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-backups__table th,
+.admin-backups__table td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.admin-backups__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-backups__table td {
+  color: var(--color-text-primary);
+}
+
+.admin-backups__name {
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.admin-backups__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.admin-backups__action-btn {
+  padding: 2px 8px;
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.admin-backups__action-btn--danger {
+  background-color: var(--color-danger, #dc3545);
+}
+
+.admin-backups__action-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.admin-backups__action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-backups__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-xl);
+}

@@ -8,6 +8,11 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      # Database backups (admin panel → Backups)
+      BACKUP_DIR: "/app/backups"
+    volumes:
+      - backup_data:/app/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,6 +103,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  backup_data:
 
 networks:
   torrenttrader:

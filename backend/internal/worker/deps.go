@@ -24,6 +24,7 @@ type WorkerDeps struct {
 	ChatSvc         *service.ChatService
 	RestrictionSvc  *service.RestrictionService
 	AdminSvc        *service.AdminService
+	BackupSvc       *service.BackupService
 	SendToUser      SendToUserFunc
 
 	NotificationRepo repository.NotificationRepository

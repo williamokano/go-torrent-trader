@@ -61,6 +61,13 @@ func Load() (*Config, error) {
 			EnableScheduler:       true,
 			NotificationRetention: 90 * 24 * time.Hour,
 		},
+		Backup: BackupConfig{
+			Dir:          envOrDefault("BACKUP_DIR", "./backups"),
+			PgDumpPath:   envOrDefault("PG_DUMP_PATH", "pg_dump"),
+			Timeout:      30 * time.Minute,
+			Retention:    0,
+			ScheduleCron: os.Getenv("BACKUP_SCHEDULE_CRON"),
+		},
 	}
 
 	// Parse integer env vars with defaults.
@@ -164,6 +171,20 @@ func Load() (*Config, error) {
 		}
 	}
 
+	if v := os.Getenv("BACKUP_TIMEOUT"); v != "" {
+		cfg.Backup.Timeout, err = time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid BACKUP_TIMEOUT %q: %w", v, err)
+		}
+	}
+
+	if v := os.Getenv("BACKUP_RETENTION"); v != "" {
+		cfg.Backup.Retention, err = strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid BACKUP_RETENTION %q: %w", v, err)
+		}
+	}
+
 	if v := os.Getenv("REGISTRATION_EMAIL_CONFIRM"); v != "" {
 		cfg.Site.RegistrationEmailConfirm, err = strconv.ParseBool(v)
 		if err != nil {
@@ -225,6 +246,14 @@ func Load() (*Config, error) {
 
 	if cfg.Session.RefreshTokenTTL <= 0 {
 		return nil, fmt.Errorf("REFRESH_TOKEN_TTL must be greater than 0, got %s", cfg.Session.RefreshTokenTTL)
+	}
+
+	if cfg.Backup.Timeout <= 0 {
+		return nil, fmt.Errorf("BACKUP_TIMEOUT must be greater than 0, got %s", cfg.Backup.Timeout)
+	}
+
+	if cfg.Backup.Retention < 0 {
+		return nil, fmt.Errorf("BACKUP_RETENTION must not be negative, got %d", cfg.Backup.Retention)
 	}
 
 	storageType := cfg.Storage.Type

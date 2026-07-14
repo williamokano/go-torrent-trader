@@ -216,6 +216,24 @@ func run() int {
 	forumPostRepo := postgres.NewForumPostRepo(db)
 	forumService := service.NewForumService(db, forumCategoryRepo, forumRepo, forumTopicRepo, forumPostRepo, userRepo, groupRepo, eventBus)
 
+	// Database backups (pg_dump) — admin-triggered and optionally scheduled.
+	// A misconfigured backup directory (or a DSN pg_dump cannot be pointed at,
+	// e.g. libpq keyword form) disables backups; it must not take the site down.
+	// The router and worker both skip the feature when the service is nil.
+	backupService, err := service.NewBackupService(service.BackupServiceConfig{
+		DatabaseURL: cfg.Database.URL,
+		Dir:         cfg.Backup.Dir,
+		PgDumpPath:  cfg.Backup.PgDumpPath,
+		Timeout:     cfg.Backup.Timeout,
+		Retention:   cfg.Backup.Retention,
+	}, eventBus)
+	if err != nil {
+		slog.Warn("database backups disabled", "error", err)
+		backupService = nil
+	} else {
+		slog.Info("backup service initialized", "dir", backupService.Dir(), "retention", cfg.Backup.Retention)
+	}
+
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
@@ -267,6 +285,13 @@ func run() int {
 		},
 	}
 
+	// Assigned only when backups are available: putting a typed nil pointer in
+	// the BackupManager interface would make the router's nil check pass and the
+	// handlers panic on first use.
+	if backupService != nil {
+		deps.BackupService = backupService
+	}
+
 	// Start background worker (asynq server + scheduler)
 	workerDeps := &worker.WorkerDeps{
 		PeerRepo:        peerRepo,
@@ -279,6 +304,7 @@ func run() int {
 		ChatSvc:         chatService,
 		RestrictionSvc:  restrictionService,
 		AdminSvc:        adminService,
+		BackupSvc:       backupService,
 		SendToUser:      chatHub.SendToUser,
 
 		NotificationRepo:      notificationRepo,
@@ -310,6 +336,14 @@ func run() int {
 		if err := worker.RegisterPeriodicTasks(scheduler); err != nil {
 			slog.Error("failed to register periodic tasks", "error", err)
 			return 1
+		}
+
+		if cfg.Backup.ScheduleCron != "" && backupService != nil {
+			if err := worker.RegisterBackupTask(scheduler, cfg.Backup.ScheduleCron); err != nil {
+				slog.Error("failed to register scheduled backup", "error", err)
+				return 1
+			}
+			slog.Info("scheduled backups enabled", "cron", cfg.Backup.ScheduleCron)
 		}
 
 		go func() {
