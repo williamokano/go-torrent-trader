@@ -13,5 +13,6 @@ func NewMux(deps *WorkerDeps) *asynq.ServeMux {
 	mux.HandleFunc(TaskRatioWarning, NewRatioWarningHandler(deps))
 	mux.HandleFunc(TaskMaintenance, NewMaintenanceHandler(deps))
 	mux.HandleFunc(TaskBackupDatabase, NewBackupHandler(deps))
+	mux.HandleFunc(TaskPromotion, NewPromotionHandler(deps))
 	return mux
 }

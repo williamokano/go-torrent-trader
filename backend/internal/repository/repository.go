@@ -94,6 +94,24 @@ type AnnounceEventWithTorrent struct {
 	TorrentName string
 }
 
+// PromotionRepository defines persistence operations for the auto class
+// promotion ladder and engine.
+type PromotionRepository interface {
+	// Rule configuration.
+	ListRules(ctx context.Context) ([]model.PromotionRule, error)
+	UpsertRule(ctx context.Context, rule *model.PromotionRule) error
+	DeleteRule(ctx context.Context, groupID int64) error
+
+	// Engine inputs and effects.
+	LadderMetrics(ctx context.Context, groupIDs []int64) ([]model.PromotionUserMetrics, error)
+	SeedHoursByUser(ctx context.Context, since time.Time, capSeconds int) (map[int64]int, error)
+	SetUserGroup(ctx context.Context, userID, groupID int64) error
+
+	// Run bookkeeping.
+	LastRunAt(ctx context.Context) (time.Time, bool, error)
+	RecordRun(ctx context.Context, promoted, demoted int) error
+}
+
 // ReportRepository defines persistence operations for reports.
 type ReportRepository interface {
 	Create(ctx context.Context, report *model.Report) error

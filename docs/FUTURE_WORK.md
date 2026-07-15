@@ -58,6 +58,20 @@ The append-only `announce_events` log now captures every announce (BE-9.21), but
 
 ---
 
+## Auto Invite Distribution
+
+The class ladder now exists (BE-8.13), so invites — which are class-gated — can finally be handed out on merit automatically. This is the "capped weekly drip" designed earlier.
+
+**Key requirements:**
+- **Cap-based drip, not unbounded accrual.** On a schedule (weekly), grant a small number of invites (e.g. 1) to each eligible user, but **only if they hold fewer than a cap** (e.g. 3 unused). The cap bounds total outstanding invites to ≈ (eligible users × cap) and stops the drip refilling until an invite is actually used — preventing hoarding/trading.
+- **Eligibility gates** (all configurable): class/level at or above a threshold (reuse the promotion ladder), ratio ≥ X with a minimum-downloaded floor, account age ≥ N days, active within N days (`last_access`), enabled/not-parked/not-restricted.
+- **Mechanics**: one set-based `UPDATE users SET invites = LEAST(invites + k, cap) WHERE invites < cap AND <eligibility>`, run from the maintenance worker; log the aggregate to the activity log. Remember the two gates already in the code: `groups.can_invite` (permission) **and** `users.invites > 0` (balance, decremented per invite) — the drip fills the balance; the permission is the group's.
+- **Optional accountability**: record who invited whom (invite tree) so easy invites don't degrade community quality — most trackers make the inviter partly responsible for invitees.
+
+**Why deferred / sequencing:** needed the merit ladder first (done). The richer successor is a **bonus-point economy** where seeding time (from `announce_events`) earns points spent on invites — the most abuse-resistant model, and the eventual consumer of the announce log.
+
+---
+
 ## Editable User Privileges + Invite Capability
 
 **Observed:** a freshly created user cannot send invites, and the admin user-detail page shows the privilege flags (download/upload/chat/forum) but offers no way to edit them.

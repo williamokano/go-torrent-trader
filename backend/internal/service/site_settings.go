@@ -60,6 +60,11 @@ const (
 	// Announce event log settings keys.
 	SettingAnnounceLogEnabled       = "announce_log_enabled"
 	SettingAnnounceLogRetentionDays = "announce_log_retention_days"
+
+	// Auto class promotion settings keys.
+	SettingPromotionEnabled        = "promotion_enabled"
+	SettingPromotionIntervalDays   = "promotion_interval_days"
+	SettingPromotionSeedWindowDays = "promotion_seed_window_days"
 )
 
 // SiteSettingsService handles site settings business logic.
