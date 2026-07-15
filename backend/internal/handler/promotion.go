@@ -96,9 +96,10 @@ func (h *PromotionHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Reque
 }
 
 // HandleRunNow handles POST /api/v1/admin/promotion/run — a manual trigger that
-// still respects the enable flag and interval (the response reports if skipped).
+// forces evaluation immediately, bypassing the interval so freshly-changed rules
+// take effect now. It still respects the master enable flag.
 func (h *PromotionHandler) HandleRunNow(w http.ResponseWriter, r *http.Request) {
-	summary, err := h.svc.Run(r.Context())
+	summary, err := h.svc.Run(r.Context(), true)
 	if err != nil {
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "promotion run failed")
 		return

@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
+import { Button } from "@/components/form";
+import "./admin-ui.css";
+
+const GIB = 1024 * 1024 * 1024;
 
 interface Group {
   id: number;
@@ -20,57 +24,63 @@ interface PromotionRule {
   min_seed_hours: number;
 }
 
-interface RuleForm {
+interface RowState {
+  onLadder: boolean;
   min_ratio: string;
-  min_uploaded: string;
+  min_upload_gib: string;
   min_age_days: string;
   min_torrents: string;
   min_seed_hours: string;
 }
 
-const zeroForm: RuleForm = {
+const emptyRow: RowState = {
+  onLadder: false,
   min_ratio: "0",
-  min_uploaded: "0",
+  min_upload_gib: "0",
   min_age_days: "0",
   min_torrents: "0",
   min_seed_hours: "0",
 };
 
-const THRESHOLDS: { key: keyof RuleForm; label: string }[] = [
-  { key: "min_ratio", label: "Min Ratio" },
-  { key: "min_uploaded", label: "Min Upload (bytes)" },
-  { key: "min_age_days", label: "Min Age (days)" },
-  { key: "min_torrents", label: "Min Torrents" },
-  { key: "min_seed_hours", label: "Min Seed (hrs)" },
+const THRESHOLDS: { key: keyof RowState; label: string; step: string }[] = [
+  { key: "min_ratio", label: "Min Ratio", step: "0.05" },
+  { key: "min_upload_gib", label: "Min Upload (GiB)", step: "1" },
+  { key: "min_age_days", label: "Min Age (days)", step: "1" },
+  { key: "min_torrents", label: "Min Torrents", step: "1" },
+  { key: "min_seed_hours", label: "Min Seed (hrs)", step: "1" },
 ];
 
-const cell: React.CSSProperties = {
-  padding: "var(--space-xs) var(--space-sm)",
-  borderBottom: "1px solid var(--color-border)",
-};
-const head: React.CSSProperties = {
-  ...cell,
-  textAlign: "left",
-  color: "var(--color-text-muted)",
-  whiteSpace: "nowrap",
-};
-
-function ruleToForm(r: PromotionRule): RuleForm {
+function ruleToRow(r: PromotionRule): RowState {
   return {
+    onLadder: true,
     min_ratio: String(r.min_ratio),
-    min_uploaded: String(r.min_uploaded),
+    min_upload_gib: String(r.min_uploaded / GIB),
     min_age_days: String(r.min_age_days),
     min_torrents: String(r.min_torrents),
     min_seed_hours: String(r.min_seed_hours),
   };
 }
 
+type RowMap = Record<number, RowState>;
+
+function rowsEqual(a: RowState, b: RowState): boolean {
+  return (
+    a.onLadder === b.onLadder &&
+    a.min_ratio === b.min_ratio &&
+    a.min_upload_gib === b.min_upload_gib &&
+    a.min_age_days === b.min_age_days &&
+    a.min_torrents === b.min_torrents &&
+    a.min_seed_hours === b.min_seed_hours
+  );
+}
+
 export function AdminPromotionPage() {
   const toast = useToast();
   const [groups, setGroups] = useState<Group[]>([]);
-  const [rules, setRules] = useState<Record<number, PromotionRule>>({});
-  const [forms, setForms] = useState<Record<number, RuleForm>>({});
+  const [initial, setInitial] = useState<RowMap>({});
+  const [draft, setDraft] = useState<RowMap>({});
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
   const authHeaders = useCallback((json = false): Record<string, string> => {
@@ -92,24 +102,24 @@ export function AdminPromotionPage() {
           headers: authHeaders(),
         }),
       ]);
-      if (gRes.ok) {
-        const body = await gRes.json();
-        setGroups(body.groups ?? []);
+      const gBody = gRes.ok ? await gRes.json() : { groups: [] };
+      const rBody = rRes.ok ? await rRes.json() : { rules: [] };
+      const nextGroups: Group[] = gBody.groups ?? [];
+      const rules: PromotionRule[] = rBody.rules ?? [];
+      const ruleById: Record<number, PromotionRule> = {};
+      for (const r of rules) ruleById[r.group_id] = r;
+
+      const rows: RowMap = {};
+      for (const g of nextGroups) {
+        rows[g.id] = ruleById[g.id]
+          ? ruleToRow(ruleById[g.id])
+          : { ...emptyRow };
       }
-      if (rRes.ok) {
-        const body = await rRes.json();
-        const list: PromotionRule[] = body.rules ?? [];
-        const byId: Record<number, PromotionRule> = {};
-        const formById: Record<number, RuleForm> = {};
-        for (const r of list) {
-          byId[r.group_id] = r;
-          formById[r.group_id] = ruleToForm(r);
-        }
-        setRules(byId);
-        setForms(formById);
-      }
+      setGroups(nextGroups);
+      setInitial(rows);
+      setDraft(rows);
     } catch {
-      toast.error("Failed to load promotion configuration");
+      toast.error("Couldn't load the promotion ladder");
     } finally {
       setLoading(false);
     }
@@ -119,41 +129,77 @@ export function AdminPromotionPage() {
     fetchAll();
   }, [fetchAll]);
 
-  const upsertRule = async (groupId: number, form: RuleForm) => {
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/promotion/rules/${groupId}`,
-      {
-        method: "PUT",
-        headers: authHeaders(true),
-        body: JSON.stringify({
-          min_ratio: Number(form.min_ratio) || 0,
-          min_uploaded: Number(form.min_uploaded) || 0,
-          min_age_days: Number(form.min_age_days) || 0,
-          min_torrents: Number(form.min_torrents) || 0,
-          min_seed_hours: Number(form.min_seed_hours) || 0,
-        }),
-      },
-    );
-    if (res.ok) {
-      toast.success("Rule saved");
-      fetchAll();
-    } else {
-      const body = await res.json().catch(() => null);
-      toast.error(body?.error?.message ?? "Failed to save rule");
-    }
+  // Non-staff classes are the only ladder candidates; show them in ladder order.
+  const candidates = useMemo(
+    () =>
+      groups
+        .filter((g) => !g.is_admin && !g.is_moderator)
+        .sort((a, b) => a.level - b.level),
+    [groups],
+  );
+
+  const changedIds = useMemo(
+    () =>
+      candidates
+        .filter((g) => initial[g.id] && !rowsEqual(initial[g.id], draft[g.id]))
+        .map((g) => g.id),
+    [candidates, initial, draft],
+  );
+
+  const setField = (
+    groupId: number,
+    key: keyof RowState,
+    value: string | boolean,
+  ) => {
+    setDraft((prev) => ({
+      ...prev,
+      [groupId]: { ...prev[groupId], [key]: value },
+    }));
   };
 
-  const removeRule = async (groupId: number) => {
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/promotion/rules/${groupId}`,
-      { method: "DELETE", headers: authHeaders() },
+  const rowToPayload = (row: RowState) => ({
+    min_ratio: Number(row.min_ratio) || 0,
+    min_uploaded: Math.round((Number(row.min_upload_gib) || 0) * GIB),
+    min_age_days: Number(row.min_age_days) || 0,
+    min_torrents: Number(row.min_torrents) || 0,
+    min_seed_hours: Number(row.min_seed_hours) || 0,
+  });
+
+  const saveChanges = async () => {
+    setSaving(true);
+    let failed = 0;
+    await Promise.all(
+      changedIds.map(async (id) => {
+        const row = draft[id];
+        const removing = initial[id].onLadder && !row.onLadder;
+        try {
+          const res = await fetch(
+            `${getConfig().API_URL}/api/v1/admin/promotion/rules/${id}`,
+            removing
+              ? { method: "DELETE", headers: authHeaders() }
+              : {
+                  method: "PUT",
+                  headers: authHeaders(true),
+                  body: JSON.stringify(rowToPayload(row)),
+                },
+          );
+          if (!res.ok) failed++;
+        } catch {
+          failed++;
+        }
+      }),
     );
-    if (res.ok) {
-      toast.success("Removed from ladder");
-      fetchAll();
+    setSaving(false);
+    if (failed === 0) {
+      toast.success(
+        `Saved ${changedIds.length} ${
+          changedIds.length === 1 ? "change" : "changes"
+        }`,
+      );
     } else {
-      toast.error("Failed to remove rule");
+      toast.error(`${failed} change${failed === 1 ? "" : "s"} failed to save`);
     }
+    fetchAll();
   };
 
   const runNow = async () => {
@@ -165,9 +211,13 @@ export function AdminPromotionPage() {
       );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        toast.error(body?.error?.message ?? "Run failed");
+        toast.error(body?.error?.message ?? "The run didn't complete");
       } else if (body?.skipped) {
-        toast.info(`Skipped: ${body.reason}`);
+        toast.info(
+          body.reason === "disabled"
+            ? "Promotion is off — enable it in Site Settings to run"
+            : `Nothing to do: ${body.reason}`,
+        );
       } else {
         toast.success(
           `Promoted ${body?.promoted ?? 0}, demoted ${body?.demoted ?? 0}`,
@@ -179,146 +229,107 @@ export function AdminPromotionPage() {
     }
   };
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <p>Loading…</p>;
 
-  // Only non-staff groups can be ladder rungs; order by level ascending.
-  const candidates = groups
-    .filter((g) => !g.is_admin && !g.is_moderator)
-    .sort((a, b) => a.level - b.level);
+  const dirty = changedIds.length > 0;
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "var(--space-md)",
-        }}
-      >
-        <h1 style={{ fontSize: "var(--text-xl)", margin: 0 }}>
-          Class Promotion
-        </h1>
-        <button
-          onClick={runNow}
-          disabled={running}
-          style={{
-            padding: "var(--space-xs) var(--space-md)",
-            backgroundColor: "var(--color-accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            cursor: running ? "not-allowed" : "pointer",
-            opacity: running ? 0.5 : 1,
-          }}
-        >
-          {running ? "Running..." : "Run now"}
-        </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Class Promotion</h1>
+          <p className="admin-page-header__desc">
+            Classes with a rule form the ladder, lowest level first. Each run
+            moves a member one rung up when they meet the next class's rule, or
+            one rung down when they no longer meet their own. Toggle classes on,
+            set their thresholds, and save — then enable the engine and set the
+            cycle in Site Settings. Staff classes can never be rungs.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <Button variant="secondary" onClick={runNow} loading={running}>
+            Run now
+          </Button>
+        </div>
       </div>
 
-      <p
-        style={{
-          color: "var(--color-text-muted)",
-          fontSize: "var(--text-sm)",
-          marginBottom: "var(--space-md)",
-        }}
-      >
-        Groups with a rule form the promotion ladder, ordered by level. Each run
-        moves a user at most one rung up (if they meet the next class's rule) or
-        one rung down (if they no longer meet their own). Enable the engine and
-        set the cycle in Site Settings. Staff groups can never be ladder rungs.
-      </p>
-
-      <div style={{ overflowX: "auto" }}>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "var(--text-sm)",
-          }}
-        >
-          <thead>
-            <tr>
-              <th style={head}>Class</th>
-              <th style={head}>Level</th>
-              {THRESHOLDS.map((t) => (
-                <th key={t.key} style={head}>
-                  {t.label}
-                </th>
-              ))}
-              <th style={{ ...head, textAlign: "right" }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {candidates.map((g) => {
-              const onLadder = rules[g.id] != null;
-              const form = forms[g.id] ?? zeroForm;
-              return (
-                <tr key={g.id}>
-                  <td style={{ ...cell, fontWeight: 600 }}>{g.name}</td>
-                  <td style={cell}>{g.level}</td>
-                  {THRESHOLDS.map((t) => (
-                    <td key={t.key} style={cell}>
-                      {onLadder ? (
-                        <input
-                          type="number"
-                          aria-label={`${g.name} ${t.label}`}
-                          value={form[t.key]}
-                          onChange={(e) =>
-                            setForms((prev) => ({
-                              ...prev,
-                              [g.id]: { ...form, [t.key]: e.target.value },
-                            }))
-                          }
-                          style={{ width: 90 }}
-                        />
-                      ) : (
-                        <span style={{ color: "var(--color-text-muted)" }}>
-                          —
-                        </span>
-                      )}
-                    </td>
-                  ))}
-                  <td
-                    style={{
-                      ...cell,
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                    }}
+      <div className="admin-panel">
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th className="admin-table__toggle">On ladder</th>
+                <th>Class</th>
+                <th>Level</th>
+                {THRESHOLDS.map((t) => (
+                  <th key={t.key}>{t.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((g) => {
+                const row = draft[g.id] ?? emptyRow;
+                return (
+                  <tr
+                    key={g.id}
+                    className={row.onLadder ? undefined : "admin-row--off"}
                   >
-                    {onLadder ? (
-                      <>
-                        <button
-                          onClick={() => upsertRule(g.id, form)}
-                          style={{
-                            marginRight: "var(--space-xs)",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => removeRule(g.id)}
-                          style={{ cursor: "pointer" }}
-                        >
-                          Remove
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => upsertRule(g.id, zeroForm)}
-                        style={{ cursor: "pointer" }}
-                      >
-                        Add to ladder
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    <td className="admin-table__toggle">
+                      <input
+                        type="checkbox"
+                        aria-label={`Include ${g.name} in ladder`}
+                        checked={row.onLadder}
+                        onChange={(e) =>
+                          setField(g.id, "onLadder", e.target.checked)
+                        }
+                      />
+                    </td>
+                    <td className="admin-table__name">{g.name}</td>
+                    <td className="admin-num">{g.level}</td>
+                    {THRESHOLDS.map((t) => (
+                      <td key={t.key}>
+                        <input
+                          className="admin-num-input"
+                          type="number"
+                          min="0"
+                          step={t.step}
+                          aria-label={`${g.name} ${t.label}`}
+                          disabled={!row.onLadder}
+                          value={row[t.key] as string}
+                          onChange={(e) =>
+                            setField(g.id, t.key, e.target.value)
+                          }
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {dirty && (
+        <div className="admin-savebar">
+          <span className="admin-savebar__count">
+            {changedIds.length} unsaved{" "}
+            {changedIds.length === 1 ? "change" : "changes"}
+          </span>
+          <div className="admin-savebar__actions">
+            <Button
+              variant="ghost"
+              onClick={() => setDraft(initial)}
+              disabled={saving}
+            >
+              Discard
+            </Button>
+            <Button variant="primary" onClick={saveChanges} loading={saving}>
+              Save changes
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

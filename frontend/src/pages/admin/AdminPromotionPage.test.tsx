@@ -31,14 +31,12 @@ const groups = [
   },
 ];
 
+// Only the User class is on the ladder to start.
 const rules = [
   {
     group_id: 5,
-    group_name: "User",
-    group_level: 20,
-    is_staff: false,
     min_ratio: 1,
-    min_uploaded: 1000,
+    min_uploaded: 0,
     min_age_days: 0,
     min_torrents: 0,
     min_seed_hours: 0,
@@ -62,7 +60,6 @@ function mockApi() {
         json: async () => ({ skipped: false, promoted: 2, demoted: 1 }),
       });
     }
-    // PUT / DELETE rule
     return Promise.resolve({ ok: true, json: async () => ({}) });
   });
   return calls;
@@ -85,39 +82,84 @@ afterEach(() => {
 });
 
 describe("AdminPromotionPage", () => {
-  test("lists non-staff classes and excludes staff groups", async () => {
+  test("lists non-staff classes and excludes staff", async () => {
     mockApi();
     renderPage();
     expect(await screen.findByText("User")).toBeInTheDocument();
     expect(screen.getByText("Power User")).toBeInTheDocument();
-    // The admin (staff) group must never appear as a ladder candidate.
     expect(screen.queryByText("Administrator")).not.toBeInTheDocument();
   });
 
-  test("shows editable inputs for laddered classes and an add button otherwise", async () => {
+  test("enables threshold inputs only for classes on the ladder", async () => {
     mockApi();
     renderPage();
-    // User is on the ladder → has a Min Ratio input.
-    expect(await screen.findByLabelText("User Min Ratio")).toBeInTheDocument();
-    // Power User is not → shows an add button, no inputs.
-    expect(
-      screen.getByRole("button", { name: "Add to ladder" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Power User Min Ratio")).toBeNull();
+    // User is on the ladder → editable.
+    expect(await screen.findByLabelText("User Min Ratio")).toBeEnabled();
+    // Power User is off the ladder → present but disabled until toggled on.
+    expect(screen.getByLabelText("Power User Min Ratio")).toBeDisabled();
   });
 
-  test("adds a class to the ladder via PUT", async () => {
+  test("shows the save bar only after a change", async () => {
+    mockApi();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("User");
+    expect(
+      screen.queryByRole("button", { name: "Save changes" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Include Power User in ladder"));
+    expect(
+      await screen.findByRole("button", { name: "Save changes" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+  });
+
+  test("batches adding a class and editing another into one save", async () => {
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("Power User");
-    await user.click(screen.getByRole("button", { name: "Add to ladder" }));
+    await screen.findByText("User");
+    // Add Power User to the ladder.
+    await user.click(screen.getByLabelText("Include Power User in ladder"));
+    // Edit the User class threshold.
+    const ratio = screen.getByLabelText("User Min Ratio");
+    await user.clear(ratio);
+    await user.type(ratio, "2");
+
+    expect(screen.getByText("2 unsaved changes")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(
+        calls.filter(
+          (c) => c.method === "PUT" && c.url.includes("/promotion/rules/"),
+        ).length,
+      ).toBe(2);
+    });
+    expect(
+      calls.some((c) => c.method === "PUT" && c.url.endsWith("/rules/4")),
+    ).toBe(true);
+    expect(
+      calls.some((c) => c.method === "PUT" && c.url.endsWith("/rules/5")),
+    ).toBe(true);
+  });
+
+  test("removes a class from the ladder with DELETE", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("User");
+    await user.click(screen.getByLabelText("Include User in ladder")); // toggle off
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
       expect(
         calls.some(
-          (c) => c.method === "PUT" && c.url.endsWith("/promotion/rules/4"),
+          (c) => c.method === "DELETE" && c.url.endsWith("/promotion/rules/5"),
         ),
       ).toBe(true);
     });

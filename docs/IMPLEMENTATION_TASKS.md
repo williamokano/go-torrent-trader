@@ -2124,6 +2124,21 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Lists non-staff classes ordered by level; each ladder class has inline threshold inputs (ratio, uploaded bytes, age, torrent count, seed hours) with Save/Remove; non-ladder classes get "Add to ladder". Staff groups are excluded.
 - "Run now" triggers `POST /admin/promotion/run` and reports promoted/demoted (or the skip reason). Enable/cycle/window are edited in Site Settings. Pairs with BE-8.13.
 
+#### FE-5.12: Admin UI Component Layer + Promotion Batch Editing [M] [DONE]
+**As an** administrator
+**I want** a consistent, modern admin UI where changes batch into one save
+**So that** managing classes and rules isn't tedious and buttons behave predictably
+
+**Context:** First pass of the Class Promotion page saved each rule individually and added rungs one at a time; buttons were bespoke inline styles across admin pages.
+
+**Delivered:**
+- Shared `Button` component (primary/secondary/ghost/danger, sizes, loading, focus-visible ring) + additive elevation tokens (`--shadow-sm/md`, `--space-2xs/2xl`, accent-contrast) and a shared `admin-ui.css` (page header, panel, data table, sticky save bar) — the reusable admin surface layer.
+- **Class Promotion** rebuilt: every non-staff class in one table with an "On ladder" toggle and inline thresholds; edits and add/remove batch into a single **Save changes** (diffed to PUT/DELETE) via a sticky bar; monospace tabular numerics; upload threshold entered in GiB. "Run now" reports results with clearer copy.
+- **Groups** page adopts the same header/panel/table + `Button`.
+- Backend fix: the manual **Run now** (`POST /admin/promotion/run`) now forces evaluation, bypassing the interval so freshly-changed rules apply immediately (still respects the master enable flag).
+
+> **Follow-up:** roll the `Button` + `admin-ui` primitives across the remaining admin pages (user management, etc.).
+
 ---
 
 ### Epic FE-6: Static/Info Pages [S]

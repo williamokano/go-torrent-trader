@@ -163,19 +163,23 @@ func (s *PromotionService) DeleteRule(ctx context.Context, groupID int64) error 
 }
 
 // Run evaluates every ladder user and moves each at most one rung. It is a no-op
-// when disabled or when the configured interval has not elapsed since the last run.
-func (s *PromotionService) Run(ctx context.Context) (PromotionRunSummary, error) {
+// when disabled. The scheduled job passes force=false so it also no-ops until
+// the configured interval elapses; a manual admin trigger passes force=true to
+// evaluate new rules immediately regardless of the interval.
+func (s *PromotionService) Run(ctx context.Context, force bool) (PromotionRunSummary, error) {
 	now := time.Now()
 
 	if !s.settings.GetBool(ctx, SettingPromotionEnabled, false) {
 		return PromotionRunSummary{Skipped: true, Reason: "disabled"}, nil
 	}
 
-	intervalDays := s.settings.GetInt(ctx, SettingPromotionIntervalDays, 7)
-	if last, ok, err := s.promotions.LastRunAt(ctx); err != nil {
-		return PromotionRunSummary{}, err
-	} else if ok && intervalDays > 0 && now.Sub(last) < time.Duration(intervalDays)*24*time.Hour {
-		return PromotionRunSummary{Skipped: true, Reason: "interval not elapsed"}, nil
+	if !force {
+		intervalDays := s.settings.GetInt(ctx, SettingPromotionIntervalDays, 7)
+		if last, ok, err := s.promotions.LastRunAt(ctx); err != nil {
+			return PromotionRunSummary{}, err
+		} else if ok && intervalDays > 0 && now.Sub(last) < time.Duration(intervalDays)*24*time.Hour {
+			return PromotionRunSummary{Skipped: true, Reason: "interval not elapsed"}, nil
+		}
 	}
 
 	ladder, ruleByGroup, groupByID, err := s.buildLadder(ctx)

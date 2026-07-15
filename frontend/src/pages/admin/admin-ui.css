@@ -1,0 +1,212 @@
+/* Shared admin surface primitives. Adopt across admin pages for a consistent,
+   modern look built on the app's design tokens. */
+
+.admin-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.admin-page-header__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.admin-page-header__desc {
+  margin: var(--space-xs) 0 0;
+  max-width: 60ch;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.admin-page-header__actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.admin-panel {
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.admin-table-scroll {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-table thead th {
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-table tbody td {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-table tbody tr {
+  transition: background-color 0.1s ease;
+}
+
+.admin-table tbody tr:hover td {
+  background-color: var(--color-bg-secondary);
+}
+
+.admin-table__name {
+  font-weight: 600;
+}
+
+.admin-table__actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Data cells: numbers read as data, monospace + tabular figures. */
+.admin-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-num-input {
+  width: 5.5rem;
+  padding: 0.3rem 0.45rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  text-align: right;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.admin-num-input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: var(--color-accent);
+}
+
+.admin-num-input:disabled {
+  color: var(--color-text-muted);
+  background-color: var(--color-bg-secondary);
+  cursor: not-allowed;
+}
+
+.admin-row--off td:not(.admin-table__toggle) {
+  opacity: 0.55;
+}
+
+.admin-table__toggle {
+  width: 1px;
+  white-space: nowrap;
+}
+
+.admin-muted {
+  color: var(--color-text-muted);
+}
+
+.admin-table__center {
+  text-align: center;
+}
+
+.admin-yes {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.admin-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.admin-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.admin-modal-form__caps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2xs) var(--space-md);
+  margin-top: var(--space-xs);
+}
+
+.admin-modal-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.admin-color-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-sm);
+}
+
+.admin-color-row__picker {
+  width: 40px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* Sticky action bar for batched edits — appears only when there are changes. */
+.admin-savebar {
+  position: sticky;
+  bottom: var(--space-md);
+  margin-top: var(--space-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.admin-savebar__count {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.admin-savebar__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
