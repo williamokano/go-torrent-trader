@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -118,7 +117,9 @@ func memberRatio(uploaded, downloaded int64) float64 {
 		if uploaded == 0 {
 			return 0
 		}
-		return math.Inf(1)
+		// Infinite ratio: -1 sentinel, not math.Inf (not JSON-encodable). The
+		// frontend's formatRatio renders -1 as "Inf".
+		return -1
 	}
 	return float64(uploaded) / float64(downloaded)
 }
