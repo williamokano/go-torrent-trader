@@ -137,6 +137,41 @@
   text-align: center;
 }
 
+/* Filter toolbar above a data table. */
+.admin-toolbar {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.admin-toolbar__search {
+  flex: 1;
+  min-width: 220px;
+}
+
+/* Outline pill badges — status at a glance, colored by the token palette. */
+.admin-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.admin-badge--ok {
+  color: var(--color-success);
+}
+.admin-badge--danger {
+  color: var(--color-error);
+}
+.admin-badge--warn {
+  color: var(--color-warning);
+}
+
 .admin-yes {
   color: var(--color-success);
   font-weight: 700;

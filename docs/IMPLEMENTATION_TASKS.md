@@ -2139,6 +2139,17 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Follow-up:** roll the `Button` + `admin-ui` primitives across the remaining admin pages (user management, etc.).
 
+#### FE-5.13: User Management List Revamp [S] [DONE]
+**As an** administrator
+**I want** the user list to match the modernized admin surface
+**So that** browsing, filtering, and scanning member accounts is cleaner
+
+**Delivered:**
+- `AdminUsersPage` rebuilt on the shared primitives: `admin-page-header`, a filter toolbar (search + group + status), `admin-panel` + `admin-table`, outline pill status badges (Active / Warned / Disabled) colored by the token palette, and monospace tabular transfer figures. Retired the bespoke `admin-users.css`.
+- Added a page test (list, status badges, empty state).
+
+> **Follow-up:** `AdminUserDetailPage` (single-user editing, ~1000 lines) — adopt `Button` + `admin-panel` for its actions and sections next.
+
 ---
 
 ### Epic FE-6: Static/Info Pages [S]
