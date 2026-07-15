@@ -93,6 +93,42 @@ function storeTokens(tokens: {
   }
 }
 
+/**
+ * Outcome of a bootstrap `/auth/me` fetch, split so callers can distinguish a
+ * genuine auth failure from a transient hiccup:
+ *   - "user"        — a profile came back; the session is good.
+ *   - "unauthorized"— HTTP 401; the token is genuinely rejected.
+ *   - "transient"   — network/transport error, a non-401 status (5xx), or a
+ *                     2xx with an empty/unparseable body. The token might still
+ *                     be fine, so the session must be kept and retried later.
+ */
+type MeResult =
+  | { kind: "user"; user: User | null }
+  | { kind: "unauthorized" }
+  | { kind: "transient" };
+
+async function fetchMeProfile(accessToken: string): Promise<MeResult> {
+  try {
+    const meRes = await api.GET("/api/v1/auth/me", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (meRes.data?.user) {
+      return {
+        kind: "user",
+        user: mapUser(meRes.data.user as Record<string, unknown>) ?? null,
+      };
+    }
+    if (meRes.response?.status === 401) {
+      return { kind: "unauthorized" };
+    }
+    // Non-401 status or an empty/200 body: not an auth failure, keep the token.
+    return { kind: "transient" };
+  } catch {
+    // Thrown = transport/network error: keep the token.
+    return { kind: "transient" };
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(
@@ -109,28 +145,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     restoringRef.current = true;
 
     async function restoreSession() {
-      // Case 1: Access token is still valid — just fetch user profile
+      // Case 1: Access token is still valid — fetch the profile. Only a real
+      // 401 falls through to the refresh path; any other failure keeps the
+      // session so a later reload can recover.
       if (isAccessTokenValid()) {
-        try {
-          const meRes = await api.GET("/api/v1/auth/me", {
-            headers: { Authorization: `Bearer ${getAccessToken()}` },
-          });
-          if (meRes.data?.user) {
-            setUser(
-              mapUser(meRes.data.user as Record<string, unknown>) ?? null,
-            );
-          } else {
-            clearTokens();
-          }
-        } catch {
-          clearTokens();
-        } finally {
+        const result = await fetchMeProfile(getAccessToken() ?? "");
+        if (result.kind === "user") {
+          setUser(result.user);
           setIsLoading(false);
+          return;
         }
-        return;
+        if (result.kind === "transient") {
+          // Non-auth hiccup (network error, 5xx, empty body). Keep the tokens.
+          setIsLoading(false);
+          return;
+        }
+        // result.kind === "unauthorized": token genuinely bad — try to refresh.
       }
 
-      // Case 2: Access token expired but refresh token exists — refresh
+      // Case 2: Refresh the session. This is reached either because the access
+      // token is expired, or because Case 1 got a genuine 401.
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
         clearTokens();
@@ -139,30 +173,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const { data, error } = await api.POST("/api/v1/auth/refresh", {
-          body: { refresh_token: refreshToken },
-        });
+        const { data, error, response } = await api.POST(
+          "/api/v1/auth/refresh",
+          { body: { refresh_token: refreshToken } },
+        );
+
+        if (response?.status === 401 || response?.status === 403) {
+          // Refresh token genuinely invalid/expired — a real logout.
+          clearTokens();
+          setIsLoading(false);
+          return;
+        }
 
         if (error || !data?.tokens) {
-          clearTokens();
+          // Non-auth failure (network blip, 5xx). Keep the tokens.
           setIsLoading(false);
           return;
         }
 
         storeTokens(data.tokens);
 
-        const meRes = await api.GET("/api/v1/auth/me", {
-          headers: { Authorization: `Bearer ${data.tokens.access_token}` },
-        });
-
-        if (meRes.data?.user) {
-          setUser(mapUser(meRes.data.user as Record<string, unknown>) ?? null);
-        } else {
+        const result = await fetchMeProfile(data.tokens.access_token ?? "");
+        if (result.kind === "user") {
+          setUser(result.user);
+        } else if (result.kind === "unauthorized") {
+          // Freshly refreshed token still rejected — a real auth failure.
           clearTokens();
         }
+        // "transient": keep the tokens; user stays null and recovers on reload.
+        setIsLoading(false);
       } catch {
-        clearTokens();
-      } finally {
+        // Transport error on refresh — keep the tokens.
         setIsLoading(false);
       }
     }
