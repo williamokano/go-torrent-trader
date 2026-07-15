@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -216,27 +217,123 @@ func (h *AdminHandler) HandleListGroups(w http.ResponseWriter, r *http.Request) 
 	}
 
 	items := make([]map[string]interface{}, len(groups))
-	for i, g := range groups {
-		items[i] = map[string]interface{}{
-			"id":           g.ID,
-			"name":         g.Name,
-			"slug":         g.Slug,
-			"level":        g.Level,
-			"color":        g.Color,
-			"can_upload":   g.CanUpload,
-			"can_download": g.CanDownload,
-			"can_invite":   g.CanInvite,
-			"can_comment":  g.CanComment,
-			"can_forum":    g.CanForum,
-			"is_admin":     g.IsAdmin,
-			"is_moderator": g.IsModerator,
-			"is_immune":    g.IsImmune,
-		}
+	for i := range groups {
+		items[i] = groupToMap(&groups[i])
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"groups": items,
 	})
+}
+
+// groupToMap renders a group as the JSON shape the admin UI consumes.
+func groupToMap(g *model.Group) map[string]interface{} {
+	return map[string]interface{}{
+		"id":           g.ID,
+		"name":         g.Name,
+		"slug":         g.Slug,
+		"level":        g.Level,
+		"color":        g.Color,
+		"can_upload":   g.CanUpload,
+		"can_download": g.CanDownload,
+		"can_invite":   g.CanInvite,
+		"can_comment":  g.CanComment,
+		"can_forum":    g.CanForum,
+		"is_admin":     g.IsAdmin,
+		"is_moderator": g.IsModerator,
+		"is_immune":    g.IsImmune,
+	}
+}
+
+// groupWriteErrorStatus maps a group write error to an HTTP status. It returns
+// ok=false for anything that isn't a recognized value error, so the caller can
+// treat it as an internal failure without leaking the message.
+func groupWriteErrorStatus(err error) (int, bool) {
+	switch {
+	case errors.Is(err, service.ErrGroupNotFound):
+		return http.StatusNotFound, true
+	case errors.Is(err, service.ErrGroupProtected):
+		return http.StatusForbidden, true
+	case errors.Is(err, service.ErrGroupHasMembers),
+		errors.Is(err, service.ErrGroupNameTaken),
+		errors.Is(err, service.ErrGroupSlugTaken):
+		return http.StatusConflict, true
+	case errors.Is(err, service.ErrGroupNameRequired),
+		errors.Is(err, service.ErrGroupInvalidSlug),
+		errors.Is(err, service.ErrGroupInvalidColor),
+		errors.Is(err, service.ErrGroupInvalidLevel):
+		return http.StatusBadRequest, true
+	default:
+		return 0, false
+	}
+}
+
+// HandleCreateGroup handles POST /api/v1/admin/groups.
+func (h *AdminHandler) HandleCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var req service.GroupWriteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	group, err := h.admin.CreateGroup(r.Context(), req)
+	if err != nil {
+		if status, ok := groupWriteErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create group")
+		return
+	}
+
+	JSON(w, http.StatusCreated, map[string]interface{}{"group": groupToMap(group)})
+}
+
+// HandleUpdateGroup handles PUT /api/v1/admin/groups/{id}.
+func (h *AdminHandler) HandleUpdateGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid group ID")
+		return
+	}
+
+	var req service.GroupWriteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	group, err := h.admin.UpdateGroup(r.Context(), id, req)
+	if err != nil {
+		if status, ok := groupWriteErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to update group")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"group": groupToMap(group)})
+}
+
+// HandleDeleteGroup handles DELETE /api/v1/admin/groups/{id}.
+func (h *AdminHandler) HandleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid group ID")
+		return
+	}
+
+	if err := h.admin.DeleteGroup(r.Context(), id); err != nil {
+		if status, ok := groupWriteErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete group")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"deleted": true})
 }
 
 // HandleCreateModNote handles POST /api/v1/admin/users/{id}/notes.

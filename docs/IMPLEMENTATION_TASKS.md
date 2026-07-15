@@ -1213,6 +1213,25 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 ---
 
+#### BE-8.12: Group Management (CRUD) [M] [DONE]
+**As an** administrator
+**I want** to create, edit, and delete permission groups from the admin panel
+**So that** I can manage colors, levels, and capability flags without editing the database
+
+**Context:** Groups were read-only — seeded by migration 001, listed via `GET /admin/groups`, with no way to mutate them. This adds full CRUD with safety guards.
+
+**Acceptance Criteria (met):**
+- `POST/PUT/DELETE /api/v1/admin/groups[/{id}]` (admin only), alongside the existing list endpoint.
+- New `GroupWriteRepository` (Create/Update/Delete/CountMembers) kept separate from the read-only `GroupRepository` so the ~10 existing read-only mocks are untouched; `NewGroupRepo` now returns the concrete type to satisfy both.
+- Validation: name/slug required, slug format + auto-derivation from name, hex color, level 0–1000; name/slug uniqueness (case-insensitive) with a clean 409.
+- Safety guards: cannot delete the admin group (id 1) or default registration group (id 5) — both hardcoded in `auth.go`; cannot delete a group that still has members (409); cannot strip `is_admin` from the admin group (lockout prevention).
+- Frontend: `AdminGroupsPage` upgraded from a read-only matrix to full CRUD — "New Group" + per-row Edit/Delete, modal form with name/slug/level, color picker, and the eight capability checkboxes; server-side guard messages surfaced via toast.
+- Tests: repository (CRUD + CountMembers + missing-row), service (validation, conflicts, all guards, not-found, writer-unavailable), full-router handler (authz + status-code mapping), and frontend (list/create/delete/confirm-decline).
+
+> **Related follow-up:** per-user privilege editing + invite capability (`can_invite` is group-scoped) — see docs/FUTURE_WORK.md → "Editable User Privileges + Invite Capability". Managing `can_invite` per group is now possible through this page.
+
+---
+
 ### Epic BE-9: Cleanup & Maintenance Jobs
 
 #### BE-9.1: Scheduled Cleanup Job [M] [DONE]
@@ -1956,7 +1975,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - [x] Admin routes wired under `/admin` with `AdminRoute` guard
 - [x] Conditional "Admin" link in header for admin users
 - [x] Backend admin route group (`/api/v1/admin/*`) with `RequireAuth + RequireAdmin`
-- [x] Groups list API (`GET /admin/groups`) and read-only groups page with permission matrix
+- [x] Groups list API (`GET /admin/groups`) and groups page with permission matrix (now full CRUD — see FE-5.10 / BE-8.12)
 
 #### FE-5.1: Admin Dashboard [M] [DONE]
 **As an** admin
@@ -2064,6 +2083,16 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Click through to user detail with suspicious announce logs
 - Actions: dismiss flag, warn user, ban user
 - Ratio anomaly charts (upload/download over time)
+
+#### FE-5.10: Group Management (CRUD) [M] [DONE — editable AdminGroupsPage: create/edit/delete, color picker, capability checkboxes]
+**As an** administrator
+**I want** to manage permission groups from the admin panel
+**So that** I can adjust colors, levels, and capabilities without touching the database
+
+**Acceptance Criteria (met):**
+- "New Group" action and per-row Edit/Delete on the existing groups matrix.
+- Modal form: name, slug (auto-derived if blank), level, hex color with a native color picker, and the eight capability checkboxes.
+- Wired to `POST/PUT/DELETE /api/v1/admin/groups[/{id}]`; server-side guard rejections (protected built-in, group has members, name/slug taken) are surfaced via toast. Pairs with BE-8.12.
 
 ---
 

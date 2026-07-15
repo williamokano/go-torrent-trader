@@ -203,6 +203,7 @@ func run() int {
 	adminService.SetWarningRepo(warningRepo)
 	adminService.SetMessageRepo(messageRepo)
 	adminService.SetBanService(banService)
+	adminService.SetGroupWriter(groupRepo)
 
 	reportService.SetWarningService(warningService)
 	reportService.SetTorrentService(torrentService)
