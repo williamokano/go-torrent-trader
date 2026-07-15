@@ -84,6 +84,10 @@
   font-family: var(--font-mono, monospace);
 }
 
+.markdown-editor__input {
+  position: relative;
+}
+
 .markdown-editor__textarea {
   background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -94,6 +98,42 @@
   padding: var(--space-sm, 0.5rem);
   resize: vertical;
   width: 100%;
+}
+
+.markdown-editor__mentions {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  margin: 0.15rem 0 0;
+  padding: 0.2rem;
+  list-style: none;
+  min-width: 12rem;
+  max-width: 100%;
+  max-height: 12rem;
+  overflow-y: auto;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.markdown-editor__mention {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: var(--text-sm, 0.875rem);
+  padding: 0.3rem 0.5rem;
+}
+
+.markdown-editor__mention:hover,
+.markdown-editor__mention--active {
+  background-color: var(--color-bg-tertiary, #2a2a2a);
 }
 
 .markdown-editor__textarea:focus {

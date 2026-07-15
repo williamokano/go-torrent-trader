@@ -627,7 +627,7 @@
 - Reorder support
 - Prevent delete if torrents exist in category (or force reassign)
 
-#### BE-3.12: @Mention Search Endpoint [S]
+#### BE-3.12: @Mention Search Endpoint [S] [DONE — backend endpoint reused; `@` typeahead wired into the shared MarkdownEditor]
 **As a** frontend developer
 **I want** a user search endpoint for @mention autocomplete
 **So that** users can be mentioned in comments and forum posts
@@ -643,6 +643,7 @@
 - `GET /api/v1/users?search=<q>&per_page=<n>` (`MemberHandler.HandleList`, auth-required) already does username search with pagination, and the PM compose screen (`frontend/src/pages/MessagesPage.tsx`) uses it for typeahead today. A second dedicated `/users/search` endpoint would duplicate it — **do not build it.**
 - Mention *notifications* also already work: `backend/internal/listener/notification.go` parses `@username` via `mentionRegex` and emits `forum_mention`.
 - REMAINING WORK IS FRONTEND ONLY — extract the typeahead from `MessagesPage` into a reusable component and wire it into the forum post and comment editors, which have no mention autocomplete. FE-0.7 shipped `frontend/src/components/MarkdownEditor.tsx` (now used by comments, forum posts, PMs, torrent descriptions and news), so the `@` typeahead should hook into that single component and every compose surface gets it at once.
+- **DONE (2026-07-15):** the `@` typeahead now lives in `MarkdownEditor` — an `@` after a word boundary opens a debounced (250ms) `GET /api/v1/users?search=&per_page=8` lookup whose trigger detection mirrors the backend `mentionRegex`, so any inserted suggestion actually fires a `forum_mention`. Keyboard-navigable (arrows / Enter / Tab / Escape), closes on blur and in preview. Every compose surface (comments, forum new-topic + reply, PMs, torrent edit, upload, admin news) gets it at once. Covered by new tests in `MarkdownEditor.test.tsx`.
 
 #### BE-3.13: Rich Torrent Metadata [M] [RESEARCH]
 **As an** uploader
