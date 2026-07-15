@@ -32,6 +32,19 @@ Full theming system with user-selectable themes and admin controls.
 
 ---
 
+## Real-Time Stats Push (SSE)
+
+Push site stats (peer/torrent/user counts in the footer) to clients instead of polling, ideally via Server-Sent Events.
+
+**Key requirements:**
+- One unidirectional SSE stream broadcasting stat updates (no WebSocket — a full duplex connection and a second hub aren't warranted for footer numbers).
+- Broadcast on the events that move the numbers (peer announce, torrent upload, user registration).
+- Graceful fallback to polling if the stream drops.
+
+**Why deferred:** footer stats are low-stakes, eventually-consistent numbers, and they are already served from the Redis `StatsCache`, so the current polling reads a cache rather than the database — it is cheap. A dedicated WebSocket would add a second hub, per-client goroutines, and reconnect logic for data nobody watches second-by-second; that trade isn't worth it. **If fresher stats are ever wanted, the lever is lowering the `StatsCache` TTL, not changing transport** (polling faster than the TTL just returns the same cached value). SSE is the tasteful upgrade only if stats freshness ever becomes a real product concern.
+
+---
+
 ## Classic Tracker Mods
 
 See [`TRACKER_MODS.md`](./TRACKER_MODS.md) for a catalogue of the famous
