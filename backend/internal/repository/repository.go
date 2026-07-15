@@ -127,6 +127,18 @@ type GroupRepository interface {
 	List(ctx context.Context) ([]model.Group, error)
 }
 
+// GroupWriteRepository defines mutating operations for groups. It is kept
+// separate from GroupRepository so the many read-only consumers (and their
+// mocks) don't have to implement write methods they never use.
+type GroupWriteRepository interface {
+	Create(ctx context.Context, group *model.Group) error
+	Update(ctx context.Context, group *model.Group) error
+	Delete(ctx context.Context, id int64) error
+	// CountMembers returns how many users belong to the group, used to block
+	// deletion of a group that still has members (the users FK would reject it).
+	CountMembers(ctx context.Context, groupID int64) (int, error)
+}
+
 // ActivityLogRepository defines persistence operations for activity logs.
 type ActivityLogRepository interface {
 	Create(ctx context.Context, log *model.ActivityLog) error

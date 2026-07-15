@@ -356,6 +356,9 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Post("/users/{id}/notes", admin.HandleCreateModNote)
 						r.Delete("/notes/{id}", admin.HandleDeleteModNote)
 						r.Get("/groups", admin.HandleListGroups)
+						r.Post("/groups", admin.HandleCreateGroup)
+						r.Put("/groups/{id}", admin.HandleUpdateGroup)
+						r.Delete("/groups/{id}", admin.HandleDeleteGroup)
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {
 							torrentAdmin := NewTorrentAdminHandler(deps.TorrentService)

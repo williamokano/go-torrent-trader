@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
+	"regexp"
 	"strings"
 	"time"
 
@@ -97,16 +100,17 @@ type AdminUpdateUserRequest struct {
 
 // AdminService handles admin-only business logic.
 type AdminService struct {
-	users    repository.UserRepository
-	groups   repository.GroupRepository
-	sessions SessionStore
-	email    EmailSender
-	eventBus event.Bus
-	modNotes repository.ModNoteRepository
-	torrents repository.TorrentRepository
-	warnings repository.WarningRepository
-	messages repository.MessageRepository
-	bans     *BanService
+	users       repository.UserRepository
+	groups      repository.GroupRepository
+	groupWriter repository.GroupWriteRepository
+	sessions    SessionStore
+	email       EmailSender
+	eventBus    event.Bus
+	modNotes    repository.ModNoteRepository
+	torrents    repository.TorrentRepository
+	warnings    repository.WarningRepository
+	messages    repository.MessageRepository
+	bans        *BanService
 }
 
 // NewAdminService creates a new AdminService.
@@ -147,6 +151,11 @@ func (s *AdminService) SetMessageRepo(repo repository.MessageRepository) {
 // SetBanService sets the ban service for IP/email bans.
 func (s *AdminService) SetBanService(bans *BanService) {
 	s.bans = bans
+}
+
+// SetGroupWriter sets the repository used for group create/update/delete.
+func (s *AdminService) SetGroupWriter(w repository.GroupWriteRepository) {
+	s.groupWriter = w
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -907,4 +916,214 @@ func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
 // ListGroups returns all groups ordered by level.
 func (s *AdminService) ListGroups(ctx context.Context) ([]model.Group, error) {
 	return s.groups.List(ctx)
+}
+
+// Group management errors. These are value errors (the caller sent something
+// invalid or asked for a forbidden mutation), distinct from storage failures.
+var (
+	ErrGroupWritesUnavailable = fmt.Errorf("group management is not available")
+	ErrGroupNotFound          = fmt.Errorf("group not found")
+	ErrGroupNameRequired      = fmt.Errorf("group name is required")
+	ErrGroupInvalidSlug       = fmt.Errorf("group slug must be lowercase letters, numbers, and hyphens")
+	ErrGroupInvalidColor      = fmt.Errorf("group color must be a hex value like #55AA88")
+	ErrGroupInvalidLevel      = fmt.Errorf("group level must be between 0 and 1000")
+	ErrGroupNameTaken         = fmt.Errorf("a group with that name already exists")
+	ErrGroupSlugTaken         = fmt.Errorf("a group with that slug already exists")
+	ErrGroupProtected         = fmt.Errorf("this built-in group is required by registration and cannot be deleted or stripped of admin")
+	ErrGroupHasMembers        = fmt.Errorf("group still has members; reassign them to another group before deleting")
+)
+
+var (
+	groupSlugPattern  = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	groupColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+	groupSlugStripRe  = regexp.MustCompile(`[^a-z0-9]+`)
+)
+
+// GroupWriteRequest is the full representation an admin submits to create or
+// update a group. Updates replace every field (the admin form always sends the
+// whole object), so booleans left out default to false.
+type GroupWriteRequest struct {
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Level       int     `json:"level"`
+	Color       *string `json:"color"`
+	CanUpload   bool    `json:"can_upload"`
+	CanDownload bool    `json:"can_download"`
+	CanInvite   bool    `json:"can_invite"`
+	CanComment  bool    `json:"can_comment"`
+	CanForum    bool    `json:"can_forum"`
+	IsAdmin     bool    `json:"is_admin"`
+	IsModerator bool    `json:"is_moderator"`
+	IsImmune    bool    `json:"is_immune"`
+}
+
+// slugifyGroupName derives a URL-safe slug from a group name, used when the
+// admin leaves the slug blank.
+func slugifyGroupName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = groupSlugStripRe.ReplaceAllString(s, "-")
+	return strings.Trim(s, "-")
+}
+
+// normalizeGroupInput validates and normalizes a write request into a Group.
+// It does not set ID, CreatedAt, or UpdatedAt.
+func normalizeGroupInput(req GroupWriteRequest) (*model.Group, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, ErrGroupNameRequired
+	}
+
+	slug := strings.TrimSpace(req.Slug)
+	if slug == "" {
+		slug = slugifyGroupName(name)
+	}
+	if !groupSlugPattern.MatchString(slug) {
+		return nil, ErrGroupInvalidSlug
+	}
+
+	if req.Level < 0 || req.Level > 1000 {
+		return nil, ErrGroupInvalidLevel
+	}
+
+	var color *string
+	if req.Color != nil {
+		c := strings.TrimSpace(*req.Color)
+		if c != "" {
+			if !groupColorPattern.MatchString(c) {
+				return nil, ErrGroupInvalidColor
+			}
+			color = &c
+		}
+	}
+
+	return &model.Group{
+		Name:        name,
+		Slug:        slug,
+		Level:       req.Level,
+		Color:       color,
+		CanUpload:   req.CanUpload,
+		CanDownload: req.CanDownload,
+		CanInvite:   req.CanInvite,
+		CanComment:  req.CanComment,
+		CanForum:    req.CanForum,
+		IsAdmin:     req.IsAdmin,
+		IsModerator: req.IsModerator,
+		IsImmune:    req.IsImmune,
+	}, nil
+}
+
+// ensureGroupNameSlugFree rejects a name or slug already used by a different
+// group. Groups are few, so scanning the full list is cheap and avoids extra
+// repository methods; the admin-only, low-concurrency write path makes the
+// check-then-write race a non-issue (the DB UNIQUE constraint is the backstop).
+func (s *AdminService) ensureGroupNameSlugFree(ctx context.Context, name, slug string, excludeID int64) error {
+	existing, err := s.groups.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list groups: %w", err)
+	}
+	for i := range existing {
+		g := &existing[i]
+		if g.ID == excludeID {
+			continue
+		}
+		if strings.EqualFold(g.Name, name) {
+			return ErrGroupNameTaken
+		}
+		if g.Slug == slug {
+			return ErrGroupSlugTaken
+		}
+	}
+	return nil
+}
+
+// CreateGroup creates a new permission group.
+func (s *AdminService) CreateGroup(ctx context.Context, req GroupWriteRequest) (*model.Group, error) {
+	if s.groupWriter == nil {
+		return nil, ErrGroupWritesUnavailable
+	}
+	group, err := normalizeGroupInput(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureGroupNameSlugFree(ctx, group.Name, group.Slug, 0); err != nil {
+		return nil, err
+	}
+	if err := s.groupWriter.Create(ctx, group); err != nil {
+		return nil, fmt.Errorf("create group: %w", err)
+	}
+	return group, nil
+}
+
+// UpdateGroup replaces the fields of an existing group.
+func (s *AdminService) UpdateGroup(ctx context.Context, id int64, req GroupWriteRequest) (*model.Group, error) {
+	if s.groupWriter == nil {
+		return nil, ErrGroupWritesUnavailable
+	}
+
+	existing, err := s.groups.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrGroupNotFound
+		}
+		return nil, fmt.Errorf("get group: %w", err)
+	}
+
+	group, err := normalizeGroupInput(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Never let the built-in admin group lose its admin flag — that is how an
+	// operator locks themselves (and everyone) out of the admin panel.
+	if id == adminGroupID && !group.IsAdmin {
+		return nil, ErrGroupProtected
+	}
+
+	if err := s.ensureGroupNameSlugFree(ctx, group.Name, group.Slug, id); err != nil {
+		return nil, err
+	}
+
+	group.ID = id
+	group.CreatedAt = existing.CreatedAt
+	if err := s.groupWriter.Update(ctx, group); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrGroupNotFound
+		}
+		return nil, fmt.Errorf("update group: %w", err)
+	}
+	return group, nil
+}
+
+// DeleteGroup deletes a group, refusing to remove the registration-critical
+// built-in groups or any group that still has members.
+func (s *AdminService) DeleteGroup(ctx context.Context, id int64) error {
+	if s.groupWriter == nil {
+		return ErrGroupWritesUnavailable
+	}
+	if id == adminGroupID || id == defaultGroupID {
+		return ErrGroupProtected
+	}
+
+	if _, err := s.groups.GetByID(ctx, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrGroupNotFound
+		}
+		return fmt.Errorf("get group: %w", err)
+	}
+
+	members, err := s.groupWriter.CountMembers(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count group members: %w", err)
+	}
+	if members > 0 {
+		return ErrGroupHasMembers
+	}
+
+	if err := s.groupWriter.Delete(ctx, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrGroupNotFound
+		}
+		return fmt.Errorf("delete group: %w", err)
+	}
+	return nil
 }
