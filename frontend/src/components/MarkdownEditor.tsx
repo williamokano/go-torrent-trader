@@ -1,5 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link } from "react-router-dom";
+import { getConfig } from "@/config";
+import { getAccessToken } from "@/features/auth/token";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import "./markdown-editor.css";
 
@@ -90,6 +93,28 @@ const TOOLBAR: ToolbarButton[] = [
   },
 ];
 
+interface UserSuggestion {
+  id: number;
+  username: string;
+}
+
+// Mirrors the backend mention parser (`(?:^|[\s(])@(\w+)` in
+// internal/listener/notification.go) so the token we insert has the exact
+// shape the backend recognises. Note the backend only *notifies* on forum
+// posts today (the ForumPostCreated listener); on the other surfaces this
+// editor mounts on, the typeahead is an insertion/spelling aid. `\w*` (not
+// `\w+`) lets it match the bare `@` the instant it is typed; anchored to the
+// caret via `$`.
+const MENTION_RE = /(?:^|[\s(])@(\w*)$/;
+
+/** The active `@mention` token immediately before the caret, if any. */
+function detectMention(text: string, caret: number) {
+  const match = text.slice(0, caret).match(MENTION_RE);
+  if (!match) return null;
+  const query = match[1];
+  return { query, at: caret - query.length - 1 };
+}
+
 /**
  * Lightweight Markdown editor: a plain textarea with a toolbar that inserts
  * Markdown syntax at the cursor, plus a preview rendered by MarkdownRenderer.
@@ -122,6 +147,112 @@ export function MarkdownEditor({
     textarea.focus();
     textarea.setSelectionRange(selection[0], selection[1]);
   });
+
+  // --- @mention autocomplete ---------------------------------------------
+  const [mentions, setMentions] = useState<UserSuggestion[]>([]);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const mentionsListId = useId();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Bumped on every search and on close; a resolving fetch whose seq is stale
+  // is dropped, so out-of-order responses can't repopulate a closed dropdown.
+  const reqSeq = useRef(0);
+
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
+  const closeMentions = useCallback(() => {
+    reqSeq.current++;
+    clearTimeout(debounceRef.current);
+    setMentionOpen(false);
+    setMentions([]);
+  }, []);
+
+  const searchUsers = useCallback((query: string) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const seq = ++reqSeq.current;
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/users?search=${encodeURIComponent(query)}&per_page=8`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (!res.ok || seq !== reqSeq.current) return;
+        const data = await res.json();
+        if (seq !== reqSeq.current) return;
+        const users: UserSuggestion[] = (data?.users ?? []).map(
+          (u: UserSuggestion) => ({ id: u.id, username: u.username }),
+        );
+        setMentions(users);
+        setActiveIndex(0);
+        setMentionOpen(users.length > 0);
+      } catch {
+        // Autocomplete is best-effort; a failed lookup just shows nothing.
+      }
+    }, 250);
+  }, []);
+
+  const updateMention = useCallback(
+    (text: string, caret: number | null) => {
+      const mention = detectMention(text, caret ?? text.length);
+      // Require at least one character after `@` so a bare `@` doesn't dump the
+      // whole member list (the search endpoint ignores an empty `search`).
+      if (!mention || mention.query.length < 1) {
+        closeMentions();
+        return;
+      }
+      searchUsers(mention.query);
+    },
+    [closeMentions, searchUsers],
+  );
+
+  function applyMention(username: string) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Recompute the token from one live snapshot rather than trusting a stored
+    // `@` index: if the caret has moved to a different @token while the list is
+    // open, the stored index and the live caret would splice mismatched ranges
+    // and corrupt the text. Completing whatever token the caret is actually in
+    // is always well-formed.
+    const caretPos = textarea.selectionStart;
+    const mention = detectMention(textarea.value, caretPos);
+    if (!mention) return;
+
+    const after = textarea.value.slice(caretPos);
+    // Don't add a space when the caret already sits before whitespace.
+    const spacer = /^\s/.test(after) ? "" : " ";
+    const insert = `@${username}${spacer}`;
+    const next = textarea.value.slice(0, mention.at) + insert + after;
+    const caret = mention.at + insert.length + (spacer ? 0 : 1);
+
+    pendingSelection.current = [caret, caret];
+    onChange(next);
+    closeMentions();
+  }
+
+  function handleMentionKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (!mentionOpen || mentions.length === 0) return;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % mentions.length);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setActiveIndex((i) => (i - 1 + mentions.length) % mentions.length);
+        break;
+      case "Enter":
+      case "Tab":
+        e.preventDefault();
+        applyMention(mentions[activeIndex].username);
+        break;
+      case "Escape":
+        e.preventDefault();
+        closeMentions();
+        break;
+    }
+  }
 
   function apply(action: ToolbarAction) {
     const textarea = textareaRef.current;
@@ -164,6 +295,8 @@ export function MarkdownEditor({
     ];
     onChange(next);
   }
+
+  const mentionsVisible = mentionOpen && mentions.length > 0;
 
   return (
     <div className={`markdown-editor ${className}`.trim()}>
@@ -228,15 +361,73 @@ export function MarkdownEditor({
           )}
         </div>
       ) : (
-        <textarea
-          id={textareaId}
-          ref={textareaRef}
-          className="markdown-editor__textarea"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={rows}
-          placeholder={placeholder}
-        />
+        <div className="markdown-editor__input">
+          <textarea
+            id={textareaId}
+            ref={textareaRef}
+            className="markdown-editor__textarea"
+            value={value}
+            onChange={(e) => {
+              onChange(e.target.value);
+              updateMention(e.target.value, e.target.selectionStart);
+            }}
+            onSelect={(e) => {
+              // Close if the caret moved out of the active mention token; never
+              // re-search on a plain caret move, only on typing.
+              if (
+                mentionOpen &&
+                !detectMention(
+                  e.currentTarget.value,
+                  e.currentTarget.selectionStart,
+                )
+              ) {
+                closeMentions();
+              }
+            }}
+            onKeyDown={handleMentionKeyDown}
+            onBlur={closeMentions}
+            rows={rows}
+            placeholder={placeholder}
+            // Combobox semantics only while suggestions show, so plain prose
+            // writing isn't announced as a combobox.
+            role={mentionsVisible ? "combobox" : undefined}
+            aria-autocomplete={mentionsVisible ? "list" : undefined}
+            aria-expanded={mentionsVisible ? true : undefined}
+            aria-controls={mentionsVisible ? mentionsListId : undefined}
+            aria-activedescendant={
+              mentionsVisible ? `${mentionsListId}-${activeIndex}` : undefined
+            }
+          />
+          {mentionsVisible && (
+            <ul
+              className="markdown-editor__mentions"
+              id={mentionsListId}
+              role="listbox"
+              aria-label="User suggestions"
+            >
+              {mentions.map((user, i) => (
+                // The option carries the click handler directly — an interactive
+                // descendant inside role="option" is invalid ARIA. preventDefault
+                // keeps focus (and the caret) in the textarea so the blur handler
+                // doesn't close the list before we insert.
+                <li
+                  key={user.id}
+                  id={`${mentionsListId}-${i}`}
+                  role="option"
+                  aria-selected={i === activeIndex}
+                  className={`markdown-editor__mention${i === activeIndex ? " markdown-editor__mention--active" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyMention(user.username);
+                  }}
+                  onMouseEnter={() => setActiveIndex(i)}
+                >
+                  @{user.username}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       <p className="markdown-editor__hint">

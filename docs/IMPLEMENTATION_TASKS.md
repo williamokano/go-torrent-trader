@@ -627,7 +627,7 @@
 - Reorder support
 - Prevent delete if torrents exist in category (or force reassign)
 
-#### BE-3.12: @Mention Search Endpoint [S]
+#### BE-3.12: @Mention Search Endpoint [S] [DONE — backend endpoint reused; `@` typeahead wired into the shared MarkdownEditor]
 **As a** frontend developer
 **I want** a user search endpoint for @mention autocomplete
 **So that** users can be mentioned in comments and forum posts
@@ -643,6 +643,8 @@
 - `GET /api/v1/users?search=<q>&per_page=<n>` (`MemberHandler.HandleList`, auth-required) already does username search with pagination, and the PM compose screen (`frontend/src/pages/MessagesPage.tsx`) uses it for typeahead today. A second dedicated `/users/search` endpoint would duplicate it — **do not build it.**
 - Mention *notifications* also already work: `backend/internal/listener/notification.go` parses `@username` via `mentionRegex` and emits `forum_mention`.
 - REMAINING WORK IS FRONTEND ONLY — extract the typeahead from `MessagesPage` into a reusable component and wire it into the forum post and comment editors, which have no mention autocomplete. FE-0.7 shipped `frontend/src/components/MarkdownEditor.tsx` (now used by comments, forum posts, PMs, torrent descriptions and news), so the `@` typeahead should hook into that single component and every compose surface gets it at once.
+- **DONE (2026-07-15):** the `@` typeahead now lives in `MarkdownEditor` — an `@` after a word boundary opens a debounced (250ms) `GET /api/v1/users?search=&per_page=8` lookup whose trigger detection mirrors the backend `mentionRegex`, so the inserted token has the exact shape the backend recognises. Keyboard-navigable (arrows / Enter / Tab / Escape) with combobox ARIA, closes on blur and in preview. Every compose surface (comments, forum new-topic + reply, PMs, torrent edit, upload, admin news) gets the typeahead at once. Covered by new tests in `MarkdownEditor.test.tsx`.
+- **Notification-coverage caveat:** an inserted `@mention` only produces a `forum_mention` *notification* on forum new-topic and reply — those are the only writes that fire `ForumPostCreated`, the sole event whose listener runs `mentionRegex`. On torrent comments, forum post edits, torrent descriptions, upload and news the typeahead is currently an insertion/spelling aid only. Extending notifications is tracked as **BE-5.10** (PMs are deliberately excluded — notifying a non-participant would leak a private message).
 
 #### BE-3.13: Rich Torrent Metadata [M] [RESEARCH]
 **As an** uploader
@@ -900,6 +902,24 @@
 - WebSocket push: if user is connected, push notification events in real-time
 - Batching: group multiple notifications of same type (e.g., "5 new replies in topic X")
 - Email sent as background job (via BE-0.7)
+
+#### BE-5.10: Extend @Mention Notifications Beyond Forum Posts [S] [TODO]
+**As a** user
+**I want** to be notified when someone @mentions me in a comment (and other public bodies)
+**So that** the mention typeahead's promise holds everywhere it appears, not just on forum posts
+
+**Context:** BE-3.12 shipped the `@mention` typeahead into the shared `MarkdownEditor`, so it appears on every compose surface — but `mentionRegex` only runs in the `ForumPostCreated` listener (`backend/internal/listener/notification.go`). So a mention only *notifies* on forum new-topic and reply. Surfaced by the BE-3.12 devil's-advocate review.
+
+**Decision (2026-07-15):** keep the typeahead everywhere (it's a useful spelling aid), but keep *notifications* forum-only for now — this is the intentional, easiest state, not an oversight. A mention notification is only worth sending if it can **deep-link to where the mention happened**, and forum posts are the only surface with a stable, load-until-the-message target today. Extending notifications is gated on each surface having such a target.
+
+**Acceptance Criteria (when picked up):**
+- **Torrent comments** — have a deep-linkable target (torrent detail + comment anchor); parse `@username` on `TorrentCommented` and emit a mention notification linking to the comment. Likely the first surface to add.
+- **Forum post edit** — `EditPost` currently fires no event; emit one so a mention added in an edit still notifies.
+- **Global chat** — mentions could notify, but there is **no deep-link target**: no page that loads chat history up to a given message. Building that (a message-anchored history view) is a prerequisite; until then, chat mentions stay typeahead-only.
+- Torrent descriptions / news bodies — lower priority; decide per surface.
+- **Exclude PMs** — notifying a mentioned non-participant would leak a private message. If a "mention in PM" affordance is ever wanted, it must be an explicit, separate design.
+- De-duplicate: don't double-notify when a user is both mentioned and already notified another way (e.g. the uploader on their own torrent).
+- Tests for each new surface.
 
 ---
 
