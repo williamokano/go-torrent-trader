@@ -43,6 +43,7 @@ type Deps struct {
 	DashboardRepo       repository.DashboardRepository
 	CheatFlagRepo       repository.CheatFlagRepository
 	NotificationService *service.NotificationService
+	PromotionService    *service.PromotionService
 	BackupService       BackupManager
 	RSSConfig           *RSSConfig
 }
@@ -359,6 +360,13 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Post("/groups", admin.HandleCreateGroup)
 						r.Put("/groups/{id}", admin.HandleUpdateGroup)
 						r.Delete("/groups/{id}", admin.HandleDeleteGroup)
+						if deps.PromotionService != nil {
+							promo := NewPromotionHandler(deps.PromotionService)
+							r.Get("/promotion/rules", promo.HandleListRules)
+							r.Put("/promotion/rules/{groupId}", promo.HandleUpsertRule)
+							r.Delete("/promotion/rules/{groupId}", promo.HandleDeleteRule)
+							r.Post("/promotion/run", promo.HandleRunNow)
+						}
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {
 							torrentAdmin := NewTorrentAdminHandler(deps.TorrentService)

@@ -1232,6 +1232,26 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 ---
 
+#### BE-8.13: Auto Class Promotion / Demotion Engine [L] [DONE]
+**As a** site operator
+**I want** users to move up and down a class ladder automatically on merit
+**So that** classes reflect current contribution without manual staff work — and so invite auto-distribution has a class signal to build on
+
+**Context:** Requested as the foundation for auto invite distribution: invites are class-gated, so a merit ladder must exist first. Groups had a `level` and permission flags but no automatic movement.
+
+**Acceptance Criteria (met):**
+- `promotion_rules` table (per-class thresholds: min ratio, uploaded bytes, account age, uploaded torrent count, seed hours) + `promotion_runs` audit/last-run table + settings `promotion_enabled` (off by default), `promotion_interval_days` (cycle), `promotion_seed_window_days`. Migration 053.
+- **The ladder** is exactly the groups that have a rule, ordered by level. Staff groups (`is_admin`/`is_moderator`) are rejected as rungs, and the engine additionally refuses to ever move a user *into* a staff class — auto-promotion can never reach staff.
+- **±1 rung per run**, single-threshold (as chosen): promote if the user meets the next rung's rule, else demote if they no longer meet their current rung's; never below the floor, never above the top. Qualifying for +N rungs takes N runs.
+- **Metrics**: ratio/uploaded/age/torrent-count from the users+torrents tables; **seed hours estimated from the `announce_events` log** over the configurable window (gap-sum with a per-gap cap so offline stretches aren't billed as seeding).
+- **Worker task** `promotion:run` on a daily cron, gated by the enable flag and the elapsed interval; the engine no-ops between cycles. Manual `POST /admin/promotion/run` trigger.
+- **Admin config**: `GET/PUT/DELETE /admin/promotion/rules[/{groupId}]`, and a `Class Promotion` admin page (per-class threshold editing, add/remove rungs, Run now). Enable/cycle/window live in Site Settings.
+- Tests: repository (rules CRUD, ladder metrics, the seed-hours SQL incl. gap capping, run bookkeeping), service (one-step promote/demote, floor/top guards, staff exclusion, seed-hours gate, disabled/interval skips, rule validation), full-router handler (authz + status mapping), and frontend (ladder list, staff exclusion, add-to-ladder, run-now).
+
+> **Enables (follow-up):** auto invite distribution — the capped weekly drip can now gate on class/level. See docs/FUTURE_WORK.md → "Auto Invite Distribution".
+
+---
+
 ### Epic BE-9: Cleanup & Maintenance Jobs
 
 #### BE-9.1: Scheduled Cleanup Job [M] [DONE]
@@ -2093,6 +2113,16 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - "New Group" action and per-row Edit/Delete on the existing groups matrix.
 - Modal form: name, slug (auto-derived if blank), level, hex color with a native color picker, and the eight capability checkboxes.
 - Wired to `POST/PUT/DELETE /api/v1/admin/groups[/{id}]`; server-side guard rejections (protected built-in, group has members, name/slug taken) are surfaced via toast. Pairs with BE-8.12.
+
+#### FE-5.11: Class Promotion Admin Page [M] [DONE — per-class threshold editing, add/remove rungs, Run now]
+**As an** administrator
+**I want** to configure the auto class-promotion ladder from the admin panel
+**So that** I can decide the merit thresholds for each class without touching the database
+
+**Acceptance Criteria (met):**
+- `Class Promotion` nav entry + `/admin/promotion` route.
+- Lists non-staff classes ordered by level; each ladder class has inline threshold inputs (ratio, uploaded bytes, age, torrent count, seed hours) with Save/Remove; non-ladder classes get "Add to ladder". Staff groups are excluded.
+- "Run now" triggers `POST /admin/promotion/run` and reports promoted/demoted (or the skip reason). Enable/cycle/window are edited in Site Settings. Pairs with BE-8.13.
 
 ---
 

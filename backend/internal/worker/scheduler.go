@@ -53,6 +53,16 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register maintenance: %w", err)
 	}
 
+	// Evaluate class promotions daily. The engine gates on the configurable
+	// interval and enable flag, so a fixed daily schedule is fine.
+	promotionTask, err := NewPromotionTask()
+	if err != nil {
+		return fmt.Errorf("create promotion task: %w", err)
+	}
+	if _, err := scheduler.Register("0 5 * * *", promotionTask); err != nil {
+		return fmt.Errorf("register promotion: %w", err)
+	}
+
 	return nil
 }
 

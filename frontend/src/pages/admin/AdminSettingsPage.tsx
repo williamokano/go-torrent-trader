@@ -262,6 +262,32 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       "How many days of announce events to retain. Advisory only — no automatic deletion runs yet; this records the intended cleanup window for manual house-cleaning. Default: 90.",
     type: "number",
   },
+  // Auto class promotion
+  {
+    key: "promotion_enabled",
+    label: "Auto Class Promotion Enabled",
+    description:
+      "Master toggle for automatic class promotion/demotion. When enabled, the engine periodically moves users one rung up or down the ladder based on the per-class rules configured on the Class Promotion page.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "promotion_interval_days",
+    label: "Promotion Cycle (days)",
+    description:
+      "How often the promotion engine evaluates users. The daily job is a no-op until this many days have elapsed since the last run. Default: 7.",
+    type: "number",
+  },
+  {
+    key: "promotion_seed_window_days",
+    label: "Promotion Seed Window (days)",
+    description:
+      "The trailing window over which seeding time is measured from the announce log for the 'Min Seed (hrs)' promotion rule. Default: 30.",
+    type: "number",
+  },
 ];
 
 function getSettingDef(key: string): SettingConfig {
