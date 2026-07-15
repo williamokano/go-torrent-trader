@@ -1255,16 +1255,8 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Cache populated on first request or by scheduler
 - Fallback to direct query if cache unavailable
 
-#### BE-9.4: Real-Time Stats via SSE or WebSocket [M]
-**As a** user
-**I want** the site stats in the footer to update in real time
-**So that** I see live tracker activity without page refreshes
-
-**Acceptance Criteria:**
-- Stats pushed to clients via SSE or WebSocket (piggyback on chat connection when BE-6.1 lands)
-- Broadcast triggered on peer announce, torrent upload, user registration
-- Eliminates client-side polling entirely
-- Graceful fallback: if WebSocket disconnects, resume polling
+#### BE-9.4: Real-Time Stats via SSE or WebSocket [M] [DEFERRED — moved to docs/FUTURE_WORK.md]
+**Decision (2026-07-15):** keep polling. Footer stats are low-stakes and already served from the Redis `StatsCache`, so polling reads a cache, not the DB. A dedicated WebSocket isn't worth a second hub + per-client goroutines for numbers nobody watches second-by-second; if fresher data is ever wanted, lower the `StatsCache` TTL (polling faster than the TTL just returns the same cached value). SSE remains the tasteful upgrade if it ever becomes a real concern — see `docs/FUTURE_WORK.md`.
 
 #### BE-9.5: Backfill Torrent File Lists [S] [REMOVED — no legacy data to backfill; if needed, handle during MT-1.2 torrent migration]
 
