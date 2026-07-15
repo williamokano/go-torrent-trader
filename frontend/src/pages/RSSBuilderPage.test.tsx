@@ -21,6 +21,7 @@ vi.mock("@/api", () => ({
 
 const FAKE_CATEGORIES = [
   { id: 1, name: "Movies", parent_id: null, sort_order: 1 },
+  { id: 4, name: "Action", parent_id: 1, sort_order: 1 },
   { id: 2, name: "TV", parent_id: null, sort_order: 2 },
   { id: 3, name: "Music", parent_id: null, sort_order: 3 },
 ];
@@ -98,12 +99,20 @@ describe("RSSBuilderPage", () => {
     ).toBeInTheDocument();
   });
 
-  test("renders category dropdown", async () => {
+  test("renders category dropdown with hierarchical options", async () => {
     renderPage();
     await waitFor(() => {
       const select = screen.getByLabelText("Category") as HTMLSelectElement;
       const options = Array.from(select.options).map((o) => o.text);
-      expect(options).toEqual(["All categories", "Movies", "TV", "Music"]);
+      // Children are nested under their parent and indented, matching the
+      // Upload/Browse pages rather than a flat, unordered list.
+      expect(options).toEqual([
+        "All categories",
+        "Movies",
+        "— Movies / Action",
+        "TV",
+        "Music",
+      ]);
     });
   });
 
