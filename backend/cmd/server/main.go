@@ -45,7 +45,7 @@ func run() int {
 	}
 
 	logLevel := parseLogLevel(cfg.LogLevel)
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel, AddSource: true}))
 	slog.SetDefault(logger)
 
 	// Connect to PostgreSQL
