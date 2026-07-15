@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
+	"github.com/williamokano/go-torrent-trader/backend/internal/mention"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -85,6 +86,16 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 			TorrentName: torrent.Name,
 			UploaderID:  torrent.UploaderID,
 		})
+		// Parse @mentions here so the comment body stays off the event bus.
+		if names := mention.Extract(body); len(names) > 0 {
+			s.eventBus.Publish(ctx, &event.UserMentionedEvent{
+				Base:               event.NewBase(event.UserMentioned, actor),
+				Source:             event.MentionSourceTorrentComment,
+				MentionedUsernames: names,
+				URL:                fmt.Sprintf("/torrent/%d#comment-%d", torrentID, created.ID),
+				ContextTitle:       torrent.Name,
+			})
+		}
 	}
 
 	return created, nil

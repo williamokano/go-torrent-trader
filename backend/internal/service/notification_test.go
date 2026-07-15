@@ -458,14 +458,14 @@ func TestNotificationService_Preferences(t *testing.T) {
 	}
 
 	// Disable one
-	if err := svc.SetPreference(ctx, 1, model.NotifForumMention, false); err != nil {
+	if err := svc.SetPreference(ctx, 1, model.NotifMention, false); err != nil {
 		t.Fatalf("set pref error: %v", err)
 	}
 
 	prefs, _ = svc.GetPreferences(ctx, 1)
 	for _, p := range prefs {
-		if p.NotificationType == model.NotifForumMention && p.Enabled {
-			t.Error("expected forum_mention to be disabled")
+		if p.NotificationType == model.NotifMention && p.Enabled {
+			t.Error("expected mention to be disabled")
 		}
 	}
 

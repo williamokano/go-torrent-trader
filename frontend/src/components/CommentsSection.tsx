@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pagination } from "@/components/Pagination";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -80,6 +80,22 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
   useEffect(() => {
     fetchComments(page);
   }, [page, fetchComments]);
+
+  // Deep-link from a mention notification (/torrent/:id#comment-:cid). Comments
+  // load async, so the browser's native hash jump fires before they exist —
+  // scroll once, after they render. Best-effort: only finds the comment if it's
+  // on the loaded page.
+  const hasScrolledToAnchor = useRef(false);
+  useEffect(() => {
+    if (hasScrolledToAnchor.current) return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#comment-")) return;
+    const el = document.getElementById(hash.slice(1));
+    if (el) {
+      hasScrolledToAnchor.current = true;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [comments]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -258,7 +274,11 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
         <>
           <ul className="comments-section__list">
             {comments.map((comment) => (
-              <li key={comment.id} className="comments-section__item">
+              <li
+                key={comment.id}
+                id={`comment-${comment.id}`}
+                className="comments-section__item"
+              >
                 <div className="comments-section__meta">
                   <span className="comments-section__author">
                     <UsernameDisplay

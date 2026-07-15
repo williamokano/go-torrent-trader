@@ -165,15 +165,26 @@ func actor(id int64, username string) event.Actor {
 	return event.Actor{ID: id, Username: username}
 }
 
-func postEvent(authorID int64, authorName string, body string, replyToUserID *int64) *event.ForumPostCreatedEvent {
+func postEvent(authorID int64, authorName string, replyToUserID *int64) *event.ForumPostCreatedEvent {
 	return &event.ForumPostCreatedEvent{
 		Base:          event.NewBase(event.ForumPostCreated, actor(authorID, authorName)),
 		PostID:        100,
 		TopicID:       7,
 		TopicTitle:    "A Topic",
 		ForumID:       3,
-		Body:          body,
 		ReplyToUserID: replyToUserID,
+	}
+}
+
+// mentionEvent builds a UserMentioned event as the forum/comment services do,
+// carrying only the extracted usernames plus the deep-link context.
+func mentionEvent(actorID int64, actorName string, usernames ...string) *event.UserMentionedEvent {
+	return &event.UserMentionedEvent{
+		Base:               event.NewBase(event.UserMentioned, actor(actorID, actorName)),
+		Source:             event.MentionSourceForumPost,
+		MentionedUsernames: usernames,
+		URL:                "/forums/topics/7#post-100",
+		ContextTitle:       "A Topic",
 	}
 }
 
@@ -192,7 +203,7 @@ func TestForumPostNotifiesRepliedToUser(t *testing.T) {
 	replyTo := int64(2)
 	h := newNotifHarness(t, nil, nil)
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "thanks!", &replyTo))
+	h.bus.Publish(context.Background(), postEvent(1, "alice", &replyTo))
 
 	got := types(h.store.forUser(2))
 	if len(got) != 1 || got[0] != model.NotifForumReply {
@@ -200,38 +211,69 @@ func TestForumPostNotifiesRepliedToUser(t *testing.T) {
 	}
 }
 
-func TestForumPostNotifiesMentionedUsers(t *testing.T) {
+func TestUserMentionedNotifiesEachUser(t *testing.T) {
 	h := newNotifHarness(t, nil, map[string]int64{"bob": 2, "carol": 3})
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "hey @bob and @carol", nil))
+	h.bus.Publish(context.Background(), mentionEvent(1, "alice", "bob", "carol"))
 
 	for _, id := range []int64{2, 3} {
 		got := types(h.store.forUser(id))
-		if len(got) != 1 || got[0] != model.NotifForumMention {
-			t.Errorf("user %d got %v, want one %s", id, got, model.NotifForumMention)
+		if len(got) != 1 || got[0] != model.NotifMention {
+			t.Errorf("user %d got %v, want one %s", id, got, model.NotifMention)
 		}
+	}
+
+	// The notification is self-describing: it carries its own deep-link + context.
+	var data map[string]interface{}
+	if err := json.Unmarshal(h.store.forUser(2)[0].Data, &data); err != nil {
+		t.Fatalf("mention data is not valid JSON: %v", err)
+	}
+	if data["url"] != "/forums/topics/7#post-100" {
+		t.Errorf("url = %v, want the deep-link", data["url"])
+	}
+	if data["source"] != event.MentionSourceForumPost || data["context_title"] != "A Topic" {
+		t.Errorf("source/context = %v / %v", data["source"], data["context_title"])
 	}
 }
 
-// A mention of a username that doesn't resolve must be skipped, not crash the
-// handler or abort the remaining notifications.
-func TestForumPostSkipsUnknownMentionAndStillNotifiesSubscribers(t *testing.T) {
-	h := newNotifHarness(t, []int64{4}, map[string]int64{"bob": 2})
+// An unresolvable username must be skipped, not crash the handler or abort the
+// remaining mentions.
+func TestUserMentionedSkipsUnknownUsername(t *testing.T) {
+	h := newNotifHarness(t, nil, map[string]int64{"bob": 2})
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "hi @ghost and @bob", nil))
+	h.bus.Publish(context.Background(), mentionEvent(1, "alice", "ghost", "bob"))
 
 	if got := h.store.forUser(2); len(got) != 1 {
-		t.Errorf("known mention @bob got %d notifications, want 1", len(got))
+		t.Errorf("known mention @bob got %d notifications, want 1 — @ghost must not abort the run", len(got))
 	}
-	if got := types(h.store.forUser(4)); len(got) != 1 || got[0] != model.NotifTopicReply {
-		t.Errorf("subscriber got %v, want one %s — an unresolvable mention must not abort the run", got, model.NotifTopicReply)
+}
+
+// A username mentioned twice yields a single notification.
+func TestUserMentionedDedupsRepeatedUsername(t *testing.T) {
+	h := newNotifHarness(t, nil, map[string]int64{"bob": 2})
+
+	h.bus.Publish(context.Background(), mentionEvent(1, "alice", "bob", "bob"))
+
+	if got := h.store.forUser(2); len(got) != 1 {
+		t.Errorf("user 2 got %d notifications, want 1 — a repeated @mention must dedup", len(got))
+	}
+}
+
+// Create() drops self-notifications, so mentioning yourself notifies no one.
+func TestUserMentionedSkipsSelfMention(t *testing.T) {
+	h := newNotifHarness(t, nil, map[string]int64{"alice": 1})
+
+	h.bus.Publish(context.Background(), mentionEvent(1, "alice", "alice"))
+
+	if got := h.store.forUser(1); len(got) != 0 {
+		t.Errorf("self-mention created %d notifications, want 0", len(got))
 	}
 }
 
 func TestForumPostNotifiesTopicSubscribers(t *testing.T) {
 	h := newNotifHarness(t, []int64{2, 3}, nil)
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "an update", nil))
+	h.bus.Publish(context.Background(), postEvent(1, "alice", nil))
 
 	for _, id := range []int64{2, 3} {
 		got := types(h.store.forUser(id))
@@ -241,31 +283,46 @@ func TestForumPostNotifiesTopicSubscribers(t *testing.T) {
 	}
 }
 
-// The dedup rule is the subtle part: a user who is replied to AND mentioned AND
-// subscribed is all three at once, and must still receive exactly one
-// notification — the most specific one (forum_reply), not three.
-func TestForumPostSendsOneNotificationToAUserMatchingEveryRule(t *testing.T) {
+// Within ForumPostCreated, a user who is both replied-to and subscribed still
+// gets exactly one notification — the more specific forum_reply, not two.
+func TestForumPostDedupsReplyAndSubscription(t *testing.T) {
 	replyTo := int64(2)
-	h := newNotifHarness(t, []int64{2}, map[string]int64{"bob": 2})
+	h := newNotifHarness(t, []int64{2}, nil)
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "@bob see above", &replyTo))
+	h.bus.Publish(context.Background(), postEvent(1, "alice", &replyTo))
 
 	got := types(h.store.forUser(2))
 	if len(got) != 1 {
-		t.Fatalf("user 2 got %d notifications (%v), want exactly 1 — reply/mention/subscription must dedup", len(got), got)
+		t.Fatalf("user 2 got %d notifications (%v), want exactly 1 — reply and subscription must dedup", len(got), got)
 	}
 	if got[0] != model.NotifForumReply {
-		t.Errorf("user 2 got %s, want %s — the reply is the most specific match", got[0], model.NotifForumReply)
+		t.Errorf("user 2 got %s, want %s — the reply is the more specific match", got[0], model.NotifForumReply)
 	}
 }
 
-// The author is excluded from every path: self-mention, own subscription, and
-// even replying to their own post.
+// Mentions are a separate event now, so a user both replied-to and @mentioned in
+// the same post receives two distinct notifications — one per event. This is the
+// intended behavior after decoupling mentions from the reply/subscription path.
+func TestReplyAndMentionAreDistinctNotifications(t *testing.T) {
+	replyTo := int64(2)
+	h := newNotifHarness(t, nil, map[string]int64{"bob": 2})
+
+	h.bus.Publish(context.Background(), postEvent(1, "alice", &replyTo))
+	h.bus.Publish(context.Background(), mentionEvent(1, "alice", "bob"))
+
+	got := types(h.store.forUser(2))
+	if len(got) != 2 {
+		t.Fatalf("user 2 got %v, want both a forum_reply and a mention", got)
+	}
+}
+
+// The author is excluded from the reply and subscription paths, even when
+// replying to their own post.
 func TestForumPostNeverNotifiesTheAuthor(t *testing.T) {
 	author := int64(1)
-	h := newNotifHarness(t, []int64{1}, map[string]int64{"alice": 1})
+	h := newNotifHarness(t, []int64{1}, nil)
 
-	h.bus.Publish(context.Background(), postEvent(author, "alice", "replying to myself @alice", &author))
+	h.bus.Publish(context.Background(), postEvent(author, "alice", &author))
 
 	if got := h.store.forUser(author); len(got) != 0 {
 		t.Errorf("author got %d notifications (%v), want 0", len(got), types(got))
@@ -275,7 +332,7 @@ func TestForumPostNeverNotifiesTheAuthor(t *testing.T) {
 func TestForumPostAutoSubscribesAuthor(t *testing.T) {
 	h := newNotifHarness(t, nil, nil)
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "first", nil))
+	h.bus.Publish(context.Background(), postEvent(1, "alice", nil))
 
 	h.subs.mu.Lock()
 	defer h.subs.mu.Unlock()
@@ -291,7 +348,7 @@ func TestForumPostKeepsEarlierNotificationsWhenSubscriberLookupFails(t *testing.
 	h := newNotifHarness(t, nil, nil)
 	h.subs.listErr = errors.New("db down")
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "hi", &replyTo))
+	h.bus.Publish(context.Background(), postEvent(1, "alice", &replyTo))
 
 	if got := types(h.store.forUser(2)); len(got) != 1 || got[0] != model.NotifForumReply {
 		t.Errorf("user 2 got %v, want the forum_reply to survive a subscriber-lookup failure", got)
@@ -303,7 +360,7 @@ func TestDisabledPreferenceSuppressesNotification(t *testing.T) {
 	h := newNotifHarness(t, []int64{2}, nil)
 	h.prefs.disabled[model.NotifTopicReply] = true
 
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "an update", nil))
+	h.bus.Publish(context.Background(), postEvent(1, "alice", nil))
 
 	if got := h.store.forUser(2); len(got) != 0 {
 		t.Errorf("user 2 got %v, want none — topic_reply is disabled in their preferences", types(got))
@@ -397,17 +454,5 @@ func TestNotificationIsPushedOverWebSocket(t *testing.T) {
 	defer h.mu.Unlock()
 	if len(h.pushed) != 1 || h.pushed[0] != 2 {
 		t.Errorf("pushed to %v, want a push to the receiver (2)", h.pushed)
-	}
-}
-
-// An email address in a post body is not a mention: the regex requires the @ to
-// start the string or follow whitespace/an open paren.
-func TestEmailAddressIsNotTreatedAsMention(t *testing.T) {
-	h := newNotifHarness(t, nil, map[string]int64{"bob": 2})
-
-	h.bus.Publish(context.Background(), postEvent(1, "alice", "mail me at alice@bob.example", nil))
-
-	if got := h.store.forUser(2); len(got) != 0 {
-		t.Errorf("user 2 got %v, want none — \"alice@bob\" is an email, not a mention", types(got))
 	}
 }

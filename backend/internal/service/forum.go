@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
+	"github.com/williamokano/go-torrent-trader/backend/internal/mention"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -271,11 +272,28 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 			TopicID:    topic.ID,
 			TopicTitle: title,
 			ForumID:    forumID,
-			Body:       body,
 		})
+		s.publishMentions(ctx, actor, topic.ID, post.ID, title, body)
 	}
 
 	return &topic, &post, nil
+}
+
+// publishMentions parses @mentions from a forum post body and, if any, publishes
+// a UserMentionedEvent with a deep-link to the post. Parsing here keeps the post
+// body off the event bus.
+func (s *ForumService) publishMentions(ctx context.Context, actor event.Actor, topicID, postID int64, topicTitle, body string) {
+	names := mention.Extract(body)
+	if len(names) == 0 {
+		return
+	}
+	s.eventBus.Publish(ctx, &event.UserMentionedEvent{
+		Base:               event.NewBase(event.UserMentioned, actor),
+		Source:             event.MentionSourceForumPost,
+		MentionedUsernames: names,
+		URL:                fmt.Sprintf("/forums/topics/%d#post-%d", topicID, postID),
+		ContextTitle:       topicTitle,
+	})
 }
 
 // CreatePost creates a reply in a topic.
@@ -368,16 +386,17 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 				replyToUserID = &rp.UserID
 			}
 		}
+		actor := event.Actor{ID: userID, Username: user.Username}
 		s.eventBus.Publish(ctx, &event.ForumPostCreatedEvent{
-			Base:          event.NewBase(event.ForumPostCreated, event.Actor{ID: userID, Username: user.Username}),
+			Base:          event.NewBase(event.ForumPostCreated, actor),
 			PostID:        post.ID,
 			TopicID:       topicID,
 			TopicTitle:    topic.Title,
 			ForumID:       topic.ForumID,
-			Body:          body,
 			ReplyToPostID: replyToPostID,
 			ReplyToUserID: replyToUserID,
 		})
+		s.publishMentions(ctx, actor, topicID, post.ID, topic.Title, body)
 	}
 
 	return created, nil

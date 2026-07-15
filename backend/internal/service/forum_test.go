@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -343,6 +344,34 @@ func TestForumService_CreateTopic_Success(t *testing.T) {
 	}
 	if post == nil {
 		t.Fatal("nil post")
+	}
+}
+
+func TestForumService_CreateTopic_PublishesMentionEvent(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	var mentions []*event.UserMentionedEvent
+	bus.Subscribe(event.UserMentioned, func(_ context.Context, e event.Event) error {
+		mentions = append(mentions, e.(*event.UserMentionedEvent))
+		return nil
+	})
+	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}}, &mockForumTopicRepo{}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, Username: "alice", GroupName: "User"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil, bus)
+
+	if _, _, err := svc.CreateTopic(context.Background(), 1, 1, model.Permissions{Level: 5}, "Test Topic", "hello @bob"); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+
+	if len(mentions) != 1 {
+		t.Fatalf("got %d UserMentioned events, want 1", len(mentions))
+	}
+	m := mentions[0]
+	if m.Source != event.MentionSourceForumPost {
+		t.Errorf("Source = %q, want %q", m.Source, event.MentionSourceForumPost)
+	}
+	if !reflect.DeepEqual(m.MentionedUsernames, []string{"bob"}) {
+		t.Errorf("MentionedUsernames = %v, want [bob]", m.MentionedUsernames)
+	}
+	if !strings.Contains(m.URL, "#post-") {
+		t.Errorf("URL = %q, want a #post- deep link", m.URL)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -225,6 +227,55 @@ func TestCreateComment_Success(t *testing.T) {
 	}
 	if comment.Body != "Great torrent!" {
 		t.Errorf("expected body 'Great torrent!', got %q", comment.Body)
+	}
+}
+
+func TestCreateComment_PublishesMentionEvent(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	var mentions []*event.UserMentionedEvent
+	bus.Subscribe(event.UserMentioned, func(_ context.Context, e event.Event) error {
+		mentions = append(mentions, e.(*event.UserMentionedEvent))
+		return nil
+	})
+	svc := service.NewCommentService(
+		newMockCommentRepo(), newMockRatingRepo(), newMockTorrentRepoForComment(), bus,
+	)
+
+	if _, err := svc.CreateComment(context.Background(), 1, 10, "nice work @bob"); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+
+	if len(mentions) != 1 {
+		t.Fatalf("got %d UserMentioned events, want 1", len(mentions))
+	}
+	m := mentions[0]
+	if m.Source != event.MentionSourceTorrentComment {
+		t.Errorf("Source = %q, want %q", m.Source, event.MentionSourceTorrentComment)
+	}
+	if !reflect.DeepEqual(m.MentionedUsernames, []string{"bob"}) {
+		t.Errorf("MentionedUsernames = %v, want [bob]", m.MentionedUsernames)
+	}
+	if !strings.Contains(m.URL, "#comment-") {
+		t.Errorf("URL = %q, want a #comment- deep link", m.URL)
+	}
+}
+
+func TestCreateComment_NoMentionNoEvent(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	fired := false
+	bus.Subscribe(event.UserMentioned, func(_ context.Context, _ event.Event) error {
+		fired = true
+		return nil
+	})
+	svc := service.NewCommentService(
+		newMockCommentRepo(), newMockRatingRepo(), newMockTorrentRepoForComment(), bus,
+	)
+
+	if _, err := svc.CreateComment(context.Background(), 1, 10, "no mentions here"); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	if fired {
+		t.Error("UserMentioned fired for a body with no mention")
 	}
 }
 
