@@ -910,9 +910,13 @@
 
 **Context:** BE-3.12 shipped the `@mention` typeahead into the shared `MarkdownEditor`, so it appears on every compose surface — but `mentionRegex` only runs in the `ForumPostCreated` listener (`backend/internal/listener/notification.go`). So a mention only *notifies* on forum new-topic and reply. Surfaced by the BE-3.12 devil's-advocate review.
 
-**Acceptance Criteria:**
-- Parse `@username` and emit `forum_mention` (or a new `mention` type) on `TorrentCommented` (comments are public) and on forum post **edit** (`EditPost` currently fires no event).
-- Consider torrent descriptions / news bodies (lower priority; decide per surface).
+**Decision (2026-07-15):** keep the typeahead everywhere (it's a useful spelling aid), but keep *notifications* forum-only for now — this is the intentional, easiest state, not an oversight. A mention notification is only worth sending if it can **deep-link to where the mention happened**, and forum posts are the only surface with a stable, load-until-the-message target today. Extending notifications is gated on each surface having such a target.
+
+**Acceptance Criteria (when picked up):**
+- **Torrent comments** — have a deep-linkable target (torrent detail + comment anchor); parse `@username` on `TorrentCommented` and emit a mention notification linking to the comment. Likely the first surface to add.
+- **Forum post edit** — `EditPost` currently fires no event; emit one so a mention added in an edit still notifies.
+- **Global chat** — mentions could notify, but there is **no deep-link target**: no page that loads chat history up to a given message. Building that (a message-anchored history view) is a prerequisite; until then, chat mentions stay typeahead-only.
+- Torrent descriptions / news bodies — lower priority; decide per surface.
 - **Exclude PMs** — notifying a mentioned non-participant would leak a private message. If a "mention in PM" affordance is ever wanted, it must be an explicit, separate design.
 - De-duplicate: don't double-notify when a user is both mentioned and already notified another way (e.g. the uploader on their own torrent).
 - Tests for each new surface.
