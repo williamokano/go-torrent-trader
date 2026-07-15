@@ -142,78 +142,11 @@ they are noted for completeness rather than as work:
 - Invites (BE-4.x), comments & ratings (BE-3.7), reseed requests, RSS
 - Wait-time system (BE-2.3), NFO viewer, categories with images
 
-## Design note — multipliers via events instead of announce edits
+## Making mods stop being core edits
 
-*(Forward-looking; not committed. Captured from a maintainer question.)*
-
-The concern with the pattern above is that every ratio-affecting mod (freeleech,
-silver, double-upload, per-user seedbox multipliers, bonus-shop-purchased
-boosts) means another branch in the announce hot path. An alternative:
-
-**Emit a raw stats-delta event from the announce, and let listeners apply
-multipliers.** The announce publishes something like
-`PeerStatsRecorded{userID, torrentID, rawUp, rawDown}` and writes the raw peer
-baseline (which it must do anyway for the next delta). A `ratio` listener then
-resolves the effective multipliers — per-torrent freeleech, global freeleech
-window, a 24h double-upload the user bought, a group perk — and calls
-`IncrementStats` with the adjusted values. The announce path stops growing a
-branch per policy; new multipliers become new (or extended) listeners.
-
-Trade-offs to weigh before going this way:
-- **Consistency window.** Today `IncrementStats` is synchronous inside the
-  announce. Moving it behind an async listener means the user's ratio lags their
-  announce slightly, and a dropped event loses accounting. Either keep the bus
-  synchronous for this event, or make the listener idempotent against the raw
-  peer row so it can be replayed.
-- **Ordering / composition.** Multiple multipliers must compose to a defined
-  result (does a bought 2× stack with a global freeleech? freeleech usually
-  wins). That policy has to live somewhere explicit — a resolver — rather than
-  emerging from listener registration order.
-- **Testability.** The current `countedDownload` is a pure function, trivially
-  tested. A resolver keeps that property; scattered listeners each mutating
-  stats do not. Prefer "one resolver, many inputs" over "many listeners, each
-  writes."
-
-The lighter first step, short of this, is to keep the announce synchronous but
-factor multiplier resolution into a single `effectiveDelta(user, torrent, raw)`
-resolver that consults torrent flags, site settings, and (later) the bonus
-ledger. That removes the "branch per mod" problem without taking on async
-accounting risk, and it is a refactor of one function rather than an
-architectural change.
-
-## Design note — a plugin model
-
-*(Forward-looking; not committed. Captured from a maintainer question.)*
-
-The deeper goal is to stop core files drifting as mods accumulate — to add/modify
-behaviour through plugins rather than editing `tracker.go` / `router.go` /
-services. How it could work, and the honest catch:
-
-- **Join points already exist in embryo.** The event bus (`event/` → `listener/`)
-  is a reaction-side extension point today. A plugin that only *reacts* to events
-  (announce bot, achievements, external notifications) is safe and needs nothing
-  new — it is just a registered listener.
-- **The hard part is decision-side hooks** — a plugin that must *change* a flow:
-  veto an announce, alter a stats delta, add a route, add a shop item. That needs
-  defined interfaces (`AnnounceInterceptor`, `StatsResolver`, `RouteProvider`,
-  `ShopItemProvider`) with a documented contract about what each may read and
-  return, plus a registry the core consults at the join point.
-- **Why it is genuinely tricky, as you noted:** a decision-side plugin can break a
-  flow it never textually touched — return the wrong veto, resolve a nonsensical
-  multiplier, panic mid-announce. Mitigations: narrow, well-typed interfaces (not
-  "here's the whole request, do anything"); a resolver/chain with defined
-  composition rather than free-for-all mutation; recover-and-isolate around each
-  plugin call so one bad plugin degrades to a logged skip instead of a 500; and a
-  capability boundary (a stats plugin cannot mount routes).
-- **Realistic middle ground.** Full dynamic plugins (separately compiled,
-  hot-loaded) are heavy in Go and rarely worth it. The pragmatic version is
-  **compile-time plugins**: internal packages that register against these
-  interfaces at startup, so "the core" is a thin orchestrator and features are
-  self-contained modules that never edit the orchestrator. That captures most of
-  the anti-drift benefit without the runtime-loading risk.
-
-Recommended sequencing if this path is ever taken: (1) prove the reaction-side is
-already pluggable by moving the IRC/achievements features to pure listeners; (2)
-introduce **one** decision-side interface where the pain is real — the
-`StatsResolver` from the multiplier note — and see how it feels; (3) generalise
-only if the pattern earns its keep. Do not build the framework first.
+The recurring cost of these mods is that ratio-affecting ones each want a branch
+in the announce hot path, and behaviour changes want to edit core files. Two
+directions for avoiding that — a single synchronous stats resolver (recommended
+first step) and, later, a compile-time plugin model — are written up with their
+trade-offs and a recommended sequencing in [`EXTENSIBILITY.md`](./EXTENSIBILITY.md).
+Both are exploratory; neither is committed.

@@ -38,5 +38,9 @@ See [`TRACKER_MODS.md`](./TRACKER_MODS.md) for a catalogue of the famous
 TorrentTrader/TBDev/NexusPHP-era mods (bonus points, freeleech tokens,
 hit-and-run, client whitelist, IMDb metadata, request bounties, class
 promotion, IRC bot, achievements, …), each mapped to where it would land in
-this architecture — and two forward-looking design notes on doing multipliers
-via events and on a plugin model, so mods stop being core-file edits.
+this architecture.
+
+See [`EXTENSIBILITY.md`](./EXTENSIBILITY.md) for the exploratory design
+direction on making mods stop being core-file edits: a single synchronous
+stats resolver (recommended first step) and, later, a compile-time plugin
+model, with trade-offs and a recommended sequencing.
