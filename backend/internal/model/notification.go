@@ -8,7 +8,7 @@ import (
 // Notification type constants.
 const (
 	NotifForumReply     = "forum_reply"
-	NotifForumMention   = "forum_mention"
+	NotifMention        = "mention"
 	NotifTopicReply     = "topic_reply"
 	NotifTorrentComment = "torrent_comment"
 	NotifPMReceived     = "pm_received"
@@ -18,7 +18,7 @@ const (
 // AllNotificationTypes lists all valid notification types for preference management.
 var AllNotificationTypes = []string{
 	NotifForumReply,
-	NotifForumMention,
+	NotifMention,
 	NotifTopicReply,
 	NotifTorrentComment,
 	NotifPMReceived,

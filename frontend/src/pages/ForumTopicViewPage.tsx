@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useScrollToHashAnchor } from "@/lib/useScrollToHashAnchor";
 import {
   Link,
   useNavigate,
@@ -98,8 +99,6 @@ export function ForumTopicViewPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const hasScrolledToAnchor = useRef(false);
-
   // Subscription state
   const [subscribed, setSubscribed] = useState(false);
   const [subLoading, setSubLoading] = useState(false);
@@ -173,18 +172,8 @@ export function ForumTopicViewPage() {
       .catch(() => {});
   }, [id]);
 
-  // Scroll to post anchor if URL has a hash like #post-123 (once only)
-  useEffect(() => {
-    if (hasScrolledToAnchor.current) return;
-    const hash = window.location.hash;
-    if (hash && hash.startsWith("#post-")) {
-      const el = document.getElementById(hash.slice(1));
-      if (el) {
-        hasScrolledToAnchor.current = true;
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  }, [posts]);
+  // Scroll to the #post-N anchor (e.g. from a mention deep-link) once loaded.
+  useScrollToHashAnchor(posts.length > 0);
 
   const handleToggleSubscription = async () => {
     if (!id) return;

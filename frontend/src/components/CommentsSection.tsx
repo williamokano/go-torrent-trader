@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useScrollToHashAnchor } from "@/lib/useScrollToHashAnchor";
 import { Pagination } from "@/components/Pagination";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -35,9 +37,13 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
   const toast = useToast();
   const { user } = useAuth();
 
+  const [searchParams] = useSearchParams();
   const [comments, setComments] = useState<Comment[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  // Initial page honors ?page=N so a mention deep-link lands on the right page.
+  const [page, setPage] = useState(() =>
+    Math.max(1, Number(searchParams.get("page")) || 1),
+  );
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -80,6 +86,10 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
   useEffect(() => {
     fetchComments(page);
   }, [page, fetchComments]);
+
+  // Deep-link from a mention notification (/torrent/:id?page=N#comment-:cid):
+  // load the linked page and scroll to the comment once it renders.
+  useScrollToHashAnchor(comments.length > 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -258,7 +268,11 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
         <>
           <ul className="comments-section__list">
             {comments.map((comment) => (
-              <li key={comment.id} className="comments-section__item">
+              <li
+                key={comment.id}
+                id={`comment-${comment.id}`}
+                className="comments-section__item"
+              >
                 <div className="comments-section__meta">
                   <span className="comments-section__author">
                     <UsernameDisplay

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"regexp"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -12,8 +11,6 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
-
-var mentionRegex = regexp.MustCompile(`(?:^|[\s(])@(\w+)`)
 
 // RegisterNotificationListeners subscribes to domain events and creates notifications.
 func RegisterNotificationListeners(
@@ -36,7 +33,8 @@ func RegisterNotificationListeners(
 		return nil
 	})
 
-	// Forum post created: triggers forum_reply, forum_mention, and topic_reply notifications
+	// Forum post created: triggers forum_reply and topic_reply notifications
+	// (mentions are handled by the UserMentioned listener below)
 	bus.Subscribe(event.ForumPostCreated, func(_ context.Context, evt event.Event) error {
 		e := evt.(*event.ForumPostCreatedEvent)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -70,32 +68,10 @@ func RegisterNotificationListeners(
 			notified[*e.ReplyToUserID] = true
 		}
 
-		// 2. forum_mention: notify @mentioned users
-		mentions := mentionRegex.FindAllStringSubmatch(e.Body, -1)
-		for _, match := range mentions {
-			username := match[1]
-			user, err := userRepo.GetByUsername(ctx, username)
-			if err != nil {
-				continue // user doesn't exist
-			}
-			if notified[user.ID] {
-				continue
-			}
-			data := marshalData(map[string]interface{}{
-				"post_id":        e.PostID,
-				"topic_id":       e.TopicID,
-				"topic_title":    e.TopicTitle,
-				"forum_id":       e.ForumID,
-				"actor_id":       authorID,
-				"actor_username": e.Actor.Username,
-			})
-			if _, err := notifSvc.Create(ctx, user.ID, authorID, model.NotifForumMention, data); err != nil {
-				slog.Error("notification: failed to create forum_mention", "error", err)
-			}
-			notified[user.ID] = true
-		}
+		// Mentions are handled separately via UserMentioned (parsed at publish
+		// time), so this listener only covers forum_reply and topic_reply.
 
-		// 3. topic_reply: notify all topic subscribers (except author and already-notified)
+		// 2. topic_reply: notify all topic subscribers (except author and already-notified)
 		subscribers, err := topicSubRepo.ListSubscribers(ctx, e.TopicID)
 		if err != nil {
 			slog.Error("notification: failed to list topic subscribers",
@@ -120,6 +96,46 @@ func RegisterNotificationListeners(
 			notified[subUserID] = true
 		}
 
+		return nil
+	})
+
+	// User mentioned: notify each @mentioned user (forum posts, torrent comments).
+	// Mentions are parsed at publish time, so this handler only resolves names to
+	// users and creates one self-describing `mention` notification each.
+	bus.Subscribe(event.UserMentioned, func(_ context.Context, evt event.Event) error {
+		e := evt.(*event.UserMentionedEvent)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		actorID := e.Actor.ID
+		seen := make(map[string]bool)    // skip repeat lookups of the same raw name
+		notified := make(map[int64]bool) // dedupe aliases resolving to one user
+		for _, username := range e.MentionedUsernames {
+			if seen[username] {
+				continue
+			}
+			seen[username] = true
+			user, err := userRepo.GetByUsername(ctx, username)
+			if err != nil {
+				continue // user doesn't exist
+			}
+			if notified[user.ID] {
+				continue
+			}
+			notified[user.ID] = true
+			payload := map[string]interface{}{
+				"source":         e.Source,
+				"context_title":  e.ContextTitle,
+				"actor_id":       actorID,
+				"actor_username": e.Actor.Username,
+			}
+			for k, v := range e.Link {
+				payload[k] = v
+			}
+			if _, err := notifSvc.Create(ctx, user.ID, actorID, model.NotifMention, marshalData(payload)); err != nil {
+				slog.Error("notification: failed to create mention", "error", err)
+			}
+		}
 		return nil
 	})
 

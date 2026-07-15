@@ -903,23 +903,25 @@
 - Batching: group multiple notifications of same type (e.g., "5 new replies in topic X")
 - Email sent as background job (via BE-0.7)
 
-#### BE-5.10: Extend @Mention Notifications Beyond Forum Posts [S] [TODO]
+#### BE-5.10: Unified @Mention Notification System [M] [DONE — forum + comments; other surfaces deferred]
 **As a** user
-**I want** to be notified when someone @mentions me in a comment (and other public bodies)
-**So that** the mention typeahead's promise holds everywhere it appears, not just on forum posts
+**I want** to be notified when someone @mentions me in a forum post or a comment
+**So that** the mention typeahead's promise holds beyond just forum posts
 
-**Context:** BE-3.12 shipped the `@mention` typeahead into the shared `MarkdownEditor`, so it appears on every compose surface — but `mentionRegex` only runs in the `ForumPostCreated` listener (`backend/internal/listener/notification.go`). So a mention only *notifies* on forum new-topic and reply. Surfaced by the BE-3.12 devil's-advocate review.
+**Context:** BE-3.12 shipped the `@mention` typeahead into the shared `MarkdownEditor`, so it appears on every compose surface — but originally `mentionRegex` only ran in the `ForumPostCreated` listener, shipping the whole post body on the event to do it. Surfaced by the BE-3.12 devil's-advocate review.
 
-**Decision (2026-07-15):** keep the typeahead everywhere (it's a useful spelling aid), but keep *notifications* forum-only for now — this is the intentional, easiest state, not an oversight. A mention notification is only worth sending if it can **deep-link to where the mention happened**, and forum posts are the only surface with a stable, load-until-the-message target today. Extending notifications is gated on each surface having such a target.
+**DONE (2026-07-15):** replaced the forum-only path with a **unified mention system**. Mentions are parsed at publish time (`internal/mention.Extract`), and each domain publishes a generic `UserMentionedEvent` (via the shared `service.publishMention` helper) carrying only the extracted usernames, a `source` tag, a context title, and a structured `Link` (source-specific ids + page) — never the body (so `Body` was removed from `ForumPostCreatedEvent`). One listener merges that into a single `mention` notification (replacing `forum_mention`); the **frontend** builds the deep-link from the structured data (`notificationDisplay.ts`), so routes stay frontend-owned. Wired for **forum new-topic + reply** and **torrent comments**.
 
-**Acceptance Criteria (when picked up):**
-- **Torrent comments** — have a deep-linkable target (torrent detail + comment anchor); parse `@username` on `TorrentCommented` and emit a mention notification linking to the comment. Likely the first surface to add.
-- **Forum post edit** — `EditPost` currently fires no event; emit one so a mention added in an edit still notifies.
-- **Global chat** — mentions could notify, but there is **no deep-link target**: no page that loads chat history up to a given message. Building that (a message-anchored history view) is a prerequisite; until then, chat mentions stay typeahead-only.
+The link carries the item's **page** (computed from its position: forum `topic.PostCount+1`, comment total count, over the per-surface page size) so it lands on the mention, not page 1 — the forum page already reads `?page=` and `CommentsSection` now initializes its page from the URL. A shared `useScrollToHashAnchor` hook (frontend/src/lib) scrolls to the `#post-`/`#comment-` anchor once the page loads. Migration `051` renames existing `forum_mention` preference rows to `mention` so opt-outs survive the rename.
+
+**Behavior change:** mentions are now a separate event, so a user both replied-to and @mentioned in one post receives two distinct notifications (a reply and a mention), where before dedup collapsed them to one. Intentional (confirmed) — they are distinct facts.
+
+**Remaining (still TODO under this story):**
+- **Forum post edit** — `EditPost` fires no event; needs new-vs-old mention diffing to avoid re-notifying on every edit.
+- **Global chat** — no deep-link target yet (needs a message-anchored history view); chat mentions stay typeahead-only until then.
 - Torrent descriptions / news bodies — lower priority; decide per surface.
-- **Exclude PMs** — notifying a mentioned non-participant would leak a private message. If a "mention in PM" affordance is ever wanted, it must be an explicit, separate design.
-- De-duplicate: don't double-notify when a user is both mentioned and already notified another way (e.g. the uploader on their own torrent).
-- Tests for each new surface.
+- Deep-link page is best-effort across post/comment deletions (position drifts); acceptable — the anchor still lands on the right page.
+- **Exclude PMs** — permanently; notifying a mentioned non-participant would leak a private message.
 
 ---
 

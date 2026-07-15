@@ -5,15 +5,12 @@ import { getAccessToken } from "@/features/auth/token";
 import { useToast } from "@/components/toast";
 import { useChat } from "@/lib/useChat";
 import { Pagination } from "@/components/Pagination";
+import {
+  type Notification,
+  notificationLink,
+  notificationMessage,
+} from "./notificationDisplay";
 import "./notifications.css";
-
-interface Notification {
-  id: number;
-  type: string;
-  data: Record<string, unknown>;
-  read: boolean;
-  created_at: string;
-}
 
 interface Preference {
   notification_type: string;
@@ -24,7 +21,8 @@ const PER_PAGE = 25;
 
 const TYPE_LABELS: Record<string, string> = {
   forum_reply: "Forum Reply",
-  forum_mention: "Forum Mention",
+  mention: "Mention",
+  forum_mention: "Mention", // legacy rows, superseded by "mention"
   topic_reply: "Topic Reply",
   torrent_comment: "Torrent Comment",
   pm_received: "Private Message",
@@ -48,45 +46,6 @@ function formatTime(iso: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return d.toLocaleDateString();
-}
-
-function notificationLink(n: Notification): string | null {
-  const d = n.data;
-  switch (n.type) {
-    case "forum_reply":
-    case "forum_mention":
-    case "topic_reply":
-      if (d.topic_id) return `/forums/topics/${d.topic_id}`;
-      break;
-    case "torrent_comment":
-      if (d.torrent_id) return `/torrent/${d.torrent_id}`;
-      break;
-    case "pm_received":
-      return "/messages";
-  }
-  return null;
-}
-
-function notificationMessage(n: Notification): string {
-  const d = n.data;
-  const actor = (d.actor_username as string) || "Someone";
-  switch (n.type) {
-    case "forum_reply":
-      return `${actor} replied to your post in "${d.topic_title || "a topic"}"`;
-    case "forum_mention":
-      return `${actor} mentioned you in "${d.topic_title || "a topic"}"`;
-    case "topic_reply":
-      return `${actor} posted in "${d.topic_title || "a topic"}" you follow`;
-    case "torrent_comment":
-      return `${actor} commented on "${d.torrent_name || "your torrent"}"`;
-    case "pm_received":
-      return `${actor} sent you a private message`;
-    case "system":
-      if (d.warning_type) return "You received a warning";
-      return "System notification";
-    default:
-      return "New notification";
-  }
 }
 
 export function NotificationsPage() {

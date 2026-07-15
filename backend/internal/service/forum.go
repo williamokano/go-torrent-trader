@@ -271,11 +271,24 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 			TopicID:    topic.ID,
 			TopicTitle: title,
 			ForumID:    forumID,
-			Body:       body,
 		})
+		// The opening post is always the first post → page 1.
+		publishMention(ctx, s.eventBus, actor, event.MentionSourceForumPost,
+			forumMentionLink(topic.ID, post.ID, 1), title, body)
 	}
 
 	return &topic, &post, nil
+}
+
+// forumPostsPerPage must match the frontend PER_PAGE in ForumTopicViewPage.tsx
+// so the deep-link's page lands on the mentioned post.
+const forumPostsPerPage = 25
+
+// forumMentionLink builds the structured link a forum mention notification
+// carries. `position` is the post's 1-based index in the (oldest-first) topic.
+func forumMentionLink(topicID, postID int64, position int) map[string]any {
+	page := (position + forumPostsPerPage - 1) / forumPostsPerPage
+	return map[string]any{"topic_id": topicID, "post_id": postID, "page": page}
 }
 
 // CreatePost creates a reply in a topic.
@@ -368,16 +381,21 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 				replyToUserID = &rp.UserID
 			}
 		}
+		actor := event.Actor{ID: userID, Username: user.Username}
 		s.eventBus.Publish(ctx, &event.ForumPostCreatedEvent{
-			Base:          event.NewBase(event.ForumPostCreated, event.Actor{ID: userID, Username: user.Username}),
+			Base:          event.NewBase(event.ForumPostCreated, actor),
 			PostID:        post.ID,
 			TopicID:       topicID,
 			TopicTitle:    topic.Title,
 			ForumID:       topic.ForumID,
-			Body:          body,
 			ReplyToPostID: replyToPostID,
 			ReplyToUserID: replyToUserID,
 		})
+		// Posts are oldest-first, so the new reply's 1-based position is the
+		// prior post count (fetched before this insert) plus one.
+		position := int(topic.PostCount) + 1
+		publishMention(ctx, s.eventBus, actor, event.MentionSourceForumPost,
+			forumMentionLink(topicID, post.ID, position), topic.Title, body)
 	}
 
 	return created, nil

@@ -63,6 +63,7 @@ const (
 	ForumPostCreated        Type = "forum_post_created"
 	ForumTopicCreated       Type = "forum_topic_created"
 	TorrentCommented        Type = "torrent_commented"
+	UserMentioned           Type = "user_mentioned"
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
 	BackupDownloaded        Type = "backup_downloaded"
@@ -453,9 +454,34 @@ type ForumPostCreatedEvent struct {
 	TopicID       int64  `json:"topic_id"`
 	TopicTitle    string `json:"topic_title"`
 	ForumID       int64  `json:"forum_id"`
-	Body          string `json:"body"`
 	ReplyToPostID *int64 `json:"reply_to_post_id,omitempty"`
 	ReplyToUserID *int64 `json:"reply_to_user_id,omitempty"`
+}
+
+// Mention source tags for UserMentionedEvent.Source.
+const (
+	MentionSourceForumPost      = "forum_post"
+	MentionSourceTorrentComment = "torrent_comment"
+)
+
+// UserMentionedEvent is published when one or more users are @mentioned in a
+// body. Mentions are parsed at publish time, so the (potentially large) body
+// never travels on the bus — only the extracted usernames plus the context
+// needed to notify and deep-link to the mention. Fired only when there is at
+// least one mention.
+type UserMentionedEvent struct {
+	Base
+	// Source is one of the MentionSource* constants.
+	Source string `json:"source"`
+	// MentionedUsernames are the raw @names extracted from the body, in order.
+	MentionedUsernames []string `json:"mentioned_usernames"`
+	// ContextTitle is the topic title / torrent name, used in the message.
+	ContextTitle string `json:"context_title"`
+	// Link carries the source-specific identifiers the frontend needs to build
+	// the deep-link (kept structured, not a baked URL, so route changes stay in
+	// the frontend). Forum: {topic_id, post_id, page}; comment: {torrent_id,
+	// comment_id, page}. Merged verbatim into the notification's data.
+	Link map[string]any `json:"link"`
 }
 
 type ForumTopicCreatedEvent struct {

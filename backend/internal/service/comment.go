@@ -85,9 +85,26 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 			TorrentName: torrent.Name,
 			UploaderID:  torrent.UploaderID,
 		})
+		// Comments are oldest-first, so the new comment's 1-based position is the
+		// total count (it's the newest row). Parsing here keeps the body off the
+		// bus; publishMention is a no-op when there are no mentions.
+		_, total, _ := s.comments.ListByTorrent(ctx, torrentID, 1, 1)
+		publishMention(ctx, s.eventBus, actor, event.MentionSourceTorrentComment,
+			commentMentionLink(torrentID, created.ID, int(total)), torrent.Name, body)
 	}
 
 	return created, nil
+}
+
+// commentsPerPage must match the frontend PER_PAGE in CommentsSection.tsx so the
+// deep-link's page lands on the mentioned comment.
+const commentsPerPage = 10
+
+// commentMentionLink builds the structured link a comment mention notification
+// carries. `position` is the comment's 1-based index in the (oldest-first) list.
+func commentMentionLink(torrentID, commentID int64, position int) map[string]any {
+	page := (position + commentsPerPage - 1) / commentsPerPage
+	return map[string]any{"torrent_id": torrentID, "comment_id": commentID, "page": page}
 }
 
 // ListComments returns paginated comments for a torrent.
