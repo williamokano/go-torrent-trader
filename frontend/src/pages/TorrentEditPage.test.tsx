@@ -354,6 +354,34 @@ describe("TorrentEditPage", () => {
     expect(body).toHaveProperty("free", true);
   });
 
+  test("admin can toggle Silver and it is sent in the submit body", async () => {
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ torrent: FAKE_TORRENT }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const adminUser = makeUser({ isAdmin: true });
+    renderEditPage("1", makeAuthContext(adminUser));
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Silver (50% download)"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Silver (50% download)"));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+    expect(body).toHaveProperty("silver", true);
+  });
+
   test("shows error on fetch torrent failure", async () => {
     mockGET.mockImplementation((url: string) => {
       if (url === "/api/v1/categories") {

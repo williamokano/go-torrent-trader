@@ -389,6 +389,9 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		"times_completed":    t.TimesCompleted,
 		"comments_count":     t.CommentsCount,
 		"file_count":         t.FileCount,
+		"free":               t.Free,
+		"silver":             t.Silver,
+		"banned":             t.Banned,
 		"created_at":         t.CreatedAt,
 		"updated_at":         t.UpdatedAt,
 	}

@@ -252,9 +252,15 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 		}
 	}
 
+	// Freeleech accounting: a free torrent counts no download against the user's
+	// ratio, a silver torrent counts half. Upload always counts in full. Cheat
+	// detection above deliberately used the raw delta, so an impossible-speed
+	// cheater is still caught on a freeleech torrent.
+	countedDownloadDelta := countedDownload(downloadDelta, torrent)
+
 	// Update user stats if there are any deltas.
-	if uploadDelta > 0 || downloadDelta > 0 {
-		if err := s.users.IncrementStats(ctx, user.ID, uploadDelta, downloadDelta); err != nil {
+	if uploadDelta > 0 || countedDownloadDelta > 0 {
+		if err := s.users.IncrementStats(ctx, user.ID, uploadDelta, countedDownloadDelta); err != nil {
 			slog.Error("failed to update user stats", "user_id", user.ID, "error", err)
 		}
 	}
@@ -598,4 +604,19 @@ func bytesEqual(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+// countedDownload applies freeleech policy to a raw download delta. A free
+// torrent counts nothing against the user's ratio; a silver torrent counts
+// half (rounded down). Free wins if both flags are set — the most generous
+// reading. Upload is never affected: freeleech only discounts download.
+func countedDownload(delta int64, torrent *model.Torrent) int64 {
+	switch {
+	case torrent.Free:
+		return 0
+	case torrent.Silver:
+		return delta / 2
+	default:
+		return delta
+	}
 }

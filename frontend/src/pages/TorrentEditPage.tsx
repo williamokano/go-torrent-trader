@@ -32,6 +32,7 @@ export function TorrentEditPage() {
   const [nfo, setNfo] = useState("");
   const [banned, setBanned] = useState(false);
   const [free, setFree] = useState(false);
+  const [silver, setSilver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -104,6 +105,10 @@ export function TorrentEditPage() {
       setNfo(((t as Record<string, unknown>).nfo as string) ?? "");
       setCategoryId(String(t.category_id ?? ""));
       setAnonymous(t.anonymous ?? false);
+      const raw = t as Record<string, unknown>;
+      setBanned((raw.banned as boolean) ?? false);
+      setFree((raw.free as boolean) ?? false);
+      setSilver((raw.silver as boolean) ?? false);
       setLoading(false);
     }
 
@@ -145,6 +150,7 @@ export function TorrentEditPage() {
       if (user?.isAdmin) {
         body.banned = banned;
         body.free = free;
+        body.silver = silver;
       }
 
       const response = await fetch(
@@ -255,6 +261,11 @@ export function TorrentEditPage() {
                 label="Freeleech"
                 checked={free}
                 onChange={(e) => setFree(e.target.checked)}
+              />
+              <Checkbox
+                label="Silver (50% download)"
+                checked={silver}
+                onChange={(e) => setSilver(e.target.checked)}
               />
             </div>
           )}
