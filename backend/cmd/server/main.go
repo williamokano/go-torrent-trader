@@ -123,8 +123,10 @@ func run() int {
 	authService.SetSiteName(cfg.Site.Name)
 	userService := service.NewUserService(userRepo, sessionStore, groupRepo, peerRepo, torrentRepo)
 	transferHistoryRepo := postgres.NewTransferHistoryRepo(db)
+	announceEventRepo := postgres.NewAnnounceEventRepo(db)
 	trackerService := service.NewTrackerService(userRepo, torrentRepo, peerRepo)
 	trackerService.SetTransferHistoryRepo(transferHistoryRepo)
+	trackerService.SetAnnounceEventRepo(announceEventRepo)
 	trackerService.SetGroupRepo(groupRepo)
 
 	// File storage

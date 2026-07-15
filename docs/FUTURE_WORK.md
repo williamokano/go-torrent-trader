@@ -45,6 +45,34 @@ Push site stats (peer/torrent/user counts in the footer) to clients instead of p
 
 ---
 
+## Announce Event Log — Consumers & Retention
+
+The append-only `announce_events` log now captures every announce (BE-9.21), but nothing consumes it yet and nothing prunes it.
+
+**Key requirements:**
+- **Retention cleanup job.** Honour the existing `announce_log_retention_days` setting (currently advisory only — no deletion runs). Add a maintenance-worker pass that deletes rows older than the window. For scale, prefer native monthly partitioning (cheap `DROP` of old partitions) and/or a nightly rollup into a `user_period_stats(user_id, year_month, uploaded, downloaded)` table so raw rows can be expired aggressively while monthly aggregates are kept forever.
+- **GDPR/LGPD data export.** A per-user export endpoint over `AnnounceEventRepository.ListByUser` (and the other personal-data tables). Note: `announce_events` stores IP + peer_id (personal data), so this store is also an erasure obligation — deletion already cascades on account removal, but export/retention must stay purpose-scoped.
+- **Bonus points / monthly campaigns.** The motivating use case: "top N uploaders this month" and ratio/bonus reconciliation are computable from `SUM(uploaded_delta)`/`SUM(counted_downloaded_delta)` over a time window — impossible from the overwriting projections. Build the aggregation queries (and any bonus ledger) on top of the log.
+
+**Why deferred:** capture was the irreversible, near-free half (the deltas were already computed and discarded); the consumers are real features that can wait until wanted. See BE-9.21.
+
+---
+
+## Editable User Privileges + Invite Capability
+
+**Observed:** a freshly created user cannot send invites, and the admin user-detail page shows the privilege flags (download/upload/chat/forum) but offers no way to edit them.
+
+**Root cause:** invite capability is **group-scoped** — `groups.can_invite` (`perms.CanInvite`, enforced at `backend/internal/middleware/auth.go:114`). The user model has per-user `can_download/can_upload/can_chat/can_forum` but **no** per-user `can_invite`. So a new user's ability to invite depends entirely on their group, and there is currently no admin UI to (a) edit the per-user privilege flags that *are* shown, or (b) grant invite rights.
+
+**Key requirements:**
+- Make the per-user privilege flags on the admin user-detail page editable (backend PATCH + frontend controls), not just display.
+- Decide the invite model and implement it: either surface/manage `can_invite` through **group management** (see the parallel `feat/admin-group-management` work — editing group permissions including `can_invite` is the natural home), or add a per-user `can_invite` override if per-user granularity is wanted. Prefer the group route unless a concrete need for per-user override emerges.
+- Ensure the default registration group's `can_invite` is set intentionally (a new user inheriting a group without invite rights is the surfaced symptom).
+
+**Why deferred:** flagged during testing; grouped with the group-management admin work since that is where invite permissions most naturally live.
+
+---
+
 ## Classic Tracker Mods
 
 See [`TRACKER_MODS.md`](./TRACKER_MODS.md) for a catalogue of the famous
