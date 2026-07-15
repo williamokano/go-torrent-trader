@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
-import { Input } from "@/components/form";
-import { Select } from "@/components/form";
+import { Input, Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { formatBytes, timeAgo } from "@/utils/format";
 import { WarningBadge } from "@/components/WarningBadge";
-import "./admin-users.css";
+import "./admin-ui.css";
 
 interface AdminUser {
   id: number;
@@ -46,7 +45,6 @@ export function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<GroupOption[]>([]);
 
-  // Fetch groups for filter dropdown
   useEffect(() => {
     async function fetchGroups() {
       const token = getAccessToken();
@@ -79,9 +77,7 @@ export function AdminUsersPage() {
     try {
       const res = await fetch(
         `${getConfig().API_URL}/api/v1/admin/users?${params}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       if (res.ok) {
         const data = await res.json();
@@ -145,97 +141,121 @@ export function AdminUsersPage() {
 
   return (
     <div>
-      <div className="admin-users__header">
-        <h1>Users</h1>
-        <div className="admin-users__filters">
-          <div className="admin-users__search">
-            <Input
-              label="Search"
-              placeholder="Username or email..."
-              value={searchInput}
-              onChange={handleSearchChange}
-            />
-          </div>
-          <Select
-            label="Group"
-            options={[{ value: "", label: "All Groups" }, ...groups]}
-            value={groupFilter}
-            onChange={handleGroupChange}
-          />
-          <Select
-            label="Status"
-            options={[
-              { value: "", label: "All" },
-              { value: "true", label: "Enabled" },
-              { value: "false", label: "Disabled" },
-            ]}
-            value={enabledFilter}
-            onChange={handleEnabledChange}
-          />
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Users</h1>
+          <p className="admin-page-header__desc">
+            Browse, search, and manage member accounts.
+          </p>
         </div>
       </div>
 
+      <div className="admin-toolbar">
+        <div className="admin-toolbar__search">
+          <Input
+            label="Search"
+            placeholder="Username or email…"
+            value={searchInput}
+            onChange={handleSearchChange}
+          />
+        </div>
+        <Select
+          label="Group"
+          options={[{ value: "", label: "All groups" }, ...groups]}
+          value={groupFilter}
+          onChange={handleGroupChange}
+        />
+        <Select
+          label="Status"
+          options={[
+            { value: "", label: "All" },
+            { value: "true", label: "Enabled" },
+            { value: "false", label: "Disabled" },
+          ]}
+          value={enabledFilter}
+          onChange={handleEnabledChange}
+        />
+      </div>
+
       {loading ? (
-        <p>Loading...</p>
+        <p>Loading…</p>
       ) : users.length === 0 ? (
-        <p className="admin-users__empty">No users found.</p>
+        <div className="admin-panel">
+          <p style={{ padding: "var(--space-lg)", margin: 0 }}>
+            <span className="admin-muted">
+              No users match these filters. Try clearing the search or status.
+            </span>
+          </p>
+        </div>
       ) : (
         <>
-          <table className="admin-users__table">
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Email</th>
-                <th>Group</th>
-                <th>Uploaded</th>
-                <th>Downloaded</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Last Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td>
-                    <Link to={`/admin/users/${user.id}`}>{user.username}</Link>
-                    <WarningBadge warned={user.warned} />
-                  </td>
-                  <td>{user.email}</td>
-                  <td>{user.group_name}</td>
-                  <td>{formatBytes(user.uploaded)}</td>
-                  <td>{formatBytes(user.downloaded)}</td>
-                  <td>
-                    {!user.enabled && (
-                      <span className="admin-users__badge admin-users__badge--disabled">
-                        Disabled
-                      </span>
-                    )}
-                    {user.enabled && !user.warned && (
-                      <span className="admin-users__badge admin-users__badge--enabled">
-                        Active
-                      </span>
-                    )}
-                    {user.warned && (
-                      <span className="admin-users__badge admin-users__badge--warned">
-                        Warned
-                      </span>
-                    )}
-                  </td>
-                  <td>{timeAgo(user.created_at)}</td>
-                  <td>
-                    {user.last_access ? timeAgo(user.last_access) : "Never"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="admin-panel">
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Group</th>
+                    <th>Uploaded</th>
+                    <th>Downloaded</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Last active</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id}>
+                      <td className="admin-table__name">
+                        <Link to={`/admin/users/${user.id}`}>
+                          {user.username}
+                        </Link>
+                        <WarningBadge warned={user.warned} />
+                      </td>
+                      <td>{user.email}</td>
+                      <td>{user.group_name}</td>
+                      <td className="admin-num">
+                        {formatBytes(user.uploaded)}
+                      </td>
+                      <td className="admin-num">
+                        {formatBytes(user.downloaded)}
+                      </td>
+                      <td>
+                        {!user.enabled ? (
+                          <span className="admin-badge admin-badge--danger">
+                            Disabled
+                          </span>
+                        ) : user.warned ? (
+                          <span className="admin-badge admin-badge--warn">
+                            Warned
+                          </span>
+                        ) : (
+                          <span className="admin-badge admin-badge--ok">
+                            Active
+                          </span>
+                        )}
+                      </td>
+                      <td className="admin-muted">
+                        {timeAgo(user.created_at)}
+                      </td>
+                      <td className="admin-muted">
+                        {user.last_access ? timeAgo(user.last_access) : "Never"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-          <Pagination
-            currentPage={page}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-          />
+          <div style={{ marginTop: "var(--space-md)" }}>
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
+          </div>
         </>
       )}
     </div>
