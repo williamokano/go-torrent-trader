@@ -1471,6 +1471,18 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Review finding from BE-8.7. `ToastProvider` passes an object literal as its context value, so `useToast()` returns a fresh identity on every provider render — and the provider re-renders on every toast add *and* auto-dismiss. Any `useCallback(fetch, [toast])` feeding a `useEffect` therefore refires on each toast; on the error path that is self-sustaining (fetch fails → error toast → new `toast` → refetch → fails …), measured at ~324 requests in 500ms. Every admin page dodges this today by omitting `toast` from the dependency array, which silences the symptom, carries an ESLint warning, and leaves the trap armed for the next page. Fixing the provider fixes all of them at once — deliberately deferred out of BE-8.7 because it touches a shared component that parallel branches also modify.
 
+#### BE-9.20: Bump Deprecated GitHub Actions off Node 20 [S] [TODO]
+**As a** maintainer
+**I want** the CI/release workflows to stop relying on Node.js 20 actions
+**So that** builds keep working once GitHub removes Node 20 from runners
+
+**Acceptance Criteria:**
+- Update the actions that still target Node 20 (surfaced during the v0.11.0 release build as "Node.js 20 is deprecated … forced to run on Node.js 24"): `actions/setup-go@v5`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, and any others the warnings name.
+- Bump to versions that run on Node 24 (or the current supported major) across `release.yml`, `backend.yml`, `frontend.yml`, `migration-tool.yml`.
+- Re-run a release (or a dry build) and confirm the deprecation warnings are gone.
+
+> **Origin:** Non-blocking deprecation warnings logged during the v0.11.0 release. GitHub is phasing out Node 20 on runners; currently the actions are force-run on Node 24, so nothing is broken yet — this is housekeeping before the forced-fallback is removed. See https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/.
+
 ---
 
 ### Epic BE-10: Protocol Support
