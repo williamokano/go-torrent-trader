@@ -898,3 +898,43 @@ func TestTorrentService_GetReseedCount(t *testing.T) {
 		t.Errorf("expected count 2, got %d", count)
 	}
 }
+
+func TestTorrentService_EditTorrent_AdminSetsSilver(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	uploaded, err := svc.Upload(context.Background(), buildTorrentFile("edit-silver"), UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	silver := true
+	result, err := svc.EditTorrent(context.Background(), uploaded.ID, 99, model.Permissions{GroupID: 1, IsAdmin: true}, EditTorrentRequest{
+		Silver: &silver,
+	})
+	if err != nil {
+		t.Fatalf("edit failed: %v", err)
+	}
+	if !result.Silver {
+		t.Error("expected silver to be true after an admin set it")
+	}
+}
+
+// Silver is a staff-only flag, like Free and Banned: a non-admin must not be
+// able to set it, or any uploader could halve their own download accounting.
+func TestTorrentService_EditTorrent_SilverForbiddenForNonAdmin(t *testing.T) {
+	svc, _, _ := setupEditDeleteService()
+
+	uploaded, err := svc.Upload(context.Background(), buildTorrentFile("edit-silver-forbidden"), UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+
+	silver := true
+	// User 42 is the owner but not an admin.
+	_, err = svc.EditTorrent(context.Background(), uploaded.ID, 42, model.Permissions{GroupID: 5}, EditTorrentRequest{
+		Silver: &silver,
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Errorf("expected ErrForbidden when a non-admin sets silver, got %v", err)
+	}
+}

@@ -77,6 +77,7 @@ type EditTorrentRequest struct {
 	// Staff-only fields (admin group_id=1)
 	Banned *bool `json:"banned"`
 	Free   *bool `json:"free"`
+	Silver *bool `json:"silver"`
 }
 
 // TorrentService handles torrent business logic.
@@ -364,7 +365,7 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 
 	// Reject staff-only fields from non-admins
 	if !perms.IsAdmin {
-		if req.Banned != nil || req.Free != nil {
+		if req.Banned != nil || req.Free != nil || req.Silver != nil {
 			return nil, ErrForbidden
 		}
 	}
@@ -397,6 +398,9 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 	}
 	if req.Free != nil {
 		torrent.Free = *req.Free
+	}
+	if req.Silver != nil {
+		torrent.Silver = *req.Silver
 	}
 
 	if err := s.torrents.Update(ctx, torrent); err != nil {

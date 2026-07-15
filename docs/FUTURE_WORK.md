@@ -29,3 +29,14 @@ Full theming system with user-selectable themes and admin controls.
 **Additional Theme (Retro/Classic Tracker):** Classic private tracker aesthetic — dark background, monospace elements, compact layout. Uses CSS custom properties only (no structural changes).
 
 **Why deferred:** The current light/dark toggle via the header dropdown covers the immediate need. A full theme system with admin controls and custom themes is a nice-to-have for post-launch.
+
+---
+
+## Classic Tracker Mods
+
+See [`TRACKER_MODS.md`](./TRACKER_MODS.md) for a catalogue of the famous
+TorrentTrader/TBDev/NexusPHP-era mods (bonus points, freeleech tokens,
+hit-and-run, client whitelist, IMDb metadata, request bounties, class
+promotion, IRC bot, achievements, …), each mapped to where it would land in
+this architecture — and two forward-looking design notes on doing multipliers
+via events and on a plugin model, so mods stop being core-file edits.
