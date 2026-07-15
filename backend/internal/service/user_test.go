@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"math"
 	"testing"
 	"time"
 
@@ -377,7 +377,7 @@ func TestCalculateRatio(t *testing.T) {
 		expected   float64
 	}{
 		{"both zero", 0, 0, 0},
-		{"uploaded only", 1000, 0, math.Inf(1)},
+		{"uploaded only → infinite sentinel", 1000, 0, -1},
 		{"equal", 1000, 1000, 1.0},
 		{"more uploaded", 2000, 1000, 2.0},
 		{"less uploaded", 500, 1000, 0.5},
@@ -385,15 +385,22 @@ func TestCalculateRatio(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateRatio(tt.uploaded, tt.downloaded)
-			if math.IsInf(tt.expected, 1) {
-				if !math.IsInf(got, 1) {
-					t.Errorf("expected +Inf, got %f", got)
-				}
-			} else if got != tt.expected {
+			if got := calculateRatio(tt.uploaded, tt.downloaded); got != tt.expected {
 				t.Errorf("expected %f, got %f", tt.expected, got)
 			}
 		})
+	}
+}
+
+// The ratio is serialized into every profile API response. A +Inf/NaN value
+// fails json.Marshal, and because JSON() writes the 200 status before encoding,
+// that produces a broken empty 200 that logs the client out. So the ratio must
+// always be JSON-encodable — this reproduces the zero-download logout bug.
+func TestCalculateRatioIsAlwaysJSONEncodable(t *testing.T) {
+	// A fresh account that has only ever seeded: uploaded > 0, downloaded == 0.
+	got := calculateRatio(1000, 0)
+	if _, err := json.Marshal(got); err != nil {
+		t.Fatalf("calculateRatio(1000, 0) = %v is not JSON-encodable: %v — this is the empty-200 logout bug", got, err)
 	}
 }
 

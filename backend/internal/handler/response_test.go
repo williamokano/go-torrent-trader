@@ -2,11 +2,29 @@ package handler_test
 
 import (
 	"encoding/json"
+	"math"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 )
+
+// A value that can't be JSON-encoded (e.g. a +Inf ratio) must not produce a
+// broken empty 200 — that response silently logs clients out. JSON must fail
+// loudly with a 500 and a non-empty body instead.
+func TestJSONUnencodableValueReturns500NotEmpty200(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	handler.JSON(rec, http.StatusOK, map[string]any{"ratio": math.Inf(1)})
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 — must not send a partial/empty 200", rec.Code)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("body is empty; want a JSON error so the client sees a failure, not a silent 200")
+	}
+}
 
 func TestJSONSetsContentTypeAndStatus(t *testing.T) {
 	rec := httptest.NewRecorder()

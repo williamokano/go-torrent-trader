@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"math"
 	"testing"
 	"time"
 
@@ -191,6 +191,16 @@ func TestMemberService_ListStaff_Empty(t *testing.T) {
 	}
 }
 
+// A member's ratio is serialized into the member-list API response; a +Inf/NaN
+// value breaks json.Marshal and yields a broken empty 200. It must always be
+// JSON-encodable.
+func TestMemberRatioIsAlwaysJSONEncodable(t *testing.T) {
+	got := memberRatio(1000, 0)
+	if _, err := json.Marshal(got); err != nil {
+		t.Fatalf("memberRatio(1000, 0) = %v is not JSON-encodable: %v", got, err)
+	}
+}
+
 func TestMemberRatio(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -199,7 +209,7 @@ func TestMemberRatio(t *testing.T) {
 		expected   float64
 	}{
 		{"both zero", 0, 0, 0},
-		{"uploaded only", 1000, 0, math.Inf(1)},
+		{"uploaded only → infinite sentinel", 1000, 0, -1},
 		{"equal", 1000, 1000, 1.0},
 		{"2:1", 2000, 1000, 2.0},
 		{"1:2", 500, 1000, 0.5},
@@ -207,12 +217,7 @@ func TestMemberRatio(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := memberRatio(tt.uploaded, tt.downloaded)
-			if math.IsInf(tt.expected, 1) {
-				if !math.IsInf(got, 1) {
-					t.Errorf("expected +Inf, got %f", got)
-				}
-			} else if got != tt.expected {
+			if got := memberRatio(tt.uploaded, tt.downloaded); got != tt.expected {
 				t.Errorf("expected %f, got %f", tt.expected, got)
 			}
 		})
