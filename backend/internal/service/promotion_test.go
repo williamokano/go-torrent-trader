@@ -143,7 +143,7 @@ func TestPromotionRun_DisabledSkips(t *testing.T) {
 	seedLadderRules(repo)
 	svc := newPromotionSvc(map[string]string{SettingPromotionEnabled: "false"}, ladderGroups(), repo)
 
-	sum, err := svc.Run(context.Background())
+	sum, err := svc.Run(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -162,12 +162,51 @@ func TestPromotionRun_IntervalNotElapsed(t *testing.T) {
 	repo.lastRun = &recent
 	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
 
-	sum, err := svc.Run(context.Background())
+	sum, err := svc.Run(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !sum.Skipped {
 		t.Errorf("expected skipped due to interval, got %+v", sum)
+	}
+}
+
+func TestPromotionRun_ForceBypassesInterval(t *testing.T) {
+	repo := newFakePromotionRepo()
+	seedLadderRules(repo)
+	recent := time.Now().Add(-24 * time.Hour) // well within the 7-day interval
+	repo.lastRun = &recent
+	repo.metrics = []model.PromotionUserMetrics{
+		{UserID: 100, GroupID: 5, Uploaded: 5000, Downloaded: 1000}, // qualifies for promotion
+	}
+	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
+
+	// force=true must ignore the interval and actually evaluate.
+	sum, err := svc.Run(context.Background(), true)
+	if err != nil {
+		t.Fatalf("Run(force): %v", err)
+	}
+	if sum.Skipped {
+		t.Fatalf("forced run should not be skipped, got reason %q", sum.Reason)
+	}
+	if repo.moves[100] != 4 {
+		t.Errorf("forced run did not promote user: move=%d, want 4", repo.moves[100])
+	}
+}
+
+// A forced run is still a no-op when the engine is disabled — force bypasses the
+// interval, not the master switch.
+func TestPromotionRun_ForceStillRespectsDisabled(t *testing.T) {
+	repo := newFakePromotionRepo()
+	seedLadderRules(repo)
+	svc := newPromotionSvc(map[string]string{SettingPromotionEnabled: "false"}, ladderGroups(), repo)
+
+	sum, err := svc.Run(context.Background(), true)
+	if err != nil {
+		t.Fatalf("Run(force): %v", err)
+	}
+	if !sum.Skipped || sum.Reason != "disabled" {
+		t.Errorf("forced run while disabled should skip/disabled, got %+v", sum)
 	}
 }
 
@@ -181,7 +220,7 @@ func TestPromotionRun_PromotesOneStepOnly(t *testing.T) {
 	}
 	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
 
-	sum, err := svc.Run(context.Background())
+	sum, err := svc.Run(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -205,7 +244,7 @@ func TestPromotionRun_DemotesWhenFailingCurrentRung(t *testing.T) {
 	}
 	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
 
-	sum, err := svc.Run(context.Background())
+	sum, err := svc.Run(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -223,7 +262,7 @@ func TestPromotionRun_FloorUserNeverDemoted(t *testing.T) {
 	}
 	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
 
-	sum, err := svc.Run(context.Background())
+	sum, err := svc.Run(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -244,7 +283,7 @@ func TestPromotionRun_TopUserStaysWhenQualified(t *testing.T) {
 	}
 	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
 
-	sum, err := svc.Run(context.Background())
+	sum, err := svc.Run(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -267,7 +306,7 @@ func TestPromotionRun_SeedHoursGate(t *testing.T) {
 		{ID: 5, Name: "User", Level: 20}, {ID: 4, Name: "Power User", Level: 40},
 	}, repo)
 
-	if _, err := svc.Run(context.Background()); err != nil {
+	if _, err := svc.Run(context.Background(), false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if repo.moves[200] != 4 {
@@ -288,7 +327,7 @@ func TestPromotionRun_LadderExcludesStaff(t *testing.T) {
 	}
 	svc := newPromotionSvc(enabledSettings(), ladderGroups(), repo)
 
-	if _, err := svc.Run(context.Background()); err != nil {
+	if _, err := svc.Run(context.Background(), false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if _, moved := repo.moves[300]; moved {

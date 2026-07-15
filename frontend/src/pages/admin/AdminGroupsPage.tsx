@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
-import { Input, Checkbox } from "@/components/form";
+import { Input, Checkbox, Button } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
+import "./admin-ui.css";
 
 interface Group {
   id: number;
@@ -70,17 +71,6 @@ const emptyForm: GroupFormData = {
   is_admin: false,
   is_moderator: false,
   is_immune: false,
-};
-
-const cellStyle: React.CSSProperties = {
-  padding: "var(--space-xs) var(--space-sm)",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const headStyle: React.CSSProperties = {
-  ...cellStyle,
-  textAlign: "left",
-  color: "var(--color-text-muted)",
 };
 
 export function AdminGroupsPage() {
@@ -211,130 +201,99 @@ export function AdminGroupsPage() {
     }
   };
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <p>Loading…</p>;
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "var(--space-lg)",
-        }}
-      >
-        <h1 style={{ fontSize: "var(--text-xl)", margin: 0 }}>Groups</h1>
-        <button
-          onClick={openCreateModal}
-          style={{
-            padding: "var(--space-xs) var(--space-md)",
-            backgroundColor: "var(--color-accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            cursor: "pointer",
-            fontSize: "var(--text-sm)",
-          }}
-        >
-          New Group
-        </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Groups</h1>
+          <p className="admin-page-header__desc">
+            Permission classes and their capabilities. Level orders classes and
+            drives the promotion ladder.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <Button variant="primary" onClick={openCreateModal}>
+            New group
+          </Button>
+        </div>
       </div>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "var(--text-sm)",
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={headStyle}>Name</th>
-            <th style={headStyle}>Level</th>
-            <th style={headStyle}>Color</th>
-            {CAPABILITY_COLUMNS.map((col) => (
-              <th
-                key={col.key}
-                style={{
-                  ...headStyle,
-                  textAlign: "center",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {col.label}
-              </th>
-            ))}
-            <th style={{ ...headStyle, textAlign: "right" }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((group) => (
-            <tr key={group.id}>
-              <td style={{ ...cellStyle, fontWeight: 600 }}>{group.name}</td>
-              <td style={cellStyle}>{group.level}</td>
-              <td style={cellStyle}>
-                {group.color ? (
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 16,
-                      height: 16,
-                      borderRadius: 4,
-                      backgroundColor: group.color,
-                      border: "1px solid var(--color-border)",
-                      verticalAlign: "middle",
-                    }}
-                    title={group.color}
-                  />
-                ) : (
-                  "-"
-                )}
-              </td>
-              {CAPABILITY_COLUMNS.map((col) => (
-                <td key={col.key} style={{ ...cellStyle, textAlign: "center" }}>
-                  {group[col.key] ? "Y" : "N"}
-                </td>
+      <div className="admin-panel">
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Level</th>
+                <th>Color</th>
+                {CAPABILITY_COLUMNS.map((col) => (
+                  <th key={col.key} className="admin-table__center">
+                    {col.label}
+                  </th>
+                ))}
+                <th className="admin-table__actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((group) => (
+                <tr key={group.id}>
+                  <td className="admin-table__name">{group.name}</td>
+                  <td className="admin-num">{group.level}</td>
+                  <td>
+                    {group.color ? (
+                      <span
+                        className="admin-swatch"
+                        style={{ backgroundColor: group.color }}
+                        title={group.color}
+                      />
+                    ) : (
+                      <span className="admin-muted">—</span>
+                    )}
+                  </td>
+                  {CAPABILITY_COLUMNS.map((col) => (
+                    <td key={col.key} className="admin-table__center">
+                      {group[col.key] ? (
+                        <span className="admin-yes" aria-label="yes">
+                          ✓
+                        </span>
+                      ) : (
+                        <span className="admin-muted" aria-label="no">
+                          —
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                  <td className="admin-table__actions">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditModal(group)}
+                    >
+                      Edit
+                    </Button>{" "}
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => handleDelete(group)}
+                    >
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
               ))}
-              <td
-                style={{
-                  ...cellStyle,
-                  textAlign: "right",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <button
-                  onClick={() => openEditModal(group)}
-                  style={{ marginRight: "var(--space-xs)", cursor: "pointer" }}
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(group)}
-                  style={{
-                    cursor: "pointer",
-                    color: "var(--color-danger, #c0392b)",
-                  }}
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <Modal
         isOpen={modalOpen}
         onClose={closeModal}
-        title={editingId ? "Edit Group" : "New Group"}
+        title={editingId ? "Edit group" : "New group"}
       >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-sm)",
-          }}
-        >
+        <div className="admin-modal-form">
           <Input
             label="Name"
             value={form.name}
@@ -352,13 +311,7 @@ export function AdminGroupsPage() {
             value={form.level}
             onChange={(e) => setForm({ ...form, level: e.target.value })}
           />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-end",
-              gap: "var(--space-sm)",
-            }}
-          >
+          <div className="admin-color-row">
             <div style={{ flex: 1 }}>
               <Input
                 label="Color (hex)"
@@ -370,28 +323,15 @@ export function AdminGroupsPage() {
             <input
               type="color"
               aria-label="Color picker"
+              className="admin-color-row__picker"
               value={
                 /^#[0-9A-Fa-f]{6}$/.test(form.color) ? form.color : "#555555"
               }
               onChange={(e) => setForm({ ...form, color: e.target.value })}
-              style={{
-                width: 40,
-                height: 34,
-                padding: 0,
-                border: "none",
-                background: "none",
-              }}
             />
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "var(--space-2xs, 4px) var(--space-md)",
-              marginTop: "var(--space-xs)",
-            }}
-          >
+          <div className="admin-modal-form__caps">
             {CAPABILITY_COLUMNS.map((col) => (
               <Checkbox
                 key={col.key}
@@ -404,32 +344,18 @@ export function AdminGroupsPage() {
             ))}
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "var(--space-sm)",
-              marginTop: "var(--space-md)",
-            }}
-          >
-            <button onClick={closeModal} style={{ cursor: "pointer" }}>
+          <div className="admin-modal-form__actions">
+            <Button variant="ghost" onClick={closeModal}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleSave}
-              disabled={saving || !form.name.trim()}
-              style={{
-                padding: "var(--space-xs) var(--space-md)",
-                backgroundColor: "var(--color-accent)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                cursor: saving || !form.name.trim() ? "not-allowed" : "pointer",
-                opacity: saving || !form.name.trim() ? 0.5 : 1,
-              }}
+              loading={saving}
+              disabled={!form.name.trim()}
             >
-              {saving ? "Saving..." : "Save"}
-            </button>
+              Save
+            </Button>
           </div>
         </div>
       </Modal>

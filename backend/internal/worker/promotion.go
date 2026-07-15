@@ -26,7 +26,7 @@ func NewPromotionHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Ta
 			slog.Warn("promotion: missing service, skipping")
 			return nil
 		}
-		summary, err := deps.PromotionSvc.Run(ctx)
+		summary, err := deps.PromotionSvc.Run(ctx, false)
 		if err != nil {
 			return fmt.Errorf("promotion run: %w", err)
 		}

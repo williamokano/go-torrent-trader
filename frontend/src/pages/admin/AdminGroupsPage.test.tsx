@@ -85,7 +85,7 @@ describe("AdminGroupsPage", () => {
     renderPage();
 
     await screen.findByText("VIP");
-    await user.click(screen.getByRole("button", { name: "New Group" }));
+    await user.click(screen.getByRole("button", { name: "New group" }));
 
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("Name"), "Seedbox");
