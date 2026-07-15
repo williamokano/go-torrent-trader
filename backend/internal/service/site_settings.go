@@ -56,6 +56,10 @@ const (
 	SettingCheatMaxUploadSpeedMBs        = "cheat_max_upload_speed_mb_s"
 	SettingCheatLeftMismatchTolerancePct = "cheat_left_mismatch_tolerance_pct"
 	SettingCheatFlagCooldownHours        = "cheat_flag_cooldown_hours"
+
+	// Announce event log settings keys.
+	SettingAnnounceLogEnabled       = "announce_log_enabled"
+	SettingAnnounceLogRetentionDays = "announce_log_retention_days"
 )
 
 // SiteSettingsService handles site settings business logic.

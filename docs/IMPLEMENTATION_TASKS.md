@@ -1485,6 +1485,25 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 ---
 
+#### BE-9.21: Append-Only Announce Event Log + Retention Config [M] [DONE]
+**As a** site operator
+**I want** every tracker announce recorded in an immutable log with configurable retention
+**So that** time-windowed and per-user questions (monthly upload totals, bonus reconciliation, GDPR/LGPD data export) remain answerable after the fact
+
+**Context:** The peers table is overwritten each announce and `transfer_history` keeps one overwritten row per (user, torrent). Both destroy the per-announce deltas at write time, so a cumulative counter can never be decomposed into "how much in June". Capturing the raw stream is a one-way door — logs can be discarded later via retention, but events never written cannot be backfilled.
+
+**Acceptance Criteria (met):**
+- `announce_events` table (migration 052): user/torrent/peer_id/ip/port/event, client-reported totals, and three deltas (`uploaded_delta`, `downloaded_delta`, freeleech-adjusted `counted_downloaded_delta`). `ON DELETE SET NULL` on torrent so history survives torrent deletion; `ON DELETE CASCADE` on user so account deletion purges it (GDPR erasure).
+- `model.AnnounceEvent`, `AnnounceEventRepository` (`Create` + `ListByUser`), Postgres impl.
+- Best-effort write hook in `TrackerService.Announce` — logging failure never breaks an announce; gated by `announce_log_enabled` (default on, capture-on).
+- `announce_log_retention_days` setting (default 90) — **advisory only, no automatic deletion job yet** (deliberate: retention housekeeping is a follow-up).
+- Frontend `SETTING_DEFINITIONS` gained labels/descriptions for the announce-log settings **and the previously-unlabelled cheat-detection and wait-time settings** (they had rendered as raw keys).
+- Tests: repository (create/list/pagination/torrent-deletion), tracker hook (default-on capture, disabled flag, delta capture), and an AdminSettingsPage render test.
+
+> **Follow-ups (not built here):** (1) a retention cleanup job that honours `announce_log_retention_days` (+ month partitioning and a nightly rollup into per-user/period aggregates for scale); (2) a GDPR/LGPD data-export endpoint over `ListByUser`; (3) bonus-points / monthly-campaign features that consume the log. See docs/FUTURE_WORK.md → "Announce Event Log — Consumers & Retention".
+
+---
+
 ### Epic BE-10: Protocol Support
 
 #### BE-10.1: BEncode Library [S] [DONE — replaced with github.com/zeebo/bencode]

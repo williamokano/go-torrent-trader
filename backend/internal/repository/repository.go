@@ -81,6 +81,19 @@ type TransferHistoryWithTorrent struct {
 	TorrentName string
 }
 
+// AnnounceEventRepository defines persistence operations for the append-only
+// announce event log.
+type AnnounceEventRepository interface {
+	Create(ctx context.Context, event *model.AnnounceEvent) error
+	ListByUser(ctx context.Context, userID int64, page, perPage int) ([]AnnounceEventWithTorrent, int64, error)
+}
+
+// AnnounceEventWithTorrent is an announce event joined with the torrent name.
+type AnnounceEventWithTorrent struct {
+	model.AnnounceEvent
+	TorrentName string
+}
+
 // ReportRepository defines persistence operations for reports.
 type ReportRepository interface {
 	Create(ctx context.Context, report *model.Report) error

@@ -184,6 +184,84 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       "How many days the automatic privilege restriction lasts. After this period, the restriction is lifted automatically by the maintenance job.",
     type: "number",
   },
+  // Cheat detection
+  {
+    key: "cheat_detection_enabled",
+    label: "Cheat Detection Enabled",
+    description:
+      "Master toggle for automatic cheat detection. When enabled, each announce is checked for impossible upload speeds, upload with no downloaders, and left/downloaded mismatches, raising staff-visible flags.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "cheat_max_upload_speed_mb_s",
+    label: "Max Upload Speed (MB/s)",
+    description:
+      "Maximum plausible upload speed in MB/s. An announce whose upload since the previous announce implies a higher average speed is flagged as a likely cheat. Default: 100.",
+    type: "number",
+  },
+  {
+    key: "cheat_left_mismatch_tolerance_pct",
+    label: "Left Mismatch Tolerance (%)",
+    description:
+      "Tolerance percentage for a peer's reported 'left' bytes versus the torrent size. Announces whose remaining bytes are inconsistent beyond this tolerance are flagged. Default: 10.",
+    type: "number",
+  },
+  {
+    key: "cheat_flag_cooldown_hours",
+    label: "Cheat Flag Cooldown (hours)",
+    description:
+      "Minimum hours between repeat cheat flags of the same type for the same user and torrent. Prevents one ongoing anomaly from producing dozens of duplicate flags. Default: 6.",
+    type: "number",
+  },
+  // Download wait times
+  {
+    key: "wait_time_enabled",
+    label: "Wait Time Enabled",
+    description:
+      "Master toggle for download wait times. When enabled, low-ratio users must wait before they can start downloading newly uploaded torrents.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "wait_time_bypass_ratio",
+    label: "Wait Time Bypass Ratio",
+    description:
+      "Users at or above this ratio skip wait times entirely. Default: 0.95.",
+    type: "number",
+  },
+  {
+    key: "wait_time_tiers",
+    label: "Wait Time Tiers (JSON)",
+    description:
+      'JSON array of {"ratio", "hours"} tiers, ascending by ratio. A user below a tier\'s ratio must wait that many hours after a torrent is uploaded before downloading it. Example: [{"ratio":0.5,"hours":48},{"ratio":0.8,"hours":12}].',
+    type: "textarea",
+  },
+  // Announce event log
+  {
+    key: "announce_log_enabled",
+    label: "Announce Log Enabled",
+    description:
+      "Master toggle for the append-only announce event log. When enabled, every tracker announce is recorded (deltas, peer ID, IP) for data export, bonus reconciliation, and time-windowed reporting. Disabling stops new capture but keeps existing rows.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "announce_log_retention_days",
+    label: "Announce Log Retention (days)",
+    description:
+      "How many days of announce events to retain. Advisory only — no automatic deletion runs yet; this records the intended cleanup window for manual house-cleaning. Default: 90.",
+    type: "number",
+  },
 ];
 
 function getSettingDef(key: string): SettingConfig {

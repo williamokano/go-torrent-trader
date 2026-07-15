@@ -101,6 +101,7 @@ type TrackerService struct {
 	torrents        repository.TorrentRepository
 	peers           repository.PeerRepository
 	transferHistory repository.TransferHistoryRepository
+	announceEvents  repository.AnnounceEventRepository
 	groups          repository.GroupRepository
 	siteSettings    *SiteSettingsService
 	cheatDetection  *CheatDetectionService
@@ -127,6 +128,11 @@ func (s *TrackerService) SetSiteSettings(ss *SiteSettingsService) {
 // SetTransferHistoryRepo sets the transfer history repository for recording completions.
 func (s *TrackerService) SetTransferHistoryRepo(repo repository.TransferHistoryRepository) {
 	s.transferHistory = repo
+}
+
+// SetAnnounceEventRepo sets the append-only announce event log repository.
+func (s *TrackerService) SetAnnounceEventRepo(repo repository.AnnounceEventRepository) {
+	s.announceEvents = repo
 }
 
 // SetGroupRepo sets the group repository for wait time exemption checks.
@@ -264,6 +270,9 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 			slog.Error("failed to update user stats", "user_id", user.ID, "error", err)
 		}
 	}
+
+	// Append the raw announce to the immutable log (best-effort).
+	s.recordAnnounceEvent(ctx, torrent, user, req, isSeeder, uploadDelta, downloadDelta, countedDownloadDelta)
 
 	// Build peer list (exclude the announcing peer).
 	peers, err := s.peers.ListByTorrent(ctx, torrent.ID, MaxPeersPerRequest+1)
@@ -465,6 +474,56 @@ func (s *TrackerService) handleAnnounce(
 	}
 
 	return nil
+}
+
+// recordAnnounceEvent appends the current announce to the immutable
+// announce_events log when capture is enabled. It is best-effort: a logging
+// failure is logged but never breaks the announce. Every announce is recorded
+// (started, stopped, completed, and keep-alives), so the log doubles as a
+// "seen at this IP/time" trail alongside the ratio deltas.
+func (s *TrackerService) recordAnnounceEvent(
+	ctx context.Context,
+	torrent *model.Torrent,
+	user *model.User,
+	req AnnounceRequest,
+	isSeeder bool,
+	uploadDelta, downloadDelta, countedDownloadDelta int64,
+) {
+	if s.announceEvents == nil {
+		return
+	}
+	// Default to enabled when site settings are unavailable — capture-on is the
+	// intended default, and callers may wire the log before settings.
+	if s.siteSettings != nil && !s.siteSettings.GetBool(ctx, SettingAnnounceLogEnabled, true) {
+		return
+	}
+
+	eventName := string(req.Event)
+	if eventName == "" {
+		eventName = "announce"
+	}
+
+	torrentID := torrent.ID
+	ev := &model.AnnounceEvent{
+		UserID:                 user.ID,
+		TorrentID:              &torrentID,
+		PeerID:                 req.PeerID,
+		IP:                     req.IP,
+		Port:                   req.Port,
+		Event:                  eventName,
+		Uploaded:               req.Uploaded,
+		Downloaded:             req.Downloaded,
+		LeftBytes:              req.Left,
+		UploadedDelta:          uploadDelta,
+		DownloadedDelta:        downloadDelta,
+		CountedDownloadedDelta: countedDownloadDelta,
+		Seeder:                 isSeeder,
+		AnnouncedAt:            time.Now(),
+	}
+	if err := s.announceEvents.Create(ctx, ev); err != nil {
+		slog.Error("failed to record announce event",
+			"user_id", user.ID, "torrent_id", torrent.ID, "error", err)
+	}
 }
 
 // checkWaitTime enforces download wait times for low-ratio users on new torrents.
