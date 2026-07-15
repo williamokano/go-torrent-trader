@@ -99,9 +99,12 @@ interface UserSuggestion {
 }
 
 // Mirrors the backend mention parser (`(?:^|[\s(])@(\w+)` in
-// internal/listener/notification.go) so a suggestion we insert is a mention
-// that actually notifies. `\w*` (not `\w+`) lets it match the bare `@` the
-// instant it is typed. Anchored to the caret via `$`.
+// internal/listener/notification.go) so the token we insert has the exact
+// shape the backend recognises. Note the backend only *notifies* on forum
+// posts today (the ForumPostCreated listener); on the other surfaces this
+// editor mounts on, the typeahead is an insertion/spelling aid. `\w*` (not
+// `\w+`) lets it match the bare `@` the instant it is typed; anchored to the
+// caret via `$`.
 const MENTION_RE = /(?:^|[\s(])@(\w*)$/;
 
 /** The active `@mention` token immediately before the caret, if any. */
@@ -149,7 +152,7 @@ export function MarkdownEditor({
   const [mentions, setMentions] = useState<UserSuggestion[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const mentionStart = useRef<number | null>(null); // index of the `@`
+  const mentionsListId = useId();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Bumped on every search and on close; a resolving fetch whose seq is stale
   // is dropped, so out-of-order responses can't repopulate a closed dropdown.
@@ -160,7 +163,6 @@ export function MarkdownEditor({
   const closeMentions = useCallback(() => {
     reqSeq.current++;
     clearTimeout(debounceRef.current);
-    mentionStart.current = null;
     setMentionOpen(false);
     setMentions([]);
   }, []);
@@ -199,7 +201,6 @@ export function MarkdownEditor({
         closeMentions();
         return;
       }
-      mentionStart.current = mention.at;
       searchUsers(mention.query);
     },
     [closeMentions, searchUsers],
@@ -207,13 +208,23 @@ export function MarkdownEditor({
 
   function applyMention(username: string) {
     const textarea = textareaRef.current;
-    const at = mentionStart.current;
-    if (!textarea || at === null) return;
+    if (!textarea) return;
 
-    const insert = `@${username} `;
-    const next =
-      value.slice(0, at) + insert + value.slice(textarea.selectionStart);
-    const caret = at + insert.length;
+    // Recompute the token from one live snapshot rather than trusting a stored
+    // `@` index: if the caret has moved to a different @token while the list is
+    // open, the stored index and the live caret would splice mismatched ranges
+    // and corrupt the text. Completing whatever token the caret is actually in
+    // is always well-formed.
+    const caretPos = textarea.selectionStart;
+    const mention = detectMention(textarea.value, caretPos);
+    if (!mention) return;
+
+    const after = textarea.value.slice(caretPos);
+    // Don't add a space when the caret already sits before whitespace.
+    const spacer = /^\s/.test(after) ? "" : " ";
+    const insert = `@${username}${spacer}`;
+    const next = textarea.value.slice(0, mention.at) + insert + after;
+    const caret = mention.at + insert.length + (spacer ? 0 : 1);
 
     pendingSelection.current = [caret, caret];
     onChange(next);
@@ -284,6 +295,8 @@ export function MarkdownEditor({
     ];
     onChange(next);
   }
+
+  const mentionsVisible = mentionOpen && mentions.length > 0;
 
   return (
     <div className={`markdown-editor ${className}`.trim()}>
@@ -375,32 +388,41 @@ export function MarkdownEditor({
             onBlur={closeMentions}
             rows={rows}
             placeholder={placeholder}
+            // Combobox semantics only while suggestions show, so plain prose
+            // writing isn't announced as a combobox.
+            role={mentionsVisible ? "combobox" : undefined}
+            aria-autocomplete={mentionsVisible ? "list" : undefined}
+            aria-expanded={mentionsVisible ? true : undefined}
+            aria-controls={mentionsVisible ? mentionsListId : undefined}
+            aria-activedescendant={
+              mentionsVisible ? `${mentionsListId}-${activeIndex}` : undefined
+            }
           />
-          {mentionOpen && mentions.length > 0 && (
+          {mentionsVisible && (
             <ul
               className="markdown-editor__mentions"
+              id={mentionsListId}
               role="listbox"
               aria-label="User suggestions"
             >
               {mentions.map((user, i) => (
+                // The option carries the click handler directly — an interactive
+                // descendant inside role="option" is invalid ARIA. preventDefault
+                // keeps focus (and the caret) in the textarea so the blur handler
+                // doesn't close the list before we insert.
                 <li
                   key={user.id}
+                  id={`${mentionsListId}-${i}`}
                   role="option"
                   aria-selected={i === activeIndex}
+                  className={`markdown-editor__mention${i === activeIndex ? " markdown-editor__mention--active" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyMention(user.username);
+                  }}
+                  onMouseEnter={() => setActiveIndex(i)}
                 >
-                  <button
-                    type="button"
-                    className={`markdown-editor__mention${i === activeIndex ? " markdown-editor__mention--active" : ""}`}
-                    // preventDefault keeps focus (and the caret) in the textarea
-                    // so the blur handler doesn't close the list before we insert.
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      applyMention(user.username);
-                    }}
-                    onMouseEnter={() => setActiveIndex(i)}
-                  >
-                    @{user.username}
-                  </button>
+                  @{user.username}
                 </li>
               ))}
             </ul>
