@@ -10,9 +10,16 @@ export interface Notification {
 export function notificationLink(n: Notification): string | null {
   const d = n.data;
   switch (n.type) {
-    case "mention":
-      // Self-describing: the deep-link is built by the publisher.
-      return (d.url as string) || null;
+    case "mention": {
+      // Structured: the backend stores source + ids + page; we own the routes.
+      const page =
+        typeof d.page === "number" && d.page > 1 ? `?page=${d.page}` : "";
+      if (d.source === "forum_post" && d.topic_id)
+        return `/forums/topics/${d.topic_id}${page}#post-${d.post_id}`;
+      if (d.source === "torrent_comment" && d.torrent_id)
+        return `/torrent/${d.torrent_id}${page}#comment-${d.comment_id}`;
+      return null;
+    }
     case "forum_reply":
     case "forum_mention": // legacy
     case "topic_reply":

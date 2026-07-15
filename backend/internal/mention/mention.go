@@ -11,12 +11,10 @@ import "regexp"
 var mentionRegex = regexp.MustCompile(`(?:^|[\s(])@(\w+)`)
 
 // Extract returns the usernames mentioned in body, in order of appearance
-// (duplicates preserved; callers dedupe by resolved user).
+// (duplicates preserved; callers dedupe by resolved user). Returns an empty
+// slice when there are no mentions.
 func Extract(body string) []string {
 	matches := mentionRegex.FindAllStringSubmatch(body, -1)
-	if len(matches) == 0 {
-		return nil
-	}
 	names := make([]string, 0, len(matches))
 	for _, m := range matches {
 		names = append(names, m[1])

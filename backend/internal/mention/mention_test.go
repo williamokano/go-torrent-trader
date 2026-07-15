@@ -11,7 +11,7 @@ func TestExtract(t *testing.T) {
 		body string
 		want []string
 	}{
-		{"none", "just some text", nil},
+		{"none", "just some text", []string{}},
 		{"start of string", "@alice hi", []string{"alice"}},
 		{"after whitespace", "hi @bob", []string{"bob"}},
 		{"after newline", "line one\n@carol", []string{"carol"}},
@@ -20,8 +20,8 @@ func TestExtract(t *testing.T) {
 		{"duplicates preserved", "@bob @bob", []string{"bob", "bob"}},
 		// An email address is not a mention: the @ must start the string or follow
 		// whitespace / an open paren, never a word character.
-		{"email is not a mention", "mail me at alice@bob.example", nil},
-		{"mid-word is not a mention", "foo@bar", nil},
+		{"email is not a mention", "mail me at alice@bob.example", []string{}},
+		{"mid-word is not a mention", "foo@bar", []string{}},
 		{"underscores and digits", "@user_42", []string{"user_42"}},
 	}
 

@@ -475,10 +475,13 @@ type UserMentionedEvent struct {
 	Source string `json:"source"`
 	// MentionedUsernames are the raw @names extracted from the body, in order.
 	MentionedUsernames []string `json:"mentioned_usernames"`
-	// URL is the relative deep-link to the mention, built by the publisher.
-	URL string `json:"url"`
 	// ContextTitle is the topic title / torrent name, used in the message.
 	ContextTitle string `json:"context_title"`
+	// Link carries the source-specific identifiers the frontend needs to build
+	// the deep-link (kept structured, not a baked URL, so route changes stay in
+	// the frontend). Forum: {topic_id, post_id, page}; comment: {torrent_id,
+	// comment_id, page}. Merged verbatim into the notification's data.
+	Link map[string]any `json:"link"`
 }
 
 type ForumTopicCreatedEvent struct {

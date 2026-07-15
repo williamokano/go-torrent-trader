@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
-	"github.com/williamokano/go-torrent-trader/backend/internal/mention"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -273,27 +272,23 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 			TopicTitle: title,
 			ForumID:    forumID,
 		})
-		s.publishMentions(ctx, actor, topic.ID, post.ID, title, body)
+		// The opening post is always the first post → page 1.
+		publishMention(ctx, s.eventBus, actor, event.MentionSourceForumPost,
+			forumMentionLink(topic.ID, post.ID, 1), title, body)
 	}
 
 	return &topic, &post, nil
 }
 
-// publishMentions parses @mentions from a forum post body and, if any, publishes
-// a UserMentionedEvent with a deep-link to the post. Parsing here keeps the post
-// body off the event bus.
-func (s *ForumService) publishMentions(ctx context.Context, actor event.Actor, topicID, postID int64, topicTitle, body string) {
-	names := mention.Extract(body)
-	if len(names) == 0 {
-		return
-	}
-	s.eventBus.Publish(ctx, &event.UserMentionedEvent{
-		Base:               event.NewBase(event.UserMentioned, actor),
-		Source:             event.MentionSourceForumPost,
-		MentionedUsernames: names,
-		URL:                fmt.Sprintf("/forums/topics/%d#post-%d", topicID, postID),
-		ContextTitle:       topicTitle,
-	})
+// forumPostsPerPage must match the frontend PER_PAGE in ForumTopicViewPage.tsx
+// so the deep-link's page lands on the mentioned post.
+const forumPostsPerPage = 25
+
+// forumMentionLink builds the structured link a forum mention notification
+// carries. `position` is the post's 1-based index in the (oldest-first) topic.
+func forumMentionLink(topicID, postID int64, position int) map[string]any {
+	page := (position + forumPostsPerPage - 1) / forumPostsPerPage
+	return map[string]any{"topic_id": topicID, "post_id": postID, "page": page}
 }
 
 // CreatePost creates a reply in a topic.
@@ -396,7 +391,11 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 			ReplyToPostID: replyToPostID,
 			ReplyToUserID: replyToUserID,
 		})
-		s.publishMentions(ctx, actor, topicID, post.ID, topic.Title, body)
+		// Posts are oldest-first, so the new reply's 1-based position is the
+		// prior post count (fetched before this insert) plus one.
+		position := int(topic.PostCount) + 1
+		publishMention(ctx, s.eventBus, actor, event.MentionSourceForumPost,
+			forumMentionLink(topicID, post.ID, position), topic.Title, body)
 	}
 
 	return created, nil

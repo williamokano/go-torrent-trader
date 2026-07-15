@@ -910,15 +910,17 @@
 
 **Context:** BE-3.12 shipped the `@mention` typeahead into the shared `MarkdownEditor`, so it appears on every compose surface — but originally `mentionRegex` only ran in the `ForumPostCreated` listener, shipping the whole post body on the event to do it. Surfaced by the BE-3.12 devil's-advocate review.
 
-**DONE (2026-07-15):** replaced the forum-only path with a **unified mention system**. Mentions are parsed at publish time (`internal/mention.Extract`), and each domain publishes a generic `UserMentionedEvent` carrying only the extracted usernames, a `source` tag, a prebuilt deep-link `URL`, and a context title — never the body (so `Body` was removed from `ForumPostCreatedEvent`). One listener turns that into a single self-describing `mention` notification (replacing `forum_mention`), and the frontend navigates straight to `data.url`. Wired for **forum new-topic + reply** (`/forums/topics/:id#post-:pid`) and **torrent comments** (`/torrent/:id#comment-:cid`); the forum page already had a `#post-` scroll anchor, and a matching `#comment-` anchor + scroll was added to `CommentsSection`.
+**DONE (2026-07-15):** replaced the forum-only path with a **unified mention system**. Mentions are parsed at publish time (`internal/mention.Extract`), and each domain publishes a generic `UserMentionedEvent` (via the shared `service.publishMention` helper) carrying only the extracted usernames, a `source` tag, a context title, and a structured `Link` (source-specific ids + page) — never the body (so `Body` was removed from `ForumPostCreatedEvent`). One listener merges that into a single `mention` notification (replacing `forum_mention`); the **frontend** builds the deep-link from the structured data (`notificationDisplay.ts`), so routes stay frontend-owned. Wired for **forum new-topic + reply** and **torrent comments**.
 
-**Behavior change:** mentions are now a separate event, so a user both replied-to and @mentioned in one post receives two distinct notifications (a reply and a mention), where before dedup collapsed them to one. Intentional — they are distinct facts.
+The link carries the item's **page** (computed from its position: forum `topic.PostCount+1`, comment total count, over the per-surface page size) so it lands on the mention, not page 1 — the forum page already reads `?page=` and `CommentsSection` now initializes its page from the URL. A shared `useScrollToHashAnchor` hook (frontend/src/lib) scrolls to the `#post-`/`#comment-` anchor once the page loads. Migration `051` renames existing `forum_mention` preference rows to `mention` so opt-outs survive the rename.
+
+**Behavior change:** mentions are now a separate event, so a user both replied-to and @mentioned in one post receives two distinct notifications (a reply and a mention), where before dedup collapsed them to one. Intentional (confirmed) — they are distinct facts.
 
 **Remaining (still TODO under this story):**
 - **Forum post edit** — `EditPost` fires no event; needs new-vs-old mention diffing to avoid re-notifying on every edit.
 - **Global chat** — no deep-link target yet (needs a message-anchored history view); chat mentions stay typeahead-only until then.
 - Torrent descriptions / news bodies — lower priority; decide per surface.
-- Full page-computed deep-linking across pagination (anchors are best-effort — only scroll if the item is on the loaded page).
+- Deep-link page is best-effort across post/comment deletions (position drifts); acceptable — the anchor still lands on the right page.
 - **Exclude PMs** — permanently; notifying a mentioned non-participant would leak a private message.
 
 ---

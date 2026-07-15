@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 
@@ -255,8 +254,8 @@ func TestCreateComment_PublishesMentionEvent(t *testing.T) {
 	if !reflect.DeepEqual(m.MentionedUsernames, []string{"bob"}) {
 		t.Errorf("MentionedUsernames = %v, want [bob]", m.MentionedUsernames)
 	}
-	if !strings.Contains(m.URL, "#comment-") {
-		t.Errorf("URL = %q, want a #comment- deep link", m.URL)
+	if m.Link["torrent_id"] == nil || m.Link["comment_id"] == nil || m.Link["page"] == nil {
+		t.Errorf("Link = %v, want torrent_id/comment_id/page set", m.Link)
 	}
 }
 

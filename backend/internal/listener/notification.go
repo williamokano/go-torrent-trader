@@ -108,8 +108,13 @@ func RegisterNotificationListeners(
 		defer cancel()
 
 		actorID := e.Actor.ID
-		notified := make(map[int64]bool)
+		seen := make(map[string]bool)    // skip repeat lookups of the same raw name
+		notified := make(map[int64]bool) // dedupe aliases resolving to one user
 		for _, username := range e.MentionedUsernames {
+			if seen[username] {
+				continue
+			}
+			seen[username] = true
 			user, err := userRepo.GetByUsername(ctx, username)
 			if err != nil {
 				continue // user doesn't exist
@@ -118,14 +123,16 @@ func RegisterNotificationListeners(
 				continue
 			}
 			notified[user.ID] = true
-			data := marshalData(map[string]interface{}{
+			payload := map[string]interface{}{
 				"source":         e.Source,
-				"url":            e.URL,
 				"context_title":  e.ContextTitle,
 				"actor_id":       actorID,
 				"actor_username": e.Actor.Username,
-			})
-			if _, err := notifSvc.Create(ctx, user.ID, actorID, model.NotifMention, data); err != nil {
+			}
+			for k, v := range e.Link {
+				payload[k] = v
+			}
+			if _, err := notifSvc.Create(ctx, user.ID, actorID, model.NotifMention, marshalData(payload)); err != nil {
 				slog.Error("notification: failed to create mention", "error", err)
 			}
 		}

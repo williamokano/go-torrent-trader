@@ -370,8 +370,8 @@ func TestForumService_CreateTopic_PublishesMentionEvent(t *testing.T) {
 	if !reflect.DeepEqual(m.MentionedUsernames, []string{"bob"}) {
 		t.Errorf("MentionedUsernames = %v, want [bob]", m.MentionedUsernames)
 	}
-	if !strings.Contains(m.URL, "#post-") {
-		t.Errorf("URL = %q, want a #post- deep link", m.URL)
+	if m.Link["topic_id"] == nil || m.Link["post_id"] == nil || m.Link["page"] != 1 {
+		t.Errorf("Link = %v, want topic_id/post_id set and page 1 (first post)", m.Link)
 	}
 }
 
@@ -462,6 +462,28 @@ func TestForumService_CreatePost_Success(t *testing.T) {
 	}
 	if post == nil {
 		t.Fatal("nil post")
+	}
+}
+
+func TestForumService_CreatePost_PublishesMentionEventWithPage(t *testing.T) {
+	bus := event.NewInMemoryBus()
+	var mentions []*event.UserMentionedEvent
+	bus.Subscribe(event.UserMentioned, func(_ context.Context, e event.Event) error {
+		mentions = append(mentions, e.(*event.UserMentionedEvent))
+		return nil
+	})
+	// 30 existing posts → the reply is post #31 → page 2 (25/page).
+	svc := NewForumService(nil, nil, &mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}}, &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, PostCount: 30}}}, &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: {ID: 200, TopicID: 1, Username: "alice", GroupName: "User"}}}, &mockForumUserRepo{user: &model.User{ID: 1, CanForum: true}}, nil, bus)
+
+	if _, err := svc.CreatePost(context.Background(), 1, 1, model.Permissions{Level: 5}, "welcome @bob", nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+
+	if len(mentions) != 1 {
+		t.Fatalf("got %d UserMentioned events, want 1", len(mentions))
+	}
+	if got := mentions[0].Link["page"]; got != 2 {
+		t.Errorf("Link page = %v, want 2 (reply #31 at 25/page)", got)
 	}
 }
 

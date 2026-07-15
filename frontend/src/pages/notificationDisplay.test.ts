@@ -10,13 +10,28 @@ function notif(type: string, data: Record<string, unknown>): Notification {
 }
 
 describe("mention notification rendering", () => {
-  test("links to the publisher-provided deep-link URL", () => {
+  test("builds a comment deep-link with the page from structured data", () => {
     const n = notif("mention", {
-      url: "/torrent/7#comment-9",
+      source: "torrent_comment",
+      torrent_id: 7,
+      comment_id: 9,
+      page: 3,
       context_title: "Some Release",
       actor_username: "bob",
     });
-    expect(notificationLink(n)).toBe("/torrent/7#comment-9");
+    expect(notificationLink(n)).toBe("/torrent/7?page=3#comment-9");
+  });
+
+  test("builds a forum deep-link and omits page 1", () => {
+    const n = notif("mention", {
+      source: "forum_post",
+      topic_id: 4,
+      post_id: 8,
+      page: 1,
+      context_title: "A Topic",
+      actor_username: "bob",
+    });
+    expect(notificationLink(n)).toBe("/forums/topics/4#post-8");
   });
 
   test("message names the actor and the context", () => {
@@ -33,7 +48,7 @@ describe("mention notification rendering", () => {
     expect(notificationMessage(n)).toBe("bob mentioned you");
   });
 
-  test("a mention without a url has no link", () => {
+  test("a mention without link data has no link", () => {
     const n = notif("mention", { actor_username: "bob" });
     expect(notificationLink(n)).toBeNull();
   });

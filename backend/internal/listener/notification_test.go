@@ -183,8 +183,8 @@ func mentionEvent(actorID int64, actorName string, usernames ...string) *event.U
 		Base:               event.NewBase(event.UserMentioned, actor(actorID, actorName)),
 		Source:             event.MentionSourceForumPost,
 		MentionedUsernames: usernames,
-		URL:                "/forums/topics/7#post-100",
 		ContextTitle:       "A Topic",
+		Link:               map[string]any{"topic_id": int64(7), "post_id": int64(100), "page": 1},
 	}
 }
 
@@ -223,16 +223,17 @@ func TestUserMentionedNotifiesEachUser(t *testing.T) {
 		}
 	}
 
-	// The notification is self-describing: it carries its own deep-link + context.
+	// The notification is self-describing: the listener merges the event's Link
+	// (source-specific ids + page) into the data the frontend builds a link from.
 	var data map[string]interface{}
 	if err := json.Unmarshal(h.store.forUser(2)[0].Data, &data); err != nil {
 		t.Fatalf("mention data is not valid JSON: %v", err)
 	}
-	if data["url"] != "/forums/topics/7#post-100" {
-		t.Errorf("url = %v, want the deep-link", data["url"])
-	}
 	if data["source"] != event.MentionSourceForumPost || data["context_title"] != "A Topic" {
 		t.Errorf("source/context = %v / %v", data["source"], data["context_title"])
+	}
+	if data["topic_id"] != float64(7) || data["post_id"] != float64(100) || data["page"] != float64(1) {
+		t.Errorf("link fields = topic:%v post:%v page:%v", data["topic_id"], data["post_id"], data["page"])
 	}
 }
 
