@@ -3,6 +3,7 @@ import { api } from "@/api";
 import { Select } from "@/components/form";
 import { useAuth } from "@/features/auth";
 import { getConfig } from "@/config";
+import { buildCategoryOptions } from "@/utils/categories";
 import "./rss-builder.css";
 
 function buildFeedURL(passkey: string, categoryId: string): string {
@@ -26,14 +27,17 @@ export function RSSBuilderPage() {
     async function fetchCategories() {
       const { data } = await api.GET("/api/v1/categories");
       if (data?.categories) {
-        const opts = [
-          { value: "", label: "All categories" },
-          ...data.categories.map((c) => ({
-            value: String(c.id ?? ""),
-            label: c.name ?? "Unknown",
-          })),
-        ];
-        setCategoryOptions(opts);
+        setCategoryOptions(
+          buildCategoryOptions(
+            data.categories as {
+              id: number;
+              name: string;
+              parent_id: number | null;
+              sort_order: number;
+            }[],
+            "All categories",
+          ),
+        );
       }
     }
     fetchCategories();
