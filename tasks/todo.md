@@ -2,6 +2,51 @@
 
 The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
+## Session 2026-07-16 (cont'd 2) — admin user detail revamp + edit history
+
+Branch `feat/admin-user-detail-revamp` (worktree). Brief: revamp `/admin/users/{id}`.
+Production screenshot is behind local main (Suspend invite, Privileges panel, and
+Bonus points already exist locally), so the remaining scope is:
+
+1. Form spacing/layout — sibling inputs touch each other; fix vertical rhythm in the
+   shared form primitives + sectioned page layout, same design system site-wide.
+2. Unit-aware editing of Uploaded/Downloaded (B/KB/MB/GB/TB, 1024-based to match
+   `formatBytes`) instead of raw bytes.
+3. Audit trail for admin edits of user fields (old, new, who, when) — especially
+   uploaded/downloaded/invites, recorded for all profile fields; "Edit history"
+   panel on the page.
+
+### Backend
+- [x] Migration `057_create_user_edit_history.sql` (table + `(user_id, created_at DESC)` index)
+- [x] `model.UserEditHistory`
+- [x] `repository.UserEditHistoryRepository` (batch Record; ListByUser w/ limit+offset+total)
+- [x] `postgres.UserEditHistoryRepo` + testcontainers repo test
+- [x] `AdminService`: `SetEditHistoryRepo`, diff-and-record in `UpdateUser` (non-fatal,
+      logged on failure), `ListUserEditHistory`; unit tests
+- [x] `HandleListUserEditHistory` GET `/api/v1/admin/users/{id}/edit-history` + router + tests
+- [x] Wire in `cmd/server/main.go`
+
+### Frontend
+- [x] `ByteSizeInput` form component (canonical-bytes state, amount+unit select,
+      exact-bytes hint) + tests
+- [x] Shared form polish (`.form-stack`, focus ring, textarea min-height) — token-based, site-wide
+- [x] `AdminUserDetailPage`: form-stack layout, ByteSizeInput for uploaded/downloaded,
+      Edit history panel (bytes fields humanized, load-more)
+- [x] Page test updates (30 pass)
+
+### Verification
+- [x] backend: build, vet, full tests (Docker repo tests → migration 057 applies), golangci-lint 0 issues, coverage 80.1% ≥ 80.0% floor
+- [x] frontend: build, vitest 596 passed, lint 0 errors, format:check clean
+- [x] `docs/IMPLEMENTATION_TASKS.md` story BE-8.17 added, marked DONE
+- [x] Devil's advocate + code reviewer findings triaged: fixed the critical
+      (dirty-fields-only saves — untouched uploaded/downloaded no longer revert
+      announce accrual or pollute the audit trail), audit retention (no user_id
+      FK; changed_by username snapshot; changed_by index), ByteSizeInput
+      empty/clamp/a11y, history dedupe + error state + no-op-looking byte
+      diffs, UTC timestamps, limit clamp, derefString reuse. Deferred to
+      BE-8.18: SetStats path + tx-integrated audit + keyset pagination.
+      Filed BE-8.19 [BUG]: cleanup worker hard-deletes banned users.
+
 ## Session 2026-07-16 (cont'd) — BE-8.15 + BE-8.16: invite follow-ups
 
 PR #102 (FE-5.15) merged to main. Follow-up branch `feat/invite-outstanding-management`:
@@ -59,5 +104,6 @@ The remaining gap is almost entirely `internal/handler` (~1,600 uncovered statem
 ## Known Bugs / Tech Debt
 
 - FE-BUG-1: Invites page doesn't reflect updated count after admin edit (auth context caches)
+- BE-8.19 [BUG]: cleanup worker step 4 hard-deletes *banned* users (bare `enabled = false AND created_at < 7d` filter matches them), cascading their data away — found 2026-07-17 during BE-8.17 audit-retention review
 - BE-STATS-1: Footer stats polling — half-addressed by the Redis `StatsCache`; still no WebSocket/SSE push (BE-9.4)
 - BE-STATS-3: Removed — no legacy data to backfill (see BE-9.5)

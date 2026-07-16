@@ -35,6 +35,12 @@
 .form-select:focus,
 .form-textarea:focus {
   border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+.form-textarea {
+  min-height: 5.5rem;
+  resize: vertical;
 }
 
 .form-input:disabled,
@@ -55,6 +61,37 @@
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--color-error);
+}
+
+/* A vertical run of form fields with consistent rhythm. Wrap any form body in
+   this instead of hand-spacing each field. */
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Amount + unit pair for size fields (ByteSizeInput). */
+.form-sizegroup {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.form-sizegroup__amount {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.form-sizegroup__unit {
+  flex-shrink: 0;
+}
+
+.form-hint {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .form-checkbox {

@@ -215,6 +215,7 @@ func run() int {
 	adminService.SetBanService(banService)
 	adminService.SetGroupWriter(groupRepo)
 	adminService.SetBonusRepo(bonusRepo)
+	adminService.SetEditHistoryRepo(postgres.NewUserEditHistoryRepo(db))
 
 	reportService.SetWarningService(warningService)
 	reportService.SetTorrentService(torrentService)

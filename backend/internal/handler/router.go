@@ -363,6 +363,7 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Get("/users", admin.HandleListUsers)
 						r.Get("/users/{id}", admin.HandleGetUserDetail)
 						r.Put("/users/{id}", admin.HandleUpdateUser)
+						r.Get("/users/{id}/edit-history", admin.HandleListUserEditHistory)
 						r.Put("/users/{id}/reset-password", admin.HandleResetPassword)
 						r.Put("/users/{id}/reset-passkey", admin.HandleResetPasskey)
 						r.Post("/users/{id}/ban", admin.HandleQuickBan)

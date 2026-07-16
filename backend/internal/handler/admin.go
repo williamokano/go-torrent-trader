@@ -129,6 +129,45 @@ func (h *AdminHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// HandleListUserEditHistory handles GET /api/v1/admin/users/{id}/edit-history.
+func (h *AdminHandler) HandleListUserEditHistory(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+			limit = min(n, 200)
+		}
+	}
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if n, err := strconv.Atoi(offsetStr); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	entries, total, err := h.admin.ListUserEditHistory(r.Context(), id, limit, offset)
+	if err != nil {
+		if errors.Is(err, service.ErrAdminUserNotFound) {
+			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list edit history")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"entries": entries,
+		"total":   total,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
 // HandleResetPassword handles PUT /api/v1/admin/users/{id}/reset-password.
 func (h *AdminHandler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
 	actorID, ok := middleware.UserIDFromContext(r.Context())

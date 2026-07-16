@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/big"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -129,6 +130,7 @@ type AdminService struct {
 	messages    repository.MessageRepository
 	bans        *BanService
 	bonus       repository.BonusRepository
+	editHistory repository.UserEditHistoryRepository
 }
 
 // NewAdminService creates a new AdminService.
@@ -179,6 +181,12 @@ func (s *AdminService) SetGroupWriter(w repository.GroupWriteRepository) {
 // SetBonusRepo sets the repository used for bonus point adjustments.
 func (s *AdminService) SetBonusRepo(repo repository.BonusRepository) {
 	s.bonus = repo
+}
+
+// SetEditHistoryRepo sets the repository recording the audit trail of admin
+// edits to user profile fields.
+func (s *AdminService) SetEditHistoryRepo(repo repository.UserEditHistoryRepository) {
+	s.editHistory = repo
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -399,49 +407,88 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		oldGroupName = g.Name
 	}
 
+	// Actor resolved up front: the username is snapshotted into every audit
+	// row (so the trail survives the admin's deletion) and reused for events.
+	actor := s.actorFromUserID(ctx, actorID)
+
+	// Every field change is diffed into the edit-history audit trail: one row
+	// per field with the old value, new value and acting admin. Entries are
+	// recorded only after the write that persists them succeeds.
+	var audit []model.UserEditHistory
+	record := func(field, oldValue, newValue string) {
+		if oldValue == newValue {
+			return
+		}
+		audit = append(audit, model.UserEditHistory{
+			UserID:            user.ID,
+			ChangedBy:         &actorID,
+			ChangedByUsername: actor.Username,
+			Field:             field,
+			OldValue:          oldValue,
+			NewValue:          newValue,
+		})
+	}
+
 	if req.Username != nil {
+		record("username", user.Username, *req.Username)
 		user.Username = *req.Username
 	}
 	if req.Email != nil {
+		record("email", user.Email, *req.Email)
 		user.Email = *req.Email
 	}
 	if req.Avatar != nil {
+		record("avatar", derefString(user.Avatar), *req.Avatar)
 		user.Avatar = req.Avatar
 	}
 	if req.Title != nil {
+		record("title", derefString(user.Title), *req.Title)
 		user.Title = req.Title
 	}
 	if req.Info != nil {
+		record("info", derefString(user.Info), *req.Info)
 		user.Info = req.Info
 	}
 	if req.GroupID != nil {
-		if _, err := s.groups.GetByID(ctx, *req.GroupID); err != nil {
+		newGroup, err := s.groups.GetByID(ctx, *req.GroupID)
+		if err != nil {
 			return nil, fmt.Errorf("%w: invalid group_id", ErrAdminGroupNotFound)
+		}
+		if user.GroupID != *req.GroupID {
+			record("group", oldGroupName, newGroup.Name)
 		}
 		user.GroupID = *req.GroupID
 	}
 	if req.Uploaded != nil {
+		record("uploaded", strconv.FormatInt(user.Uploaded, 10), strconv.FormatInt(*req.Uploaded, 10))
 		user.Uploaded = *req.Uploaded
 	}
 	if req.Downloaded != nil {
+		record("downloaded", strconv.FormatInt(user.Downloaded, 10), strconv.FormatInt(*req.Downloaded, 10))
 		user.Downloaded = *req.Downloaded
 	}
 	if req.Enabled != nil {
+		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
 		user.Enabled = *req.Enabled
 	}
 	if req.Warned != nil {
+		record("warned", strconv.FormatBool(user.Warned), strconv.FormatBool(*req.Warned))
 		user.Warned = *req.Warned
 	}
 	if req.Donor != nil {
+		record("donor", strconv.FormatBool(user.Donor), strconv.FormatBool(*req.Donor))
 		user.Donor = *req.Donor
 	}
 	if req.Parked != nil {
+		record("parked", strconv.FormatBool(user.Parked), strconv.FormatBool(*req.Parked))
 		user.Parked = *req.Parked
 	}
 
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
+	s.recordEditHistory(ctx, user.ID, actorID, audit)
+	audit = nil
 
 	// Invites are set through the dedicated SetInvites method, never the
 	// full-row Update: two concurrent writers (this admin edit and an
@@ -449,10 +496,14 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	// other via a stale read, the same race BE-8.16 closed for the privilege
 	// flags and this story closes for invites.
 	if req.Invites != nil {
+		oldInvites := user.Invites
 		if err := s.users.SetInvites(ctx, user.ID, *req.Invites); err != nil {
 			return nil, fmt.Errorf("set invites: %w", err)
 		}
 		user.Invites = *req.Invites
+		record("invites", strconv.Itoa(oldInvites), strconv.Itoa(*req.Invites))
+		s.recordEditHistory(ctx, user.ID, actorID, audit)
+		audit = nil
 	}
 
 	// Bonus points are set through the bonus repo, never the full-row Update:
@@ -465,14 +516,14 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		if s.bonus == nil {
 			return nil, fmt.Errorf("bonus repository not configured")
 		}
+		oldBonus := user.BonusPoints
 		if err := s.bonus.SetPoints(ctx, user.ID, *req.BonusPoints, actorID); err != nil {
 			return nil, fmt.Errorf("set bonus points: %w", err)
 		}
 		user.BonusPoints = *req.BonusPoints
+		record("bonus_points", strconv.FormatInt(oldBonus, 10), strconv.FormatInt(*req.BonusPoints, 10))
+		s.recordEditHistory(ctx, user.ID, actorID, audit)
 	}
-
-	// Build actor for events
-	actor := s.actorFromUserID(ctx, actorID)
 
 	// Publish events for state changes
 	if oldEnabled && !user.Enabled {
@@ -561,6 +612,61 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		view.LastAccess = &la
 	}
 	return view
+}
+
+// recordEditHistory persists audit entries best-effort: the user update has
+// already been committed, so a failure here must not roll it back — it is
+// logged loudly instead. A nil repo (tests, partial wiring) skips recording.
+func (s *AdminService) recordEditHistory(ctx context.Context, userID, actorID int64, entries []model.UserEditHistory) {
+	if s.editHistory == nil || len(entries) == 0 {
+		return
+	}
+	if err := s.editHistory.Record(ctx, entries); err != nil {
+		slog.Error("failed to record user edit history", "user_id", userID, "actor_id", actorID, "error", err)
+	}
+}
+
+// AdminUserEditHistoryView is the edit-history entry representation returned
+// by admin endpoints.
+type AdminUserEditHistoryView struct {
+	ID                int64  `json:"id"`
+	UserID            int64  `json:"user_id"`
+	ChangedBy         *int64 `json:"changed_by"`
+	ChangedByUsername string `json:"changed_by_username"`
+	Field             string `json:"field"`
+	OldValue          string `json:"old_value"`
+	NewValue          string `json:"new_value"`
+	CreatedAt         string `json:"created_at"`
+}
+
+// ListUserEditHistory returns the audit trail of admin edits for a user,
+// newest first, plus the total entry count.
+func (s *AdminService) ListUserEditHistory(ctx context.Context, userID int64, limit, offset int) ([]AdminUserEditHistoryView, int64, error) {
+	if s.editHistory == nil {
+		return nil, 0, fmt.Errorf("edit history repository not configured")
+	}
+	if _, err := s.users.GetByID(ctx, userID); err != nil {
+		return nil, 0, ErrAdminUserNotFound
+	}
+	entries, total, err := s.editHistory.ListByUser(ctx, userID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list user edit history: %w", err)
+	}
+	views := make([]AdminUserEditHistoryView, 0, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		views = append(views, AdminUserEditHistoryView{
+			ID:                e.ID,
+			UserID:            e.UserID,
+			ChangedBy:         e.ChangedBy,
+			ChangedByUsername: e.ChangedByUsername,
+			Field:             e.Field,
+			OldValue:          e.OldValue,
+			NewValue:          e.NewValue,
+			CreatedAt:         e.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		})
+	}
+	return views, total, nil
 }
 
 func (s *AdminService) actorFromUserID(ctx context.Context, userID int64) event.Actor {

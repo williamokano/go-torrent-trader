@@ -369,6 +369,15 @@ type ModNoteRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// UserEditHistoryRepository defines persistence operations for the audit
+// trail of admin edits to user profile fields.
+type UserEditHistoryRepository interface {
+	// Record appends one row per changed field. A no-op on an empty slice.
+	Record(ctx context.Context, entries []model.UserEditHistory) error
+	// ListByUser returns entries newest-first plus the total count.
+	ListByUser(ctx context.Context, userID int64, limit, offset int) ([]model.UserEditHistory, int64, error)
+}
+
 // ListNewsOptions holds filtering and pagination options for listing news (admin).
 type ListNewsOptions struct {
 	Published *bool
