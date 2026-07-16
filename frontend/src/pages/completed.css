@@ -1,0 +1,30 @@
+.completed-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.completed-page__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.completed-page__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.completed-page__loading,
+.completed-page__error {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--color-text-muted);
+}
+
+.completed-page__error {
+  color: var(--color-error);
+}

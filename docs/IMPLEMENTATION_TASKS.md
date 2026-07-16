@@ -1763,7 +1763,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Reseed request button (if dead)
 - Edit button (if owner or moderator)
 
-#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S] [PARTIAL — Today's + Need Seed done; Completed (user download history) deferred to PM system]
+#### FE-1.5: Today's Torrents, Need Seed, Completed Views [S] [DONE]
 **As a** user
 **I want** quick-access filtered views
 **So that** I can find torrents matching specific criteria
@@ -1773,6 +1773,12 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Need seed: torrents with 0 seeders
 - Completed: user's download history
 - Reuses torrent list component with pre-set filters
+
+**Delivered:**
+- The history-tab table + pagination on `UserProfilePage` extracted into a reusable `ActivityHistoryTable` component (`frontend/src/components/ActivityHistoryTable.tsx`); the `ActivityItem` type moved to `frontend/src/types/activity.ts`.
+- New standalone `/completed` page (`CompletedPage.tsx`) for the logged-in user, reusing `ActivityHistoryTable` against the existing `GET /api/v1/users/{id}/activity?tab=history` endpoint from BE-3.16 — no new backend work needed. Wired into the "Torrents" nav dropdown alongside Today/Need Seed, and gated by `ProtectedRoute`.
+
+> **Follow-up (minor, from code review):** `ActivityHistoryTable`'s Prev/Next pagination control is a near-duplicate of the one still inline in `UserProfilePage.tsx` (used by its Uploads/Seeding/Leeching tabs). Worth factoring into one shared component if another consumer shows up; not worth the churn for two call sites today.
 
 #### FE-1.6: RSS Feed Builder Page [S] [DONE]
 **As a** user

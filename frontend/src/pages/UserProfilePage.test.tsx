@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { UserProfilePage } from "@/pages/UserProfilePage";
@@ -233,6 +234,85 @@ describe("UserProfilePage", () => {
           headers: { Authorization: "Bearer fake-token" },
         }),
       );
+    });
+  });
+
+  test("renders the History tab via the extracted ActivityHistoryTable", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/activity")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              activity: [
+                {
+                  torrent_id: 9,
+                  torrent_name: "Some.Linux.ISO",
+                  uploaded: 2147483648,
+                  downloaded: 314572800,
+                  ratio: 1.75,
+                  seeder: false,
+                  completed_at: "2025-06-01T10:00:00Z",
+                },
+              ],
+              total: 1,
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ user: { ...FAKE_PROFILE, id: 42 } }),
+      });
+    });
+
+    const user = userEvent.setup();
+    renderProfilePage("42");
+
+    await waitFor(() => {
+      expect(screen.getByText("jdoe")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "History" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Some.Linux.ISO")).toBeInTheDocument();
+    });
+    expect(screen.getByText("2.00 GB")).toBeInTheDocument();
+    expect(screen.getByText("300.00 MB")).toBeInTheDocument();
+    expect(screen.getByText("1.75")).toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/users/42/activity?tab=history&page=1&per_page=25",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer fake-token" },
+      }),
+    );
+  });
+
+  test("shows the empty-history message on the History tab when there is no activity", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/activity")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ activity: [], total: 0 }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ user: { ...FAKE_PROFILE, id: 42 } }),
+      });
+    });
+
+    const user = userEvent.setup();
+    renderProfilePage("42");
+
+    await waitFor(() => {
+      expect(screen.getByText("jdoe")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "History" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("No activity found.")).toBeInTheDocument();
     });
   });
 });
