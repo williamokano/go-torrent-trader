@@ -97,28 +97,31 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 }
 
 // Update writes every user-editable column except can_download, can_upload,
-// can_chat, and can_invite. Those four are governed by RestrictionService and
-// deliberately excluded here — mirroring how bonus_points is excluded — so a
-// stale read-modify-write elsewhere (login's LastLogin write, invite
-// creation's decrement, an admin profile save) can never clobber a privilege
-// flag changed concurrently by a restriction apply/lift. Use SetPrivilegeFlag
-// to change one of those four columns.
+// can_chat, can_invite, and invites. The four privilege flags are governed by
+// RestrictionService; invites is governed by InviteService/
+// InviteDistributionService's AdjustInvites and AdminService's SetInvites.
+// All five are deliberately excluded here — mirroring how bonus_points is
+// excluded — so a stale read-modify-write elsewhere (login's LastLogin write,
+// an admin profile save) can never clobber a privilege flag changed
+// concurrently by a restriction apply/lift, or an invite balance changed
+// concurrently by a grant/decrement. Use SetPrivilegeFlag, AdjustInvites, or
+// SetInvites to change one of those five columns.
 func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 	query := `UPDATE users SET
 		username = $1, email = $2, password_hash = $3, password_scheme = $4,
 		passkey = $5, group_id = $6, uploaded = $7, downloaded = $8,
 		avatar = $9, title = $10, info = $11, enabled = $12, parked = $13,
-		ip = $14, last_login = $15, last_access = $16, invites = $17,
-		warned = $18, warn_until = $19, donor = $20, invited_by = $21,
-		can_forum = $22, disabled_until = $23, updated_at = NOW()
-	WHERE id = $24
+		ip = $14, last_login = $15, last_access = $16,
+		warned = $17, warn_until = $18, donor = $19, invited_by = $20,
+		can_forum = $21, disabled_until = $22, updated_at = NOW()
+	WHERE id = $23
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
 		user.Username, user.Email, user.PasswordHash, user.PasswordScheme,
 		user.Passkey, user.GroupID, user.Uploaded, user.Downloaded,
 		user.Avatar, user.Title, user.Info, user.Enabled, user.Parked,
-		user.IP, user.LastLogin, user.LastAccess, user.Invites,
+		user.IP, user.LastLogin, user.LastAccess,
 		user.Warned, user.WarnUntil, user.Donor, user.InvitedBy,
 		user.CanForum, user.DisabledUntil, user.ID,
 	).Scan(&user.UpdatedAt)
@@ -161,6 +164,51 @@ func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restricti
 		return fmt.Errorf("set privilege flag rows affected: %w", err)
 	}
 	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// AdjustInvites atomically applies a delta to a user's invite balance —
+// UPDATE users SET invites = invites + $1 — mirroring how bonus_points is
+// adjusted (BonusRepo.AwardPoints). InviteService.CreateInvite's decrement and
+// InviteDistributionService's auto-grant both use this instead of a
+// read-modify-write through Update, so those two paths (and any concurrent
+// full-row Update, which no longer touches invites at all) can never clobber
+// each other's write to this column.
+func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE users SET invites = invites + $1, updated_at = NOW() WHERE id = $2`, delta, userID)
+	if err != nil {
+		return fmt.Errorf("adjust invites: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("adjust invites rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// SetInvites atomically sets a user's invite balance to an absolute value —
+// UPDATE users SET invites = $1 — bypassing Update's full-row write. This is
+// AdminService's path for an admin's explicit "set invites to N" edit; unlike
+// AdjustInvites it is not a delta, so two racing calls are a plain
+// last-write-wins on the same column (the admin's intended target value),
+// not a stale-read clobber of an unrelated concurrent change.
+func (r *UserRepo) SetInvites(ctx context.Context, userID int64, invites int) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE users SET invites = $1, updated_at = NOW() WHERE id = $2`, invites, userID)
+	if err != nil {
+		return fmt.Errorf("set invites: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set invites rows affected: %w", err)
+	}
+	if n == 0 {
 		return sql.ErrNoRows
 	}
 	return nil

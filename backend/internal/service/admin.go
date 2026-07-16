@@ -104,9 +104,20 @@ type AdminUpdateUserRequest struct {
 	BonusPoints *int64 `json:"bonus_points"`
 }
 
+// inviteSetRepository is repository.UserRepository plus the ability to
+// atomically set a user's absolute invite balance without a full-row Update.
+// Kept local to this file rather than added to repository.UserRepository, so
+// the many existing mocks implementing UserRepository elsewhere in the test
+// suite are untouched — the same approach service/restriction.go uses for
+// privilegeFlagRepository.
+type inviteSetRepository interface {
+	repository.UserRepository
+	SetInvites(ctx context.Context, userID int64, invites int) error
+}
+
 // AdminService handles admin-only business logic.
 type AdminService struct {
-	users       repository.UserRepository
+	users       inviteSetRepository
 	groups      repository.GroupRepository
 	groupWriter repository.GroupWriteRepository
 	sessions    SessionStore
@@ -121,7 +132,7 @@ type AdminService struct {
 }
 
 // NewAdminService creates a new AdminService.
-func NewAdminService(users repository.UserRepository, groups repository.GroupRepository, bus event.Bus) *AdminService {
+func NewAdminService(users inviteSetRepository, groups repository.GroupRepository, bus event.Bus) *AdminService {
 	return &AdminService{users: users, groups: groups, eventBus: bus}
 }
 
@@ -427,12 +438,21 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	if req.Parked != nil {
 		user.Parked = *req.Parked
 	}
-	if req.Invites != nil {
-		user.Invites = *req.Invites
-	}
 
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	// Invites are set through the dedicated SetInvites method, never the
+	// full-row Update: two concurrent writers (this admin edit and an
+	// auto-grant or invite creation elsewhere) could otherwise clobber each
+	// other via a stale read, the same race BE-8.16 closed for the privilege
+	// flags and this story closes for invites.
+	if req.Invites != nil {
+		if err := s.users.SetInvites(ctx, user.ID, *req.Invites); err != nil {
+			return nil, fmt.Errorf("set invites: %w", err)
+		}
+		user.Invites = *req.Invites
 	}
 
 	// Bonus points are set through the bonus repo, never the full-row Update:

@@ -73,6 +73,17 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register bonus award: %w", err)
 	}
 
+	// Evaluate invite distribution daily, offset from the promotion job so
+	// they don't fire at the identical instant. The engine gates on its own
+	// configurable interval and enable flag, so a fixed daily schedule is fine.
+	inviteDistributionTask, err := NewInviteDistributionTask()
+	if err != nil {
+		return fmt.Errorf("create invite distribution task: %w", err)
+	}
+	if _, err := scheduler.Register("30 5 * * *", inviteDistributionTask); err != nil {
+		return fmt.Errorf("register invite distribution: %w", err)
+	}
+
 	return nil
 }
 

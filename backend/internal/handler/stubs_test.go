@@ -107,6 +107,24 @@ func (s *stubUserRepo) SetPrivilegeFlag(_ context.Context, userID int64, restric
 	return nil
 }
 
+func (s *stubUserRepo) AdjustInvites(_ context.Context, userID int64, delta int64) error {
+	u, ok := s.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	u.Invites += int(delta)
+	return nil
+}
+
+func (s *stubUserRepo) SetInvites(_ context.Context, userID int64, invites int) error {
+	u, ok := s.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	u.Invites = invites
+	return nil
+}
+
 // --- private messages -------------------------------------------------------
 
 type stubMessageRepo struct {

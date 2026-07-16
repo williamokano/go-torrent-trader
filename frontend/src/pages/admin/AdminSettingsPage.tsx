@@ -291,6 +291,25 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       "The trailing window over which seeding time is measured from the announce log for the 'Min Seed (hrs)' promotion rule. Default: 30.",
     type: "number",
   },
+  // Auto invite distribution
+  {
+    key: "invite_distribution_enabled",
+    label: "Auto Invite Distribution Enabled",
+    description:
+      "Master toggle for automatic invite distribution. When enabled, the engine periodically grants +1 invite to eligible users based on the per-class rules configured on the Invite Distribution page.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "invite_distribution_interval_days",
+    label: "Invite Distribution Cycle (days)",
+    description:
+      "How often the invite distribution engine evaluates users. The daily job is a no-op until this many days have elapsed since the last run. Default: 7.",
+    type: "number",
+  },
   // Bonus point economy
   {
     key: "bonus_enabled",

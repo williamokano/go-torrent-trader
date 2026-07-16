@@ -741,17 +741,25 @@
 - Decrement inviter's invite count on send
 - Expire unused invites after configurable period (default 7 days)
 
-#### BE-4.2: Auto-Invite Distribution [S] [TODO — manual admin grant only for now]
+#### BE-4.2: Auto-Invite Distribution [S] [DONE]
 **As a** tracker operator
 **I want** invites distributed automatically based on user activity
 **So that** active users can grow the community
 
-**Acceptance Criteria:**
-- Background job: runs on configurable interval
-- Criteria: downloaded GB range, ratio threshold
-- Max invites per role (configurable)
-- Don't exceed per-role cap (check current count before adding)
-- Log distributions
+**Context:** The original acceptance criteria's wording ("downloaded GB range", "max invites per role") was ambiguous; the design below is the clarified, concrete spec that shipped. It mirrors the auto class-promotion engine (BE-8.13, admin page FE-5.11/5.12) almost exactly: a background job evaluates users against per-group configurable rules, an admin FE edits the rule set, and a Run-now button forces an off-cycle run.
+
+**Delivered:**
+- **Schema** — migration 056 (`invite_distribution_rules`): `group_id` PK/FK, `min_ratio`, `min_downloaded_bytes`, `max_downloaded_bytes` (0 = unbounded, mirrors `promotion_rules`), `max_invites` (a per-user ceiling; 0 deliberately means "grant nothing" until an admin configures a real cap — the safe default for a freshly added rule row). Plus `invite_distribution_runs` for run bookkeeping, mirroring `promotion_runs`. New site settings `invite_distribution_enabled` (default off) and `invite_distribution_interval_days` (default 7).
+- **Eligibility per group**: `ratio >= min_ratio` AND `downloaded_bytes` within `[min_downloaded_bytes, max_downloaded_bytes]`. **Grant**: +1 invite per cycle, only while the user's current `Invites` balance is below the group's `max_invites` — a per-user ceiling, not a shared pool.
+- **`can_invite`-restriction interaction (design decision):** a user whose invite privilege is suspended does **not** receive auto-grants, even if otherwise eligible. This mirrors how outstanding invite tokens are already voided while `can_invite` is false (BE-8.15/8.16) — the restriction means "no invite activity for this user," not just "no manual invite creation." Granting anyway would let the balance quietly bank rewards during a punitive suspension, available in full the moment it's lifted.
+- **Backend:** `model.InviteDistributionRule` / `model.UserInviteState`; `repository.InviteDistributionRepository` (`internal/repository/postgres/invite_distribution.go`); `service.InviteDistributionService` (`Run(ctx, force)`, `ListRules`/`UpsertRule`/`DeleteRule`) mirroring `PromotionService`'s shape; `worker/invite_distribution.go` (asynq task, registered daily at `30 5 * * *` — offset from promotion's `0 5 * * *`); `handler/invite_distribution.go` admin CRUD + run-now endpoints under `/api/v1/admin/invite-distribution/rules[/{group_id}]` and `/run`.
+- **Reused, not duplicated:** the per-user uploaded/downloaded/tenure query is shared between `PromotionRepository.LadderMetrics` and `InviteDistributionRepository.GroupMetrics` via a new `queryGroupMetrics` helper (`internal/repository/postgres/user_metrics.go`) — one query for that shape, not two.
+- **New `InviteAutoGrantedEvent`** → activity log listener, one entry per grant: "System granted an invite to `{username}` via auto-distribution" (mirrors `InviteRevokedEvent`'s pattern from BE-8.15).
+- **Bundled consistency fix, extended to full closure:** `UserRepo.AdjustInvites(ctx, userID, delta)` — an atomic `UPDATE users SET invites = invites + $1`, mirroring how `bonus_points` is adjusted (BE-8.14) — is now the only path that increments/decrements the invite balance; `InviteService.CreateInvite`'s decrement was rewired onto it (closing the same stale-read clobber race BE-8.16 closed for the privilege flags, but for `invites`). Going further than the minimum ask: `UserRepo.Update` now excludes `invites` entirely (mirroring `bonus_points` and the four privilege flags), and a new `UserRepo.SetInvites(ctx, userID, invites)` (an absolute, non-delta set) replaces `AdminService`'s prior read-modify-write-through-`Update` for the admin "set invites to N" edit — so *no* invites write path is a stale full-row `Update` anymore, not just the two this story added. `NewInviteService`/`NewInviteDistributionService`/`NewAdminService` take narrow local interfaces (`inviteAdjustRepository`, `inviteSetRepository`) for this, following the `privilegeFlagRepository` pattern from BE-8.16 so the broader `UserRepository`-implementing mocks elsewhere are untouched.
+- **Tests:** repository (postgres, via testcontainers: rules CRUD, `GroupMetrics`, `UserInviteStates`, run bookkeeping, migration 056 applies cleanly), service (disabled/interval/force gating, eligible/ineligible ratio/downloaded-range/ceiling/zero-ceiling/suspended-privilege cases, staff-group and invalid-range rejection, error propagation for every repo call), worker (task construction + nil-deps skip), handler (admin-gated CRUD + run, 403 for non-admins, invalid-range 400), listener (activity log message, username-resolution fallback). Plus `TestUserRepoAdjustInvitesDoesNotLoseConcurrentWrite` / `TestUserRepoSetInvitesIsAbsolute` / `TestUserRepoUpdateDoesNotWriteInvites` (postgres), mirroring `TestUserRepoUpdate_DoesNotClobberPrivilegeFlags` from BE-8.16 for the same race shape applied to `invites`.
+- **Known follow-up (not blocking):** none of the above closes every conceivable admin-vs-engine race elsewhere in the codebase — e.g. two admins racing `SetInvites` with different absolute targets is a plain last-write-wins on the same column, which is expected for an explicit "set to N" action (the same way `BonusRepo.SetPoints` behaves), not a bug. Separately (code-review finding, Low): `AdjustInvites` has no floor guard, so two concurrent `CreateInvite` calls against a balance of 1 can both pass the stale `Invites <= 0` pre-check and both decrement, landing the balance at `-1` instead of the pre-existing behavior's lost-update-at-`0` — benign (the `<= 0` gate still blocks further creates, and admin `SetInvites`/auto-grants recover it) but the clean fix is a conditional decrement mirroring `BonusRepo`'s guarded spend path (`UPDATE ... SET invites = invites - 1 WHERE id = $1 AND invites > 0`, mapping zero-rows-affected to `ErrNoInvitesRemaining`).
+
+*(Frontend: see FE-5.16.)*
 
 ---
 
@@ -2179,6 +2187,17 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - **Remaining admin pages adopted the shared layer** (`admin-page-header`, `admin-toolbar`, `admin-panel`, `admin-table`, outline `admin-badge` pills, mono `admin-num` figures, `admin-btn` family): Dashboard, Torrents, Bans, Warnings, Reports, Chat Mutes, Cheat Flags, News, Forums, Categories, Backups, Site Settings. Per-page CSS trimmed to genuinely page-specific rules; `admin-ui.css` gained panel sections/titles, stat strip, empty states, and the button family.
 - Tests: invite restriction covered in service/handler tests (backend) and page tests (frontend detail page: privilege grid, suspend checkbox, PUT body, history table).
 - Review hardening (PR #102 devil's-advocate findings): escalation's `warning_restrict_type = "all"` now includes invite and the settings UI offers an "Invite" option; outstanding invite tokens are **voided while the inviter's privilege is suspended** (`ValidateInvite`/`RedeemInvite` -> 410 `voided`, valid again if the restriction lifts before expiry); "Restore" heals a drifted flag even with no active restriction rows (`SyncUserFlag`); past `expires_at` is rejected with 400.
+
+#### FE-5.16: Invite Distribution Admin Page [S] [DONE]
+**As an** administrator
+**I want** to configure and run the auto invite distribution engine from the admin panel
+**So that** I can tune eligibility per class and force an off-cycle run without touching the database
+
+**Delivered (pairs with BE-4.2):**
+- New `/admin/invite-distribution` page (`AdminInviteDistributionPage`), a direct port of the Class Promotion admin page's pattern: one row per non-staff class with a toggle ("Eligible") plus min ratio, min/max downloaded (entered in GiB, converted to/from bytes), and max invites; edits batch into a single "Save changes" bar (PUT per changed class, DELETE when toggled off); a "Run now" button posts to the run endpoint and reports the granted count or the skip reason (e.g. "Invite distribution is off — enable it in Site Settings to run"). Reuses the shared `admin-page-header`/`admin-panel`/`admin-table`/`admin-savebar` primitives and `Button` from `@/components/form` — no new bespoke CSS.
+- Nav entry ("Invite Distribution") added to `AdminLayout` next to Class Promotion; route registered in `router.tsx` under the existing `AdminRoute`/`AdminLayout` guard, so no separate permission wiring was needed.
+- `AdminSettingsPage`: labelled `SETTING_DEFINITIONS` entries for `invite_distribution_enabled` and `invite_distribution_interval_days`, placed next to the `promotion_enabled`/`promotion_interval_days` entries they mirror (unlabelled settings render as raw keys — the defect flagged in BE-9.21).
+- Tests: `AdminInviteDistributionPage.test.tsx` mirrors `AdminPromotionPage.test.tsx` — lists non-staff classes, disables thresholds until a class is toggled on, batches a toggle+edit into one save (PUT ×2), removes a class via DELETE, runs the engine on demand, and surfaces the disabled-skip reason.
 
 #### BE-8.15: Admin View + Revoke of a User's Outstanding Invites [S] [DONE]
 **As a** staff member

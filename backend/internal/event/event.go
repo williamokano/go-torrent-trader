@@ -28,6 +28,7 @@ const (
 	InviteCreated           Type = "invite_created"
 	InviteRedeemed          Type = "invite_redeemed"
 	InviteRevoked           Type = "invite_revoked"
+	InviteAutoGranted       Type = "invite_auto_granted"
 	RegistrationModeChanged Type = "registration_mode_changed"
 	EmailBanned             Type = "email_banned"
 	EmailUnbanned           Type = "email_unbanned"
@@ -233,6 +234,16 @@ type InviteRevokedEvent struct {
 	InviteID        int64  `json:"invite_id"`
 	InviterID       int64  `json:"inviter_id"`
 	InviterUsername string `json:"inviter_username"`
+}
+
+// InviteAutoGrantedEvent records one user receiving an invite from the
+// automatic distribution engine. Published per grant (not once per run) so
+// each grant gets its own self-contained activity log entry, mirroring how
+// InviteRevokedEvent logs one entry per revoke.
+type InviteAutoGrantedEvent struct {
+	Base
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
 }
 
 type RegistrationModeChangedEvent struct {

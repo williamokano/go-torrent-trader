@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -84,43 +83,10 @@ func (r *PromotionRepo) DeleteRule(ctx context.Context, groupID int64) error {
 // LadderMetrics returns base metrics (ratio inputs, tenure, uploaded torrent
 // count) for every enabled user currently in one of the ladder groups. Seeding
 // hours are fetched separately via SeedHoursByUser and merged by the caller.
+// The underlying query is shared with InviteDistributionRepo.GroupMetrics via
+// queryGroupMetrics — see user_metrics.go.
 func (r *PromotionRepo) LadderMetrics(ctx context.Context, groupIDs []int64) ([]model.PromotionUserMetrics, error) {
-	if len(groupIDs) == 0 {
-		return nil, nil
-	}
-
-	placeholders := make([]string, len(groupIDs))
-	args := make([]any, len(groupIDs))
-	for i, id := range groupIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = id
-	}
-
-	query := fmt.Sprintf(`SELECT u.id, u.group_id, u.uploaded, u.downloaded, u.created_at,
-		COALESCE(tc.cnt, 0) AS torrent_count
-		FROM users u
-		LEFT JOIN (SELECT uploader_id, COUNT(*) AS cnt FROM torrents GROUP BY uploader_id) tc
-			ON tc.uploader_id = u.id
-		WHERE u.enabled = true AND u.group_id IN (%s)`, strings.Join(placeholders, ", "))
-
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query ladder metrics: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []model.PromotionUserMetrics
-	for rows.Next() {
-		var m model.PromotionUserMetrics
-		if err := rows.Scan(&m.UserID, &m.GroupID, &m.Uploaded, &m.Downloaded, &m.CreatedAt, &m.Torrents); err != nil {
-			return nil, fmt.Errorf("scan ladder metrics: %w", err)
-		}
-		out = append(out, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate ladder metrics: %w", err)
-	}
-	return out, nil
+	return queryGroupMetrics(ctx, r.db, groupIDs)
 }
 
 // SeedHoursByUser estimates seeding hours per user within the window [since, now].

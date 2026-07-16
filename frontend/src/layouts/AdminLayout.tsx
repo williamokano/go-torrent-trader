@@ -49,6 +49,11 @@ export function AdminLayout() {
           </NavLink>
         )}
         {isAdmin && (
+          <NavLink to="/admin/invite-distribution" className={navLinkClass}>
+            Invite Distribution
+          </NavLink>
+        )}
+        {isAdmin && (
           <NavLink to="/admin/warnings" className={navLinkClass}>
             Warnings
           </NavLink>
