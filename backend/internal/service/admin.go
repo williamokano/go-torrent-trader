@@ -20,11 +20,12 @@ import (
 var ErrAdminPasswordTooShort = fmt.Errorf("password must be at least 8 characters")
 
 var (
-	ErrAdminUserNotFound      = fmt.Errorf("user not found")
-	ErrAdminGroupNotFound     = fmt.Errorf("group not found")
-	ErrAdminInsufficientLevel = fmt.Errorf("insufficient group level to perform this action")
-	ErrModNoteNotFound        = fmt.Errorf("mod note not found")
-	ErrInvalidModNote         = fmt.Errorf("invalid mod note")
+	ErrAdminUserNotFound        = fmt.Errorf("user not found")
+	ErrAdminGroupNotFound       = fmt.Errorf("group not found")
+	ErrAdminInsufficientLevel   = fmt.Errorf("insufficient group level to perform this action")
+	ErrModNoteNotFound          = fmt.Errorf("mod note not found")
+	ErrInvalidModNote           = fmt.Errorf("invalid mod note")
+	ErrAdminNegativeBonusPoints = fmt.Errorf("bonus points cannot be negative")
 )
 
 // AdminUserView is the user representation returned by admin endpoints.
@@ -45,6 +46,7 @@ type AdminUserView struct {
 	Parked        bool    `json:"parked"`
 	Passkey       *string `json:"passkey"`
 	Invites       int     `json:"invites"`
+	BonusPoints   int64   `json:"bonus_points"`
 	CanDownload   bool    `json:"can_download"`
 	CanUpload     bool    `json:"can_upload"`
 	CanChat       bool    `json:"can_chat"`
@@ -96,6 +98,9 @@ type AdminUpdateUserRequest struct {
 	Donor      *bool   `json:"donor"`
 	Parked     *bool   `json:"parked"`
 	Invites    *int    `json:"invites"`
+	// BonusPoints sets an absolute balance; the delta lands in the bonus
+	// ledger as admin_adjust. Applied via the bonus repo, not the user Update.
+	BonusPoints *int64 `json:"bonus_points"`
 }
 
 // AdminService handles admin-only business logic.
@@ -111,6 +116,7 @@ type AdminService struct {
 	warnings    repository.WarningRepository
 	messages    repository.MessageRepository
 	bans        *BanService
+	bonus       repository.BonusRepository
 }
 
 // NewAdminService creates a new AdminService.
@@ -156,6 +162,11 @@ func (s *AdminService) SetBanService(bans *BanService) {
 // SetGroupWriter sets the repository used for group create/update/delete.
 func (s *AdminService) SetGroupWriter(w repository.GroupWriteRepository) {
 	s.groupWriter = w
+}
+
+// SetBonusRepo sets the repository used for bonus point adjustments.
+func (s *AdminService) SetBonusRepo(repo repository.BonusRepository) {
+	s.bonus = repo
 }
 
 // ListUsers returns a paginated list of users with group names.
@@ -423,6 +434,22 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
+	// Bonus points are set through the bonus repo, never the full-row Update:
+	// the dedicated path takes a row lock and writes the admin_adjust ledger
+	// entry, so it coexists with concurrent worker awards.
+	if req.BonusPoints != nil {
+		if *req.BonusPoints < 0 {
+			return nil, ErrAdminNegativeBonusPoints
+		}
+		if s.bonus == nil {
+			return nil, fmt.Errorf("bonus repository not configured")
+		}
+		if err := s.bonus.SetPoints(ctx, user.ID, *req.BonusPoints, actorID); err != nil {
+			return nil, fmt.Errorf("set bonus points: %w", err)
+		}
+		user.BonusPoints = *req.BonusPoints
+	}
+
 	// Build actor for events
 	actor := s.actorFromUserID(ctx, actorID)
 
@@ -496,6 +523,7 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		Parked:      u.Parked,
 		Passkey:     u.Passkey,
 		Invites:     u.Invites,
+		BonusPoints: u.BonusPoints,
 		CanDownload: u.CanDownload,
 		CanUpload:   u.CanUpload,
 		CanChat:     u.CanChat,

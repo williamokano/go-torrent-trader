@@ -288,6 +288,25 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       "The trailing window over which seeding time is measured from the announce log for the 'Min Seed (hrs)' promotion rule. Default: 30.",
     type: "number",
   },
+  // Bonus point economy
+  {
+    key: "bonus_enabled",
+    label: "Bonus System Enabled",
+    description:
+      "Master toggle for the bonus point economy: the hourly seeding award and all bonus store purchases. Balances and the ledger are kept while disabled.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "bonus_points_per_seeding_torrent",
+    label: "Bonus Points per Seeding Torrent",
+    description:
+      "Points awarded each hourly cycle for every torrent a user is currently seeding. Fractions allowed; per-user totals are rounded per cycle. Default: 1.",
+    type: "number",
+  },
 ];
 
 function getSettingDef(key: string): SettingConfig {

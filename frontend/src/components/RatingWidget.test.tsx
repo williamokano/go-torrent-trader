@@ -39,6 +39,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     ratio: 0,
     passkey: "",
     invites: 0,
+    bonus_points: 0,
     warned: false,
     donor: false,
     enabled: true,

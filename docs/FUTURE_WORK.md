@@ -52,7 +52,7 @@ The append-only `announce_events` log now captures every announce (BE-9.21), but
 **Key requirements:**
 - **Retention cleanup job.** Honour the existing `announce_log_retention_days` setting (currently advisory only — no deletion runs). Add a maintenance-worker pass that deletes rows older than the window. For scale, prefer native monthly partitioning (cheap `DROP` of old partitions) and/or a nightly rollup into a `user_period_stats(user_id, year_month, uploaded, downloaded)` table so raw rows can be expired aggressively while monthly aggregates are kept forever.
 - **GDPR/LGPD data export.** A per-user export endpoint over `AnnounceEventRepository.ListByUser` (and the other personal-data tables). Note: `announce_events` stores IP + peer_id (personal data), so this store is also an erasure obligation — deletion already cascades on account removal, but export/retention must stay purpose-scoped.
-- **Bonus points / monthly campaigns.** The motivating use case: "top N uploaders this month" and ratio/bonus reconciliation are computable from `SUM(uploaded_delta)`/`SUM(counted_downloaded_delta)` over a time window — impossible from the overwriting projections. Build the aggregation queries (and any bonus ledger) on top of the log.
+- **Announce-log bonus source / monthly campaigns.** The bonus economy now exists (BE-8.14) with an hourly *snapshot* source; the announce-log successor — actual seed-time from `SUM` over `announce_events` deltas, harder to game at cycle boundaries — plugs in as another `BonusSource`. Same for "top N uploaders this month" campaigns.
 
 **Why deferred:** capture was the irreversible, near-free half (the deltas were already computed and discarded); the consumers are real features that can wait until wanted. See BE-9.21.
 
@@ -68,7 +68,19 @@ The class ladder now exists (BE-8.13), so invites — which are class-gated — 
 - **Mechanics**: one set-based `UPDATE users SET invites = LEAST(invites + k, cap) WHERE invites < cap AND <eligibility>`, run from the maintenance worker; log the aggregate to the activity log. Remember the two gates already in the code: `groups.can_invite` (permission) **and** `users.invites > 0` (balance, decremented per invite) — the drip fills the balance; the permission is the group's.
 - **Optional accountability**: record who invited whom (invite tree) so easy invites don't degrade community quality — most trackers make the inviter partly responsible for invitees.
 
-**Why deferred / sequencing:** needed the merit ladder first (done). The richer successor is a **bonus-point economy** where seeding time (from `announce_events`) earns points spent on invites — the most abuse-resistant model, and the eventual consumer of the announce log.
+**Why deferred / sequencing:** needed the merit ladder first (done). **Update:** the bonus-point economy foundation now exists (BE-8.14) — members already buy invites with points earned by seeding, which covers much of this drip's intent through a more abuse-resistant model. If the drip is still wanted, it becomes a small additive job alongside the store.
+
+---
+
+## Bonus Economy — Remaining Pieces
+
+The foundation shipped in BE-8.14/FE-5.14: balance + append-only ledger, hourly seeding-snapshot award behind the `BonusSource` interface, store with invites + upload credit, admin balance adjustment, master switch. Still future:
+
+- **Freeleech ticket effects.** The `freeleech_ticket` kind is seeded (disabled). Needs: a per-user ticket balance or per-torrent activation, tracker announce integration (count download as free while a ticket is active), and UI. Then flip the item to enabled.
+- **Double upload effects.** The `double_upload` kind is seeded (disabled). Needs: a per-user expiry timestamp, announce-time upload-delta multiplication while active, and UI showing time remaining.
+- **Announce-log award source.** Replace/augment the snapshot source with actual seed-time computed from `announce_events` (same gap-sum SQL as the promotion engine) — resistant to clients that only announce at cycle boundaries. Plugs in as a second `BonusSource`.
+- **Ledger UI.** A "points history" page over `bonus_transactions` (the data is already recorded for every movement).
+- **Promotion synergy.** Class-promotion rules could gate on lifetime points earned; store prices could vary by class.
 
 ---
 

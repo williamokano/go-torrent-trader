@@ -38,6 +38,7 @@ interface PublicUser {
   invited_by_name?: string;
   seeding_count: number;
   leeching_count: number;
+  bonus_points?: number; // owner-only: present when viewing your own profile
   can_download: boolean;
   can_upload: boolean;
   can_chat: boolean;
@@ -390,6 +391,14 @@ export function UserProfilePage() {
           <div className="profile-stat__label">Leeching</div>
           <div className="profile-stat__value">{profile.leeching_count}</div>
         </div>
+        {profile.bonus_points != null && (
+          <div className="profile-stat">
+            <div className="profile-stat__label">Bonus Points</div>
+            <div className="profile-stat__value">
+              {profile.bonus_points.toLocaleString()}
+            </div>
+          </div>
+        )}
       </div>
 
       {(isOwnProfile || currentUser?.isStaff) &&

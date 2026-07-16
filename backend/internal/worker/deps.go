@@ -26,6 +26,7 @@ type WorkerDeps struct {
 	AdminSvc        *service.AdminService
 	BackupSvc       *service.BackupService
 	PromotionSvc    *service.PromotionService
+	BonusSvc        *service.BonusService
 	SendToUser      SendToUserFunc
 
 	NotificationRepo repository.NotificationRepository

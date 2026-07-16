@@ -171,6 +171,10 @@ func run() int {
 	promotionRepo := postgres.NewPromotionRepo(db)
 	promotionService := service.NewPromotionService(promotionRepo, groupRepo, siteSettingsService)
 
+	bonusRepo := postgres.NewBonusRepo(db)
+	bonusService := service.NewBonusService(bonusRepo, siteSettingsService)
+	bonusService.AddSource(service.NewSeedingBonusSource(bonusRepo, siteSettingsService))
+
 	// Activity log — register event listeners
 	activityLogRepo := postgres.NewActivityLogRepo(db)
 	activityLogService := service.NewActivityLogService(activityLogRepo)
@@ -207,6 +211,7 @@ func run() int {
 	adminService.SetMessageRepo(messageRepo)
 	adminService.SetBanService(banService)
 	adminService.SetGroupWriter(groupRepo)
+	adminService.SetBonusRepo(bonusRepo)
 
 	reportService.SetWarningService(warningService)
 	reportService.SetTorrentService(torrentService)
@@ -285,6 +290,7 @@ func run() int {
 		CheatFlagRepo:       cheatFlagRepo,
 		NotificationService: notificationService,
 		PromotionService:    promotionService,
+		BonusService:        bonusService,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,
@@ -313,6 +319,7 @@ func run() int {
 		AdminSvc:        adminService,
 		BackupSvc:       backupService,
 		PromotionSvc:    promotionService,
+		BonusSvc:        bonusService,
 		SendToUser:      chatHub.SendToUser,
 
 		NotificationRepo:      notificationRepo,

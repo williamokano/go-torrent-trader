@@ -63,6 +63,16 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register promotion: %w", err)
 	}
 
+	// Award bonus points hourly (offset from the stats job at minute 0). The
+	// service no-ops while bonus_enabled is off.
+	bonusTask, err := NewBonusAwardTask()
+	if err != nil {
+		return fmt.Errorf("create bonus award task: %w", err)
+	}
+	if _, err := scheduler.Register("30 * * * *", bonusTask); err != nil {
+		return fmt.Errorf("register bonus award: %w", err)
+	}
+
 	return nil
 }
 

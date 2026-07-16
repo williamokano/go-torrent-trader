@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -92,6 +93,35 @@ type AnnounceEventRepository interface {
 type AnnounceEventWithTorrent struct {
 	model.AnnounceEvent
 	TorrentName string
+}
+
+// Bonus purchase sentinels. They originate inside the purchase transaction
+// (only the repo can observe them), so they live here rather than in service.
+var (
+	ErrInsufficientBonusPoints = errors.New("insufficient bonus points")
+	ErrBonusKindNotAvailable   = errors.New("bonus item kind not available")
+)
+
+// BonusRepository defines persistence operations for the bonus point economy.
+// All bonus_points writes happen here via atomic statements — never through
+// UserRepository.Update — so awards, purchases, and admin adjustments cannot
+// clobber each other.
+type BonusRepository interface {
+	ListEnabledItems(ctx context.Context) ([]model.BonusStoreItem, error)
+	GetItem(ctx context.Context, id int64) (*model.BonusStoreItem, error)
+	// AwardPoints applies one cycle's awards: per user an atomic balance
+	// increment plus a ledger row, in a single transaction. Non-positive
+	// deltas are skipped.
+	AwardPoints(ctx context.Context, awards map[int64]int64, reason string) error
+	// SetPoints sets an absolute balance and records the delta as an
+	// admin_adjust ledger row referencing the acting admin.
+	SetPoints(ctx context.Context, userID, newBalance, actorID int64) error
+	// PurchaseItem owns the whole purchase transaction: conditional balance
+	// decrement, reward application, and ledger insert.
+	PurchaseItem(ctx context.Context, userID, itemID int64) (*model.BonusStoreItem, int64, error)
+	// SeedingCounts returns the number of distinct torrents each user is
+	// currently seeding, keyed by user id.
+	SeedingCounts(ctx context.Context) (map[int64]int64, error)
 }
 
 // PromotionRepository defines persistence operations for the auto class

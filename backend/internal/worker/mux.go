@@ -14,5 +14,6 @@ func NewMux(deps *WorkerDeps) *asynq.ServeMux {
 	mux.HandleFunc(TaskMaintenance, NewMaintenanceHandler(deps))
 	mux.HandleFunc(TaskBackupDatabase, NewBackupHandler(deps))
 	mux.HandleFunc(TaskPromotion, NewPromotionHandler(deps))
+	mux.HandleFunc(TaskBonusAward, NewBonusAwardHandler(deps))
 	return mux
 }

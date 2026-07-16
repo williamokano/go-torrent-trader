@@ -46,6 +46,7 @@ function mapUser(
     ratio: (profile.ratio as number) ?? 0,
     passkey: (profile.passkey as string) ?? "",
     invites: (profile.invites as number) ?? 0,
+    bonus_points: (profile.bonus_points as number) ?? 0,
     warned: (profile.warned as boolean) ?? false,
     donor: (profile.donor as boolean) ?? false,
     enabled: (profile.enabled as boolean) ?? true,

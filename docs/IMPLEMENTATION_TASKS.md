@@ -1252,6 +1252,24 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 ---
 
+#### BE-8.14: Bonus Points Foundation [M] [DONE]
+**As a** site operator
+**I want** a points economy — earned by seeding, spendable in a store, adjustable by admins
+**So that** sustained seeding is rewarded and perks (invites, upload credit) have a merit price
+
+**Delivered (migration 054):**
+- `users.bonus_points` balance + **append-only `bonus_transactions` ledger** — every seeding award, purchase, and admin adjustment writes a row (reason + ref), so history is always reconstructible.
+- **Clobber-proofing:** `bonus_points` is readable via `userColumns` but deliberately excluded from `UserRepo.Create/Update`; all writes are atomic statements in `BonusRepo` (award: `+= delta`; purchase: conditional `-= price WHERE bonus_points >= price` in one tx with the reward + ledger; admin set: `SELECT ... FOR UPDATE`).
+- **`BonusSource` interface** (Name doubles as ledger reason) with the basic **hourly seeding snapshot** source: rate × currently-seeding torrents (distinct, from peers), rate configurable via `bonus_points_per_seeding_torrent`. Worker task `bonus:award` at `30 * * * *`; master switch `bonus_enabled` (off by default).
+- **Store** (`bonus_store_items` seeded): `invite-1` (5000 pts → 1 invite) and `upload-5gib` (3000 pts → 5 GiB) purchasable; `freeleech_ticket` + `double_upload` seeded **disabled** as catalogue-only kinds — server rejects their purchase and hides them from the listing until effects exist.
+- Endpoints: `GET /api/v1/store/items` (200 always; `{enabled,items}`), `POST /api/v1/store/purchase/{itemId}` (403 disabled / 404 unknown / 409 unavailable-or-insufficient).
+- **Admin**: `AdminUpdateUserRequest.bonus_points` sets an absolute balance via the bonus repo (negative rejected), recorded as `admin_adjust` with the actor as ref.
+- Tests at every layer, incl. the race-safety case: an unaffordable purchase fails and changes nothing.
+
+#### (paired frontend: see FE-5.14)
+
+---
+
 ### Epic BE-9: Cleanup & Maintenance Jobs
 
 #### BE-9.1: Scheduled Cleanup Job [M] [DONE]
@@ -2149,6 +2167,17 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Added a page test (list, status badges, empty state).
 
 > **Follow-up:** `AdminUserDetailPage` (single-user editing, ~1000 lines) — adopt `Button` + `admin-panel` for its actions and sections next.
+
+#### FE-5.14: Bonus Store Page + Points Display [M] [DONE]
+**As a** member
+**I want** to see my bonus points and spend them in a store
+**So that** seeding visibly pays off
+
+**Delivered (pairs with BE-8.14):**
+- `/store` page (`BonusStorePage`): balance card, item cards with price + Buy (shared `Button`; disabled when unaffordable, loading state), disabled-store and empty states, success toast + `refreshUser()` on purchase, server error messages surfaced. Nav entry in the Community dropdown.
+- Balance exposed end-to-end: `OwnerProfile.bonus_points` → `/auth/me` → AuthContext; "Bonus Points" stat tile on the own-profile page (owner-only field).
+- Admin: "Bonus Points" input on the user detail form (mirrors Invites; recorded to the ledger as admin_adjust); `bonus_enabled` + `bonus_points_per_seeding_torrent` labelled in Site Settings.
+- Tests: store page (render, disabled state, purchase + refresh, error message, unaffordable-disabled), user-detail field populated.
 
 ---
 
