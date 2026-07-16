@@ -7,7 +7,7 @@ import { Input } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { formatBytes, timeAgo } from "@/utils/format";
-import "./admin-torrents.css";
+import "./admin-ui.css";
 
 interface AdminTorrent {
   id: number;
@@ -112,9 +112,17 @@ export function AdminTorrentsPage() {
 
   return (
     <div>
-      <div className="admin-torrents__header">
-        <h1>Torrents</h1>
-        <div className="admin-torrents__search">
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Torrents</h1>
+          <p className="admin-page-header__desc">
+            Search and moderate every torrent on the tracker.
+          </p>
+        </div>
+      </div>
+
+      <div className="admin-toolbar">
+        <div className="admin-toolbar__search">
           <Input
             label="Search"
             placeholder="Torrent name or uploader..."
@@ -127,67 +135,78 @@ export function AdminTorrentsPage() {
       {loading ? (
         <p>Loading...</p>
       ) : torrents.length === 0 ? (
-        <p className="admin-torrents__empty">No torrents found.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No torrents found.</p>
+        </div>
       ) : (
         <>
-          <table className="admin-torrents__table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Size</th>
-                <th>S/L</th>
-                <th>Uploader</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {torrents.map((torrent) => (
-                <tr key={torrent.id}>
-                  <td>
-                    <Link to={`/torrent/${torrent.id}`}>{torrent.name}</Link>
-                  </td>
-                  <td>{formatBytes(torrent.size)}</td>
-                  <td>
-                    {torrent.seeders}/{torrent.leechers}
-                  </td>
-                  <td>
-                    <Link to={`/admin/users/${torrent.uploader_id}`}>
-                      {torrent.uploader || `User #${torrent.uploader_id}`}
-                    </Link>
-                  </td>
-                  <td>
-                    {torrent.banned && (
-                      <span className="admin-torrents__badge admin-torrents__badge--banned">
-                        Banned
-                      </span>
-                    )}
-                    {!torrent.banned && (
-                      <span className="admin-torrents__badge admin-torrents__badge--active">
-                        Active
-                      </span>
-                    )}
-                  </td>
-                  <td>{timeAgo(torrent.created_at)}</td>
-                  <td className="admin-torrents__actions">
-                    <button
-                      className="admin-torrents__delete-btn"
-                      onClick={() => setDeletingId(torrent.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="admin-panel">
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Size</th>
+                    <th>S/L</th>
+                    <th>Uploader</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {torrents.map((torrent) => (
+                    <tr key={torrent.id}>
+                      <td className="admin-table__name">
+                        <Link to={`/torrent/${torrent.id}`}>
+                          {torrent.name}
+                        </Link>
+                      </td>
+                      <td className="admin-num">{formatBytes(torrent.size)}</td>
+                      <td className="admin-num">
+                        {torrent.seeders}/{torrent.leechers}
+                      </td>
+                      <td>
+                        <Link to={`/admin/users/${torrent.uploader_id}`}>
+                          {torrent.uploader || `User #${torrent.uploader_id}`}
+                        </Link>
+                      </td>
+                      <td>
+                        {torrent.banned ? (
+                          <span className="admin-badge admin-badge--danger">
+                            Banned
+                          </span>
+                        ) : (
+                          <span className="admin-badge admin-badge--ok">
+                            Active
+                          </span>
+                        )}
+                      </td>
+                      <td className="admin-muted">
+                        {timeAgo(torrent.created_at)}
+                      </td>
+                      <td className="admin-table__actions">
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => setDeletingId(torrent.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-          <Pagination
-            currentPage={page}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-          />
+          <div style={{ marginTop: "var(--space-md)" }}>
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
+          </div>
         </>
       )}
 

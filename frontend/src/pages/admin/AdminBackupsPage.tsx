@@ -4,6 +4,7 @@ import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { formatBytes, timeAgo } from "@/utils/format";
+import "./admin-ui.css";
 import "./admin-backups.css";
 
 interface Backup {
@@ -124,68 +125,81 @@ export function AdminBackupsPage() {
 
   return (
     <div>
-      <div className="admin-backups__header">
-        <h1>Database Backups</h1>
-        <button
-          className="admin-backups__create-btn"
-          onClick={handleCreate}
-          disabled={creating}
-        >
-          {creating ? "Creating backup..." : "Create Backup"}
-        </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Database Backups</h1>
+          <p className="admin-page-header__desc">
+            Backups are compressed <code>pg_dump</code> archives (custom
+            format). Restore with <code>pg_restore</code>. Creating a backup can
+            take a while on a large database — this page waits until it
+            finishes.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <button
+            className="admin-btn admin-btn--primary"
+            onClick={handleCreate}
+            disabled={creating}
+          >
+            {creating ? "Creating backup..." : "Create Backup"}
+          </button>
+        </div>
       </div>
-
-      <p className="admin-backups__hint">
-        Backups are compressed <code>pg_dump</code> archives (custom format).
-        Restore with <code>pg_restore</code>. Creating a backup can take a while
-        on a large database — this page waits until it finishes.
-      </p>
 
       {loading ? (
         <p>Loading backups...</p>
       ) : backups.length === 0 ? (
-        <p className="admin-backups__empty">No backups yet.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No backups yet.</p>
+        </div>
       ) : (
-        <table className="admin-backups__table">
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Size</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {backups.map((backup) => (
-              <tr key={backup.name}>
-                <td className="admin-backups__name">{backup.name}</td>
-                <td>{formatBytes(backup.size)}</td>
-                <td title={new Date(backup.created_at).toLocaleString()}>
-                  {timeAgo(backup.created_at)}
-                </td>
-                <td>
-                  <div className="admin-backups__actions">
-                    <button
-                      className="admin-backups__action-btn"
-                      onClick={() => handleDownload(backup)}
-                      disabled={downloading === backup.name}
+        <div className="admin-panel">
+          <div className="admin-table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Size</th>
+                  <th>Created</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {backups.map((backup) => (
+                  <tr key={backup.name}>
+                    <td className="admin-num">{backup.name}</td>
+                    <td className="admin-num">{formatBytes(backup.size)}</td>
+                    <td
+                      className="admin-muted"
+                      title={new Date(backup.created_at).toLocaleString()}
                     >
-                      {downloading === backup.name
-                        ? "Downloading..."
-                        : "Download"}
-                    </button>
-                    <button
-                      className="admin-backups__action-btn admin-backups__action-btn--danger"
-                      onClick={() => setDeleteTarget(backup)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      {timeAgo(backup.created_at)}
+                    </td>
+                    <td className="admin-table__actions">
+                      <div className="admin-backups__actions">
+                        <button
+                          className="admin-btn admin-btn--ghost admin-btn--sm"
+                          onClick={() => handleDownload(backup)}
+                          disabled={downloading === backup.name}
+                        >
+                          {downloading === backup.name
+                            ? "Downloading..."
+                            : "Download"}
+                        </button>
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => setDeleteTarget(backup)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       <ConfirmModal

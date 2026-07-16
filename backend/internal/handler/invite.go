@@ -101,6 +101,8 @@ func handleInviteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrNoInvitesRemaining):
 		ErrorResponse(w, http.StatusForbidden, "no_invites", "you have no invites remaining")
+	case errors.Is(err, service.ErrInviteRestricted):
+		ErrorResponse(w, http.StatusForbidden, "invite_restricted", "your invite privilege has been suspended")
 	case errors.Is(err, service.ErrInviteNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "invite not found")
 	case errors.Is(err, service.ErrInviteExpired):

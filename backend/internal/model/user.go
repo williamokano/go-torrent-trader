@@ -31,6 +31,7 @@ type User struct {
 	CanUpload      bool
 	CanChat        bool
 	CanForum       bool
+	CanInvite      bool
 	DisabledUntil  *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time

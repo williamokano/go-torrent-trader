@@ -1,10 +1,5 @@
-.admin-warnings__controls {
-  display: flex;
-  gap: var(--space-md);
-  align-items: flex-end;
-  flex-wrap: wrap;
-  margin-bottom: var(--space-md);
-}
+/* Page-specific styles for the admin warnings page. Surface primitives come
+   from admin-ui.css. */
 
 .admin-warnings__filter {
   display: flex;
@@ -13,7 +8,7 @@
 }
 
 .admin-warnings__filter label {
-  font-size: var(--text-xs);
+  font-size: 0.72rem;
   color: var(--color-text-muted);
   font-weight: 600;
 }
@@ -32,100 +27,6 @@
 .admin-warnings__filter input:focus {
   outline: none;
   border-color: var(--color-accent);
-}
-
-.admin-warnings__issue-btn {
-  padding: var(--space-xs) var(--space-md);
-  background-color: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  margin-left: auto;
-}
-
-.admin-warnings__issue-btn:hover {
-  opacity: 0.85;
-}
-
-.admin-warnings__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-
-.admin-warnings__table th,
-.admin-warnings__table td {
-  text-align: left;
-  padding: var(--space-sm);
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-
-.admin-warnings__table th {
-  color: var(--color-text-muted);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.admin-warnings__table td {
-  color: var(--color-text-primary);
-}
-
-.admin-warnings__status {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.admin-warnings__status--active {
-  background-color: #ffc107;
-  color: #000;
-}
-
-.admin-warnings__status--lifted {
-  background-color: #198754;
-  color: white;
-}
-
-.admin-warnings__status--resolved {
-  background-color: #6c757d;
-  color: white;
-}
-
-.admin-warnings__status--escalated {
-  background-color: var(--color-danger, #dc3545);
-  color: white;
-}
-
-.admin-warnings__lift-btn {
-  padding: 2px 8px;
-  background-color: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-xs);
-}
-
-.admin-warnings__lift-btn:hover {
-  opacity: 0.85;
-}
-
-.admin-warnings__lift-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.admin-warnings__empty {
-  text-align: center;
-  color: var(--color-text-muted);
-  padding: var(--space-lg);
 }
 
 /* Issue Warning Modal */
@@ -197,30 +98,6 @@
   justify-content: flex-end;
 }
 
-.admin-warnings__modal-actions button {
-  padding: var(--space-xs) var(--space-md);
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.admin-warnings__modal-cancel {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-
-.admin-warnings__modal-submit {
-  background-color: var(--color-accent);
-  color: white;
-}
-
-.admin-warnings__modal-submit:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 /* Username autocomplete */
 .admin-warnings__autocomplete {
   position: relative;
@@ -266,14 +143,13 @@
   background-color: var(--color-bg-tertiary);
 }
 
-/* Lift modal reuses same styles */
 .admin-warnings__reason-cell {
   max-width: 300px;
 }
 
 .admin-warnings__lifted-info {
   margin-top: var(--space-xs);
-  font-size: var(--text-xs);
-  color: var(--color-success, #198754);
+  font-size: 0.72rem;
+  color: var(--color-success);
   font-style: italic;
 }

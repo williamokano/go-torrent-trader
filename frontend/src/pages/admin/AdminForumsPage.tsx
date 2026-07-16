@@ -6,6 +6,7 @@ import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
+import "./admin-ui.css";
 import "./admin-forums.css";
 
 interface Group {
@@ -342,118 +343,131 @@ export function AdminForumsPage() {
 
   return (
     <div>
-      <h1>Forum Administration</h1>
-
-      {/* Forum Categories Section */}
-      <div className="admin-forums__section">
-        <div className="admin-forums__section-header">
-          <h2>Forum Categories</h2>
-          <button
-            className="admin-forums__add-btn"
-            onClick={openCreateCatModal}
-          >
-            Add Category
-          </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Forum Administration</h1>
+          <p className="admin-page-header__desc">
+            Manage forum categories, forums, and who can view or post in them.
+          </p>
         </div>
-
-        {categories.length === 0 ? (
-          <p className="admin-forums__empty">No forum categories found.</p>
-        ) : (
-          <table className="admin-forums__table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Sort Order</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((cat) => (
-                <tr key={cat.id}>
-                  <td>{cat.name}</td>
-                  <td>{cat.sort_order}</td>
-                  <td>
-                    <button
-                      className="admin-forums__edit-btn"
-                      onClick={() => openEditCatModal(cat)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="admin-forums__delete-btn"
-                      onClick={() => handleDeleteCat(cat)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </div>
 
-      {/* Forums Section */}
-      <div className="admin-forums__section">
-        <div className="admin-forums__section-header">
-          <h2>Forums</h2>
-          <button
-            className="admin-forums__add-btn"
-            onClick={openCreateForumModal}
-          >
-            Add Forum
-          </button>
+      <div className="admin-stack">
+        {/* Forum Categories Section */}
+        <div className="admin-panel">
+          <div className="admin-panel__section admin-forums__section-header">
+            <h2 className="admin-panel__title">Forum Categories</h2>
+            <button
+              className="admin-btn admin-btn--primary admin-btn--sm"
+              onClick={openCreateCatModal}
+            >
+              Add Category
+            </button>
+          </div>
+
+          {categories.length === 0 ? (
+            <p className="admin-empty">No forum categories found.</p>
+          ) : (
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Sort Order</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map((cat) => (
+                    <tr key={cat.id}>
+                      <td className="admin-table__name">{cat.name}</td>
+                      <td className="admin-num">{cat.sort_order}</td>
+                      <td className="admin-table__actions">
+                        <button
+                          className="admin-btn admin-btn--ghost admin-btn--sm"
+                          onClick={() => openEditCatModal(cat)}
+                        >
+                          Edit
+                        </button>{" "}
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => handleDeleteCat(cat)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
-        {forums.length === 0 ? (
-          <p className="admin-forums__empty">No forums found.</p>
-        ) : (
-          <table className="admin-forums__table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Category</th>
-                <th>Description</th>
-                <th>Sort</th>
-                <th>Min View</th>
-                <th>Min Post</th>
-                <th>Topics</th>
-                <th>Posts</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {forums.map((forum) => (
-                <tr key={forum.id}>
-                  <td>{forum.name}</td>
-                  <td>{getCategoryName(forum.category_id)}</td>
-                  <td className="admin-forums__description">
-                    {forum.description || "-"}
-                  </td>
-                  <td>{forum.sort_order}</td>
-                  <td>{getGroupNameByLevel(forum.min_group_level)}</td>
-                  <td>{getGroupNameByLevel(forum.min_post_level)}</td>
-                  <td>{forum.topic_count}</td>
-                  <td>{forum.post_count}</td>
-                  <td className="admin-forums__actions">
-                    <button
-                      className="admin-forums__edit-btn"
-                      onClick={() => openEditForumModal(forum)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="admin-forums__delete-btn"
-                      onClick={() => handleDeleteForum(forum)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {/* Forums Section */}
+        <div className="admin-panel">
+          <div className="admin-panel__section admin-forums__section-header">
+            <h2 className="admin-panel__title">Forums</h2>
+            <button
+              className="admin-btn admin-btn--primary admin-btn--sm"
+              onClick={openCreateForumModal}
+            >
+              Add Forum
+            </button>
+          </div>
+
+          {forums.length === 0 ? (
+            <p className="admin-empty">No forums found.</p>
+          ) : (
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Sort</th>
+                    <th>Min View</th>
+                    <th>Min Post</th>
+                    <th>Topics</th>
+                    <th>Posts</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {forums.map((forum) => (
+                    <tr key={forum.id}>
+                      <td className="admin-table__name">{forum.name}</td>
+                      <td>{getCategoryName(forum.category_id)}</td>
+                      <td className="admin-forums__description">
+                        {forum.description || "-"}
+                      </td>
+                      <td className="admin-num">{forum.sort_order}</td>
+                      <td>{getGroupNameByLevel(forum.min_group_level)}</td>
+                      <td>{getGroupNameByLevel(forum.min_post_level)}</td>
+                      <td className="admin-num">{forum.topic_count}</td>
+                      <td className="admin-num">{forum.post_count}</td>
+                      <td className="admin-table__actions">
+                        <button
+                          className="admin-btn admin-btn--ghost admin-btn--sm"
+                          onClick={() => openEditForumModal(forum)}
+                        >
+                          Edit
+                        </button>{" "}
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => handleDeleteForum(forum)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Category Modal */}
@@ -478,13 +492,13 @@ export function AdminForumsPage() {
           />
           <div className="admin-forums__modal-actions">
             <button
-              className="admin-forums__cancel-btn"
+              className="admin-btn admin-btn--ghost"
               onClick={closeCatModal}
             >
               Cancel
             </button>
             <button
-              className="admin-forums__save-btn"
+              className="admin-btn admin-btn--primary"
               onClick={handleSaveCat}
               disabled={catSaving || !catForm.name.trim()}
             >
@@ -552,13 +566,13 @@ export function AdminForumsPage() {
           />
           <div className="admin-forums__modal-actions">
             <button
-              className="admin-forums__cancel-btn"
+              className="admin-btn admin-btn--ghost"
               onClick={closeForumModal}
             >
               Cancel
             </button>
             <button
-              className="admin-forums__save-btn"
+              className="admin-btn admin-btn--primary"
               onClick={handleSaveForum}
               disabled={
                 forumSaving || !forumForm.name.trim() || !forumForm.category_id

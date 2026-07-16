@@ -1,139 +1,30 @@
-.admin-categories__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-lg);
-}
+/* Page-specific styles for the admin categories page. Surface primitives
+   come from admin-ui.css. */
 
-.admin-categories__header h1 {
-  font-size: var(--text-xl);
-  margin: 0;
-}
-
-.admin-categories__add-btn {
-  padding: var(--space-xs) var(--space-md);
-  background-color: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
+.admin-categories__error {
+  color: var(--color-error);
   font-size: var(--text-sm);
-}
-
-.admin-categories__add-btn:hover {
-  opacity: 0.9;
-}
-
-.admin-categories__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-
-.admin-categories__table th,
-.admin-categories__table td {
-  text-align: left;
-  padding: var(--space-sm) var(--space-sm);
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-
-.admin-categories__table th {
-  color: var(--color-text-muted);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.admin-categories__table td {
-  color: var(--color-text-primary);
-}
-
-.admin-categories__edit-btn,
-.admin-categories__delete-btn {
-  margin-right: var(--space-xs);
-  padding: 2px 8px;
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-xs);
-}
-
-.admin-categories__edit-btn {
-  background-color: var(--color-accent);
-}
-
-.admin-categories__delete-btn {
-  background-color: var(--color-danger, #dc3545);
-}
-
-.admin-categories__edit-btn:hover,
-.admin-categories__delete-btn:hover {
-  opacity: 0.85;
-}
-
-.admin-categories__delete-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.admin-categories__empty {
-  text-align: center;
-  color: var(--color-text-muted);
-  padding: var(--space-xl);
-}
-
-.admin-categories__parent {
-  color: var(--color-text-muted);
-  font-style: italic;
+  margin-bottom: var(--space-md);
 }
 
 .admin-categories__modal-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   padding: var(--space-md);
+}
+
+.admin-categories__image-preview {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-sm);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .admin-categories__modal-actions {
   display: flex;
   gap: var(--space-sm);
   justify-content: flex-end;
-}
-
-.admin-categories__save-btn {
-  padding: var(--space-xs) var(--space-md);
-  background-color: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--text-sm);
-}
-
-.admin-categories__save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.admin-categories__cancel-btn {
-  padding: var(--space-xs) var(--space-md);
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  font-size: var(--text-sm);
-}
-
-.admin-categories__image-preview {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.admin-categories__error {
-  color: var(--color-danger, #dc3545);
-  font-size: var(--text-sm);
-  margin-top: var(--space-xs);
+  margin-top: var(--space-sm);
 }

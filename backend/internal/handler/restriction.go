@@ -29,6 +29,7 @@ type setRestrictionsRequest struct {
 	CanDownload *bool   `json:"can_download"`
 	CanUpload   *bool   `json:"can_upload"`
 	CanChat     *bool   `json:"can_chat"`
+	CanInvite   *bool   `json:"can_invite"`
 	Reason      string  `json:"reason"`
 	ExpiresAt   *string `json:"expires_at"`
 }
@@ -93,6 +94,9 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 	}
 	if req.CanChat != nil {
 		actions = append(actions, restrictionAction{"chat", !*req.CanChat})
+	}
+	if req.CanInvite != nil {
+		actions = append(actions, restrictionAction{"invite", !*req.CanInvite})
 	}
 
 	for _, action := range actions {

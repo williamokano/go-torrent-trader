@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useToast } from "@/components/toast";
+import "./admin-ui.css";
+import "./admin-settings.css";
 
 interface SiteSetting {
   key: string;
@@ -399,172 +401,97 @@ export function AdminSettingsPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "var(--space-lg)",
-        }}
-      >
-        <h1 style={{ fontSize: "var(--text-xl)", margin: 0 }}>Site Settings</h1>
-        <button
-          onClick={handleSaveAll}
-          disabled={!hasChanges || saving}
-          style={{
-            padding: "var(--space-xs) var(--space-md)",
-            backgroundColor: "var(--color-accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            cursor: !hasChanges || saving ? "not-allowed" : "pointer",
-            opacity: !hasChanges || saving ? 0.5 : 1,
-            fontSize: "var(--text-sm)",
-          }}
-        >
-          {saving ? "Saving..." : "Save Changes"}
-        </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Site Settings</h1>
+          <p className="admin-page-header__desc">
+            Tune registration, ratio rules, chat limits, and automation.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <button
+            className="admin-btn admin-btn--primary"
+            onClick={handleSaveAll}
+            disabled={!hasChanges || saving}
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
       </div>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "var(--text-sm)",
-        }}
-      >
-        <thead>
-          <tr>
-            <th
-              style={{
-                textAlign: "left",
-                padding: "var(--space-xs) var(--space-sm)",
-                borderBottom: "1px solid var(--color-border)",
-                color: "var(--color-text-muted)",
-                fontWeight: 600,
-              }}
-            >
-              Setting
-            </th>
-            <th
-              style={{
-                textAlign: "left",
-                padding: "var(--space-xs) var(--space-sm)",
-                borderBottom: "1px solid var(--color-border)",
-                color: "var(--color-text-muted)",
-                fontWeight: 600,
-              }}
-            >
-              Value
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {settings.map((s) => {
-            const def = getSettingDef(s.key);
-            return (
-              <tr key={s.key}>
-                <td
-                  style={{
-                    padding: "var(--space-xs) var(--space-sm)",
-                    borderBottom: "1px solid var(--color-border)",
-                    fontWeight: 500,
-                  }}
-                >
-                  <div>{def.label}</div>
-                  {def.description && (
-                    <div
-                      style={{
-                        fontSize: "var(--text-xs)",
-                        color: "var(--color-text-muted)",
-                        fontWeight: 400,
-                        marginTop: "2px",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {def.description}
-                    </div>
-                  )}
-                </td>
-                <td
-                  style={{
-                    padding: "var(--space-xs) var(--space-sm)",
-                    borderBottom: "1px solid var(--color-border)",
-                  }}
-                >
-                  {def.type === "select" && def.options ? (
-                    <select
-                      value={editValues[s.key] ?? s.value}
-                      onChange={(e) =>
-                        setEditValues((prev) => ({
-                          ...prev,
-                          [s.key]: e.target.value,
-                        }))
-                      }
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: "var(--radius-sm)",
-                        border: "1px solid var(--color-border)",
-                        backgroundColor: "var(--color-bg-primary)",
-                        color: "var(--color-text-primary)",
-                        fontSize: "var(--text-sm)",
-                      }}
-                    >
-                      {def.options.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : def.type === "textarea" ? (
-                    <textarea
-                      value={editValues[s.key] ?? s.value}
-                      onChange={(e) =>
-                        setEditValues((prev) => ({
-                          ...prev,
-                          [s.key]: e.target.value,
-                        }))
-                      }
-                      rows={3}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: "var(--radius-sm)",
-                        border: "1px solid var(--color-border)",
-                        backgroundColor: "var(--color-bg-primary)",
-                        color: "var(--color-text-primary)",
-                        fontSize: "var(--text-sm)",
-                        width: "100%",
-                        fontFamily: "inherit",
-                        resize: "vertical",
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type={def.type === "number" ? "number" : "text"}
-                      value={editValues[s.key] ?? s.value}
-                      onChange={(e) =>
-                        setEditValues((prev) => ({
-                          ...prev,
-                          [s.key]: e.target.value,
-                        }))
-                      }
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: "var(--radius-sm)",
-                        border: "1px solid var(--color-border)",
-                        backgroundColor: "var(--color-bg-primary)",
-                        color: "var(--color-text-primary)",
-                        fontSize: "var(--text-sm)",
-                        width: 200,
-                      }}
-                    />
-                  )}
-                </td>
+      <div className="admin-panel">
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Value</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {settings.map((s) => {
+                const def = getSettingDef(s.key);
+                return (
+                  <tr key={s.key}>
+                    <td className="admin-settings__label-cell">
+                      <div className="admin-settings__label">{def.label}</div>
+                      {def.description && (
+                        <div className="admin-settings__description">
+                          {def.description}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {def.type === "select" && def.options ? (
+                        <select
+                          className="admin-settings__input"
+                          value={editValues[s.key] ?? s.value}
+                          onChange={(e) =>
+                            setEditValues((prev) => ({
+                              ...prev,
+                              [s.key]: e.target.value,
+                            }))
+                          }
+                        >
+                          {def.options.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : def.type === "textarea" ? (
+                        <textarea
+                          className="admin-settings__input admin-settings__input--textarea"
+                          value={editValues[s.key] ?? s.value}
+                          onChange={(e) =>
+                            setEditValues((prev) => ({
+                              ...prev,
+                              [s.key]: e.target.value,
+                            }))
+                          }
+                          rows={3}
+                        />
+                      ) : (
+                        <input
+                          className={`admin-settings__input${def.type === "number" ? " admin-settings__input--number" : ""}`}
+                          type={def.type === "number" ? "number" : "text"}
+                          value={editValues[s.key] ?? s.value}
+                          onChange={(e) =>
+                            setEditValues((prev) => ({
+                              ...prev,
+                              [s.key]: e.target.value,
+                            }))
+                          }
+                        />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import (
 
 var (
 	ErrNoInvitesRemaining = errors.New("no invites remaining")
+	ErrInviteRestricted   = errors.New("invite privilege suspended")
 	ErrInviteNotFound     = errors.New("invite not found")
 	ErrInviteExpired      = errors.New("invite has expired")
 	ErrInviteRedeemed     = errors.New("invite has already been redeemed")
@@ -42,6 +43,9 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 	inviter, err := s.users.GetByID(ctx, inviterID)
 	if err != nil {
 		return nil, fmt.Errorf("get inviter: %w", err)
+	}
+	if !inviter.CanInvite {
+		return nil, ErrInviteRestricted
 	}
 	if inviter.Invites <= 0 {
 		return nil, ErrNoInvitesRemaining

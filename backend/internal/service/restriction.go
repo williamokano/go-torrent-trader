@@ -204,6 +204,8 @@ func (s *RestrictionService) setUserFlag(user *model.User, restrictionType strin
 		user.CanUpload = value
 	case model.RestrictionTypeChat:
 		user.CanChat = value
+	case model.RestrictionTypeInvite:
+		user.CanInvite = value
 	}
 }
 
@@ -225,7 +227,7 @@ func (s *RestrictionService) HasActiveByType(ctx context.Context, userID int64, 
 
 func isValidRestrictionType(t string) bool {
 	switch t {
-	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat:
+	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat, model.RestrictionTypeInvite:
 		return true
 	}
 	return false

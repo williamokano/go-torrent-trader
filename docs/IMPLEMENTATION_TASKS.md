@@ -1159,7 +1159,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 **So that** I can apply proportional consequences for rule violations
 
 **Acceptance Criteria:**
-- New restriction flags on users table: `can_download`, `can_upload`, `can_chat` (all default `true`)
+- New restriction flags on users table: `can_download`, `can_upload`, `can_chat` (all default `true`) *(FE-5.14 later added `can_invite` as a fourth restriction type — suspending it blocks invite creation with 403 `invite_restricted`)*
 - Migration adds columns with `DEFAULT true` so existing users are unaffected
 - `PUT /api/v1/admin/users/{id}/restrictions` — set restriction flags `{can_download, can_upload, can_chat}` with optional `reason` and `expires_at`
 - Restrictions are checked in the relevant handlers:
@@ -2166,7 +2166,18 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - `AdminUsersPage` rebuilt on the shared primitives: `admin-page-header`, a filter toolbar (search + group + status), `admin-panel` + `admin-table`, outline pill status badges (Active / Warned / Disabled) colored by the token palette, and monospace tabular transfer figures. Retired the bespoke `admin-users.css`.
 - Added a page test (list, status badges, empty state).
 
-> **Follow-up:** `AdminUserDetailPage` (single-user editing, ~1000 lines) — adopt `Button` + `admin-panel` for its actions and sections next.
+> **Follow-up:** `AdminUserDetailPage` (single-user editing, ~1000 lines) — adopt `Button` + `admin-panel` for its actions and sections next. *(Done in FE-5.14.)*
+
+#### FE-5.14: Admin Surface Rollout + Invite Restriction [M] [DONE]
+**As an** administrator
+**I want** every admin page on the shared surface layer, and the ability to suspend a member's invite privilege
+**So that** the panel looks and behaves like one product, and invite abuse can be dealt with like any other privilege
+
+**Delivered:**
+- **Backend — `invite` restriction type:** `users.can_invite` column (migration 055, default `true`), `RestrictionTypeInvite`, restriction service/handler support (`can_invite` in `PUT /admin/users/{id}/restrictions`), exposed in admin user views and public profiles. `CreateInvite` refuses with `403 invite_restricted` when suspended (invite count untouched). Registration sets `can_invite=true`.
+- **`AdminUserDetailPage` rebuilt** on the shared primitives: page header with status badges + ban action, a monospace key-figure strip (uploaded / downloaded / ratio / invites / active warnings), stacked panels (Edit profile, Privileges, Recent uploads, Staff notes), and outline badges. The Privileges panel now shows all four privileges (download / upload / chat / **invite**) with Allowed/Suspended state, per-privilege Restore, a suspend form (reason + optional expiry), and the restriction history table.
+- **Remaining admin pages adopted the shared layer** (`admin-page-header`, `admin-toolbar`, `admin-panel`, `admin-table`, outline `admin-badge` pills, mono `admin-num` figures, `admin-btn` family): Dashboard, Torrents, Bans, Warnings, Reports, Chat Mutes, Cheat Flags, News, Forums, Categories, Backups, Site Settings. Per-page CSS trimmed to genuinely page-specific rules; `admin-ui.css` gained panel sections/titles, stat strip, empty states, and the button family.
+- Tests: invite restriction covered in service/handler tests (backend) and page tests (frontend detail page: privilege grid, suspend checkbox, PUT body, history table).
 
 #### FE-5.14: Bonus Store Page + Points Display [M] [DONE]
 **As a** member

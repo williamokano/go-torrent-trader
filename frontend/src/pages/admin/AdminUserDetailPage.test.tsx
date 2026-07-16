@@ -35,6 +35,7 @@ const mockUser = {
   can_download: true,
   can_upload: true,
   can_chat: true,
+  can_invite: true,
   warned: false,
   donor: false,
   parked: false,
@@ -104,7 +105,7 @@ describe("AdminUserDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("testuser")).toBeInTheDocument();
     });
-    expect(screen.getByText("Edit Profile")).toBeInTheDocument();
+    expect(screen.getByText("Edit profile")).toBeInTheDocument();
     expect(screen.getByDisplayValue("test@example.com")).toBeInTheDocument();
   });
 
@@ -113,7 +114,7 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Edit Profile")).toBeInTheDocument();
+      expect(screen.getByText("Edit profile")).toBeInTheDocument();
     });
 
     // Form fields should be populated with user data
@@ -139,9 +140,9 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Reset Password")).toBeInTheDocument();
+      expect(screen.getByText("Reset password")).toBeInTheDocument();
     });
-    expect(screen.getByText("Reset Passkey")).toBeInTheDocument();
+    expect(screen.getByText("Reset passkey")).toBeInTheDocument();
   });
 
   test("opens password reset modal when clicking Reset Password", async () => {
@@ -149,10 +150,10 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Reset Password")).toBeInTheDocument();
+      expect(screen.getByText("Reset password")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("Reset Password"));
+    fireEvent.click(screen.getByText("Reset password"));
 
     expect(screen.getByText("Reset Password for testuser")).toBeInTheDocument();
     expect(
@@ -165,7 +166,7 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Reset Password")).toBeInTheDocument();
+      expect(screen.getByText("Reset password")).toBeInTheDocument();
     });
 
     // Override fetch for the password reset call
@@ -176,9 +177,9 @@ describe("AdminUserDetailPage", () => {
       }),
     );
 
-    fireEvent.click(screen.getByText("Reset Password"));
+    fireEvent.click(screen.getByText("Reset password"));
 
-    const resetButtons = screen.getAllByText("Reset Password");
+    const resetButtons = screen.getAllByText("Reset password");
     fireEvent.click(resetButtons[resetButtons.length - 1]);
 
     await waitFor(() => {
@@ -192,10 +193,10 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Reset Passkey")).toBeInTheDocument();
+      expect(screen.getByText("Reset passkey")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("Reset Passkey"));
+    fireEvent.click(screen.getByText("Reset passkey"));
 
     expect(
       screen.getByText(/invalidate all existing \.torrent files/),
@@ -207,7 +208,7 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Save Changes")).toBeInTheDocument();
+      expect(screen.getByText("Save changes")).toBeInTheDocument();
     });
   });
 
@@ -216,9 +217,9 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("No uploads.")).toBeInTheDocument();
+      expect(screen.getByText("No uploads yet.")).toBeInTheDocument();
     });
-    expect(screen.getByText("No staff notes.")).toBeInTheDocument();
+    expect(screen.getByText("No staff notes yet.")).toBeInTheDocument();
   });
 
   test("renders recent uploads when present", async () => {
@@ -287,7 +288,7 @@ describe("AdminUserDetailPage", () => {
     mockFetch.mockReturnValue(new Promise(() => {}));
     renderPage();
 
-    expect(screen.getByText("Loading...")).toBeInTheDocument();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
   test("renders group dropdown in edit form", async () => {
@@ -295,7 +296,7 @@ describe("AdminUserDetailPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Edit Profile")).toBeInTheDocument();
+      expect(screen.getByText("Edit profile")).toBeInTheDocument();
     });
 
     // Group select should show groups from API
@@ -318,12 +319,103 @@ describe("AdminUserDetailPage", () => {
     expect(screen.getByText("Parked")).toBeInTheDocument();
   });
 
-  test("shows Ban User button for enabled users", async () => {
+  test("renders all four privileges as allowed", async () => {
     mockFetchResponses();
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Ban User")).toBeInTheDocument();
+      expect(screen.getByText("Invite")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Download")).toBeInTheDocument();
+    expect(screen.getByText("Upload")).toBeInTheDocument();
+    expect(screen.getByText("Chat")).toBeInTheDocument();
+    expect(screen.getAllByText("Allowed")).toHaveLength(4);
+    expect(screen.queryByText("Suspended")).not.toBeInTheDocument();
+  });
+
+  test("shows suspended invite privilege with restore button", async () => {
+    mockFetchResponses({ can_invite: false });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Suspended")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Allowed")).toHaveLength(3);
+    expect(screen.getByText("Restore")).toBeInTheDocument();
+  });
+
+  test("renders suspend invite checkbox in restriction form", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Suspend invite")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Suspend download")).toBeInTheDocument();
+    expect(screen.getByLabelText("Suspend upload")).toBeInTheDocument();
+    expect(screen.getByLabelText("Suspend chat")).toBeInTheDocument();
+  });
+
+  test("sends can_invite=false when applying an invite restriction", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Suspend invite")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Suspend invite"));
+    fireEvent.change(
+      screen.getByPlaceholderText("Reason for suspending these privileges…"),
+      { target: { value: "invite abuse" } },
+    );
+    fireEvent.click(screen.getByText("Apply restrictions"));
+
+    await waitFor(() => {
+      const putCall = mockFetch.mock.calls.find(
+        ([url, opts]) =>
+          typeof url === "string" &&
+          url.includes("/restrictions") &&
+          opts?.method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(putCall![1].body);
+      expect(body.can_invite).toBe(false);
+      expect(body.reason).toBe("invite abuse");
+    });
+  });
+
+  test("renders restriction history table", async () => {
+    mockFetchResponses({}, [
+      {
+        id: 1,
+        user_id: 1,
+        restriction_type: "invite",
+        reason: "invite abuse",
+        issued_by: 99,
+        issued_by_username: "admin",
+        expires_at: null,
+        lifted_at: null,
+        lifted_by: null,
+        lifted_by_username: "",
+        created_at: "2024-05-01T00:00:00Z",
+      },
+    ]);
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("invite abuse")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Lift")).toBeInTheDocument();
+    expect(screen.getByText("Permanent")).toBeInTheDocument();
+  });
+
+  test("shows Ban user button for enabled users", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Ban user")).toBeInTheDocument();
     });
   });
 
@@ -334,6 +426,6 @@ describe("AdminUserDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("testuser")).toBeInTheDocument();
     });
-    expect(screen.queryByText("Ban User")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ban user")).not.toBeInTheDocument();
   });
 });

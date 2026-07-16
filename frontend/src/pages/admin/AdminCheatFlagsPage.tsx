@@ -6,6 +6,7 @@ import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { ConfirmModal } from "@/components/modal";
+import "./admin-ui.css";
 import "./admin-cheat-flags.css";
 
 interface CheatFlag {
@@ -54,7 +55,7 @@ function flagTypeLabel(type: string): string {
 function StatusBadge({ dismissed }: { dismissed: boolean }) {
   return (
     <span
-      className={`admin-cheat-flags__status admin-cheat-flags__status--${dismissed ? "dismissed" : "active"}`}
+      className={`admin-badge ${dismissed ? "admin-badge--muted" : "admin-badge--warn"}`}
     >
       {dismissed ? "Dismissed" : "Active"}
     </span>
@@ -151,9 +152,17 @@ export function AdminCheatFlagsPage() {
 
   return (
     <div>
-      <h1>Cheat Flags</h1>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Cheat Flags</h1>
+          <p className="admin-page-header__desc">
+            Suspicious announce activity detected by the tracker, ready for
+            review.
+          </p>
+        </div>
+      </div>
 
-      <div className="admin-cheat-flags__controls">
+      <div className="admin-toolbar">
         <div className="admin-cheat-flags__filter">
           <label htmlFor="cheat-flag-type">Type</label>
           <select
@@ -194,76 +203,89 @@ export function AdminCheatFlagsPage() {
       {loading ? (
         <p>Loading...</p>
       ) : error ? (
-        <p className="admin-cheat-flags__empty">{error}</p>
+        <div className="admin-panel">
+          <p className="admin-empty">{error}</p>
+        </div>
       ) : flags.length === 0 ? (
-        <p className="admin-cheat-flags__empty">No cheat flags found.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No cheat flags found.</p>
+        </div>
       ) : (
         <>
-          <table className="admin-cheat-flags__table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Torrent</th>
-                <th>Type</th>
-                <th>Details</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {flags.map((f) => (
-                <tr key={f.id}>
-                  <td>
-                    <UsernameDisplay userId={f.user_id} username={f.username} />
-                  </td>
-                  <td className="admin-cheat-flags__torrent-cell">
-                    {f.torrent_id ? (
-                      <a href={`/torrent/${f.torrent_id}`}>
-                        {f.torrent_name || `#${f.torrent_id}`}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td>{flagTypeLabel(f.flag_type)}</td>
-                  <td
-                    className="admin-cheat-flags__details-cell"
-                    title={f.details}
-                  >
-                    {formatDetails(f.details)}
-                  </td>
-                  <td>
-                    <StatusBadge dismissed={f.dismissed} />
-                    {f.dismissed && f.dismisser_name && (
-                      <div className="admin-cheat-flags__dismissed-info">
-                        by {f.dismisser_name}
-                      </div>
-                    )}
-                  </td>
-                  <td>{timeAgo(f.created_at)}</td>
-                  <td>
-                    {!f.dismissed && (
-                      <button
-                        className="admin-cheat-flags__dismiss-btn"
-                        disabled={dismissing}
-                        onClick={() => setDismissingId(f.id)}
+          <div className="admin-panel">
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Torrent</th>
+                    <th>Type</th>
+                    <th>Details</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flags.map((f) => (
+                    <tr key={f.id}>
+                      <td className="admin-table__name">
+                        <UsernameDisplay
+                          userId={f.user_id}
+                          username={f.username}
+                        />
+                      </td>
+                      <td className="admin-cheat-flags__torrent-cell">
+                        {f.torrent_id ? (
+                          <a href={`/torrent/${f.torrent_id}`}>
+                            {f.torrent_name || `#${f.torrent_id}`}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>{flagTypeLabel(f.flag_type)}</td>
+                      <td
+                        className="admin-cheat-flags__details-cell"
+                        title={f.details}
                       >
-                        Dismiss
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {formatDetails(f.details)}
+                      </td>
+                      <td>
+                        <StatusBadge dismissed={f.dismissed} />
+                        {f.dismissed && f.dismisser_name && (
+                          <div className="admin-cheat-flags__dismissed-info">
+                            by {f.dismisser_name}
+                          </div>
+                        )}
+                      </td>
+                      <td className="admin-muted">{timeAgo(f.created_at)}</td>
+                      <td className="admin-table__actions">
+                        {!f.dismissed && (
+                          <button
+                            className="admin-btn admin-btn--ghost admin-btn--sm"
+                            disabled={dismissing}
+                            onClick={() => setDismissingId(f.id)}
+                          >
+                            Dismiss
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {totalPages > 1 && (
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
+            <div style={{ marginTop: "var(--space-md)" }}>
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+              />
+            </div>
           )}
         </>
       )}

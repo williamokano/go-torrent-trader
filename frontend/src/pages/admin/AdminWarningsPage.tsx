@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
+import "./admin-ui.css";
 import "./admin-warnings.css";
 
 interface Warning {
@@ -34,14 +35,16 @@ const STATUS_OPTIONS = [
   { value: "escalated", label: "Escalated" },
 ];
 
+const STATUS_BADGE_VARIANT: Record<string, string> = {
+  active: "admin-badge--warn",
+  escalated: "admin-badge--danger",
+  lifted: "admin-badge--muted",
+  resolved: "admin-badge--ok",
+};
+
 function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={`admin-warnings__status admin-warnings__status--${status}`}
-    >
-      {status}
-    </span>
-  );
+  const variant = STATUS_BADGE_VARIANT[status] ?? "admin-badge--muted";
+  return <span className={`admin-badge ${variant}`}>{status}</span>;
 }
 
 function warningTypeLabel(type: string): string {
@@ -265,9 +268,24 @@ export function AdminWarningsPage() {
 
   return (
     <div>
-      <h1>Warnings</h1>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Warnings</h1>
+          <p className="admin-page-header__desc">
+            Issue, review, and lift member warnings.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <button
+            className="admin-btn admin-btn--primary"
+            onClick={() => setShowIssueModal(true)}
+          >
+            Issue Warning
+          </button>
+        </div>
+      </div>
 
-      <div className="admin-warnings__controls">
+      <div className="admin-toolbar">
         <div className="admin-warnings__filter">
           <label htmlFor="warning-status">Status</label>
           <select
@@ -296,79 +314,89 @@ export function AdminWarningsPage() {
             onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
-
-        <button
-          className="admin-warnings__issue-btn"
-          onClick={() => setShowIssueModal(true)}
-        >
-          Issue Warning
-        </button>
       </div>
 
       {loading ? (
         <p>Loading...</p>
       ) : warnings.length === 0 ? (
-        <p className="admin-warnings__empty">No warnings found.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No warnings found.</p>
+        </div>
       ) : (
         <>
-          <table className="admin-warnings__table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Type</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Issued By</th>
-                <th>Date</th>
-                <th>Expires</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {warnings.map((w) => (
-                <tr key={w.id}>
-                  <td>
-                    <UsernameDisplay userId={w.user_id} username={w.username} />
-                  </td>
-                  <td>{warningTypeLabel(w.type)}</td>
-                  <td className="admin-warnings__reason-cell" title={w.reason}>
-                    {w.reason}
-                    {w.status === "lifted" && w.lifted_reason && (
-                      <div className="admin-warnings__lifted-info">
-                        Lifted by {w.lifted_by_name ?? "?"}: {w.lifted_reason}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge status={w.status} />
-                  </td>
-                  <td>
-                    {w.issued_by_name ??
-                      (w.issued_by ? `#${w.issued_by}` : "System")}
-                  </td>
-                  <td>{timeAgo(w.created_at)}</td>
-                  <td>{w.expires_at ? timeAgo(w.expires_at) : "—"}</td>
-                  <td>
-                    {w.status === "active" && (
-                      <button
-                        className="admin-warnings__lift-btn"
-                        onClick={() => setLiftingWarningId(w.id)}
+          <div className="admin-panel">
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Type</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Issued By</th>
+                    <th>Date</th>
+                    <th>Expires</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {warnings.map((w) => (
+                    <tr key={w.id}>
+                      <td className="admin-table__name">
+                        <UsernameDisplay
+                          userId={w.user_id}
+                          username={w.username}
+                        />
+                      </td>
+                      <td>{warningTypeLabel(w.type)}</td>
+                      <td
+                        className="admin-warnings__reason-cell"
+                        title={w.reason}
                       >
-                        Lift
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {w.reason}
+                        {w.status === "lifted" && w.lifted_reason && (
+                          <div className="admin-warnings__lifted-info">
+                            Lifted by {w.lifted_by_name ?? "?"}:{" "}
+                            {w.lifted_reason}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <StatusBadge status={w.status} />
+                      </td>
+                      <td>
+                        {w.issued_by_name ??
+                          (w.issued_by ? `#${w.issued_by}` : "System")}
+                      </td>
+                      <td className="admin-muted">{timeAgo(w.created_at)}</td>
+                      <td className="admin-muted">
+                        {w.expires_at ? timeAgo(w.expires_at) : "—"}
+                      </td>
+                      <td className="admin-table__actions">
+                        {w.status === "active" && (
+                          <button
+                            className="admin-btn admin-btn--ghost admin-btn--sm"
+                            onClick={() => setLiftingWarningId(w.id)}
+                          >
+                            Lift
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {totalPages > 1 && (
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
+            <div style={{ marginTop: "var(--space-md)" }}>
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+              />
+            </div>
           )}
         </>
       )}
@@ -455,14 +483,14 @@ export function AdminWarningsPage() {
               <div className="admin-warnings__modal-actions">
                 <button
                   type="button"
-                  className="admin-warnings__modal-cancel"
+                  className="admin-btn admin-btn--ghost"
                   onClick={() => setShowIssueModal(false)}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="admin-warnings__modal-submit"
+                  className="admin-btn admin-btn--primary"
                   disabled={issuing || !issueUserId || !issueReason.trim()}
                 >
                   {issuing ? "Issuing..." : "Issue Warning"}
@@ -496,7 +524,7 @@ export function AdminWarningsPage() {
             <div className="admin-warnings__modal-actions">
               <button
                 type="button"
-                className="admin-warnings__modal-cancel"
+                className="admin-btn admin-btn--ghost"
                 onClick={() => {
                   setLiftingWarningId(null);
                   setLiftReason("");
@@ -505,7 +533,7 @@ export function AdminWarningsPage() {
                 Cancel
               </button>
               <button
-                className="admin-warnings__modal-submit"
+                className="admin-btn admin-btn--primary"
                 onClick={handleLift}
                 disabled={lifting}
               >

@@ -188,11 +188,12 @@ func newTestInviteService() (*InviteService, *mockInviteRepo, *mockInviteUserRep
 
 	// Create a test user with invites
 	_ = userRepo.Create(context.Background(), &model.User{
-		Username: "inviter",
-		Email:    "inviter@example.com",
-		Invites:  3,
-		Enabled:  true,
-		GroupID:  5,
+		Username:  "inviter",
+		Email:     "inviter@example.com",
+		Invites:   3,
+		Enabled:   true,
+		GroupID:   5,
+		CanInvite: true,
 	})
 
 	return svc, inviteRepo, userRepo
@@ -230,6 +231,26 @@ func TestInviteService_CreateInvite_NoInvitesRemaining(t *testing.T) {
 	_, err := svc.CreateInvite(context.Background(), 1)
 	if !errors.Is(err, ErrNoInvitesRemaining) {
 		t.Errorf("expected ErrNoInvitesRemaining, got %v", err)
+	}
+}
+
+func TestInviteService_CreateInvite_Restricted(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
+
+	// Suspend the invite privilege
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	user.CanInvite = false
+	_ = userRepo.Update(context.Background(), user)
+
+	_, err := svc.CreateInvite(context.Background(), 1)
+	if !errors.Is(err, ErrInviteRestricted) {
+		t.Errorf("expected ErrInviteRestricted, got %v", err)
+	}
+
+	// Invite count must not be consumed
+	user, _ = userRepo.GetByID(context.Background(), 1)
+	if user.Invites != 3 {
+		t.Errorf("expected 3 invites remaining, got %d", user.Invites)
 	}
 }
 

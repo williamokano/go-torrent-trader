@@ -7,6 +7,7 @@ const (
 	RestrictionTypeDownload = "download"
 	RestrictionTypeUpload   = "upload"
 	RestrictionTypeChat     = "chat"
+	RestrictionTypeInvite   = "invite"
 )
 
 // Restriction represents a per-user privilege restriction record.
