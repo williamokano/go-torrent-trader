@@ -174,6 +174,13 @@ export function RootLayout() {
               Need Seed
             </NavLink>
             <NavLink
+              to="/completed"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Completed
+            </NavLink>
+            <NavLink
               to="/rss"
               className="header__dropdown-item"
               onClick={closeMenu}

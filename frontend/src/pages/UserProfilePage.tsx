@@ -5,6 +5,8 @@ import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
+import { ActivityHistoryTable } from "@/components/ActivityHistoryTable";
+import type { ActivityItem } from "@/types/activity";
 import "./profile.css";
 
 interface UserWarning {
@@ -60,19 +62,6 @@ interface TorrentUpload {
   category_name: string;
   created_at: string;
   anonymous?: boolean;
-}
-
-interface ActivityItem {
-  torrent_id: number;
-  torrent_name: string;
-  uploaded: number;
-  downloaded: number;
-  ratio: number;
-  seeder: boolean;
-  ip?: string;
-  port?: number;
-  last_announce?: string;
-  completed_at?: string;
 }
 
 type ActivityTab = "uploads" | "seeding" | "leeching" | "history";
@@ -550,11 +539,16 @@ export function UserProfilePage() {
               totalPages={uploadsTotalPages}
               onPageChange={setUploadsPage}
             />
+          ) : activeTab === "history" ? (
+            <ActivityHistoryTable
+              items={activity}
+              page={activityPage}
+              totalPages={activityTotalPages}
+              onPageChange={setActivityPage}
+            />
           ) : (
             <ActivityTable
               items={activity}
-              showPort={activeTab === "seeding" || activeTab === "leeching"}
-              showCompletedAt={activeTab === "history"}
               page={activityPage}
               totalPages={activityTotalPages}
               onPageChange={setActivityPage}
@@ -616,15 +610,11 @@ function UploadsTable({
 
 function ActivityTable({
   items,
-  showPort,
-  showCompletedAt,
   page,
   totalPages,
   onPageChange,
 }: {
   items: ActivityItem[];
-  showPort: boolean;
-  showCompletedAt: boolean;
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
@@ -642,9 +632,8 @@ function ActivityTable({
             <th>Uploaded</th>
             <th>Downloaded</th>
             <th>Ratio</th>
-            {showPort && <th>IP</th>}
-            {showPort && <th>Port</th>}
-            {showCompletedAt && <th>Completed</th>}
+            <th>IP</th>
+            <th>Port</th>
             <th>Last Announce</th>
           </tr>
         </thead>
@@ -659,11 +648,8 @@ function ActivityTable({
               <td>{formatBytes(item.uploaded)}</td>
               <td>{formatBytes(item.downloaded)}</td>
               <td>{formatRatio(item.ratio)}</td>
-              {showPort && <td>{item.ip ?? "-"}</td>}
-              {showPort && <td>{item.port ?? "-"}</td>}
-              {showCompletedAt && (
-                <td>{item.completed_at ? timeAgo(item.completed_at) : "-"}</td>
-              )}
+              <td>{item.ip ?? "-"}</td>
+              <td>{item.port ?? "-"}</td>
               <td>{item.last_announce ? timeAgo(item.last_announce) : "-"}</td>
             </tr>
           ))}

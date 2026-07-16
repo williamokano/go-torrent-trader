@@ -32,6 +32,7 @@ import { MessagesPage } from "@/pages/MessagesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
 import { NeedSeedPage } from "@/pages/NeedSeedPage";
+import { CompletedPage } from "@/pages/CompletedPage";
 import { TorrentPeersPage } from "@/pages/TorrentPeersPage";
 import { ConfirmEmailPage } from "@/pages/ConfirmEmailPage";
 import { ResendConfirmationPage } from "@/pages/ResendConfirmationPage";
@@ -92,6 +93,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <NeedSeedPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "completed",
+        element: (
+          <ProtectedRoute>
+            <CompletedPage />
           </ProtectedRoute>
         ),
       },
