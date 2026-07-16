@@ -27,6 +27,7 @@ export interface User {
   ratio: number;
   passkey: string;
   invites: number;
+  bonus_points: number;
   warned: boolean;
   donor: boolean;
   enabled: boolean;

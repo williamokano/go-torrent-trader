@@ -44,6 +44,7 @@ type Deps struct {
 	CheatFlagRepo       repository.CheatFlagRepository
 	NotificationService *service.NotificationService
 	PromotionService    *service.PromotionService
+	BonusService        *service.BonusService
 	BackupService       BackupManager
 	RSSConfig           *RSSConfig
 }
@@ -238,6 +239,16 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Get("/", invites.HandleListInvites)
 						r.With(mw.RequireCapability("invite")).Post("/", invites.HandleCreateInvite)
 					})
+				})
+			}
+
+			// Bonus store endpoints
+			if deps.BonusService != nil {
+				store := NewBonusStoreHandler(deps.BonusService)
+				r.Route("/store", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/items", store.HandleListItems)
+					r.Post("/purchase/{itemId}", store.HandlePurchase)
 				})
 			}
 

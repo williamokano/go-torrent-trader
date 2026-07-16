@@ -129,12 +129,13 @@ func requireDB(t *testing.T) *sql.DB {
 // torrent needs a category). Truncating them would silently break those tests,
 // so resetTestData leaves them alone.
 var preservedTables = map[string]bool{
-	"goose_db_version": true, // migration bookkeeping; dropping it forces a re-migration
-	"groups":           true,
-	"categories":       true,
-	"countries":        true,
-	"languages":        true,
-	"site_settings":    true,
+	"goose_db_version":  true, // migration bookkeeping; dropping it forces a re-migration
+	"groups":            true,
+	"categories":        true,
+	"countries":         true,
+	"languages":         true,
+	"site_settings":     true,
+	"bonus_store_items": true, // migration-seeded store catalogue
 }
 
 // resetTestData empties every table that holds test-created rows, so each test

@@ -65,6 +65,10 @@ const (
 	SettingPromotionEnabled        = "promotion_enabled"
 	SettingPromotionIntervalDays   = "promotion_interval_days"
 	SettingPromotionSeedWindowDays = "promotion_seed_window_days"
+
+	// Bonus point economy settings keys.
+	SettingBonusEnabled                 = "bonus_enabled"
+	SettingBonusPointsPerSeedingTorrent = "bonus_points_per_seeding_torrent"
 )
 
 // SiteSettingsService handles site settings business logic.

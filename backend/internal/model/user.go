@@ -22,6 +22,7 @@ type User struct {
 	LastLogin      *time.Time
 	LastAccess     *time.Time
 	Invites        int
+	BonusPoints    int64
 	Warned         bool
 	WarnUntil      *time.Time
 	Donor          bool

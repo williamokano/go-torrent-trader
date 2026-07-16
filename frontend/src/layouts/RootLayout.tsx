@@ -236,6 +236,13 @@ export function RootLayout() {
             >
               Invites
             </NavLink>
+            <NavLink
+              to="/store"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Bonus Store
+            </NavLink>
           </Dropdown>
 
           <Dropdown

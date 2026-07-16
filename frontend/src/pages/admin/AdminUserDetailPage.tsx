@@ -63,6 +63,7 @@ interface UserDetail {
   parked: boolean;
   passkey: string | null;
   invites: number;
+  bonus_points: number;
   can_download: boolean;
   can_upload: boolean;
   can_chat: boolean;
@@ -98,6 +99,7 @@ export function AdminUserDetailPage() {
   const [editUploaded, setEditUploaded] = useState("");
   const [editDownloaded, setEditDownloaded] = useState("");
   const [editInvites, setEditInvites] = useState("");
+  const [editBonusPoints, setEditBonusPoints] = useState("");
   const [editEnabled, setEditEnabled] = useState(true);
   const [editWarned, setEditWarned] = useState(false);
   const [editDonor, setEditDonor] = useState(false);
@@ -140,6 +142,7 @@ export function AdminUserDetailPage() {
     setEditUploaded(String(u.uploaded));
     setEditDownloaded(String(u.downloaded));
     setEditInvites(String(u.invites));
+    setEditBonusPoints(String(u.bonus_points ?? 0));
     setEditEnabled(u.enabled);
     setEditWarned(u.warned);
     setEditDonor(u.donor);
@@ -228,6 +231,7 @@ export function AdminUserDetailPage() {
             uploaded: Number(editUploaded),
             downloaded: Number(editDownloaded),
             invites: Number(editInvites),
+            bonus_points: Number(editBonusPoints),
             enabled: editEnabled,
             warned: editWarned,
             donor: editDonor,
@@ -618,6 +622,15 @@ export function AdminUserDetailPage() {
                 type="number"
                 value={editInvites}
                 onChange={(e) => setEditInvites(e.target.value)}
+              />
+            </div>
+            <div className="admin-user-detail__form-field">
+              <Input
+                label="Bonus Points"
+                type="number"
+                min="0"
+                value={editBonusPoints}
+                onChange={(e) => setEditBonusPoints(e.target.value)}
               />
             </div>
           </div>

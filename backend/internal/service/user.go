@@ -66,6 +66,7 @@ type OwnerProfile struct {
 	Email       string             `json:"email"`
 	Passkey     string             `json:"passkey"`
 	Invites     int                `json:"invites"`
+	BonusPoints int64              `json:"bonus_points"`
 	LastLogin   *string            `json:"last_login"`
 	Permissions *model.Permissions `json:"permissions,omitempty"`
 }
@@ -271,6 +272,7 @@ func buildOwnerProfile(u *model.User, pub PublicProfile) *OwnerProfile {
 		Email:         u.Email,
 		Passkey:       derefString(u.Passkey),
 		Invites:       u.Invites,
+		BonusPoints:   u.BonusPoints,
 	}
 
 	if u.LastLogin != nil {

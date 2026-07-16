@@ -40,6 +40,7 @@ const mockUser = {
   parked: false,
   passkey: "abc123def456",
   invites: 2,
+  bonus_points: 1500,
   created_at: "2024-01-01T00:00:00Z",
   last_access: "2024-06-01T12:00:00Z",
   ratio: 2.0,
@@ -121,6 +122,7 @@ describe("AdminUserDetailPage", () => {
     expect(screen.getByDisplayValue("1073741824")).toBeInTheDocument();
     expect(screen.getByDisplayValue("536870912")).toBeInTheDocument();
     expect(screen.getByDisplayValue("2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bonus Points")).toHaveValue(1500);
   });
 
   test("renders passkey read-only display", async () => {

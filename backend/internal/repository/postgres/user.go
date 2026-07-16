@@ -10,9 +10,12 @@ import (
 )
 
 // userColumns lists every column in the users table in scan order.
+// bonus_points is read here but deliberately NOT written by Create/Update:
+// all writes to it go through BonusRepo's atomic statements, so the full-row
+// Update can never clobber points awarded concurrently by the bonus worker.
 const userColumns = `id, username, email, password_hash, password_scheme, passkey,
 	group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
-	ip, last_login, last_access, invites, warned, warn_until, donor,
+	ip, last_login, last_access, invites, bonus_points, warned, warn_until, donor,
 	invited_by, can_download, can_upload, can_chat, can_forum, disabled_until, created_at, updated_at`
 
 // UserRepo implements repository.UserRepository using PostgreSQL.
@@ -31,7 +34,7 @@ func scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
 		&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.PasswordScheme, &u.Passkey,
 		&u.GroupID, &u.Uploaded, &u.Downloaded, &u.Avatar, &u.Title, &u.Info,
 		&u.Enabled, &u.Parked, &u.IP, &u.LastLogin, &u.LastAccess,
-		&u.Invites, &u.Warned, &u.WarnUntil, &u.Donor,
+		&u.Invites, &u.BonusPoints, &u.Warned, &u.WarnUntil, &u.Donor,
 		&u.InvitedBy, &u.CanDownload, &u.CanUpload, &u.CanChat, &u.CanForum,
 		&u.DisabledUntil, &u.CreatedAt, &u.UpdatedAt,
 	)
