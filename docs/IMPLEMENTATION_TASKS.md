@@ -1528,17 +1528,19 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Review finding from BE-8.7. `ToastProvider` passes an object literal as its context value, so `useToast()` returns a fresh identity on every provider render — and the provider re-renders on every toast add *and* auto-dismiss. Any `useCallback(fetch, [toast])` feeding a `useEffect` therefore refires on each toast; on the error path that is self-sustaining (fetch fails → error toast → new `toast` → refetch → fails …), measured at ~324 requests in 500ms. Every admin page dodges this today by omitting `toast` from the dependency array, which silences the symptom, carries an ESLint warning, and leaves the trap armed for the next page. Fixing the provider fixes all of them at once — deliberately deferred out of BE-8.7 because it touches a shared component that parallel branches also modify.
 
-#### BE-9.20: Bump Deprecated GitHub Actions off Node 20 [S] [TODO]
+#### BE-9.20: Bump Deprecated GitHub Actions off Node 20 [S] [DONE]
 **As a** maintainer
 **I want** the CI/release workflows to stop relying on Node.js 20 actions
 **So that** builds keep working once GitHub removes Node 20 from runners
 
 **Acceptance Criteria:**
-- Update the actions that still target Node 20 (surfaced during the v0.11.0 release build as "Node.js 20 is deprecated … forced to run on Node.js 24"): `actions/setup-go@v5`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, and any others the warnings name.
-- Bump to versions that run on Node 24 (or the current supported major) across `release.yml`, `backend.yml`, `frontend.yml`, `migration-tool.yml`.
-- Re-run a release (or a dry build) and confirm the deprecation warnings are gone.
+- Update the actions that still target Node 20 (surfaced during the v0.11.0 release build as "Node.js 20 is deprecated … forced to run on Node.js 24"): `actions/setup-go@v5`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, and any others the warnings name — DONE
+- Bump to versions that run on Node 24 (or the current supported major) across `release.yml`, `backend.yml`, `frontend.yml`, `migration-tool.yml` — DONE (`frontend.yml` did not reference any of the flagged actions; only `actions/setup-node@v5` and `actions/checkout@v5`, both already current, so it required no edits)
+- Re-run a release (or a dry build) and confirm the deprecation warnings are gone — **follow-up**, requires an actual Actions run after merge; not verifiable locally
 
 > **Origin:** Non-blocking deprecation warnings logged during the v0.11.0 release. GitHub is phasing out Node 20 on runners; currently the actions are force-run on Node 24, so nothing is broken yet — this is housekeeping before the forced-fallback is removed. See https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/.
+
+> **Delivered:** Bumped to the current major-tag release of each action (matching the repo's existing major-only pinning style): `actions/setup-go@v5` → `@v7` (`backend.yml` ×3, `migration-tool.yml` ×3, `release.yml` ×1), `actions/upload-artifact@v4` → `@v7` (`release.yml` ×2), `actions/download-artifact@v4` → `@v8` (`release.yml` ×1). Checked each action's intermediate-major release notes for breaking changes relevant to this repo's usage: `download-artifact` v5's single-artifact-by-ID path nesting change doesn't apply (this workflow downloads via `pattern: archive-*` with `merge-multiple: true`, called out in the v5 migration guide as needing no action); `upload-artifact` v7's direct-upload mode only activates with `archive: false`, unused here. No `retention-days` params are present in these workflows. `actions/checkout@v5` and `node-version: '22'` (the app's own Node runtime, unrelated to the deprecated-action warning) were left untouched per scope.
 
 ---
 
