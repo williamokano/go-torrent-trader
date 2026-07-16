@@ -105,7 +105,7 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: ${{ matrix.project }}/go.sum
@@ -143,7 +143,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: archive-${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ steps.archive.outputs.FILE }}
@@ -183,7 +183,7 @@ jobs:
           echo "FILE=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: archive-frontend
           path: ${{ steps.archive.outputs.FILE }}
@@ -193,7 +193,7 @@ jobs:
     needs: [build-binaries, build-frontend-archive]
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: archive-*
           merge-multiple: true
