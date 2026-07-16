@@ -120,6 +120,18 @@ func (m *mockUserRepo) List(_ context.Context, opts repository.ListUsersOptions)
 
 func (m *mockUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
 
+func (m *mockUserRepo) SetInvites(_ context.Context, userID int64, invites int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.Invites = invites
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func (m *mockUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

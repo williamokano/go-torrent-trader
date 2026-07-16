@@ -13,40 +13,41 @@ import (
 
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
-	DB                  *sql.DB
-	StatsCache          *service.StatsCache
-	AuthService         *service.AuthService
-	SessionStore        service.SessionStore
-	UserService         *service.UserService
-	MemberService       *service.MemberService
-	TorrentService      *service.TorrentService
-	TrackerService      *service.TrackerService
-	ReportService       *service.ReportService
-	CommentService      *service.CommentService
-	InviteService       *service.InviteService
-	AdminService        *service.AdminService
-	CategoryService     *service.CategoryService
-	ActivityLogService  *service.ActivityLogService
-	SiteSettingsService *service.SiteSettingsService
-	BanService          *service.BanService
-	MessageService      *service.MessageService
-	ChatService         *service.ChatService
-	WarningService      *service.WarningService
-	NewsService         *service.NewsService
-	RestrictionService  *service.RestrictionService
-	ForumService        *service.ForumService
-	ChatHub             *ChatHub
-	PeerRepo            repository.PeerRepository
-	UserRepo            repository.UserRepository
-	CategoryRepo        repository.CategoryRepository
-	TransferHistoryRepo repository.TransferHistoryRepository
-	DashboardRepo       repository.DashboardRepository
-	CheatFlagRepo       repository.CheatFlagRepository
-	NotificationService *service.NotificationService
-	PromotionService    *service.PromotionService
-	BonusService        *service.BonusService
-	BackupService       BackupManager
-	RSSConfig           *RSSConfig
+	DB                        *sql.DB
+	StatsCache                *service.StatsCache
+	AuthService               *service.AuthService
+	SessionStore              service.SessionStore
+	UserService               *service.UserService
+	MemberService             *service.MemberService
+	TorrentService            *service.TorrentService
+	TrackerService            *service.TrackerService
+	ReportService             *service.ReportService
+	CommentService            *service.CommentService
+	InviteService             *service.InviteService
+	AdminService              *service.AdminService
+	CategoryService           *service.CategoryService
+	ActivityLogService        *service.ActivityLogService
+	SiteSettingsService       *service.SiteSettingsService
+	BanService                *service.BanService
+	MessageService            *service.MessageService
+	ChatService               *service.ChatService
+	WarningService            *service.WarningService
+	NewsService               *service.NewsService
+	RestrictionService        *service.RestrictionService
+	ForumService              *service.ForumService
+	ChatHub                   *ChatHub
+	PeerRepo                  repository.PeerRepository
+	UserRepo                  repository.UserRepository
+	CategoryRepo              repository.CategoryRepository
+	TransferHistoryRepo       repository.TransferHistoryRepository
+	DashboardRepo             repository.DashboardRepository
+	CheatFlagRepo             repository.CheatFlagRepository
+	NotificationService       *service.NotificationService
+	PromotionService          *service.PromotionService
+	BonusService              *service.BonusService
+	InviteDistributionService *service.InviteDistributionService
+	BackupService             BackupManager
+	RSSConfig                 *RSSConfig
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -377,6 +378,13 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Put("/promotion/rules/{groupId}", promo.HandleUpsertRule)
 							r.Delete("/promotion/rules/{groupId}", promo.HandleDeleteRule)
 							r.Post("/promotion/run", promo.HandleRunNow)
+						}
+						if deps.InviteDistributionService != nil {
+							inviteDist := NewInviteDistributionHandler(deps.InviteDistributionService)
+							r.Get("/invite-distribution/rules", inviteDist.HandleListRules)
+							r.Put("/invite-distribution/rules/{groupId}", inviteDist.HandleUpsertRule)
+							r.Delete("/invite-distribution/rules/{groupId}", inviteDist.HandleDeleteRule)
+							r.Post("/invite-distribution/run", inviteDist.HandleRunNow)
 						}
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {

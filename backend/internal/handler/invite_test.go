@@ -228,6 +228,18 @@ func (m *mockInviteUserRepo) ListStaff(_ context.Context) ([]model.User, error) 
 
 func (m *mockInviteUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
 
+func (m *mockInviteUserRepo) AdjustInvites(_ context.Context, userID int64, delta int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.Invites += int(delta)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 // --- test helpers ---
 
 func setupInviteRouter() (http.Handler, service.SessionStore, *mockInviteUserRepo) {

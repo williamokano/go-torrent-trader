@@ -139,6 +139,47 @@ func TestListener_InviteRevoked(t *testing.T) {
 	}
 }
 
+func TestListener_InviteAutoGranted(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.InviteAutoGrantedEvent{
+		Base:     event.NewBase(event.InviteAutoGranted, event.Actor{ID: 0, Username: "System"}),
+		UserID:   3,
+		Username: "bob",
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].EventType != "invite_auto_granted" {
+		t.Errorf("expected invite_auto_granted, got %s", repo.logs[0].EventType)
+	}
+	if repo.logs[0].Message != "System granted an invite to bob via auto-distribution" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+	// A system actor (ID 0) must not be recorded as an actor_id, mirroring how
+	// nil-issuedBy restriction events resolve to no actor.
+	if repo.logs[0].ActorID != nil {
+		t.Errorf("expected nil actor_id for a system event, got %v", *repo.logs[0].ActorID)
+	}
+}
+
+func TestListener_InviteAutoGranted_ResolvesUsernameWhenEmpty(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.InviteAutoGrantedEvent{
+		Base:   event.NewBase(event.InviteAutoGranted, event.Actor{ID: 0, Username: "System"}),
+		UserID: 9,
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].Message != "System granted an invite to user9 via auto-distribution" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+}
+
 func TestListener_TorrentUploaded(t *testing.T) {
 	repo, bus := setup()
 

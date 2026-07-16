@@ -24,15 +24,26 @@ var (
 
 const inviteExpiryDuration = 7 * 24 * time.Hour
 
+// inviteAdjustRepository is repository.UserRepository plus the atomic invite
+// balance adjustment. Kept local to this file (and reused by
+// InviteDistributionService, same package) rather than added to
+// repository.UserRepository, so the many existing mocks implementing
+// UserRepository elsewhere in the test suite are untouched — the same
+// approach service/restriction.go uses for privilegeFlagRepository.
+type inviteAdjustRepository interface {
+	repository.UserRepository
+	AdjustInvites(ctx context.Context, userID int64, delta int64) error
+}
+
 // InviteService handles invitation business logic.
 type InviteService struct {
 	invites  repository.InviteRepository
-	users    repository.UserRepository
+	users    inviteAdjustRepository
 	eventBus event.Bus
 }
 
 // NewInviteService creates a new InviteService.
-func NewInviteService(invites repository.InviteRepository, users repository.UserRepository, bus event.Bus) *InviteService {
+func NewInviteService(invites repository.InviteRepository, users inviteAdjustRepository, bus event.Bus) *InviteService {
 	return &InviteService{
 		invites:  invites,
 		users:    users,
@@ -70,9 +81,12 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 		return nil, fmt.Errorf("create invite: %w", err)
 	}
 
-	// Decrement user's invite count
-	inviter.Invites--
-	if err := s.users.Update(ctx, inviter); err != nil {
+	// Decrement user's invite count via the atomic delta primitive, not a
+	// read-modify-write through Update: two concurrent CreateInvite calls (or
+	// an admin profile save landing on a stale read) could otherwise clobber
+	// each other's write to this column — the same class of race BE-8.16
+	// closed for the privilege flags.
+	if err := s.users.AdjustInvites(ctx, inviterID, -1); err != nil {
 		return nil, fmt.Errorf("decrement invites: %w", err)
 	}
 

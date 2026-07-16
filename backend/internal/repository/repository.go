@@ -142,6 +142,28 @@ type PromotionRepository interface {
 	RecordRun(ctx context.Context, promoted, demoted int) error
 }
 
+// InviteDistributionRepository defines persistence operations for the auto
+// invite distribution rules and engine.
+type InviteDistributionRepository interface {
+	// Rule configuration.
+	ListRules(ctx context.Context) ([]model.InviteDistributionRule, error)
+	UpsertRule(ctx context.Context, rule *model.InviteDistributionRule) error
+	DeleteRule(ctx context.Context, groupID int64) error
+
+	// Engine inputs. GroupMetrics reuses the same per-user
+	// uploaded/downloaded/tenure query PromotionRepository.LadderMetrics
+	// uses — there is exactly one query for that shape in the codebase.
+	// UserInviteStates is a bulk lookup (keyed by user id) for the fields
+	// GroupMetrics doesn't carry: current invite balance and the can_invite
+	// privilege flag.
+	GroupMetrics(ctx context.Context, groupIDs []int64) ([]model.PromotionUserMetrics, error)
+	UserInviteStates(ctx context.Context, userIDs []int64) (map[int64]model.UserInviteState, error)
+
+	// Run bookkeeping.
+	LastRunAt(ctx context.Context) (time.Time, bool, error)
+	RecordRun(ctx context.Context, granted int) error
+}
+
 // ReportRepository defines persistence operations for reports.
 type ReportRepository interface {
 	Create(ctx context.Context, report *model.Report) error

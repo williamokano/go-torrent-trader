@@ -66,6 +66,10 @@ const (
 	SettingPromotionIntervalDays   = "promotion_interval_days"
 	SettingPromotionSeedWindowDays = "promotion_seed_window_days"
 
+	// Auto invite distribution settings keys.
+	SettingInviteDistributionEnabled      = "invite_distribution_enabled"
+	SettingInviteDistributionIntervalDays = "invite_distribution_interval_days"
+
 	// Bonus point economy settings keys.
 	SettingBonusEnabled                 = "bonus_enabled"
 	SettingBonusPointsPerSeedingTorrent = "bonus_points_per_seeding_torrent"

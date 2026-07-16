@@ -155,6 +155,15 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s revoked an invite issued by %s", actor, inviter), e.Actor
 	})
 
+	listen(event.InviteAutoGranted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.InviteAutoGrantedEvent)
+		username := e.Username
+		if username == "" {
+			username = resolveUsername(userRepo, e.UserID)
+		}
+		return fmt.Sprintf("System granted an invite to %s via auto-distribution", username), e.Actor
+	})
+
 	listen(event.RegistrationModeChanged, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.RegistrationModeChangedEvent)
 		return fmt.Sprintf("%s changed registration mode from %s to %s", e.Actor.Username, e.OldMode, e.NewMode), e.Actor

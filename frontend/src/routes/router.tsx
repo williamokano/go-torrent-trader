@@ -18,6 +18,7 @@ import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { AdminPromotionPage } from "@/pages/admin/AdminPromotionPage";
+import { AdminInviteDistributionPage } from "@/pages/admin/AdminInviteDistributionPage";
 import { AdminSettingsPage } from "@/pages/admin/AdminSettingsPage";
 import { AdminBansPage } from "@/pages/admin/AdminBansPage";
 import { AdminWarningsPage } from "@/pages/admin/AdminWarningsPage";
@@ -174,6 +175,10 @@ export const router = createBrowserRouter([
           { path: "categories", element: <AdminCategoriesPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
           { path: "promotion", element: <AdminPromotionPage /> },
+          {
+            path: "invite-distribution",
+            element: <AdminInviteDistributionPage />,
+          },
           { path: "warnings", element: <AdminWarningsPage /> },
           { path: "chat-mutes", element: <AdminChatMutesPage /> },
           { path: "news", element: <AdminNewsPage /> },

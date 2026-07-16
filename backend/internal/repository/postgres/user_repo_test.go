@@ -91,7 +91,6 @@ func TestUserRepoUpdatePersistsChanges(t *testing.T) {
 
 	u.Enabled = false
 	u.Donor = true
-	u.Invites = 5
 	u.Title = ptr("Elite")
 	if err := repo.Update(ctx, u); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -101,9 +100,39 @@ func TestUserRepoUpdatePersistsChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if got.Enabled || !got.Donor || got.Invites != 5 || got.Title == nil || *got.Title != "Elite" {
-		t.Errorf("update did not persist: enabled=%v donor=%v invites=%d title=%v",
-			got.Enabled, got.Donor, got.Invites, got.Title)
+	if got.Enabled || !got.Donor || got.Title == nil || *got.Title != "Elite" {
+		t.Errorf("update did not persist: enabled=%v donor=%v title=%v",
+			got.Enabled, got.Donor, got.Title)
+	}
+}
+
+// TestUserRepoUpdateDoesNotWriteInvites documents that Update() excludes the
+// invites column entirely (mirroring bonus_points and the four privilege
+// flags): an in-memory Invites value on the struct passed to Update is
+// silently ignored rather than persisted. AdjustInvites/SetInvites are the
+// only paths that may change it.
+func TestUserRepoUpdateDoesNotWriteInvites(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+	if err := repo.SetInvites(ctx, u.ID, 1); err != nil {
+		t.Fatalf("seed invites: %v", err)
+	}
+
+	u.Invites = 99 // an in-memory value Update() must not persist
+	if err := repo.Update(ctx, u); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Invites != 1 {
+		t.Errorf("invites = %d, want 1 (Update must not write this column)", got.Invites)
 	}
 }
 
@@ -220,6 +249,115 @@ func TestUserRepoUpdate_DoesNotClobberPrivilegeFlags(t *testing.T) {
 	}
 	if got.Title == nil || *got.Title != "unrelated change" {
 		t.Error("Update should still persist unrelated columns")
+	}
+}
+
+func TestUserRepoAdjustInvitesAccumulates(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	if err := repo.AdjustInvites(ctx, u.ID, 3); err != nil {
+		t.Fatalf("AdjustInvites(+3): %v", err)
+	}
+	if err := repo.AdjustInvites(ctx, u.ID, -1); err != nil {
+		t.Fatalf("AdjustInvites(-1): %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Invites != 2 {
+		t.Errorf("invites = %d, want 2 (deltas must accumulate)", got.Invites)
+	}
+
+	if err := repo.AdjustInvites(ctx, 999999, 1); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("AdjustInvites(missing user) = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// TestUserRepoAdjustInvitesDoesNotLoseConcurrentWrite is the regression test
+// for the same race class TestUserRepoUpdate_DoesNotClobberPrivilegeFlags
+// closes for the privilege flags, applied to the invites balance: a flow
+// (e.g. an admin profile save) reads a user, and its full-row Update() lands
+// AFTER a concurrent AdjustInvites grant — but was built from data read
+// BEFORE. Because Update() no longer writes invites at all, the stale write
+// must be structurally incapable of clobbering the grant — regardless of
+// timing.
+func TestUserRepoAdjustInvitesDoesNotLoseConcurrentWrite(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+	if err := repo.SetInvites(ctx, u.ID, 5); err != nil {
+		t.Fatalf("seed invites: %v", err)
+	}
+
+	// Another flow reads the user before a concurrent grant.
+	stale, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stale.Invites != 5 {
+		t.Fatalf("fixture: expected seeded invites=5, got %d", stale.Invites)
+	}
+
+	// A grant (e.g. auto-distribution) applies concurrently via the atomic path.
+	if err := repo.AdjustInvites(ctx, u.ID, 1); err != nil {
+		t.Fatalf("AdjustInvites: %v", err)
+	}
+
+	// The stale flow's own full-row Update() finally lands, carrying
+	// Invites=5 because that's what it read before the grant. It also makes an
+	// unrelated change, to prove Update still works.
+	stale.Title = ptr("unrelated change")
+	if err := repo.Update(ctx, stale); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID after stale Update: %v", err)
+	}
+	if got.Invites != 6 {
+		t.Errorf("stale full-row Update clobbered a concurrently-applied grant: invites = %d, want 6 (5 seeded + 1 grant)", got.Invites)
+	}
+	if got.Title == nil || *got.Title != "unrelated change" {
+		t.Error("Update should still persist unrelated columns")
+	}
+}
+
+func TestUserRepoSetInvitesIsAbsolute(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	if err := repo.AdjustInvites(ctx, u.ID, 7); err != nil {
+		t.Fatalf("AdjustInvites: %v", err)
+	}
+	if err := repo.SetInvites(ctx, u.ID, 2); err != nil {
+		t.Fatalf("SetInvites: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Invites != 2 {
+		t.Errorf("invites = %d, want 2 (SetInvites is absolute, not a delta)", got.Invites)
+	}
+
+	if err := repo.SetInvites(ctx, 999999, 1); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("SetInvites(missing user) = %v, want sql.ErrNoRows", err)
 	}
 }
 
