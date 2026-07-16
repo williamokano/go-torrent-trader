@@ -16,6 +16,7 @@ type Invite struct {
 	// Enrichment fields (populated by service, not persisted)
 	InviteeName string       // username of the invitee (if redeemed)
 	Invitee     *InviteeView // full invitee stats (if redeemed)
+	Voided      bool         // unredeemed but blocked at validation because the inviter's invite privilege is currently suspended
 }
 
 // InviteeView is the data shown about an invitee in the invite list.

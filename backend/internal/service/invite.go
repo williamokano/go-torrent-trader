@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -18,6 +19,7 @@ var (
 	ErrInviteExpired      = errors.New("invite has expired")
 	ErrInviteRedeemed     = errors.New("invite has already been redeemed")
 	ErrInviteVoided       = errors.New("invite is no longer valid")
+	ErrInviteAlreadyUsed  = errors.New("cannot revoke a redeemed invite")
 )
 
 const inviteExpiryDuration = 7 * 24 * time.Hour
@@ -149,8 +151,19 @@ func (s *InviteService) ListMyInvites(ctx context.Context, userID int64, page, p
 		return nil, 0, err
 	}
 
+	// An unredeemed invite whose inviter currently has invite privileges
+	// suspended is already blocked at ValidateInvite — mark it voided here so
+	// callers (and staff) don't read it as a live, redeemable "pending" token.
+	inviterCanInvite := true
+	if inviter, err := s.users.GetByID(ctx, userID); err == nil {
+		inviterCanInvite = inviter.CanInvite
+	}
+
 	// Enrich with invitee data
 	for i := range invites {
+		if !inviterCanInvite && invites[i].InviteeID == nil {
+			invites[i].Voided = true
+		}
 		if invites[i].InviteeID != nil {
 			if invitee, err := s.users.GetByID(ctx, *invites[i].InviteeID); err == nil {
 				invites[i].InviteeName = invitee.Username
@@ -173,4 +186,48 @@ func (s *InviteService) ListMyInvites(ctx context.Context, userID int64, page, p
 	}
 
 	return invites, total, nil
+}
+
+// RevokeInvite permanently deletes an unredeemed invite so it can no longer
+// be validated or used to register. Redeemed invites cannot be revoked — the
+// invitee already has an account.
+func (s *InviteService) RevokeInvite(ctx context.Context, actorID, inviteID int64) error {
+	invite, err := s.invites.GetByID(ctx, inviteID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInviteNotFound
+		}
+		return fmt.Errorf("get invite: %w", err)
+	}
+
+	if invite.Redeemed || invite.InviteeID != nil {
+		return ErrInviteAlreadyUsed
+	}
+
+	if err := s.invites.Delete(ctx, inviteID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// The row existed moments ago (GetByID above found it unredeemed)
+			// but Delete's guard now reports no unredeemed row with this ID —
+			// it must have been redeemed concurrently between the two calls.
+			return ErrInviteAlreadyUsed
+		}
+		return fmt.Errorf("delete invite: %w", err)
+	}
+
+	actor := event.Actor{ID: actorID}
+	if a, err := s.users.GetByID(ctx, actorID); err == nil {
+		actor.Username = a.Username
+	}
+	var inviterUsername string
+	if inviter, err := s.users.GetByID(ctx, invite.InviterID); err == nil {
+		inviterUsername = inviter.Username
+	}
+	s.eventBus.Publish(ctx, &event.InviteRevokedEvent{
+		Base:            event.NewBase(event.InviteRevoked, actor),
+		InviteID:        inviteID,
+		InviterID:       invite.InviterID,
+		InviterUsername: inviterUsername,
+	})
+
+	return nil
 }

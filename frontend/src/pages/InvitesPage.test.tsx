@@ -105,6 +105,34 @@ describe("InvitesPage", () => {
     expect(screen.getByText("redeemed")).toBeInTheDocument();
   });
 
+  test("renders a voided invite without copy actions", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          invites: [
+            {
+              id: 3,
+              token: "voidedtoken0000000000000000000000",
+              status: "voided",
+              expires_at: "2026-03-15T10:00:00Z",
+              created_at: "2026-03-08T10:00:00Z",
+            },
+          ],
+          total: 1,
+          page: 1,
+          per_page: 25,
+        }),
+    });
+    renderInvitesPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("voided")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Copy Code")).not.toBeInTheDocument();
+    expect(screen.queryByText("Copy Link")).not.toBeInTheDocument();
+  });
+
   test("renders table headers", async () => {
     renderInvitesPage();
     await waitFor(() => {

@@ -79,7 +79,10 @@ func TestRepositoriesPropagateDBErrors(t *testing.T) {
 			_, err := NewUserRepo(db).Count(ctx)
 			return err
 		},
-		"UserRepo.Update":         func() error { return NewUserRepo(db).Update(ctx, &model.User{ID: 1}) },
+		"UserRepo.Update": func() error { return NewUserRepo(db).Update(ctx, &model.User{ID: 1}) },
+		"UserRepo.SetPrivilegeFlag": func() error {
+			return NewUserRepo(db).SetPrivilegeFlag(ctx, 1, model.RestrictionTypeDownload, false)
+		},
 		"UserRepo.IncrementStats": func() error { return NewUserRepo(db).IncrementStats(ctx, 1, 1, 1) },
 		"UserRepo.List": func() error {
 			users, _, err := NewUserRepo(db).List(ctx, repository.ListUsersOptions{})

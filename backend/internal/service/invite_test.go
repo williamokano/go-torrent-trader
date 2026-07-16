@@ -35,6 +35,17 @@ func (m *mockInviteRepo) Create(_ context.Context, invite *model.Invite) error {
 	return nil
 }
 
+func (m *mockInviteRepo) GetByID(_ context.Context, id int64) (*model.Invite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, inv := range m.invites {
+		if inv.ID == id {
+			return inv, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
 func (m *mockInviteRepo) GetByToken(_ context.Context, token string) (*model.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -100,6 +111,18 @@ func (m *mockInviteRepo) CountPendingByInviter(_ context.Context, inviterID int6
 		}
 	}
 	return count, nil
+}
+
+func (m *mockInviteRepo) Delete(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, inv := range m.invites {
+		if inv.ID == id && inv.InviteeID == nil {
+			m.invites = append(m.invites[:i], m.invites[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 // --- mock user repo for invite tests ---
@@ -396,6 +419,68 @@ func TestInviteService_ListMyInvites(t *testing.T) {
 	}
 }
 
+func TestInviteService_ListMyInvites_MarksVoidedWhenInviterSuspended(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Suspend the inviter's privilege after the token was issued — matches
+	// PR #102's ValidateInvite behavior, which already blocks it.
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	user.CanInvite = false
+	_ = userRepo.Update(context.Background(), user)
+
+	invites, _, err := svc.ListMyInvites(context.Background(), 1, 1, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(invites) != 1 || invites[0].ID != invite.ID {
+		t.Fatalf("expected the one invite, got %+v", invites)
+	}
+	if !invites[0].Voided {
+		t.Error("expected the outstanding invite to be marked voided")
+	}
+
+	// Restoring the privilege un-voids it.
+	user.CanInvite = true
+	_ = userRepo.Update(context.Background(), user)
+
+	invites, _, err = svc.ListMyInvites(context.Background(), 1, 1, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if invites[0].Voided {
+		t.Error("expected the invite to no longer be voided after privilege restored")
+	}
+}
+
+func TestInviteService_ListMyInvites_RedeemedNeverVoided(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := svc.RedeemInvite(context.Background(), invite.Token, 42); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	user.CanInvite = false
+	_ = userRepo.Update(context.Background(), user)
+
+	invites, _, err := svc.ListMyInvites(context.Background(), 1, 1, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if invites[0].Voided {
+		t.Error("a redeemed invite must never be reported as voided")
+	}
+}
+
 func TestInviteService_ListMyInvites_Pagination(t *testing.T) {
 	svc, _, _ := newTestInviteService()
 
@@ -428,5 +513,109 @@ func TestInviteService_CreateInvite_DecrementsInviteCount(t *testing.T) {
 	user, _ = userRepo.GetByID(context.Background(), 1)
 	if user.Invites != initialInvites-2 {
 		t.Errorf("expected %d invites, got %d", initialInvites-2, user.Invites)
+	}
+}
+
+func TestInviteService_RevokeInvite_Success(t *testing.T) {
+	svc, inviteRepo, _ := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := svc.RevokeInvite(context.Background(), 99, invite.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := inviteRepo.GetByID(context.Background(), invite.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("expected invite to be deleted, got err=%v", err)
+	}
+
+	// The token must no longer validate — it's gone, not just voided.
+	if _, err := svc.ValidateInvite(context.Background(), invite.Token); !errors.Is(err, ErrInviteNotFound) {
+		t.Errorf("expected ErrInviteNotFound after revoke, got %v", err)
+	}
+}
+
+func TestInviteService_RevokeInvite_NotFound(t *testing.T) {
+	svc, _, _ := newTestInviteService()
+
+	if err := svc.RevokeInvite(context.Background(), 99, 12345); !errors.Is(err, ErrInviteNotFound) {
+		t.Errorf("expected ErrInviteNotFound, got %v", err)
+	}
+}
+
+func TestInviteService_RevokeInvite_RejectsRedeemed(t *testing.T) {
+	svc, inviteRepo, _ := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := svc.RedeemInvite(context.Background(), invite.Token, 42); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+
+	if err := svc.RevokeInvite(context.Background(), 99, invite.ID); !errors.Is(err, ErrInviteAlreadyUsed) {
+		t.Errorf("expected ErrInviteAlreadyUsed, got %v", err)
+	}
+
+	// The redeemed invite must still exist.
+	if _, err := inviteRepo.GetByID(context.Background(), invite.ID); err != nil {
+		t.Errorf("expected redeemed invite to survive a failed revoke, got err=%v", err)
+	}
+}
+
+// raceyInviteRepo wraps mockInviteRepo and lets a test inject a side effect
+// on GetByID, to deterministically simulate another request's write landing
+// in the exact window between RevokeInvite's unredeemed check and its
+// guarded delete.
+type raceyInviteRepo struct {
+	*mockInviteRepo
+	onGetByID func()
+}
+
+func (r *raceyInviteRepo) GetByID(ctx context.Context, id int64) (*model.Invite, error) {
+	inv, err := r.mockInviteRepo.GetByID(ctx, id)
+	if r.onGetByID != nil {
+		r.onGetByID()
+	}
+	return inv, err
+}
+
+func TestInviteService_RevokeInvite_ClosesConcurrentRedeemRace(t *testing.T) {
+	svc, inviteRepo, userRepo := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	racey := &raceyInviteRepo{mockInviteRepo: inviteRepo}
+	revokingSvc := NewInviteService(racey, userRepo, event.NewInMemoryBus())
+
+	// RevokeInvite's own GetByID call triggers a "concurrent" redemption,
+	// landing after the invite is read as unredeemed but before Delete runs.
+	// RevokeInvite's in-memory check (invite.Redeemed) is evaluated against
+	// that pre-redemption snapshot and cannot see this — only Delete's
+	// WHERE used_by_id IS NULL guard can, proving the guard (not the
+	// snapshot check) is what closes the race.
+	racey.onGetByID = func() {
+		if err := inviteRepo.Redeem(context.Background(), invite.Token, 42); err != nil {
+			t.Fatalf("simulated concurrent redeem: %v", err)
+		}
+	}
+
+	if err := revokingSvc.RevokeInvite(context.Background(), 99, invite.ID); !errors.Is(err, ErrInviteAlreadyUsed) {
+		t.Errorf("expected ErrInviteAlreadyUsed, got %v", err)
+	}
+
+	got, err := inviteRepo.GetByID(context.Background(), invite.ID)
+	if err != nil {
+		t.Fatalf("expected the concurrently-redeemed invite to survive the revoke attempt, got err=%v", err)
+	}
+	if !got.Redeemed || got.InviteeID == nil || *got.InviteeID != 42 {
+		t.Errorf("expected the concurrent redemption to remain intact, got %+v", got)
 	}
 }

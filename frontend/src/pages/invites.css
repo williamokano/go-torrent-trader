@@ -134,6 +134,10 @@
   color: var(--color-text-muted);
 }
 
+.invites__status--voided {
+  color: var(--color-text-muted);
+}
+
 .invites__badge--banned {
   color: var(--color-error, #ef4444);
   font-weight: 600;

@@ -2,6 +2,15 @@
 
 The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
+## Session 2026-07-16 (cont'd) — BE-8.15 + BE-8.16: invite follow-ups
+
+PR #102 (FE-5.15) merged to main. Follow-up branch `feat/invite-outstanding-management`:
+
+- [x] BE-8.15 — admin view/revoke of a user's outstanding invites: `GET /api/v1/admin/users/{id}/invites`, `DELETE /api/v1/admin/invites/{id}` (`InviteService.RevokeInvite`, hard-deletes unredeemed invites, 409 on redeemed), outstanding-invites panel on `AdminUserDetailPage` with status badges + revoke, `InviteRevokedEvent` → activity log
+- [x] BE-8.16 — closed the privilege-flag drift race: `UserRepo.Update` no longer writes can_download/upload/chat/invite at all (mirrors `bonus_points`); new targeted `UserRepo.SetPrivilegeFlag` is the only writer, used by `RestrictionService`; regression test `TestUserRepoUpdate_DoesNotClobberPrivilegeFlags` proves a stale full-row `Update` can't clobber a concurrent restriction
+- [x] Verified: go build/vet/test (incl. Docker repo tests), golangci-lint 0 issues, coverage 80.1% ≥ 80.0% floor, vitest 569 passed, frontend build/lint/format green
+- [x] `docs/IMPLEMENTATION_TASKS.md` updated (BE-8.15, BE-8.16 marked DONE)
+
 ## Session 2026-07-16 — FE-5.15: admin surface rollout + invite restriction
 
 Branch `feat/admin-ui-consistency-invite-restriction` (worktree). All done, verified:

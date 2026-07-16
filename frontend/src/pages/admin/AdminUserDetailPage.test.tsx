@@ -60,12 +60,19 @@ const mockGroups = {
 function mockFetchResponses(
   userOverrides: Record<string, unknown> = {},
   restrictionsOverrides: unknown[] = [],
+  invitesOverrides: unknown[] = [],
 ) {
   mockFetch.mockImplementation((url: string) => {
     if (url.includes("/admin/users/1/restrictions")) {
       return Promise.resolve({
         ok: true,
         json: async () => ({ restrictions: restrictionsOverrides }),
+      });
+    }
+    if (url.includes("/admin/users/1/invites")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ invites: invitesOverrides }),
       });
     }
     if (url.includes("/admin/groups")) {
@@ -408,6 +415,125 @@ describe("AdminUserDetailPage", () => {
     });
     expect(screen.getByText("Lift")).toBeInTheDocument();
     expect(screen.getByText("Permanent")).toBeInTheDocument();
+  });
+
+  test("shows empty state when the user has no invites", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("No invites created by this user."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("renders outstanding invites with status badges", async () => {
+    mockFetchResponses(
+      {},
+      [],
+      [
+        {
+          id: 1,
+          token: "PENDINGTOKEN",
+          status: "pending",
+          expires_at: "2030-01-01T00:00:00Z",
+          created_at: "2024-05-01T00:00:00Z",
+        },
+        {
+          id: 2,
+          token: "REDEEMEDTOKEN",
+          status: "redeemed",
+          expires_at: "2030-01-01T00:00:00Z",
+          created_at: "2024-05-01T00:00:00Z",
+          invitee_name: "newbie",
+        },
+      ],
+    );
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("PENDINGTOKEN")).toBeInTheDocument();
+    });
+    expect(screen.getByText("REDEEMEDTOKEN")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByText("Redeemed")).toBeInTheDocument();
+    expect(screen.getByText("newbie")).toBeInTheDocument();
+
+    // Only the pending invite can be revoked.
+    expect(screen.getAllByText("Revoke")).toHaveLength(1);
+  });
+
+  test("shows voided status and still allows revoking it", async () => {
+    mockFetchResponses(
+      {},
+      [],
+      [
+        {
+          id: 3,
+          token: "VOIDEDTOKEN",
+          status: "voided",
+          expires_at: "2030-01-01T00:00:00Z",
+          created_at: "2024-05-01T00:00:00Z",
+        },
+      ],
+    );
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Voided")).toBeInTheDocument();
+    });
+    // A voided (unredeemed) invite can still be revoked for cleanup.
+    expect(screen.getByText("Revoke")).toBeInTheDocument();
+  });
+
+  test("revokes a pending invite", async () => {
+    mockFetchResponses(
+      {},
+      [],
+      [
+        {
+          id: 1,
+          token: "PENDINGTOKEN",
+          status: "pending",
+          expires_at: "2030-01-01T00:00:00Z",
+          created_at: "2024-05-01T00:00:00Z",
+        },
+      ],
+    );
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Revoke")).toBeInTheDocument();
+    });
+
+    mockFetch.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({ message: "invite revoked" }),
+      }),
+    );
+
+    fireEvent.click(screen.getByText("Revoke"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/permanently deletes the invite/),
+      ).toBeInTheDocument();
+    });
+
+    const confirmButtons = screen.getAllByText("Revoke");
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
+
+    await waitFor(() => {
+      const deleteCall = mockFetch.mock.calls.find(
+        ([url, opts]) =>
+          typeof url === "string" &&
+          url.includes("/admin/invites/1") &&
+          opts?.method === "DELETE",
+      );
+      expect(deleteCall).toBeTruthy();
+    });
   });
 
   test("shows Ban user button for enabled users", async () => {

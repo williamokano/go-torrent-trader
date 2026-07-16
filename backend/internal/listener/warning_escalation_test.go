@@ -240,6 +240,25 @@ func (m *mockEscalationUserRepo) ListStaff(_ context.Context) ([]model.User, err
 	return nil, nil
 }
 func (m *mockEscalationUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
+func (m *mockEscalationUserRepo) SetPrivilegeFlag(_ context.Context, userID int64, restrictionType string, value bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return sql.ErrNoRows
+	}
+	switch restrictionType {
+	case model.RestrictionTypeDownload:
+		u.CanDownload = value
+	case model.RestrictionTypeUpload:
+		u.CanUpload = value
+	case model.RestrictionTypeChat:
+		u.CanChat = value
+	case model.RestrictionTypeInvite:
+		u.CanInvite = value
+	}
+	return nil
+}
 
 // --- mock session store ---
 

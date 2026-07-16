@@ -47,6 +47,15 @@ interface GroupOption {
   label: string;
 }
 
+interface UserInvite {
+  id: number;
+  token: string;
+  status: "pending" | "redeemed" | "expired" | "voided";
+  expires_at: string;
+  created_at: string;
+  invitee_name?: string;
+}
+
 interface UserDetail {
   id: number;
   username: string;
@@ -151,6 +160,11 @@ export function AdminUserDetailPage() {
     number | null
   >(null);
 
+  // Outstanding invites state
+  const [invites, setInvites] = useState<UserInvite[]>([]);
+  const [revokingInviteId, setRevokingInviteId] = useState<number | null>(null);
+  const [revokingInvite, setRevokingInvite] = useState(false);
+
   const populateEditForm = useCallback((u: UserDetail) => {
     setEditUsername(u.username);
     setEditEmail(u.email);
@@ -205,6 +219,20 @@ export function AdminUserDetailPage() {
     }
   }, [id]);
 
+  const fetchInvites = useCallback(async () => {
+    const token = getAccessToken();
+    const res = await fetch(
+      `${getConfig().API_URL}/api/v1/admin/users/${id}/invites`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      setInvites(data.invites || []);
+    }
+  }, [id]);
+
   const fetchGroups = useCallback(async () => {
     const token = getAccessToken();
     const res = await fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
@@ -224,8 +252,9 @@ export function AdminUserDetailPage() {
   useEffect(() => {
     fetchUser();
     fetchRestrictions();
+    fetchInvites();
     fetchGroups();
-  }, [fetchUser, fetchRestrictions, fetchGroups]);
+  }, [fetchUser, fetchRestrictions, fetchInvites, fetchGroups]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -492,6 +521,31 @@ export function AdminUserDetailPage() {
       toast.error("Failed to lift restriction");
     }
     setLiftingRestrictionId(null);
+  };
+
+  const handleRevokeInvite = async () => {
+    if (!revokingInviteId) return;
+    setRevokingInvite(true);
+    const token = getAccessToken();
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/invites/${revokingInviteId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (res.ok) {
+        toast.success("Invite revoked");
+        fetchInvites();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error?.message ?? "Failed to revoke invite");
+      }
+    } finally {
+      setRevokingInvite(false);
+      setRevokingInviteId(null);
+    }
   };
 
   const handleBan = async (data: {
@@ -952,6 +1006,79 @@ export function AdminUserDetailPage() {
           )}
         </div>
 
+        {/* Outstanding Invites */}
+        <div className="admin-panel">
+          <div className="admin-panel__section">
+            <h2 className="admin-panel__title" style={{ margin: 0 }}>
+              Outstanding invites
+            </h2>
+          </div>
+          {invites.length === 0 ? (
+            <p className="admin-empty">No invites created by this user.</p>
+          ) : (
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Token</th>
+                    <th>Status</th>
+                    <th>Invitee</th>
+                    <th>Created</th>
+                    <th>Expires</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invites.map((inv) => (
+                    <tr key={inv.id}>
+                      <td className="admin-num">{inv.token}</td>
+                      <td>
+                        {inv.status === "pending" && (
+                          <span className="admin-badge admin-badge--warn">
+                            Pending
+                          </span>
+                        )}
+                        {inv.status === "redeemed" && (
+                          <span className="admin-badge admin-badge--ok">
+                            Redeemed
+                          </span>
+                        )}
+                        {inv.status === "expired" && (
+                          <span className="admin-badge admin-badge--muted">
+                            Expired
+                          </span>
+                        )}
+                        {inv.status === "voided" && (
+                          <span
+                            className="admin-badge admin-badge--muted"
+                            title="Blocked because this user's invite privilege is currently suspended"
+                          >
+                            Voided
+                          </span>
+                        )}
+                      </td>
+                      <td>{inv.invitee_name ?? "—"}</td>
+                      <td className="admin-muted">{timeAgo(inv.created_at)}</td>
+                      <td className="admin-muted">{timeAgo(inv.expires_at)}</td>
+                      <td className="admin-table__actions">
+                        {(inv.status === "pending" ||
+                          inv.status === "voided") && (
+                          <button
+                            className="admin-btn admin-btn--danger admin-btn--sm"
+                            onClick={() => setRevokingInviteId(inv.id)}
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* Recent Uploads */}
         <div className="admin-panel">
           <div className="admin-panel__section">
@@ -1107,6 +1234,17 @@ export function AdminUserDetailPage() {
         danger
         onConfirm={handleLiftRestriction}
         onCancel={() => setLiftingRestrictionId(null)}
+      />
+
+      <ConfirmModal
+        isOpen={revokingInviteId !== null}
+        title="Revoke Invite"
+        message="This permanently deletes the invite. The token will no longer work, even if it hasn't expired."
+        confirmLabel="Revoke"
+        danger
+        loading={revokingInvite}
+        onConfirm={handleRevokeInvite}
+        onCancel={() => setRevokingInviteId(null)}
       />
 
       <BanUserModal

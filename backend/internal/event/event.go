@@ -27,6 +27,7 @@ const (
 	ReseedRequested         Type = "reseed_requested"
 	InviteCreated           Type = "invite_created"
 	InviteRedeemed          Type = "invite_redeemed"
+	InviteRevoked           Type = "invite_revoked"
 	RegistrationModeChanged Type = "registration_mode_changed"
 	EmailBanned             Type = "email_banned"
 	EmailUnbanned           Type = "email_unbanned"
@@ -225,6 +226,13 @@ type InviteRedeemedEvent struct {
 	InviteeID       int64  `json:"invitee_id"`
 	InviteeUsername string `json:"invitee_username"`
 	Token           string `json:"token"`
+}
+
+type InviteRevokedEvent struct {
+	Base
+	InviteID        int64  `json:"invite_id"`
+	InviterID       int64  `json:"inviter_id"`
+	InviterUsername string `json:"inviter_username"`
 }
 
 type RegistrationModeChangedEvent struct {

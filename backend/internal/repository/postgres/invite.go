@@ -48,6 +48,11 @@ func (r *InviteRepo) Create(ctx context.Context, invite *model.Invite) error {
 	return nil
 }
 
+func (r *InviteRepo) GetByID(ctx context.Context, id int64) (*model.Invite, error) {
+	query := fmt.Sprintf("SELECT %s FROM invites WHERE id = $1", inviteColumns)
+	return scanInvite(r.db.QueryRowContext(ctx, query, id))
+}
+
 func (r *InviteRepo) GetByToken(ctx context.Context, token string) (*model.Invite, error) {
 	query := fmt.Sprintf("SELECT %s FROM invites WHERE token = $1", inviteColumns)
 	return scanInvite(r.db.QueryRowContext(ctx, query, token))
@@ -123,4 +128,26 @@ func (r *InviteRepo) CountPendingByInviter(ctx context.Context, inviterID int64)
 		return 0, fmt.Errorf("count pending invites: %w", err)
 	}
 	return count, nil
+}
+
+// Delete removes an invite, but only while it is still unredeemed — guarded
+// the same way Redeem guards its UPDATE. Without this, a revoke racing a
+// concurrent registration could delete a row a redemption had just claimed,
+// silently destroying that invite's audit trail (used_by_id/used_at) out
+// from under an interleaved success. Callers that see sql.ErrNoRows after a
+// prior successful GetByID should treat it as "redeemed concurrently", not
+// "not found".
+func (r *InviteRepo) Delete(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM invites WHERE id = $1 AND used_by_id IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("delete invite: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete invite rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

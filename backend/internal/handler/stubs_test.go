@@ -89,6 +89,23 @@ func (s *stubUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([
 }
 func (s *stubUserRepo) ListStaff(_ context.Context) ([]model.User, error) { return nil, nil }
 func (s *stubUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
+func (s *stubUserRepo) SetPrivilegeFlag(_ context.Context, userID int64, restrictionType string, value bool) error {
+	u, ok := s.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	switch restrictionType {
+	case "download":
+		u.CanDownload = value
+	case "upload":
+		u.CanUpload = value
+	case "chat":
+		u.CanChat = value
+	case "invite":
+		u.CanInvite = value
+	}
+	return nil
+}
 
 // --- private messages -------------------------------------------------------
 
