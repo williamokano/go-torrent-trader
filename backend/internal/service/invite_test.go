@@ -254,6 +254,36 @@ func TestInviteService_CreateInvite_Restricted(t *testing.T) {
 	}
 }
 
+func TestInviteService_ValidateInvite_VoidedWhileInviterRestricted(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Suspend the inviter's privilege after the token was issued.
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	user.CanInvite = false
+	_ = userRepo.Update(context.Background(), user)
+
+	if _, err := svc.ValidateInvite(context.Background(), invite.Token); !errors.Is(err, ErrInviteVoided) {
+		t.Errorf("expected ErrInviteVoided, got %v", err)
+	}
+	if _, err := svc.RedeemInvite(context.Background(), invite.Token, 2); !errors.Is(err, ErrInviteVoided) {
+		t.Errorf("redeem: expected ErrInviteVoided, got %v", err)
+	}
+
+	// Lifting the restriction makes the token valid again.
+	user, _ = userRepo.GetByID(context.Background(), 1)
+	user.CanInvite = true
+	_ = userRepo.Update(context.Background(), user)
+
+	if _, err := svc.ValidateInvite(context.Background(), invite.Token); err != nil {
+		t.Errorf("expected token valid after restore, got %v", err)
+	}
+}
+
 func TestInviteService_ValidateInvite_Success(t *testing.T) {
 	svc, _, _ := newTestInviteService()
 

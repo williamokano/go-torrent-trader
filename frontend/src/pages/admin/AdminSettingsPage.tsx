@@ -176,6 +176,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       { value: "download", label: "Download" },
       { value: "upload", label: "Upload" },
       { value: "chat", label: "Chat" },
+      { value: "invite", label: "Invite" },
       { value: "all", label: "All" },
     ],
   },

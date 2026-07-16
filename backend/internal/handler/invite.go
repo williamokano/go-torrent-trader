@@ -109,6 +109,8 @@ func handleInviteError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusGone, "expired", "invite has expired")
 	case errors.Is(err, service.ErrInviteRedeemed):
 		ErrorResponse(w, http.StatusConflict, "redeemed", "invite has already been redeemed")
+	case errors.Is(err, service.ErrInviteVoided):
+		ErrorResponse(w, http.StatusGone, "voided", "invite is no longer valid")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}

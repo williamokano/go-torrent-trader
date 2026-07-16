@@ -226,6 +226,27 @@ func TestHandleSetRestrictions_ApplyInvite(t *testing.T) {
 	}
 }
 
+func TestHandleSetRestrictions_PastExpiryRejected(t *testing.T) {
+	router, _ := setupRestrictionRouter()
+	adminToken := registerRestrictionAdmin(t, router)
+	_, userID := registerRestrictionUser(t, router)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"can_download": false,
+		"reason":       "bad ratio",
+		"expires_at":   "2001-01-01T00:00",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/users/"+formatID(userID)+"/restrictions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for past expires_at, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleSetRestrictions_SelfRestriction(t *testing.T) {
 	router, _ := setupRestrictionRouter()
 	adminToken := registerRestrictionAdmin(t, router)

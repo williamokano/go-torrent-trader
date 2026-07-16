@@ -2,7 +2,7 @@
 
 The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
-## Session 2026-07-16 — FE-5.14: admin surface rollout + invite restriction
+## Session 2026-07-16 — FE-5.15: admin surface rollout + invite restriction
 
 Branch `feat/admin-ui-consistency-invite-restriction` (worktree). All done, verified:
 
@@ -10,7 +10,7 @@ Branch `feat/admin-ui-consistency-invite-restriction` (worktree). All done, veri
 - [x] `AdminUserDetailPage` rebuilt on admin-ui primitives; Privileges panel shows download/upload/chat/invite with suspend + restore
 - [x] All remaining admin pages (dashboard, torrents, bans, warnings, reports, chat-mutes, cheat-flags, news, forums, categories, backups, settings) adopted `admin-ui.css` conventions; per-page CSS trimmed
 - [x] Verified: go build/vet/test (incl. Docker repo tests → migration 055 applies), golangci-lint 0 issues, coverage 80.2% ≥ 80.0% floor, vitest 561 passed, frontend build/lint/format green
-- [x] `docs/IMPLEMENTATION_TASKS.md` updated (FE-5.14 added, BE-8.9 note)
+- [x] `docs/IMPLEMENTATION_TASKS.md` updated (FE-5.15 added, BE-8.9 note)
 
 ## Current State (2026-07-14)
 

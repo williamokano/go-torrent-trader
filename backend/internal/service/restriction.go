@@ -225,6 +225,16 @@ func (s *RestrictionService) HasActiveByType(ctx context.Context, userID int64, 
 	return s.restrictions.HasActiveByType(ctx, userID, restrictionType)
 }
 
+// SyncUserFlag restores the user's privilege flag when no active restriction
+// of the given type exists. It heals drift where the flag reads suspended but
+// the restriction history has nothing active (so "Restore" is never a no-op).
+func (s *RestrictionService) SyncUserFlag(ctx context.Context, userID int64, restrictionType string) error {
+	if !isValidRestrictionType(restrictionType) {
+		return fmt.Errorf("%w: invalid restriction type: %s", ErrInvalidRestriction, restrictionType)
+	}
+	return s.restoreUserFlagIfNone(ctx, userID, restrictionType)
+}
+
 func isValidRestrictionType(t string) bool {
 	switch t {
 	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat, model.RestrictionTypeInvite:
