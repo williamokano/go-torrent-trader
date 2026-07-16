@@ -2180,29 +2180,36 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Tests: invite restriction covered in service/handler tests (backend) and page tests (frontend detail page: privilege grid, suspend checkbox, PUT body, history table).
 - Review hardening (PR #102 devil's-advocate findings): escalation's `warning_restrict_type = "all"` now includes invite and the settings UI offers an "Invite" option; outstanding invite tokens are **voided while the inviter's privilege is suspended** (`ValidateInvite`/`RedeemInvite` -> 410 `voided`, valid again if the restriction lifts before expiry); "Restore" heals a drifted flag even with no active restriction rows (`SyncUserFlag`); past `expires_at` is rejected with 400.
 
-#### BE-8.15: Admin View + Revoke of a User's Outstanding Invites [S] [OPEN]
+#### BE-8.15: Admin View + Revoke of a User's Outstanding Invites [S] [DONE]
 **As a** staff member
 **I want** to see and permanently revoke a user's unredeemed invite tokens from their admin detail page
 **So that** invite abuse can be cut off outright, not just paused
 
 **Context:** PR #102 voids outstanding tokens *while* the inviter's `can_invite` is suspended, but tokens spring back if the restriction is lifted early and staff cannot see them at all. From the PR #102 devil's-advocate review.
 
-**Acceptance Criteria:**
-- `GET /api/v1/admin/users/{id}/invites` — list the user's invites (token status, invitee, expiry)
-- `DELETE /api/v1/admin/invites/{id}` — permanently revoke an unredeemed invite
-- Outstanding-invites panel on `AdminUserDetailPage` with revoke buttons
-- Tests for both endpoints and the panel
+**Delivered:**
+- `GET /api/v1/admin/users/{id}/invites` — lists the user's invites (reuses `InviteService.ListMyInvites`, which already takes an arbitrary `userID`); same `{token, status, invitee, expires_at}` shape as the self-service endpoint
+- `DELETE /api/v1/admin/invites/{id}` — `InviteService.RevokeInvite` hard-deletes an unredeemed invite (404 if not found, 409 `already_used` if already redeemed — redeemed invites are never deletable, the invitee already has an account); publishes `InviteRevokedEvent` to the activity log ("`{actor}` revoked an invite issued by `{inviter}`")
+- Repository layer gained `InviteRepository.GetByID` / `.Delete`
+- Outstanding-invites panel on `AdminUserDetailPage`: status badges (Pending/Redeemed/Expired/Voided), invitee name, expiry, and a Revoke button (with confirm modal) on pending and voided invites
+- Tests: repository (postgres, via testcontainers), service (`RevokeInvite` success/not-found/rejects-redeemed), handler (list + revoke, including a 403 check that the routes are admin-gated), listener (activity log message), and frontend page tests (empty state, status badges, revoke flow asserting the DELETE call)
+- **Review hardening (code-review + devil's-advocate on this story):**
+  - **TOCTOU race in `RevokeInvite`:** the original check-then-delete (`GetByID` → check `Redeemed` → `Delete(id)`) let a redemption landing in that window get silently deleted by an unconditional `DELETE FROM invites WHERE id=$1`. `InviteRepo.Delete` now guards the same way `Redeem` already does — `WHERE id=$1 AND used_by_id IS NULL` — so the delete itself is atomic against a concurrent redemption; `RevokeInvite` maps a post-check `sql.ErrNoRows` from `Delete` to `ErrInviteAlreadyUsed`. Closed by a deterministic test (`TestInviteService_RevokeInvite_ClosesConcurrentRedeemRace`) that injects the interleaving via a `GetByID` hook — proving the DB-level guard, not the in-memory check, is what stops it — plus a real-Postgres test (`TestInviteRepoDeleteRefusesRedeemed`).
+  - **"Pending" badge ignored PR #102's own invite-voiding:** suspending a user's `can_invite` already blocks their outstanding tokens at `ValidateInvite`, but the admin panel (and the member's own Invites page) kept showing them as live "Pending" tokens. `model.Invite` gained an enrichment-only `Voided` field; `ListMyInvites` sets it when the inviter's `CanInvite` is false and the invite is unredeemed; `inviteResponse` reports `status: "voided"`. Both `AdminUserDetailPage` and `InvitesPage` render a distinct Voided badge (Revoke stays available on the admin panel, since deleting a voided row is still a valid cleanup action; the member's copy-code/copy-link buttons correctly disappear since `=== "pending"` no longer matches).
 
-#### BE-8.16: Root-Cause the Privilege-Flag Drift Race [M] [OPEN]
+#### BE-8.16: Root-Cause the Privilege-Flag Drift Race [M] [DONE]
 **As a** site operator
 **I want** privilege flags (`can_download/upload/chat/invite`) to never drift from the restriction rows
 **So that** enforcement and the admin UI always agree
 
 **Context:** Enforcement reads the per-user flag, but several flows do full-row `users.Update` after a stale read (login `LastLogin` write, `CreateInvite` decrement, admin profile save). A restriction applied inside such a window is silently overwritten: the history table says Suspended while the flag says Allowed. Pre-existing for download/upload/chat; surfaced by the PR #102 review. PR #102 added `SyncUserFlag` as a band-aid on the restore path only.
 
-**Acceptance Criteria:**
-- Either enforce via `HasActiveByType` (restriction rows become the source of truth) or replace full-row writes with targeted `UPDATE users SET ...` statements on the hot paths (mirroring how `bonus_points` was clobber-proofed in BE-8.14)
-- Concurrency test demonstrating the old race is closed
+**Delivered:** replaced full-row writes with a targeted `UPDATE users SET ...` statement on the one hot path that legitimately changes these flags, mirroring how `bonus_points` was clobber-proofed in BE-8.14 — chosen over making `HasActiveByType` the enforcement source of truth because it closes the race everywhere `Update` is called (present and future) rather than only at today's enforcement call sites, and needs no extra DB round trip per request.
+- `UserRepo.Update` (`internal/repository/postgres/user.go`) no longer writes `can_download`, `can_upload`, `can_chat`, or `can_invite` at all — structurally identical to how `bonus_points` is excluded. `can_forum` stays in `Update`; nothing outside `Create` ever mutates it, so it isn't part of the race.
+- New `UserRepo.SetPrivilegeFlag(ctx, userID, restrictionType, value)` does a single-column `UPDATE`, mapping the (already-validated) restriction type to its column via a closed switch — the only path that may change those four columns.
+- `RestrictionService.ApplyRestriction` and `.restoreUserFlagIfNone` (used by lift, expiry resolution, and `SyncUserFlag`) call `SetPrivilegeFlag` directly instead of read-mutate-write; `restoreUserFlagIfNone` no longer fetches the user at all. The dead `setUserFlag` mutator was removed.
+- `NewUserRepo` now returns the concrete `*postgres.UserRepo` (was the `repository.UserRepository` interface) so callers that need `SetPrivilegeFlag` — kept off the widely-implemented `UserRepository` interface via a local `privilegeFlagRepository` interface in `service/restriction.go`, so the ~16 other mocks implementing `UserRepository` elsewhere in the test suite are untouched — get it without a type assertion; it still satisfies `UserRepository` wherever that's expected.
+- Regression test `TestUserRepoUpdate_DoesNotClobberPrivilegeFlags` (postgres, via testcontainers) reproduces the exact race — a stale read, a concurrent `SetPrivilegeFlag`, then the stale flow's `Update` landing — and asserts the flag survives. Plus `TestUserRepoSetPrivilegeFlag` (all four types, both directions), not-found and unknown-type cases, and an entry in the `TestRepositoriesPropagateDBErrors` table.
 
 #### FE-5.14: Bonus Store Page + Points Display [M] [DONE]
 **As a** member

@@ -412,3 +412,86 @@ func TestInviteRepoCreateRedeemAndCount(t *testing.T) {
 		t.Errorf("invitee id = %v, want %d", list[0].InviteeID, invitee.ID)
 	}
 }
+
+func TestInviteRepoGetByIDAndDelete(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewInviteRepo(db)
+	inviter := newUser(t, db)
+
+	inv := &model.Invite{
+		InviterID: inviter.ID,
+		Token:     uniq("token"),
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}
+	if err := repo.Create(ctx, inv); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, inv.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.InviterID != inviter.ID || got.Token != inv.Token {
+		t.Errorf("GetByID returned %+v, want inviter=%d token=%s", got, inviter.ID, inv.Token)
+	}
+
+	if err := repo.Delete(ctx, inv.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if _, err := repo.GetByID(ctx, inv.ID); err == nil {
+		t.Error("GetByID succeeded after Delete")
+	}
+}
+
+func TestInviteRepoDeleteNotFound(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewInviteRepo(db)
+	if err := repo.Delete(ctx, 999999); err == nil {
+		t.Error("expected error deleting a nonexistent invite")
+	}
+}
+
+func TestInviteRepoDeleteRefusesRedeemed(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewInviteRepo(db)
+	inviter := newUser(t, db)
+	invitee := newUser(t, db)
+
+	inv := &model.Invite{
+		InviterID: inviter.ID,
+		Token:     uniq("token"),
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}
+	if err := repo.Create(ctx, inv); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := repo.Redeem(ctx, inv.Token, invitee.ID); err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+
+	// Delete is guarded exactly like Redeem — a redeemed invite cannot be
+	// deleted, even by ID. This is what closes the revoke-vs-redeem race:
+	// the guard is enforced by Postgres in the same statement, not by a
+	// separate check the caller could race against.
+	if err := repo.Delete(ctx, inv.ID); err == nil {
+		t.Error("expected Delete to refuse a redeemed invite")
+	}
+
+	got, err := repo.GetByID(ctx, inv.ID)
+	if err != nil {
+		t.Fatalf("expected the redeemed invite to survive the refused delete, got err=%v", err)
+	}
+	if !got.Redeemed || got.InviteeID == nil || *got.InviteeID != invitee.ID {
+		t.Errorf("redeemed invite should be untouched, got %+v", got)
+	}
+}

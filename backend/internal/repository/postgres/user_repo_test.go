@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
@@ -103,6 +104,122 @@ func TestUserRepoUpdatePersistsChanges(t *testing.T) {
 	if got.Enabled || !got.Donor || got.Invites != 5 || got.Title == nil || *got.Title != "Elite" {
 		t.Errorf("update did not persist: enabled=%v donor=%v invites=%d title=%v",
 			got.Enabled, got.Donor, got.Invites, got.Title)
+	}
+}
+
+func TestUserRepoSetPrivilegeFlag(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	cases := []struct {
+		restrictionType string
+		getter          func(*model.User) bool
+	}{
+		{model.RestrictionTypeDownload, func(u *model.User) bool { return u.CanDownload }},
+		{model.RestrictionTypeUpload, func(u *model.User) bool { return u.CanUpload }},
+		{model.RestrictionTypeChat, func(u *model.User) bool { return u.CanChat }},
+		{model.RestrictionTypeInvite, func(u *model.User) bool { return u.CanInvite }},
+	}
+
+	for _, tc := range cases {
+		if err := repo.SetPrivilegeFlag(ctx, u.ID, tc.restrictionType, false); err != nil {
+			t.Fatalf("SetPrivilegeFlag(%s, false): %v", tc.restrictionType, err)
+		}
+		got, err := repo.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if tc.getter(got) {
+			t.Errorf("%s: expected false after SetPrivilegeFlag(false)", tc.restrictionType)
+		}
+
+		if err := repo.SetPrivilegeFlag(ctx, u.ID, tc.restrictionType, true); err != nil {
+			t.Fatalf("SetPrivilegeFlag(%s, true): %v", tc.restrictionType, err)
+		}
+		got, err = repo.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if !tc.getter(got) {
+			t.Errorf("%s: expected true after SetPrivilegeFlag(true)", tc.restrictionType)
+		}
+	}
+}
+
+func TestUserRepoSetPrivilegeFlag_UnknownType(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	if err := repo.SetPrivilegeFlag(ctx, u.ID, "not_a_real_type", false); err == nil {
+		t.Error("expected error for unknown restriction type")
+	}
+}
+
+func TestUserRepoSetPrivilegeFlag_NotFound(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	if err := repo.SetPrivilegeFlag(ctx, 999999, model.RestrictionTypeDownload, false); err == nil {
+		t.Error("expected error for nonexistent user")
+	}
+}
+
+// TestUserRepoUpdate_DoesNotClobberPrivilegeFlags is the regression test for
+// the drift race: another flow (login, invite creation, an admin profile
+// save) reads a user, and its full-row Update() lands AFTER a restriction
+// has changed a privilege flag but was built from data read BEFORE. Because
+// Update() no longer writes can_download/upload/chat/invite at all, the
+// stale write must be structurally incapable of clobbering the flag —
+// regardless of timing.
+func TestUserRepoUpdate_DoesNotClobberPrivilegeFlags(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+	if !u.CanDownload {
+		t.Fatal("fixture user must start with CanDownload=true")
+	}
+
+	// Another flow reads the user before any restriction is applied.
+	stale, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	// A restriction is applied concurrently via the targeted write path.
+	if err := repo.SetPrivilegeFlag(ctx, u.ID, model.RestrictionTypeDownload, false); err != nil {
+		t.Fatalf("SetPrivilegeFlag: %v", err)
+	}
+
+	// The stale flow's own full-row Update() finally lands, carrying
+	// CanDownload=true because that's what it read before the restriction.
+	// It also makes an unrelated change, to prove Update still works.
+	stale.Title = ptr("unrelated change")
+	if err := repo.Update(ctx, stale); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID after stale Update: %v", err)
+	}
+	if got.CanDownload {
+		t.Error("stale full-row Update clobbered a concurrently-applied restriction: can_download should still be false")
+	}
+	if got.Title == nil || *got.Title != "unrelated change" {
+		t.Error("Update should still persist unrelated columns")
 	}
 }
 

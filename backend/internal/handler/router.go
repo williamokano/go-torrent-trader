@@ -434,6 +434,13 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Delete("/restrictions/{id}", restrictions.HandleLiftRestriction)
 					}
 
+					// Invite management endpoints (view/revoke a user's outstanding invites)
+					if deps.InviteService != nil {
+						inviteAdmin := NewInviteHandler(deps.InviteService)
+						r.Get("/users/{id}/invites", inviteAdmin.HandleAdminListUserInvites)
+						r.Delete("/invites/{id}", inviteAdmin.HandleAdminRevokeInvite)
+					}
+
 					// News management endpoints
 					if deps.NewsService != nil {
 						newsAdmin := NewNewsHandler(deps.NewsService)

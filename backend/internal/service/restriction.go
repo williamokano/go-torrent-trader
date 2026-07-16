@@ -19,17 +19,27 @@ var (
 	ErrRestrictionAlreadyLifted = errors.New("restriction already lifted")
 )
 
+// privilegeFlagRepository is repository.UserRepository plus a targeted,
+// single-column privilege write. Kept local to this file — rather than added
+// to repository.UserRepository — so this fix is scoped to the one service
+// that legitimately writes can_download/upload/chat/invite; every other mock
+// implementing UserRepository elsewhere in the codebase is untouched.
+type privilegeFlagRepository interface {
+	repository.UserRepository
+	SetPrivilegeFlag(ctx context.Context, userID int64, restrictionType string, value bool) error
+}
+
 // RestrictionService handles per-user privilege restriction business logic.
 type RestrictionService struct {
 	restrictions repository.RestrictionRepository
-	users        repository.UserRepository
+	users        privilegeFlagRepository
 	eventBus     event.Bus
 }
 
 // NewRestrictionService creates a new RestrictionService.
 func NewRestrictionService(
 	restrictions repository.RestrictionRepository,
-	users repository.UserRepository,
+	users privilegeFlagRepository,
 	bus event.Bus,
 ) *RestrictionService {
 	return &RestrictionService{
@@ -66,9 +76,9 @@ func (s *RestrictionService) ApplyRestriction(ctx context.Context, userID int64,
 		return nil, fmt.Errorf("create restriction: %w", err)
 	}
 
-	// Update the user flag.
-	s.setUserFlag(user, restrictionType, false)
-	if err := s.users.Update(ctx, user); err != nil {
+	// Update the user flag via a targeted column write — never a full-row
+	// Update — so a concurrent stale write elsewhere cannot clobber it.
+	if err := s.users.SetPrivilegeFlag(ctx, userID, restrictionType, false); err != nil {
 		return nil, fmt.Errorf("update user flag: %w", err)
 	}
 
@@ -183,30 +193,12 @@ func (s *RestrictionService) restoreUserFlagIfNone(ctx context.Context, userID i
 	}
 
 	if !hasActive {
-		user, err := s.users.GetByID(ctx, userID)
-		if err != nil {
-			return fmt.Errorf("get user: %w", err)
-		}
-		s.setUserFlag(user, restrictionType, true)
-		if err := s.users.Update(ctx, user); err != nil {
+		if err := s.users.SetPrivilegeFlag(ctx, userID, restrictionType, true); err != nil {
 			return fmt.Errorf("update user flag: %w", err)
 		}
 	}
 
 	return nil
-}
-
-func (s *RestrictionService) setUserFlag(user *model.User, restrictionType string, value bool) {
-	switch restrictionType {
-	case model.RestrictionTypeDownload:
-		user.CanDownload = value
-	case model.RestrictionTypeUpload:
-		user.CanUpload = value
-	case model.RestrictionTypeChat:
-		user.CanChat = value
-	case model.RestrictionTypeInvite:
-		user.CanInvite = value
-	}
 }
 
 func (s *RestrictionService) actorFromUserID(ctx context.Context, userID *int64) event.Actor {

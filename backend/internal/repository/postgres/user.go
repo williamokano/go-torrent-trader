@@ -23,8 +23,13 @@ type UserRepo struct {
 	db *sql.DB
 }
 
-// NewUserRepo returns a new PostgreSQL-backed UserRepository.
-func NewUserRepo(db *sql.DB) repository.UserRepository {
+// NewUserRepo returns a new PostgreSQL-backed UserRepository. The concrete
+// type is returned (rather than the repository.UserRepository interface) so
+// callers that need SetPrivilegeFlag — a method deliberately kept off the
+// widely-implemented UserRepository interface — can use it without a type
+// assertion; it still satisfies repository.UserRepository wherever that
+// narrower interface is expected.
+func NewUserRepo(db *sql.DB) *UserRepo {
 	return &UserRepo{db: db}
 }
 
@@ -91,6 +96,13 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 }
 
+// Update writes every user-editable column except can_download, can_upload,
+// can_chat, and can_invite. Those four are governed by RestrictionService and
+// deliberately excluded here — mirroring how bonus_points is excluded — so a
+// stale read-modify-write elsewhere (login's LastLogin write, invite
+// creation's decrement, an admin profile save) can never clobber a privilege
+// flag changed concurrently by a restriction apply/lift. Use SetPrivilegeFlag
+// to change one of those four columns.
 func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 	query := `UPDATE users SET
 		username = $1, email = $2, password_hash = $3, password_scheme = $4,
@@ -98,9 +110,8 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 		avatar = $9, title = $10, info = $11, enabled = $12, parked = $13,
 		ip = $14, last_login = $15, last_access = $16, invites = $17,
 		warned = $18, warn_until = $19, donor = $20, invited_by = $21,
-		can_download = $22, can_upload = $23, can_chat = $24, can_forum = $25,
-		can_invite = $26, disabled_until = $27, updated_at = NOW()
-	WHERE id = $28
+		can_forum = $22, disabled_until = $23, updated_at = NOW()
+	WHERE id = $24
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -109,8 +120,50 @@ func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
 		user.Avatar, user.Title, user.Info, user.Enabled, user.Parked,
 		user.IP, user.LastLogin, user.LastAccess, user.Invites,
 		user.Warned, user.WarnUntil, user.Donor, user.InvitedBy,
-		user.CanDownload, user.CanUpload, user.CanChat, user.CanForum, user.CanInvite, user.DisabledUntil, user.ID,
+		user.CanForum, user.DisabledUntil, user.ID,
 	).Scan(&user.UpdatedAt)
+}
+
+// privilegeFlagColumn maps a validated restriction type to its users table
+// column. The switch is closed over four known columns — never built from
+// caller input — so the fmt.Sprintf below is not a SQL-injection risk.
+func privilegeFlagColumn(restrictionType string) (string, bool) {
+	switch restrictionType {
+	case model.RestrictionTypeDownload:
+		return "can_download", true
+	case model.RestrictionTypeUpload:
+		return "can_upload", true
+	case model.RestrictionTypeChat:
+		return "can_chat", true
+	case model.RestrictionTypeInvite:
+		return "can_invite", true
+	default:
+		return "", false
+	}
+}
+
+// SetPrivilegeFlag atomically sets a single privilege column for a user,
+// bypassing Update's full-row write. This is the only path that may change
+// can_download, can_upload, can_chat, or can_invite.
+func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restrictionType string, value bool) error {
+	column, ok := privilegeFlagColumn(restrictionType)
+	if !ok {
+		return fmt.Errorf("unknown privilege flag: %s", restrictionType)
+	}
+
+	query := fmt.Sprintf(`UPDATE users SET %s = $1, updated_at = NOW() WHERE id = $2`, column)
+	res, err := r.db.ExecContext(ctx, query, value, userID)
+	if err != nil {
+		return fmt.Errorf("set privilege flag: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set privilege flag rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *UserRepo) List(ctx context.Context, opts repository.ListUsersOptions) ([]model.User, int64, error) {

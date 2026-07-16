@@ -42,6 +42,17 @@ func (m *mockInviteRepo) Create(_ context.Context, invite *model.Invite) error {
 	return nil
 }
 
+func (m *mockInviteRepo) GetByID(_ context.Context, id int64) (*model.Invite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, inv := range m.invites {
+		if inv.ID == id {
+			return inv, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
 func (m *mockInviteRepo) GetByToken(_ context.Context, token string) (*model.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -107,6 +118,18 @@ func (m *mockInviteRepo) CountPendingByInviter(_ context.Context, inviterID int6
 		}
 	}
 	return count, nil
+}
+
+func (m *mockInviteRepo) Delete(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, inv := range m.invites {
+		if inv.ID == id && inv.InviteeID == nil {
+			m.invites = append(m.invites[:i], m.invites[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 // --- mock user repo for invite handler tests ---
@@ -405,5 +428,218 @@ func TestHandleValidateInvite_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- admin invite management ---
+
+func createInviteForUser(t *testing.T, router http.Handler, sessions service.SessionStore, userID int64) map[string]interface{} {
+	t.Helper()
+	token := createSessionWithGroup(sessions, userID, 1)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create invite for user %d: expected 201, got %d; body: %s", userID, rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	return resp["invite"].(map[string]interface{})
+}
+
+func TestHandleAdminListUserInvites_Success(t *testing.T) {
+	router, sessions, userRepo := setupInviteRouter()
+
+	_ = userRepo.Create(context.Background(), &model.User{
+		Username:  "member",
+		Email:     "member@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
+	})
+	createInviteForUser(t, router, sessions, 1)
+
+	adminToken := createSessionWithGroup(sessions, 2, 1)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/1/invites", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	invites := resp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Errorf("expected 1 invite, got %d", len(invites))
+	}
+}
+
+func TestHandleAdminListUserInvites_ShowsVoidedWhenInviterSuspended(t *testing.T) {
+	router, sessions, userRepo := setupInviteRouter()
+
+	_ = userRepo.Create(context.Background(), &model.User{
+		Username:  "member",
+		Email:     "member@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
+	})
+	createInviteForUser(t, router, sessions, 1)
+
+	// Suspend the member's invite privilege after the token was issued.
+	member, _ := userRepo.GetByID(context.Background(), 1)
+	member.CanInvite = false
+	_ = userRepo.Update(context.Background(), member)
+
+	adminToken := createSessionWithGroup(sessions, 2, 1)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/1/invites", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	invites := resp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 invite, got %d", len(invites))
+	}
+	invite := invites[0].(map[string]interface{})
+	if invite["status"] != "voided" {
+		t.Errorf("expected status voided, got %v", invite["status"])
+	}
+}
+
+func TestHandleAdminListUserInvites_RequiresAdmin(t *testing.T) {
+	router, sessions, userRepo := setupInviteRouter()
+
+	_ = userRepo.Create(context.Background(), &model.User{
+		Username: "member",
+		Email:    "member@test.com",
+		Enabled:  true,
+		GroupID:  5,
+	})
+	userToken := createSessionWithGroup(sessions, 1, 5)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/1/invites", nil)
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleAdminRevokeInvite_Success(t *testing.T) {
+	router, sessions, userRepo := setupInviteRouter()
+
+	_ = userRepo.Create(context.Background(), &model.User{
+		Username:  "member",
+		Email:     "member@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
+	})
+	invite := createInviteForUser(t, router, sessions, 1)
+	inviteID := formatID(invite["id"].(float64))
+
+	adminToken := createSessionWithGroup(sessions, 2, 1)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/invites/"+inviteID, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// The token must no longer validate.
+	validateReq := httptest.NewRequest(http.MethodGet, "/api/v1/invites/"+invite["token"].(string), nil)
+	validateRec := httptest.NewRecorder()
+	router.ServeHTTP(validateRec, validateReq)
+	if validateRec.Code != http.StatusNotFound {
+		t.Errorf("expected revoked invite to be gone (404), got %d", validateRec.Code)
+	}
+}
+
+func TestHandleAdminRevokeInvite_NotFound(t *testing.T) {
+	router, sessions, _ := setupInviteRouter()
+	adminToken := createSessionWithGroup(sessions, 2, 1)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/invites/99999", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleAdminRevokeInvite_RejectsRedeemed(t *testing.T) {
+	userRepo := newMockInviteUserRepo()
+	inviteRepo := newMockInviteRepo()
+	sessions := testutil.NewMemorySessionStore()
+	bus := event.NewInMemoryBus()
+	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
+	inviteSvc := service.NewInviteService(inviteRepo, userRepo, bus)
+	router := handler.NewRouter(&handler.Deps{
+		AuthService:   authSvc,
+		SessionStore:  sessions,
+		InviteService: inviteSvc,
+	})
+
+	_ = userRepo.Create(context.Background(), &model.User{
+		Username:  "member",
+		Email:     "member@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
+	})
+	invite := createInviteForUser(t, router, sessions, 1)
+	inviteID := formatID(invite["id"].(float64))
+
+	// Redeem it directly against the repo the router shares, bypassing the
+	// full registration flow.
+	if err := inviteRepo.Redeem(context.Background(), invite["token"].(string), 999); err != nil {
+		t.Fatalf("redeem setup: %v", err)
+	}
+
+	adminToken := createSessionWithGroup(sessions, 2, 1)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/invites/"+inviteID, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleAdminRevokeInvite_Unauthenticated(t *testing.T) {
+	router, _, _ := setupInviteRouter()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/invites/1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d; body: %s", rec.Code, rec.Body.String())
 	}
 }

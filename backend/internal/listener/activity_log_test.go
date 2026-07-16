@@ -118,6 +118,27 @@ func TestListener_UserRegistered(t *testing.T) {
 	}
 }
 
+func TestListener_InviteRevoked(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.InviteRevokedEvent{
+		Base:            event.NewBase(event.InviteRevoked, event.Actor{ID: 2, Username: "admin"}),
+		InviteID:        7,
+		InviterID:       1,
+		InviterUsername: "alice",
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if repo.logs[0].EventType != "invite_revoked" {
+		t.Errorf("expected invite_revoked, got %s", repo.logs[0].EventType)
+	}
+	if repo.logs[0].Message != "admin revoked an invite issued by alice" {
+		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	}
+}
+
 func TestListener_TorrentUploaded(t *testing.T) {
 	repo, bus := setup()
 

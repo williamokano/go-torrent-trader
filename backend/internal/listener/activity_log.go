@@ -145,6 +145,16 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s redeemed an invite", invitee), e.Actor
 	})
 
+	listen(event.InviteRevoked, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.InviteRevokedEvent)
+		actor := resolveActor(userRepo, e.Actor)
+		inviter := e.InviterUsername
+		if inviter == "" {
+			inviter = resolveUsername(userRepo, e.InviterID)
+		}
+		return fmt.Sprintf("%s revoked an invite issued by %s", actor, inviter), e.Actor
+	})
+
 	listen(event.RegistrationModeChanged, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.RegistrationModeChangedEvent)
 		return fmt.Sprintf("%s changed registration mode from %s to %s", e.Actor.Username, e.OldMode, e.NewMode), e.Actor

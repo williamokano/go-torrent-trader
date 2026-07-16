@@ -21,7 +21,7 @@ interface InviteeView {
 interface Invite {
   id: number;
   token: string;
-  status: "pending" | "redeemed" | "expired";
+  status: "pending" | "redeemed" | "expired" | "voided";
   expires_at: string;
   created_at: string;
   invitee?: InviteeView;
@@ -193,7 +193,14 @@ export function InvitesPage() {
                       <code className="invites__token">{inv.token}</code>
                     </td>
                     <td>
-                      <span className={`invites__status--${inv.status}`}>
+                      <span
+                        className={`invites__status--${inv.status}`}
+                        title={
+                          inv.status === "voided"
+                            ? "Your invite privilege is currently suspended, so this code can't be used"
+                            : undefined
+                        }
+                      >
                         {inv.status}
                       </span>
                     </td>

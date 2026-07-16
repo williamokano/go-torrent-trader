@@ -78,6 +78,73 @@ func (h *InviteHandler) HandleListInvites(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// HandleAdminListUserInvites handles GET /api/v1/admin/users/{id}/invites.
+func (h *InviteHandler) HandleAdminListUserInvites(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || userID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+		return
+	}
+
+	page := 1
+	perPage := 25
+	if p := r.URL.Query().Get("page"); p != "" {
+		page, _ = strconv.Atoi(p)
+	}
+	if pp := r.URL.Query().Get("per_page"); pp != "" {
+		perPage, _ = strconv.Atoi(pp)
+	}
+
+	invites, total, err := h.invites.ListMyInvites(r.Context(), userID, page, perPage)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list invites")
+		return
+	}
+
+	items := make([]map[string]interface{}, len(invites))
+	for i := range invites {
+		items[i] = h.inviteResponse(&invites[i])
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"invites":  items,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
+	})
+}
+
+// HandleAdminRevokeInvite handles DELETE /api/v1/admin/invites/{id}.
+func (h *InviteHandler) HandleAdminRevokeInvite(w http.ResponseWriter, r *http.Request) {
+	actorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	inviteID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || inviteID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid invite ID")
+		return
+	}
+
+	if err := h.invites.RevokeInvite(r.Context(), actorID, inviteID); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInviteNotFound):
+			ErrorResponse(w, http.StatusNotFound, "not_found", "invite not found")
+		case errors.Is(err, service.ErrInviteAlreadyUsed):
+			ErrorResponse(w, http.StatusConflict, "already_used", "cannot revoke a redeemed invite")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to revoke invite")
+		}
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "invite revoked",
+	})
+}
+
 // HandleValidateInvite handles GET /api/v1/invites/{token}.
 func (h *InviteHandler) HandleValidateInvite(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
@@ -122,6 +189,8 @@ func (h *InviteHandler) inviteResponse(inv *model.Invite) map[string]interface{}
 		status = "redeemed"
 	} else if time.Now().After(inv.ExpiresAt) {
 		status = "expired"
+	} else if inv.Voided {
+		status = "voided"
 	}
 
 	resp := map[string]interface{}{

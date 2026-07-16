@@ -118,6 +118,27 @@ func (m *mockUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([
 
 func (m *mockUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
 
+func (m *mockUserRepo) SetPrivilegeFlag(_ context.Context, userID int64, restrictionType string, value bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == userID {
+			switch restrictionType {
+			case "download":
+				u.CanDownload = value
+			case "upload":
+				u.CanUpload = value
+			case "chat":
+				u.CanChat = value
+			case "invite":
+				u.CanInvite = value
+			}
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func (m *mockUserRepo) ListStaff(_ context.Context) ([]model.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
