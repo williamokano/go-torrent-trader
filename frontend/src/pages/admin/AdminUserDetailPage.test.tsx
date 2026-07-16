@@ -61,8 +61,18 @@ function mockFetchResponses(
   userOverrides: Record<string, unknown> = {},
   restrictionsOverrides: unknown[] = [],
   invitesOverrides: unknown[] = [],
+  historyOverrides: unknown[] = [],
 ) {
   mockFetch.mockImplementation((url: string) => {
+    if (url.includes("/admin/users/1/edit-history")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          entries: historyOverrides,
+          total: historyOverrides.length,
+        }),
+      });
+    }
     if (url.includes("/admin/users/1/restrictions")) {
       return Promise.resolve({
         ok: true,
@@ -124,11 +134,14 @@ describe("AdminUserDetailPage", () => {
       expect(screen.getByText("Edit profile")).toBeInTheDocument();
     });
 
-    // Form fields should be populated with user data
+    // Form fields should be populated with user data. Uploaded/downloaded
+    // show in the best-fit unit: 1073741824 B = 1 GB, 536870912 B = 512 MB.
     expect(screen.getByDisplayValue("testuser")).toBeInTheDocument();
     expect(screen.getByDisplayValue("test@example.com")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("1073741824")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("536870912")).toBeInTheDocument();
+    expect(screen.getByLabelText("Uploaded")).toHaveValue(1);
+    expect(screen.getByLabelText("Uploaded unit")).toHaveValue("3");
+    expect(screen.getByLabelText("Downloaded")).toHaveValue(512);
+    expect(screen.getByLabelText("Downloaded unit")).toHaveValue("2");
     expect(screen.getByDisplayValue("2")).toBeInTheDocument();
     expect(screen.getByLabelText("Bonus Points")).toHaveValue(1500);
   });
@@ -534,6 +547,204 @@ describe("AdminUserDetailPage", () => {
       );
       expect(deleteCall).toBeTruthy();
     });
+  });
+
+  test("sends the byte value converted from the chosen unit on save", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Uploaded")).toBeInTheDocument();
+    });
+
+    // Switch uploaded to TB and type 2 → 2 TiB in bytes.
+    fireEvent.change(screen.getByLabelText("Uploaded unit"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText("Uploaded"), {
+      target: { value: "2" },
+    });
+    fireEvent.click(screen.getByText("Save changes"));
+
+    await waitFor(() => {
+      const putCall = mockFetch.mock.calls.find(
+        ([url, opts]) =>
+          typeof url === "string" &&
+          url.endsWith("/admin/users/1") &&
+          opts?.method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(putCall![1].body);
+      expect(body.uploaded).toBe(2 * 1024 ** 4);
+      // Untouched fields are not sent at all: counters like downloaded accrue
+      // concurrently, so re-sending an absolute value would revert accrual.
+      expect(body).not.toHaveProperty("downloaded");
+      expect(body).not.toHaveProperty("username");
+    });
+  });
+
+  test("does not send a request when nothing changed", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Save changes")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Save changes"));
+
+    await waitFor(() => {
+      expect(screen.getByText("No changes to save")).toBeInTheDocument();
+    });
+    const putCall = mockFetch.mock.calls.find(
+      ([url, opts]) =>
+        typeof url === "string" &&
+        url.endsWith("/admin/users/1") &&
+        opts?.method === "PUT",
+    );
+    expect(putCall).toBeFalsy();
+  });
+
+  test("renders empty edit history state", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("No edits recorded yet.")).toBeInTheDocument();
+    });
+  });
+
+  test("renders edit history entries with humanized byte values", async () => {
+    mockFetchResponses(
+      {},
+      [],
+      [],
+      [
+        {
+          id: 2,
+          user_id: 1,
+          changed_by: 99,
+          changed_by_username: "admin",
+          field: "uploaded",
+          old_value: "0",
+          new_value: "1099511627776",
+          created_at: "2024-06-01T00:00:00Z",
+        },
+        {
+          id: 1,
+          user_id: 1,
+          changed_by: 99,
+          changed_by_username: "admin",
+          field: "invites",
+          old_value: "2",
+          new_value: "5",
+          created_at: "2024-05-01T00:00:00Z",
+        },
+      ],
+    );
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Edit history")).toBeInTheDocument();
+    });
+    // 1099511627776 bytes renders as 1.00 TB; the raw value stays as a title.
+    expect(screen.getByText("1.00 TB")).toBeInTheDocument();
+    expect(screen.getByTitle("1099511627776")).toBeInTheDocument();
+    // "Invites" also appears as the form field label, hence getAllByText.
+    expect(screen.getAllByText("Invites").length).toBeGreaterThan(1);
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getAllByText("admin")).not.toHaveLength(0);
+  });
+
+  test("loads older edits without duplicating rows", async () => {
+    const makeEntry = (id: number) => ({
+      id,
+      user_id: 1,
+      changed_by: 99,
+      changed_by_username: "admin",
+      field: "invites",
+      old_value: String(id),
+      new_value: String(id + 1),
+      created_at: "2024-05-01T00:00:00Z",
+    });
+    // First page: entries 100..51 (newest first), total 60.
+    const firstPage = Array.from({ length: 50 }, (_, i) => makeEntry(100 - i));
+    // Second page overlaps (a fresh edit shifted the offsets): 51..41.
+    const secondPage = Array.from({ length: 11 }, (_, i) => makeEntry(51 - i));
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/edit-history")) {
+        const offset = url.includes("offset=0") ? 0 : 50;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            entries: offset === 0 ? firstPage : secondPage,
+            total: 60,
+          }),
+        });
+      }
+      if (url.includes("/restrictions") || url.includes("/invites")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ restrictions: [], invites: [] }),
+        });
+      }
+      if (url.includes("/admin/groups")) {
+        return Promise.resolve({ ok: true, json: async () => mockGroups });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ user: mockUser }),
+      });
+    });
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Show older edits \(10 more\)/),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Show older edits/));
+
+    await waitFor(() => {
+      // 50 unique + 10 new unique (entry 51 deduped) = 60 rows, button gone.
+      expect(screen.queryByText(/Show older edits/)).not.toBeInTheDocument();
+    });
+    const rows = document.querySelectorAll(".admin-user-detail__history-arrow");
+    expect(rows).toHaveLength(60);
+  });
+
+  test("shows a retry state when the edit history fails to load", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/edit-history")) {
+        return Promise.resolve({ ok: false, json: async () => ({}) });
+      }
+      if (url.includes("/restrictions") || url.includes("/invites")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ restrictions: [], invites: [] }),
+        });
+      }
+      if (url.includes("/admin/groups")) {
+        return Promise.resolve({ ok: true, json: async () => mockGroups });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ user: mockUser }),
+      });
+    });
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Couldn't load the edit history/),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText("Retry")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No edits recorded yet."),
+    ).not.toBeInTheDocument();
   });
 
   test("shows Ban user button for enabled users", async () => {

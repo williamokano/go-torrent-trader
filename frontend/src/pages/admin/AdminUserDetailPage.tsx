@@ -7,7 +7,13 @@ import { formatBytes, timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { Modal } from "@/components/modal/Modal";
-import { Textarea, Input, Checkbox, Select } from "@/components/form";
+import {
+  Textarea,
+  Input,
+  Checkbox,
+  Select,
+  ByteSizeInput,
+} from "@/components/form";
 import { BanUserModal } from "@/pages/admin/BanUserModal";
 import "./admin-ui.css";
 import "./admin-user-detail.css";
@@ -87,6 +93,74 @@ interface UserDetail {
   mod_notes: ModNote[];
 }
 
+interface EditHistoryEntry {
+  id: number;
+  user_id: number;
+  changed_by: number | null;
+  changed_by_username: string;
+  field: string;
+  old_value: string;
+  new_value: string;
+  created_at: string;
+}
+
+const HISTORY_PAGE_SIZE = 50;
+
+const HISTORY_FIELD_LABELS: Record<string, string> = {
+  username: "Username",
+  email: "Email",
+  avatar: "Avatar URL",
+  title: "Title",
+  info: "Info / Bio",
+  group: "Group",
+  uploaded: "Uploaded",
+  downloaded: "Downloaded",
+  invites: "Invites",
+  bonus_points: "Bonus points",
+  enabled: "Enabled",
+  warned: "Warned",
+  donor: "Donor",
+  parked: "Parked",
+};
+
+const HISTORY_BYTE_FIELDS = new Set(["uploaded", "downloaded"]);
+const HISTORY_BOOLEAN_FIELDS = new Set([
+  "enabled",
+  "warned",
+  "donor",
+  "parked",
+]);
+
+function formatHistoryValue(field: string, value: string): string {
+  if (value === "") return "—";
+  if (HISTORY_BYTE_FIELDS.has(field)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return formatBytes(n);
+  }
+  if (HISTORY_BOOLEAN_FIELDS.has(field)) {
+    if (value === "true") return "Yes";
+    if (value === "false") return "No";
+  }
+  return value;
+}
+
+// From/To as a pair: when a byte change is smaller than the rounded display
+// (a 5 GB shave at 50 TB scale renders "50.00 TB → 50.00 TB"), fall back to
+// exact byte counts so a real change never looks like a no-op.
+function formatHistoryPair(entry: EditHistoryEntry): [string, string] {
+  let from = formatHistoryValue(entry.field, entry.old_value);
+  let to = formatHistoryValue(entry.field, entry.new_value);
+  if (
+    HISTORY_BYTE_FIELDS.has(entry.field) &&
+    from === to &&
+    entry.old_value !== entry.new_value
+  ) {
+    from = `${Number(entry.old_value).toLocaleString()} B`;
+    to = `${Number(entry.new_value).toLocaleString()} B`;
+  }
+  return [from, to];
+}
+
 type PrivilegeType = "download" | "upload" | "chat" | "invite";
 
 const PRIVILEGES: {
@@ -123,8 +197,8 @@ export function AdminUserDetailPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editInfo, setEditInfo] = useState("");
   const [editGroupId, setEditGroupId] = useState("");
-  const [editUploaded, setEditUploaded] = useState("");
-  const [editDownloaded, setEditDownloaded] = useState("");
+  const [editUploaded, setEditUploaded] = useState(0);
+  const [editDownloaded, setEditDownloaded] = useState(0);
   const [editInvites, setEditInvites] = useState("");
   const [editBonusPoints, setEditBonusPoints] = useState("");
   const [editEnabled, setEditEnabled] = useState(true);
@@ -165,6 +239,12 @@ export function AdminUserDetailPage() {
   const [revokingInviteId, setRevokingInviteId] = useState<number | null>(null);
   const [revokingInvite, setRevokingInvite] = useState(false);
 
+  // Edit history state
+  const [history, setHistory] = useState<EditHistoryEntry[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyError, setHistoryError] = useState(false);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+
   const populateEditForm = useCallback((u: UserDetail) => {
     setEditUsername(u.username);
     setEditEmail(u.email);
@@ -172,8 +252,8 @@ export function AdminUserDetailPage() {
     setEditTitle(u.title ?? "");
     setEditInfo(u.info ?? "");
     setEditGroupId(String(u.group_id));
-    setEditUploaded(String(u.uploaded));
-    setEditDownloaded(String(u.downloaded));
+    setEditUploaded(u.uploaded);
+    setEditDownloaded(u.downloaded);
     setEditInvites(String(u.invites));
     setEditBonusPoints(String(u.bonus_points ?? 0));
     setEditEnabled(u.enabled);
@@ -233,6 +313,41 @@ export function AdminUserDetailPage() {
     }
   }, [id]);
 
+  const fetchEditHistory = useCallback(
+    async (offset = 0) => {
+      const token = getAccessToken();
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/users/${id}/edit-history?limit=${HISTORY_PAGE_SIZE}&offset=${offset}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!res.ok) {
+          setHistoryError(true);
+          return;
+        }
+        const data = await res.json();
+        const entries: EditHistoryEntry[] = data.entries || [];
+        // Dedupe on append: a save between fetches shifts offsets on this
+        // newest-first list, so an older page can re-serve rows already shown.
+        setHistory((prev) =>
+          offset === 0
+            ? entries
+            : [
+                ...prev,
+                ...entries.filter((e) => !prev.some((p) => p.id === e.id)),
+              ],
+        );
+        setHistoryTotal(data.total ?? entries.length);
+        setHistoryError(false);
+      } catch {
+        setHistoryError(true);
+      }
+    },
+    [id],
+  );
+
   const fetchGroups = useCallback(async () => {
     const token = getAccessToken();
     const res = await fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
@@ -254,10 +369,48 @@ export function AdminUserDetailPage() {
     fetchRestrictions();
     fetchInvites();
     fetchGroups();
-  }, [fetchUser, fetchRestrictions, fetchInvites, fetchGroups]);
+    fetchEditHistory();
+  }, [
+    fetchUser,
+    fetchRestrictions,
+    fetchInvites,
+    fetchGroups,
+    fetchEditHistory,
+  ]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+
+    // Send only the fields the admin actually changed. Counters like
+    // uploaded/downloaded/invites/bonus points accrue concurrently (announces,
+    // auto-grants, seeding awards) — re-sending an untouched absolute value
+    // would silently revert that accrual and pollute the edit history with
+    // phantom admin edits.
+    const body: Record<string, unknown> = {};
+    if (editUsername !== user.username) body.username = editUsername;
+    if (editEmail !== user.email) body.email = editEmail;
+    if (editAvatar !== (user.avatar ?? "")) body.avatar = editAvatar || null;
+    if (editTitle !== (user.title ?? "")) body.title = editTitle || null;
+    if (editInfo !== (user.info ?? "")) body.info = editInfo || null;
+    if (Number(editGroupId) !== user.group_id)
+      body.group_id = Number(editGroupId);
+    if (editUploaded !== user.uploaded) body.uploaded = editUploaded;
+    if (editDownloaded !== user.downloaded) body.downloaded = editDownloaded;
+    if (Number(editInvites) !== user.invites)
+      body.invites = Number(editInvites);
+    if (Number(editBonusPoints) !== (user.bonus_points ?? 0))
+      body.bonus_points = Number(editBonusPoints);
+    if (editEnabled !== user.enabled) body.enabled = editEnabled;
+    if (editWarned !== user.warned) body.warned = editWarned;
+    if (editDonor !== user.donor) body.donor = editDonor;
+    if (editParked !== user.parked) body.parked = editParked;
+
+    if (Object.keys(body).length === 0) {
+      toast.success("No changes to save");
+      return;
+    }
+
     setSaving(true);
     const token = getAccessToken();
     try {
@@ -269,33 +422,28 @@ export function AdminUserDetailPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            username: editUsername,
-            email: editEmail,
-            avatar: editAvatar || null,
-            title: editTitle || null,
-            info: editInfo || null,
-            group_id: Number(editGroupId),
-            uploaded: Number(editUploaded),
-            downloaded: Number(editDownloaded),
-            invites: Number(editInvites),
-            bonus_points: Number(editBonusPoints),
-            enabled: editEnabled,
-            warned: editWarned,
-            donor: editDonor,
-            parked: editParked,
-          }),
+          body: JSON.stringify(body),
         },
       );
       if (res.ok) {
         toast.success("User updated successfully");
         fetchUser();
+        fetchEditHistory();
       } else {
         const err = await res.json().catch(() => null);
         toast.error(err?.error?.message ?? "Failed to update user");
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLoadMoreHistory = async () => {
+    setLoadingMoreHistory(true);
+    try {
+      await fetchEditHistory(history.length);
+    } finally {
+      setLoadingMoreHistory(false);
     }
   };
 
@@ -688,7 +836,7 @@ export function AdminUserDetailPage() {
         <div className="admin-panel">
           <div className="admin-panel__section">
             <h2 className="admin-panel__title">Edit profile</h2>
-            <form onSubmit={handleSaveProfile}>
+            <form onSubmit={handleSaveProfile} className="form-stack">
               <div className="admin-user-detail__form-row">
                 <div className="admin-user-detail__form-field">
                   <Input
@@ -734,19 +882,17 @@ export function AdminUserDetailPage() {
 
               <div className="admin-user-detail__form-row">
                 <div className="admin-user-detail__form-field">
-                  <Input
-                    label="Uploaded (bytes)"
-                    type="number"
+                  <ByteSizeInput
+                    label="Uploaded"
                     value={editUploaded}
-                    onChange={(e) => setEditUploaded(e.target.value)}
+                    onChange={setEditUploaded}
                   />
                 </div>
                 <div className="admin-user-detail__form-field">
-                  <Input
-                    label="Downloaded (bytes)"
-                    type="number"
+                  <ByteSizeInput
+                    label="Downloaded"
                     value={editDownloaded}
-                    onChange={(e) => setEditDownloaded(e.target.value)}
+                    onChange={setEditDownloaded}
                   />
                 </div>
                 <div className="admin-user-detail__form-field">
@@ -880,64 +1026,66 @@ export function AdminUserDetailPage() {
 
           <div className="admin-panel__section">
             <h2 className="admin-panel__title">Suspend privileges</h2>
-            <div className="admin-user-detail__restriction-checks">
-              <Checkbox
-                label="Suspend download"
-                checked={restrictDownload}
-                onChange={(e) => setRestrictDownload(e.target.checked)}
+            <div className="form-stack">
+              <div className="admin-user-detail__restriction-checks">
+                <Checkbox
+                  label="Suspend download"
+                  checked={restrictDownload}
+                  onChange={(e) => setRestrictDownload(e.target.checked)}
+                />
+                <Checkbox
+                  label="Suspend upload"
+                  checked={restrictUpload}
+                  onChange={(e) => setRestrictUpload(e.target.checked)}
+                />
+                <Checkbox
+                  label="Suspend chat"
+                  checked={restrictChat}
+                  onChange={(e) => setRestrictChat(e.target.checked)}
+                />
+                <Checkbox
+                  label="Suspend invite"
+                  checked={restrictInvite}
+                  onChange={(e) => setRestrictInvite(e.target.checked)}
+                />
+              </div>
+              <Textarea
+                label="Reason"
+                placeholder="Reason for suspending these privileges…"
+                value={restrictionReason}
+                onChange={(e) => setRestrictionReason(e.target.value)}
               />
-              <Checkbox
-                label="Suspend upload"
-                checked={restrictUpload}
-                onChange={(e) => setRestrictUpload(e.target.checked)}
-              />
-              <Checkbox
-                label="Suspend chat"
-                checked={restrictChat}
-                onChange={(e) => setRestrictChat(e.target.checked)}
-              />
-              <Checkbox
-                label="Suspend invite"
-                checked={restrictInvite}
-                onChange={(e) => setRestrictInvite(e.target.checked)}
-              />
-            </div>
-            <Textarea
-              label="Reason"
-              placeholder="Reason for suspending these privileges…"
-              value={restrictionReason}
-              onChange={(e) => setRestrictionReason(e.target.value)}
-            />
-            <div className="admin-user-detail__field-group">
-              <label
-                htmlFor="restriction-expiry"
-                className="admin-user-detail__field-label"
-              >
-                Expires at (optional)
-              </label>
-              <input
-                id="restriction-expiry"
-                type="datetime-local"
-                value={restrictionExpiry}
-                onChange={(e) => setRestrictionExpiry(e.target.value)}
-                className="admin-user-detail__date-input"
-              />
-            </div>
-            <div className="admin-user-detail__form-actions">
-              <button
-                className="admin-btn admin-btn--primary"
-                onClick={handleApplyRestrictions}
-                disabled={
-                  applyingRestrictions ||
-                  !restrictionReason.trim() ||
-                  (!restrictDownload &&
-                    !restrictUpload &&
-                    !restrictChat &&
-                    !restrictInvite)
-                }
-              >
-                {applyingRestrictions ? "Applying…" : "Apply restrictions"}
-              </button>
+              <div className="admin-user-detail__field-group">
+                <label
+                  htmlFor="restriction-expiry"
+                  className="admin-user-detail__field-label"
+                >
+                  Expires at (optional)
+                </label>
+                <input
+                  id="restriction-expiry"
+                  type="datetime-local"
+                  value={restrictionExpiry}
+                  onChange={(e) => setRestrictionExpiry(e.target.value)}
+                  className="admin-user-detail__date-input"
+                />
+              </div>
+              <div className="admin-user-detail__form-actions">
+                <button
+                  className="admin-btn admin-btn--primary"
+                  onClick={handleApplyRestrictions}
+                  disabled={
+                    applyingRestrictions ||
+                    !restrictionReason.trim() ||
+                    (!restrictDownload &&
+                      !restrictUpload &&
+                      !restrictChat &&
+                      !restrictInvite)
+                  }
+                >
+                  {applyingRestrictions ? "Applying…" : "Apply restrictions"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1009,7 +1157,7 @@ export function AdminUserDetailPage() {
         {/* Outstanding Invites */}
         <div className="admin-panel">
           <div className="admin-panel__section">
-            <h2 className="admin-panel__title" style={{ margin: 0 }}>
+            <h2 className="admin-panel__title admin-panel__title--tight">
               Outstanding invites
             </h2>
           </div>
@@ -1082,7 +1230,7 @@ export function AdminUserDetailPage() {
         {/* Recent Uploads */}
         <div className="admin-panel">
           <div className="admin-panel__section">
-            <h2 className="admin-panel__title" style={{ margin: 0 }}>
+            <h2 className="admin-panel__title admin-panel__title--tight">
               Recent uploads
             </h2>
           </div>
@@ -1164,6 +1312,109 @@ export function AdminUserDetailPage() {
               </div>
             )}
           </div>
+        </div>
+        {/* Edit History */}
+        <div className="admin-panel">
+          <div className="admin-panel__section">
+            <h2 className="admin-panel__title admin-panel__title--tight">
+              Edit history
+            </h2>
+            <p className="admin-user-detail__history-desc">
+              Every change staff make to this profile, with the value before and
+              after.
+            </p>
+          </div>
+          {historyError ? (
+            <p className="admin-empty">
+              Couldn't load the edit history.{" "}
+              <button
+                className="admin-btn admin-btn--ghost admin-btn--sm"
+                onClick={() => fetchEditHistory()}
+              >
+                Retry
+              </button>
+            </p>
+          ) : history.length === 0 ? (
+            <p className="admin-empty">No edits recorded yet.</p>
+          ) : (
+            <>
+              <div className="admin-table-scroll">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>From</th>
+                      <th></th>
+                      <th>To</th>
+                      <th>Changed by</th>
+                      <th>When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((entry) => {
+                      const [from, to] = formatHistoryPair(entry);
+                      return (
+                        <tr key={entry.id}>
+                          <td className="admin-table__name">
+                            {HISTORY_FIELD_LABELS[entry.field] ?? entry.field}
+                          </td>
+                          <td
+                            className="admin-user-detail__history-value admin-user-detail__history-value--old"
+                            title={entry.old_value}
+                          >
+                            {from}
+                          </td>
+                          <td
+                            className="admin-user-detail__history-arrow"
+                            aria-hidden="true"
+                          >
+                            →
+                          </td>
+                          <td
+                            className="admin-user-detail__history-value admin-user-detail__history-value--new"
+                            title={entry.new_value}
+                          >
+                            {to}
+                          </td>
+                          <td>
+                            {entry.changed_by !== null ? (
+                              <UsernameDisplay
+                                userId={entry.changed_by}
+                                username={
+                                  entry.changed_by_username ||
+                                  `#${entry.changed_by}`
+                                }
+                              />
+                            ) : (
+                              <span className="admin-muted">
+                                {entry.changed_by_username || "deleted user"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="admin-muted">
+                            {timeAgo(entry.created_at)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {history.length < historyTotal && (
+                <div className="admin-user-detail__history-more">
+                  <button
+                    className="admin-btn admin-btn--ghost admin-btn--sm"
+                    onClick={handleLoadMoreHistory}
+                    disabled={loadingMoreHistory}
+                  >
+                    {loadingMoreHistory
+                      ? "Loading…"
+                      : `Show older edits (${historyTotal - history.length} more)`}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 

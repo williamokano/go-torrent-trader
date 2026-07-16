@@ -212,6 +212,12 @@
   text-transform: uppercase;
 }
 
+/* Title with nothing under it in the same section (the content follows as a
+   table or empty state outside the section). */
+.admin-panel__title--tight {
+  margin-bottom: 0;
+}
+
 .admin-empty {
   margin: 0;
   padding: var(--space-md) var(--space-lg);
