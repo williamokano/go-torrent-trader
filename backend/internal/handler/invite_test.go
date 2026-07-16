@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -229,11 +230,12 @@ func TestHandleCreateInvite_Success(t *testing.T) {
 
 	// Create user with invites and admin group (which has CanInvite=true)
 	_ = userRepo.Create(context.Background(), &model.User{
-		Username: "inviter",
-		Email:    "inviter@test.com",
-		Invites:  5,
-		Enabled:  true,
-		GroupID:  1,
+		Username:  "inviter",
+		Email:     "inviter@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
 	})
 	token := createSessionWithGroup(sessions, 1, 1)
 
@@ -295,16 +297,45 @@ func TestHandleCreateInvite_NoInviteCapability(t *testing.T) {
 	}
 }
 
+func TestHandleCreateInvite_PrivilegeSuspended(t *testing.T) {
+	router, sessions, userRepo := setupInviteRouter()
+
+	// User in an invite-capable group, but with the per-user privilege suspended
+	_ = userRepo.Create(context.Background(), &model.User{
+		Username:  "suspended",
+		Email:     "suspended@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: false,
+	})
+	token := createSessionWithGroup(sessions, 1, 1)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/invites", nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invite_restricted") {
+		t.Errorf("expected invite_restricted error code, got body: %s", rec.Body.String())
+	}
+}
+
 func TestHandleCreateInvite_NoInvitesRemaining(t *testing.T) {
 	router, sessions, userRepo := setupInviteRouter()
 
 	// Create user with 0 invites
 	_ = userRepo.Create(context.Background(), &model.User{
-		Username: "noinvites",
-		Email:    "noinvites@test.com",
-		Invites:  0,
-		Enabled:  true,
-		GroupID:  1,
+		Username:  "noinvites",
+		Email:     "noinvites@test.com",
+		Invites:   0,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
 	})
 	token := createSessionWithGroup(sessions, 1, 1)
 
@@ -324,11 +355,12 @@ func TestHandleListInvites_Success(t *testing.T) {
 
 	// Create user with invites
 	_ = userRepo.Create(context.Background(), &model.User{
-		Username: "lister",
-		Email:    "lister@test.com",
-		Invites:  5,
-		Enabled:  true,
-		GroupID:  1,
+		Username:  "lister",
+		Email:     "lister@test.com",
+		Invites:   5,
+		Enabled:   true,
+		GroupID:   1,
+		CanInvite: true,
 	})
 	token := createSessionWithGroup(sessions, 1, 1)
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { timeAgo } from "@/utils/format";
+import "./admin-ui.css";
 import "./admin-dashboard.css";
 
 interface DashboardData {
@@ -62,7 +63,15 @@ export function AdminDashboardPage() {
 
   return (
     <div>
-      <h1>Dashboard</h1>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Dashboard</h1>
+          <p className="admin-page-header__desc">
+            Tracker health at a glance: members, torrents, peers, and staff
+            queues.
+          </p>
+        </div>
+      </div>
 
       <div className="admin-dashboard__stats-grid">
         <div className="admin-dashboard__card">
@@ -127,36 +136,46 @@ export function AdminDashboardPage() {
         </div>
       </div>
 
-      <h2 className="admin-dashboard__section-title">Recent Activity</h2>
+      <div className="admin-panel">
+        <div className="admin-panel__section">
+          <h2 className="admin-panel__title" style={{ margin: 0 }}>
+            Recent Activity
+          </h2>
+        </div>
 
-      {data.recent_activity.length === 0 ? (
-        <p className="admin-dashboard__empty">No recent activity.</p>
-      ) : (
-        <table className="admin-dashboard__activity-table">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Message</th>
-              <th>Actor</th>
-              <th>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.recent_activity.map((entry) => (
-              <tr key={entry.id}>
-                <td>
-                  <span className="admin-dashboard__event-type">
-                    {entry.event_type}
-                  </span>
-                </td>
-                <td>{entry.message}</td>
-                <td>{entry.actor_id ? `#${entry.actor_id}` : "System"}</td>
-                <td>{timeAgo(entry.created_at)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        {data.recent_activity.length === 0 ? (
+          <p className="admin-empty">No recent activity.</p>
+        ) : (
+          <div className="admin-table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Message</th>
+                  <th>Actor</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recent_activity.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>
+                      <span className="admin-dashboard__event-type">
+                        {entry.event_type}
+                      </span>
+                    </td>
+                    <td>{entry.message}</td>
+                    <td className="admin-muted">
+                      {entry.actor_id ? `#${entry.actor_id}` : "System"}
+                    </td>
+                    <td className="admin-muted">{timeAgo(entry.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

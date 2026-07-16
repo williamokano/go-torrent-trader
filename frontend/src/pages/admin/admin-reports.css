@@ -1,144 +1,21 @@
-.admin-reports__header {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-lg);
-}
+/* Page-specific styles for the admin reports page. Surface primitives come
+   from admin-ui.css. */
 
-.admin-reports__header h1 {
-  font-size: var(--text-xl);
-  margin: 0;
-}
-
-.admin-reports__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-
-.admin-reports__table th,
-.admin-reports__table td {
-  text-align: left;
-  padding: var(--space-sm) var(--space-sm);
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-
-.admin-reports__table th {
-  color: var(--color-text-muted);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.admin-reports__table td {
-  color: var(--color-text-primary);
-}
-
-.admin-reports__resolve-btn {
-  padding: 2px 8px;
-  background-color: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-xs);
-}
-
-.admin-reports__resolve-btn:hover {
-  opacity: 0.85;
-}
-
-.admin-reports__resolve-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.admin-reports__status {
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
-.admin-reports__status--pending {
-  background-color: var(--color-warning-bg, #fff3cd);
-  color: var(--color-warning, #856404);
-}
-
-.admin-reports__status--resolved {
-  background-color: var(--color-success-bg, #d4edda);
-  color: var(--color-success, #155724);
-}
-
-.admin-reports__empty {
-  text-align: center;
-  color: var(--color-text-muted);
-  padding: var(--space-xl);
-}
-
-.admin-reports__link {
-  color: var(--color-accent);
-  text-decoration: none;
-}
-
-.admin-reports__link:hover {
-  text-decoration: underline;
-}
-
-/* Resolve modal */
 .admin-reports__resolve-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
   padding: var(--space-md);
 }
 
 .admin-reports__resolve-reason,
 .admin-reports__resolve-torrent {
+  margin: 0;
   font-size: var(--text-sm);
-  margin: 0 0 var(--space-sm);
 }
 
 .admin-reports__resolve-actions {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  margin-bottom: var(--space-md);
-}
-
-.admin-reports__resolve-action-btn {
-  padding: var(--space-xs) var(--space-md);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  color: white;
-}
-
-.admin-reports__resolve-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.admin-reports__resolve-action-btn--resolve {
-  background-color: var(--color-accent);
-}
-
-.admin-reports__resolve-action-btn--warn {
-  background-color: var(--color-warning, #ffc107);
-  color: #000;
-}
-
-.admin-reports__resolve-action-btn--delete {
-  background-color: var(--color-danger, #dc3545);
-}
-
-.admin-reports__resolve-cancel {
-  padding: var(--space-xs) var(--space-md);
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  width: 100%;
 }

@@ -307,6 +307,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		CanUpload:      true,
 		CanChat:        true,
 		CanForum:       true,
+		CanInvite:      true,
 	}
 
 	// Link inviter to invitee

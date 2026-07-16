@@ -3,6 +3,7 @@ import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { timeAgo } from "@/utils/format";
+import "./admin-ui.css";
 import "./admin-bans.css";
 
 interface EmailBan {
@@ -190,152 +191,159 @@ export function AdminBansPage() {
 
   return (
     <div>
-      <h1>Bans</h1>
-
-      <div className="admin-bans__section">
-        <div className="admin-bans__section-header">
-          <h2>Email Bans</h2>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Bans</h1>
+          <p className="admin-page-header__desc">
+            Block registrations and connections by email pattern or IP range.
+          </p>
         </div>
-
-        <form className="admin-bans__form" onSubmit={handleAddEmailBan}>
-          <div className="admin-bans__form-field">
-            <label htmlFor="email-pattern">Pattern</label>
-            <input
-              id="email-pattern"
-              type="text"
-              placeholder="%@mailinator.com"
-              value={emailPattern}
-              onChange={(e) => setEmailPattern(e.target.value)}
-            />
-          </div>
-          <div className="admin-bans__form-field">
-            <label htmlFor="email-reason">Reason (optional)</label>
-            <input
-              id="email-reason"
-              type="text"
-              placeholder="Disposable email provider"
-              value={emailReason}
-              onChange={(e) => setEmailReason(e.target.value)}
-            />
-          </div>
-          <button
-            type="submit"
-            className="admin-bans__add-btn"
-            disabled={addingEmail || !emailPattern.trim()}
-          >
-            {addingEmail ? "Adding..." : "Add Ban"}
-          </button>
-        </form>
-
-        {loadingEmails ? (
-          <p>Loading...</p>
-        ) : emailBans.length === 0 ? (
-          <p className="admin-bans__empty">No email bans configured.</p>
-        ) : (
-          <table className="admin-bans__table">
-            <thead>
-              <tr>
-                <th>Pattern</th>
-                <th>Reason</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {emailBans.map((ban) => (
-                <tr key={ban.id}>
-                  <td>
-                    <code>{ban.pattern}</code>
-                  </td>
-                  <td>{ban.reason ?? "-"}</td>
-                  <td>{timeAgo(ban.created_at)}</td>
-                  <td>
-                    <button
-                      className="admin-bans__delete-btn"
-                      onClick={() => handleDeleteEmailBan(ban.id)}
-                      disabled={deletingId === ban.id}
-                    >
-                      {deletingId === ban.id ? "..." : "Delete"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </div>
 
-      <div className="admin-bans__section">
-        <div className="admin-bans__section-header">
-          <h2>IP Bans</h2>
+      <div className="admin-stack">
+        <div className="admin-panel">
+          <div className="admin-panel__section">
+            <h2 className="admin-panel__title">Email Bans</h2>
+            <form className="admin-bans__form" onSubmit={handleAddEmailBan}>
+              <div className="admin-bans__form-field">
+                <label htmlFor="email-pattern">Pattern</label>
+                <input
+                  id="email-pattern"
+                  type="text"
+                  placeholder="%@mailinator.com"
+                  value={emailPattern}
+                  onChange={(e) => setEmailPattern(e.target.value)}
+                />
+              </div>
+              <div className="admin-bans__form-field">
+                <label htmlFor="email-reason">Reason (optional)</label>
+                <input
+                  id="email-reason"
+                  type="text"
+                  placeholder="Disposable email provider"
+                  value={emailReason}
+                  onChange={(e) => setEmailReason(e.target.value)}
+                />
+              </div>
+              <button
+                type="submit"
+                className="admin-btn admin-btn--primary"
+                disabled={addingEmail || !emailPattern.trim()}
+              >
+                {addingEmail ? "Adding..." : "Add Ban"}
+              </button>
+            </form>
+          </div>
+
+          {loadingEmails ? (
+            <p className="admin-empty">Loading...</p>
+          ) : emailBans.length === 0 ? (
+            <p className="admin-empty">No email bans configured.</p>
+          ) : (
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Pattern</th>
+                    <th>Reason</th>
+                    <th>Created</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {emailBans.map((ban) => (
+                    <tr key={ban.id}>
+                      <td className="admin-num">{ban.pattern}</td>
+                      <td>{ban.reason ?? "-"}</td>
+                      <td className="admin-muted">{timeAgo(ban.created_at)}</td>
+                      <td className="admin-table__actions">
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => handleDeleteEmailBan(ban.id)}
+                          disabled={deletingId === ban.id}
+                        >
+                          {deletingId === ban.id ? "..." : "Delete"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
-        <form className="admin-bans__form" onSubmit={handleAddIPBan}>
-          <div className="admin-bans__form-field">
-            <label htmlFor="ip-range">IP / CIDR Range</label>
-            <input
-              id="ip-range"
-              type="text"
-              placeholder="10.0.0.0/8"
-              value={ipRange}
-              onChange={(e) => setIPRange(e.target.value)}
-            />
+        <div className="admin-panel">
+          <div className="admin-panel__section">
+            <h2 className="admin-panel__title">IP Bans</h2>
+            <form className="admin-bans__form" onSubmit={handleAddIPBan}>
+              <div className="admin-bans__form-field">
+                <label htmlFor="ip-range">IP / CIDR Range</label>
+                <input
+                  id="ip-range"
+                  type="text"
+                  placeholder="10.0.0.0/8"
+                  value={ipRange}
+                  onChange={(e) => setIPRange(e.target.value)}
+                />
+              </div>
+              <div className="admin-bans__form-field">
+                <label htmlFor="ip-reason">Reason (optional)</label>
+                <input
+                  id="ip-reason"
+                  type="text"
+                  placeholder="Known VPN range"
+                  value={ipReason}
+                  onChange={(e) => setIPReason(e.target.value)}
+                />
+              </div>
+              <button
+                type="submit"
+                className="admin-btn admin-btn--primary"
+                disabled={addingIP || !ipRange.trim()}
+              >
+                {addingIP ? "Adding..." : "Add Ban"}
+              </button>
+            </form>
           </div>
-          <div className="admin-bans__form-field">
-            <label htmlFor="ip-reason">Reason (optional)</label>
-            <input
-              id="ip-reason"
-              type="text"
-              placeholder="Known VPN range"
-              value={ipReason}
-              onChange={(e) => setIPReason(e.target.value)}
-            />
-          </div>
-          <button
-            type="submit"
-            className="admin-bans__add-btn"
-            disabled={addingIP || !ipRange.trim()}
-          >
-            {addingIP ? "Adding..." : "Add Ban"}
-          </button>
-        </form>
 
-        {loadingIPs ? (
-          <p>Loading...</p>
-        ) : ipBans.length === 0 ? (
-          <p className="admin-bans__empty">No IP bans configured.</p>
-        ) : (
-          <table className="admin-bans__table">
-            <thead>
-              <tr>
-                <th>IP Range</th>
-                <th>Reason</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ipBans.map((ban) => (
-                <tr key={ban.id}>
-                  <td>
-                    <code>{ban.ip_range}</code>
-                  </td>
-                  <td>{ban.reason ?? "-"}</td>
-                  <td>{timeAgo(ban.created_at)}</td>
-                  <td>
-                    <button
-                      className="admin-bans__delete-btn"
-                      onClick={() => handleDeleteIPBan(ban.id)}
-                      disabled={deletingId === ban.id}
-                    >
-                      {deletingId === ban.id ? "..." : "Delete"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          {loadingIPs ? (
+            <p className="admin-empty">Loading...</p>
+          ) : ipBans.length === 0 ? (
+            <p className="admin-empty">No IP bans configured.</p>
+          ) : (
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>IP Range</th>
+                    <th>Reason</th>
+                    <th>Created</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ipBans.map((ban) => (
+                    <tr key={ban.id}>
+                      <td className="admin-num">{ban.ip_range}</td>
+                      <td>{ban.reason ?? "-"}</td>
+                      <td className="admin-muted">{timeAgo(ban.created_at)}</td>
+                      <td className="admin-table__actions">
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => handleDeleteIPBan(ban.id)}
+                          disabled={deletingId === ban.id}
+                        >
+                          {deletingId === ban.id ? "..." : "Delete"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -51,6 +51,7 @@ type AdminUserView struct {
 	CanUpload     bool    `json:"can_upload"`
 	CanChat       bool    `json:"can_chat"`
 	CanForum      bool    `json:"can_forum"`
+	CanInvite     bool    `json:"can_invite"`
 	DisabledUntil *string `json:"disabled_until"`
 	CreatedAt     string  `json:"created_at"`
 	LastAccess    *string `json:"last_access"`
@@ -528,6 +529,7 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		CanUpload:   u.CanUpload,
 		CanChat:     u.CanChat,
 		CanForum:    u.CanForum,
+		CanInvite:   u.CanInvite,
 		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if u.DisabledUntil != nil {

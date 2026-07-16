@@ -6,6 +6,7 @@ import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import "./admin-ui.css";
 import "./admin-categories.css";
 
 interface Category {
@@ -176,63 +177,79 @@ export function AdminCategoriesPage() {
 
   return (
     <div>
-      <div className="admin-categories__header">
-        <h1>Categories</h1>
-        <button className="admin-categories__add-btn" onClick={openCreateModal}>
-          Add Category
-        </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Categories</h1>
+          <p className="admin-page-header__desc">
+            Organize torrents into browsable categories.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <button
+            className="admin-btn admin-btn--primary"
+            onClick={openCreateModal}
+          >
+            Add Category
+          </button>
+        </div>
       </div>
 
       {deleteError && <p className="admin-categories__error">{deleteError}</p>}
 
       {categories.length === 0 ? (
-        <p className="admin-categories__empty">No categories found.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No categories found.</p>
+        </div>
       ) : (
-        <table className="admin-categories__table">
-          <thead>
-            <tr>
-              <th>Image</th>
-              <th>Name</th>
-              <th>Slug</th>
-              <th>Parent</th>
-              <th>Sort Order</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {categories.map((cat) => (
-              <tr key={cat.id}>
-                <td>
-                  <CategoryIcon
-                    name={cat.name}
-                    imageUrl={cat.image_url}
-                    size="md"
-                  />
-                </td>
-                <td>{cat.name}</td>
-                <td>{cat.slug}</td>
-                <td className="admin-categories__parent">
-                  {getCategoryName(cat.parent_id)}
-                </td>
-                <td>{cat.sort_order}</td>
-                <td className="admin-categories__actions">
-                  <button
-                    className="admin-categories__edit-btn"
-                    onClick={() => openEditModal(cat)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="admin-categories__delete-btn"
-                    onClick={() => handleDelete(cat.id)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="admin-panel">
+          <div className="admin-table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Image</th>
+                  <th>Name</th>
+                  <th>Slug</th>
+                  <th>Parent</th>
+                  <th>Sort Order</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((cat) => (
+                  <tr key={cat.id}>
+                    <td>
+                      <CategoryIcon
+                        name={cat.name}
+                        imageUrl={cat.image_url}
+                        size="md"
+                      />
+                    </td>
+                    <td className="admin-table__name">{cat.name}</td>
+                    <td className="admin-muted">{cat.slug}</td>
+                    <td className="admin-muted">
+                      {getCategoryName(cat.parent_id)}
+                    </td>
+                    <td className="admin-num">{cat.sort_order}</td>
+                    <td className="admin-table__actions">
+                      <button
+                        className="admin-btn admin-btn--ghost admin-btn--sm"
+                        onClick={() => openEditModal(cat)}
+                      >
+                        Edit
+                      </button>{" "}
+                      <button
+                        className="admin-btn admin-btn--danger admin-btn--sm"
+                        onClick={() => handleDelete(cat.id)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       <Modal
@@ -283,14 +300,11 @@ export function AdminCategoriesPage() {
             onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
           />
           <div className="admin-categories__modal-actions">
-            <button
-              className="admin-categories__cancel-btn"
-              onClick={closeModal}
-            >
+            <button className="admin-btn admin-btn--ghost" onClick={closeModal}>
               Cancel
             </button>
             <button
-              className="admin-categories__save-btn"
+              className="admin-btn admin-btn--primary"
               onClick={handleSave}
               disabled={saving || !form.name.trim()}
             >

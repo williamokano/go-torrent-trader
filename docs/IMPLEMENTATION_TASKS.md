@@ -1159,7 +1159,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 **So that** I can apply proportional consequences for rule violations
 
 **Acceptance Criteria:**
-- New restriction flags on users table: `can_download`, `can_upload`, `can_chat` (all default `true`)
+- New restriction flags on users table: `can_download`, `can_upload`, `can_chat` (all default `true`) *(FE-5.15 later added `can_invite` as a fourth restriction type — suspending it blocks invite creation with 403 `invite_restricted`)*
 - Migration adds columns with `DEFAULT true` so existing users are unaffected
 - `PUT /api/v1/admin/users/{id}/restrictions` — set restriction flags `{can_download, can_upload, can_chat}` with optional `reason` and `expires_at`
 - Restrictions are checked in the relevant handlers:
@@ -2166,7 +2166,43 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - `AdminUsersPage` rebuilt on the shared primitives: `admin-page-header`, a filter toolbar (search + group + status), `admin-panel` + `admin-table`, outline pill status badges (Active / Warned / Disabled) colored by the token palette, and monospace tabular transfer figures. Retired the bespoke `admin-users.css`.
 - Added a page test (list, status badges, empty state).
 
-> **Follow-up:** `AdminUserDetailPage` (single-user editing, ~1000 lines) — adopt `Button` + `admin-panel` for its actions and sections next.
+> **Follow-up:** `AdminUserDetailPage` (single-user editing, ~1000 lines) — adopt `Button` + `admin-panel` for its actions and sections next. *(Done in FE-5.15.)*
+
+#### FE-5.15: Admin Surface Rollout + Invite Restriction [M] [DONE]
+**As an** administrator
+**I want** every admin page on the shared surface layer, and the ability to suspend a member's invite privilege
+**So that** the panel looks and behaves like one product, and invite abuse can be dealt with like any other privilege
+
+**Delivered:**
+- **Backend — `invite` restriction type:** `users.can_invite` column (migration 055, default `true`), `RestrictionTypeInvite`, restriction service/handler support (`can_invite` in `PUT /admin/users/{id}/restrictions`), exposed in admin user views and public profiles. `CreateInvite` refuses with `403 invite_restricted` when suspended (invite count untouched). Registration sets `can_invite=true`.
+- **`AdminUserDetailPage` rebuilt** on the shared primitives: page header with status badges + ban action, a monospace key-figure strip (uploaded / downloaded / ratio / invites / active warnings), stacked panels (Edit profile, Privileges, Recent uploads, Staff notes), and outline badges. The Privileges panel now shows all four privileges (download / upload / chat / **invite**) with Allowed/Suspended state, per-privilege Restore, a suspend form (reason + optional expiry), and the restriction history table.
+- **Remaining admin pages adopted the shared layer** (`admin-page-header`, `admin-toolbar`, `admin-panel`, `admin-table`, outline `admin-badge` pills, mono `admin-num` figures, `admin-btn` family): Dashboard, Torrents, Bans, Warnings, Reports, Chat Mutes, Cheat Flags, News, Forums, Categories, Backups, Site Settings. Per-page CSS trimmed to genuinely page-specific rules; `admin-ui.css` gained panel sections/titles, stat strip, empty states, and the button family.
+- Tests: invite restriction covered in service/handler tests (backend) and page tests (frontend detail page: privilege grid, suspend checkbox, PUT body, history table).
+- Review hardening (PR #102 devil's-advocate findings): escalation's `warning_restrict_type = "all"` now includes invite and the settings UI offers an "Invite" option; outstanding invite tokens are **voided while the inviter's privilege is suspended** (`ValidateInvite`/`RedeemInvite` -> 410 `voided`, valid again if the restriction lifts before expiry); "Restore" heals a drifted flag even with no active restriction rows (`SyncUserFlag`); past `expires_at` is rejected with 400.
+
+#### BE-8.15: Admin View + Revoke of a User's Outstanding Invites [S] [OPEN]
+**As a** staff member
+**I want** to see and permanently revoke a user's unredeemed invite tokens from their admin detail page
+**So that** invite abuse can be cut off outright, not just paused
+
+**Context:** PR #102 voids outstanding tokens *while* the inviter's `can_invite` is suspended, but tokens spring back if the restriction is lifted early and staff cannot see them at all. From the PR #102 devil's-advocate review.
+
+**Acceptance Criteria:**
+- `GET /api/v1/admin/users/{id}/invites` — list the user's invites (token status, invitee, expiry)
+- `DELETE /api/v1/admin/invites/{id}` — permanently revoke an unredeemed invite
+- Outstanding-invites panel on `AdminUserDetailPage` with revoke buttons
+- Tests for both endpoints and the panel
+
+#### BE-8.16: Root-Cause the Privilege-Flag Drift Race [M] [OPEN]
+**As a** site operator
+**I want** privilege flags (`can_download/upload/chat/invite`) to never drift from the restriction rows
+**So that** enforcement and the admin UI always agree
+
+**Context:** Enforcement reads the per-user flag, but several flows do full-row `users.Update` after a stale read (login `LastLogin` write, `CreateInvite` decrement, admin profile save). A restriction applied inside such a window is silently overwritten: the history table says Suspended while the flag says Allowed. Pre-existing for download/upload/chat; surfaced by the PR #102 review. PR #102 added `SyncUserFlag` as a band-aid on the restore path only.
+
+**Acceptance Criteria:**
+- Either enforce via `HasActiveByType` (restriction rows become the source of truth) or replace full-row writes with targeted `UPDATE users SET ...` statements on the hot paths (mirroring how `bonus_points` was clobber-proofed in BE-8.14)
+- Concurrency test demonstrating the old race is closed
 
 #### FE-5.14: Bonus Store Page + Points Display [M] [DONE]
 **As a** member

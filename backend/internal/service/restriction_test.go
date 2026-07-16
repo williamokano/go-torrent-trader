@@ -204,6 +204,65 @@ func TestApplyRestriction_HappyPath(t *testing.T) {
 	}
 }
 
+func TestApplyRestriction_Invite(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanInvite: true})
+	userRepo.addUser(&model.User{ID: 99, Username: "admin"})
+
+	adminID := int64(99)
+	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeInvite, "invite abuse", nil, &adminID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	if user.CanInvite {
+		t.Error("user.CanInvite should be false after restriction")
+	}
+
+	if err := svc.LiftRestriction(context.Background(), restriction.ID, &adminID); err != nil {
+		t.Fatalf("lift: %v", err)
+	}
+	user, _ = userRepo.GetByID(context.Background(), 1)
+	if !user.CanInvite {
+		t.Error("user.CanInvite should be true after lift")
+	}
+}
+
+func TestSyncUserFlag_HealsDriftedFlag(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	// Flag reads suspended but there is no active restriction row.
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanInvite: false})
+
+	if err := svc.SyncUserFlag(context.Background(), 1, model.RestrictionTypeInvite); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	if !user.CanInvite {
+		t.Error("user.CanInvite should be restored when no active restriction exists")
+	}
+}
+
+func TestSyncUserFlag_KeepsFlagWhileRestrictionActive(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanInvite: true})
+
+	adminID := int64(99)
+	if _, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeInvite, "abuse", nil, &adminID); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if err := svc.SyncUserFlag(context.Background(), 1, model.RestrictionTypeInvite); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	if user.CanInvite {
+		t.Error("user.CanInvite must stay false while a restriction is active")
+	}
+}
+
 func TestApplyRestriction_EmptyReason(t *testing.T) {
 	svc, _, userRepo := setupRestrictionService()
 	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true})

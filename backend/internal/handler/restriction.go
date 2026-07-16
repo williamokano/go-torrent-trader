@@ -29,6 +29,7 @@ type setRestrictionsRequest struct {
 	CanDownload *bool   `json:"can_download"`
 	CanUpload   *bool   `json:"can_upload"`
 	CanChat     *bool   `json:"can_chat"`
+	CanInvite   *bool   `json:"can_invite"`
 	Reason      string  `json:"reason"`
 	ExpiresAt   *string `json:"expires_at"`
 }
@@ -74,6 +75,10 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 				return
 			}
 		}
+		if !t.After(time.Now()) {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "expires_at must be in the future")
+			return
+		}
 		expiresAt = &t
 	}
 
@@ -93,6 +98,9 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 	}
 	if req.CanChat != nil {
 		actions = append(actions, restrictionAction{"chat", !*req.CanChat})
+	}
+	if req.CanInvite != nil {
+		actions = append(actions, restrictionAction{"invite", !*req.CanInvite})
 	}
 
 	for _, action := range actions {
@@ -115,6 +123,13 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 						return
 					}
 				}
+			}
+			// Heal drift: if the flag reads suspended with no active
+			// restriction rows, the loop above lifted nothing — restore
+			// the flag anyway so "restore" is never a silent no-op.
+			if err := h.restrictionSvc.SyncUserFlag(r.Context(), userID, action.rType); err != nil {
+				ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to restore privilege: "+err.Error())
+				return
 			}
 		}
 	}

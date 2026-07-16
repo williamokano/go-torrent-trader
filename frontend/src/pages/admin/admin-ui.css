@@ -172,9 +172,126 @@
   color: var(--color-warning);
 }
 
+.admin-badge--accent {
+  color: var(--color-accent);
+}
+.admin-badge--muted {
+  color: var(--color-text-muted);
+}
+
 .admin-yes {
   color: var(--color-success);
   font-weight: 700;
+}
+
+/* Vertical rhythm for stacked panels on detail pages. */
+.admin-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Padded region inside a panel; consecutive sections divide with a rule. */
+.admin-panel__section {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.admin-panel__section + .admin-panel__section,
+.admin-panel__section + .admin-table-scroll,
+.admin-panel__section + .admin-empty {
+  border-top: 1px solid var(--color-border);
+}
+
+/* Section heading inside a panel — same voice as the table headers. */
+.admin-panel__title {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-empty {
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Key-figure strip: big mono values under small uppercase labels. */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+}
+
+.admin-stat__label {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-2xs);
+}
+
+.admin-stat__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Buttons — one family across admin pages. */
+.admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 0.4rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.1s ease;
+}
+
+.admin-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.admin-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.admin-btn--primary {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+
+.admin-btn--danger {
+  background-color: var(--color-error);
+  color: #fff;
+}
+
+.admin-btn--ghost {
+  background: none;
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.admin-btn--sm {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
 }
 
 .admin-swatch {

@@ -1,0 +1,46 @@
+/* Page-specific styles for the admin site settings page. Surface primitives
+   come from admin-ui.css. */
+
+.admin-settings__label-cell {
+  max-width: 480px;
+}
+
+.admin-settings__label {
+  font-weight: 600;
+}
+
+.admin-settings__description {
+  margin-top: var(--space-2xs);
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.admin-settings__input {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  width: 220px;
+}
+
+.admin-settings__input--number {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-settings__input--textarea {
+  width: 100%;
+  min-width: 220px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.admin-settings__input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: var(--color-accent);
+}

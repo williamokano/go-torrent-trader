@@ -198,6 +198,55 @@ func TestHandleSetRestrictions_Apply(t *testing.T) {
 	}
 }
 
+func TestHandleSetRestrictions_ApplyInvite(t *testing.T) {
+	router, restrictionSvc := setupRestrictionRouter()
+	adminToken := registerRestrictionAdmin(t, router)
+	_, userID := registerRestrictionUser(t, router)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"can_invite": false,
+		"reason":     "invite abuse",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/users/"+formatID(userID)+"/restrictions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	restrictions, err := restrictionSvc.ListByUser(context.Background(), int64(userID))
+	if err != nil {
+		t.Fatalf("list restrictions: %v", err)
+	}
+	if len(restrictions) != 1 || restrictions[0].RestrictionType != model.RestrictionTypeInvite {
+		t.Errorf("expected one invite restriction, got %+v", restrictions)
+	}
+}
+
+func TestHandleSetRestrictions_PastExpiryRejected(t *testing.T) {
+	router, _ := setupRestrictionRouter()
+	adminToken := registerRestrictionAdmin(t, router)
+	_, userID := registerRestrictionUser(t, router)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"can_download": false,
+		"reason":       "bad ratio",
+		"expires_at":   "2001-01-01T00:00",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/users/"+formatID(userID)+"/restrictions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for past expires_at, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleSetRestrictions_SelfRestriction(t *testing.T) {
 	router, _ := setupRestrictionRouter()
 	adminToken := registerRestrictionAdmin(t, router)

@@ -8,6 +8,7 @@ import { Pagination } from "@/components/Pagination";
 import { Modal } from "@/components/modal/Modal";
 import { timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
+import "./admin-ui.css";
 import "./admin-reports.css";
 
 interface Report {
@@ -123,8 +124,16 @@ export function AdminReportsPage() {
 
   return (
     <div>
-      <div className="admin-reports__header">
-        <h1>Reports</h1>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">Reports</h1>
+          <p className="admin-page-header__desc">
+            Member-submitted reports on torrents and site content.
+          </p>
+        </div>
+      </div>
+
+      <div className="admin-toolbar">
         <Select
           label="Status"
           options={[
@@ -140,74 +149,85 @@ export function AdminReportsPage() {
       {loading ? (
         <p>Loading...</p>
       ) : reports.length === 0 ? (
-        <p className="admin-reports__empty">No reports found.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No reports found.</p>
+        </div>
       ) : (
         <>
-          <table className="admin-reports__table">
-            <thead>
-              <tr>
-                <th>Reporter</th>
-                <th>Torrent</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((report) => (
-                <tr key={report.id}>
-                  <td>
-                    <UsernameDisplay
-                      userId={report.reporter_id}
-                      username={
-                        report.reporter_username ||
-                        `User #${report.reporter_id}`
-                      }
-                      className="admin-reports__link"
-                    />
-                  </td>
-                  <td>
-                    {report.torrent_id ? (
-                      <Link
-                        to={`/torrent/${report.torrent_id}`}
-                        className="admin-reports__link"
-                      >
-                        {report.torrent_name || `Torrent #${report.torrent_id}`}
-                      </Link>
-                    ) : (
-                      "General"
-                    )}
-                  </td>
-                  <td>{report.reason}</td>
-                  <td>
-                    <span
-                      className={`admin-reports__status admin-reports__status--${report.resolved ? "resolved" : "pending"}`}
-                    >
-                      {report.resolved ? "Resolved" : "Pending"}
-                    </span>
-                  </td>
-                  <td>{timeAgo(report.created_at)}</td>
-                  <td>
-                    {!report.resolved && (
-                      <button
-                        className="admin-reports__resolve-btn"
-                        onClick={() => setResolvingReport(report)}
-                      >
-                        Resolve
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="admin-panel">
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Reporter</th>
+                    <th>Torrent</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.map((report) => (
+                    <tr key={report.id}>
+                      <td className="admin-table__name">
+                        <UsernameDisplay
+                          userId={report.reporter_id}
+                          username={
+                            report.reporter_username ||
+                            `User #${report.reporter_id}`
+                          }
+                        />
+                      </td>
+                      <td>
+                        {report.torrent_id ? (
+                          <Link to={`/torrent/${report.torrent_id}`}>
+                            {report.torrent_name ||
+                              `Torrent #${report.torrent_id}`}
+                          </Link>
+                        ) : (
+                          "General"
+                        )}
+                      </td>
+                      <td>{report.reason}</td>
+                      <td>
+                        {report.resolved ? (
+                          <span className="admin-badge admin-badge--ok">
+                            Resolved
+                          </span>
+                        ) : (
+                          <span className="admin-badge admin-badge--warn">
+                            Pending
+                          </span>
+                        )}
+                      </td>
+                      <td className="admin-muted">
+                        {timeAgo(report.created_at)}
+                      </td>
+                      <td className="admin-table__actions">
+                        {!report.resolved && (
+                          <button
+                            className="admin-btn admin-btn--primary admin-btn--sm"
+                            onClick={() => setResolvingReport(report)}
+                          >
+                            Resolve
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-          <Pagination
-            currentPage={page}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-          />
+          <div style={{ marginTop: "var(--space-md)" }}>
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
+          </div>
         </>
       )}
 
@@ -228,7 +248,7 @@ export function AdminReportsPage() {
             )}
             <div className="admin-reports__resolve-actions">
               <button
-                className="admin-reports__resolve-action-btn admin-reports__resolve-action-btn--resolve"
+                className="admin-btn admin-btn--primary"
                 onClick={() => handleResolveAction("resolve")}
                 disabled={resolveLoading}
               >
@@ -237,14 +257,14 @@ export function AdminReportsPage() {
               {resolvingReport.torrent_id && (
                 <>
                   <button
-                    className="admin-reports__resolve-action-btn admin-reports__resolve-action-btn--warn"
+                    className="admin-btn admin-btn--ghost"
                     onClick={() => handleResolveAction("warn")}
                     disabled={resolveLoading}
                   >
                     Resolve &amp; Warn User
                   </button>
                   <button
-                    className="admin-reports__resolve-action-btn admin-reports__resolve-action-btn--delete"
+                    className="admin-btn admin-btn--danger"
                     onClick={() => handleResolveAction("delete")}
                     disabled={resolveLoading}
                   >
@@ -254,7 +274,7 @@ export function AdminReportsPage() {
               )}
             </div>
             <button
-              className="admin-reports__resolve-cancel"
+              className="admin-btn admin-btn--ghost"
               onClick={() => setResolvingReport(null)}
               disabled={resolveLoading}
             >

@@ -528,7 +528,7 @@ func TestWarningEscalation_BansUser(t *testing.T) {
 }
 
 func TestWarningEscalation_AllRestrictionTypes(t *testing.T) {
-	// restriction type "all" should apply download, upload, and chat restrictions.
+	// restriction type "all" should apply download, upload, chat, and invite restrictions.
 	warnings := []*model.Warning{
 		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
 		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
@@ -555,15 +555,15 @@ func TestWarningEscalation_AllRestrictionTypes(t *testing.T) {
 
 	restrictionRepo.mu.Lock()
 	defer restrictionRepo.mu.Unlock()
-	if len(restrictionRepo.restrictions) != 3 {
-		t.Fatalf("expected 3 restrictions (download+upload+chat), got %d", len(restrictionRepo.restrictions))
+	if len(restrictionRepo.restrictions) != 4 {
+		t.Fatalf("expected 4 restrictions (download+upload+chat+invite), got %d", len(restrictionRepo.restrictions))
 	}
 
 	types := make(map[string]bool)
 	for _, r := range restrictionRepo.restrictions {
 		types[r.RestrictionType] = true
 	}
-	for _, expected := range []string{"download", "upload", "chat"} {
+	for _, expected := range []string{"download", "upload", "chat", "invite"} {
 		if !types[expected] {
 			t.Errorf("expected %s restriction to be applied", expected)
 		}

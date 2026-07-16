@@ -6,6 +6,7 @@ import { timeAgo } from "@/utils/format";
 import { Pagination } from "@/components/Pagination";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import type { AdminNewsArticle } from "@/types/news";
+import "./admin-ui.css";
 import "./admin-news.css";
 
 const PER_PAGE = 25;
@@ -13,7 +14,7 @@ const PER_PAGE = 25;
 function StatusBadge({ published }: { published: boolean }) {
   return (
     <span
-      className={`admin-news__status admin-news__status--${published ? "published" : "draft"}`}
+      className={`admin-badge ${published ? "admin-badge--ok" : "admin-badge--muted"}`}
     >
       {published ? "Published" : "Draft"}
     </span>
@@ -161,75 +162,90 @@ export function AdminNewsPage() {
 
   return (
     <div>
-      <h1>News</h1>
-
-      <div className="admin-news__controls">
-        <button className="admin-news__create-btn" onClick={openCreate}>
-          Create Article
-        </button>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-header__title">News</h1>
+          <p className="admin-page-header__desc">
+            Write and publish announcements for the home page.
+          </p>
+        </div>
+        <div className="admin-page-header__actions">
+          <button className="admin-btn admin-btn--primary" onClick={openCreate}>
+            Create Article
+          </button>
+        </div>
       </div>
 
       {loading ? (
         <p>Loading...</p>
       ) : articles.length === 0 ? (
-        <p className="admin-news__empty">No news articles found.</p>
+        <div className="admin-panel">
+          <p className="admin-empty">No news articles found.</p>
+        </div>
       ) : (
         <>
-          <table className="admin-news__table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Author</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {articles.map((a) => (
-                <tr key={a.id}>
-                  <td>{a.title}</td>
-                  <td>{a.author_name ?? "Unknown"}</td>
-                  <td>
-                    <StatusBadge published={a.published} />
-                  </td>
-                  <td
-                    title={
-                      a.updated_at !== a.created_at
-                        ? `Updated ${timeAgo(a.updated_at)}`
-                        : undefined
-                    }
-                  >
-                    {timeAgo(a.created_at)}
-                    {a.updated_at !== a.created_at && (
-                      <span className="admin-news__edited"> (edited)</span>
-                    )}
-                  </td>
-                  <td className="admin-news__actions">
-                    <button
-                      className="admin-news__edit-btn"
-                      onClick={() => openEdit(a)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="admin-news__delete-btn"
-                      onClick={() => setDeletingId(a.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="admin-panel">
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {articles.map((a) => (
+                    <tr key={a.id}>
+                      <td className="admin-table__name">{a.title}</td>
+                      <td>{a.author_name ?? "Unknown"}</td>
+                      <td>
+                        <StatusBadge published={a.published} />
+                      </td>
+                      <td
+                        className="admin-muted"
+                        title={
+                          a.updated_at !== a.created_at
+                            ? `Updated ${timeAgo(a.updated_at)}`
+                            : undefined
+                        }
+                      >
+                        {timeAgo(a.created_at)}
+                        {a.updated_at !== a.created_at && (
+                          <span className="admin-news__edited"> (edited)</span>
+                        )}
+                      </td>
+                      <td className="admin-table__actions">
+                        <button
+                          className="admin-btn admin-btn--ghost admin-btn--sm"
+                          onClick={() => openEdit(a)}
+                        >
+                          Edit
+                        </button>{" "}
+                        <button
+                          className="admin-btn admin-btn--danger admin-btn--sm"
+                          onClick={() => setDeletingId(a.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {totalPages > 1 && (
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
+            <div style={{ marginTop: "var(--space-md)" }}>
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+              />
+            </div>
           )}
         </>
       )}
@@ -277,14 +293,14 @@ export function AdminNewsPage() {
               <div className="admin-news__modal-actions">
                 <button
                   type="button"
-                  className="admin-news__modal-cancel"
+                  className="admin-btn admin-btn--ghost"
                   onClick={closeModal}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="admin-news__modal-submit"
+                  className="admin-btn admin-btn--primary"
                   disabled={saving || !formTitle.trim() || !formBody.trim()}
                 >
                   {saving ? "Saving..." : editingId ? "Update" : "Create"}
@@ -313,13 +329,13 @@ export function AdminNewsPage() {
             <div className="admin-news__modal-actions">
               <button
                 type="button"
-                className="admin-news__modal-cancel"
+                className="admin-btn admin-btn--ghost"
                 onClick={() => setDeletingId(null)}
               >
                 Cancel
               </button>
               <button
-                className="admin-news__modal-delete"
+                className="admin-btn admin-btn--danger"
                 onClick={handleDelete}
                 disabled={deleting}
               >

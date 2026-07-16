@@ -101,12 +101,16 @@ func handleInviteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrNoInvitesRemaining):
 		ErrorResponse(w, http.StatusForbidden, "no_invites", "you have no invites remaining")
+	case errors.Is(err, service.ErrInviteRestricted):
+		ErrorResponse(w, http.StatusForbidden, "invite_restricted", "your invite privilege has been suspended")
 	case errors.Is(err, service.ErrInviteNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "invite not found")
 	case errors.Is(err, service.ErrInviteExpired):
 		ErrorResponse(w, http.StatusGone, "expired", "invite has expired")
 	case errors.Is(err, service.ErrInviteRedeemed):
 		ErrorResponse(w, http.StatusConflict, "redeemed", "invite has already been redeemed")
+	case errors.Is(err, service.ErrInviteVoided):
+		ErrorResponse(w, http.StatusGone, "voided", "invite is no longer valid")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}
