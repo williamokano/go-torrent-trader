@@ -151,6 +151,9 @@ func (m *mockInviteUserRepo) GetByID(_ context.Context, id int64) (*model.User, 
 func (m *mockInviteUserRepo) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("not found")
 }
+func (m *mockInviteUserRepo) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 
 func (m *mockInviteUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("not found")

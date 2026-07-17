@@ -45,6 +45,7 @@ interface PostData {
   avatar?: string;
   group_name: string;
   body: string;
+  mentioned_usernames?: string[];
   reply_to_post_id?: number;
   edited_at?: string;
   edited_by?: number;
@@ -699,7 +700,10 @@ export function ForumTopicViewPage() {
                         className="forum-post__body"
                         style={{ marginTop: "0.5rem", opacity: 0.6 }}
                       >
-                        <MarkdownRenderer content={post.body} />
+                        <MarkdownRenderer
+                          content={post.body}
+                          mentionedUsernames={post.mentioned_usernames}
+                        />
                       </div>
                     )}
                 </div>
@@ -733,7 +737,10 @@ export function ForumTopicViewPage() {
               ) : (
                 <>
                   <div className="forum-post__body">
-                    <MarkdownRenderer content={post.body} />
+                    <MarkdownRenderer
+                      content={post.body}
+                      mentionedUsernames={post.mentioned_usernames}
+                    />
                   </div>
                   {post.edited_at && (
                     <div className="forum-post__edited">

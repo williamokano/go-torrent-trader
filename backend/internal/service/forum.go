@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -203,18 +204,26 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 	if !user.CanForum {
 		return nil, nil, ErrForumAccessDenied
 	}
+	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve mentioned usernames: %w", err)
+	}
 	var topic model.ForumTopic
 	var post model.ForumPost
 	if s.db != nil {
+		mentionedJSON, err := json.Marshal(mentioned)
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal mentioned usernames: %w", err)
+		}
 		err = repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
 			if err := tx.QueryRowContext(ctx, "INSERT INTO forum_topics (forum_id, user_id, title) VALUES ($1, $2, $3) RETURNING id, created_at, updated_at", forumID, userID, title).Scan(&topic.ID, &topic.CreatedAt, &topic.UpdatedAt); err != nil {
 				return fmt.Errorf("create topic: %w", err)
 			}
 			topic.ForumID, topic.UserID, topic.Title = forumID, userID, title
-			if err := tx.QueryRowContext(ctx, "INSERT INTO forum_posts (topic_id, user_id, body, reply_to_post_id) VALUES ($1, $2, $3, $4) RETURNING id, created_at", topic.ID, userID, body, nil).Scan(&post.ID, &post.CreatedAt); err != nil {
+			if err := tx.QueryRowContext(ctx, "INSERT INTO forum_posts (topic_id, user_id, body, mentioned_usernames, reply_to_post_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at", topic.ID, userID, body, mentionedJSON, nil).Scan(&post.ID, &post.CreatedAt); err != nil {
 				return fmt.Errorf("create post: %w", err)
 			}
-			post.TopicID, post.UserID, post.Body = topic.ID, userID, body
+			post.TopicID, post.UserID, post.Body, post.MentionedUsernames = topic.ID, userID, body, mentioned
 			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = post_count + 1, last_post_id = $1, last_post_at = $2, updated_at = NOW() WHERE id = $3", post.ID, post.CreatedAt, topic.ID); err != nil {
 				return fmt.Errorf("update topic counts: %w", err)
 			}
@@ -232,7 +241,7 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 			return nil, nil, fmt.Errorf("create topic: %w", err)
 		}
 		topic = *tp
-		pp := &model.ForumPost{TopicID: topic.ID, UserID: userID, Body: body}
+		pp := &model.ForumPost{TopicID: topic.ID, UserID: userID, Body: body, MentionedUsernames: mentioned}
 		if err := s.posts.Create(ctx, pp); err != nil {
 			return nil, nil, fmt.Errorf("create post: %w", err)
 		}
@@ -331,13 +340,21 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 			return nil, fmt.Errorf("%w: referenced post belongs to a different topic", ErrInvalidReply)
 		}
 	}
+	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
+	}
 	var post model.ForumPost
 	if s.db != nil {
+		mentionedJSON, err := json.Marshal(mentioned)
+		if err != nil {
+			return nil, fmt.Errorf("marshal mentioned usernames: %w", err)
+		}
 		err = repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
-			if err := tx.QueryRowContext(ctx, "INSERT INTO forum_posts (topic_id, user_id, body, reply_to_post_id) VALUES ($1, $2, $3, $4) RETURNING id, created_at", topicID, userID, body, replyToPostID).Scan(&post.ID, &post.CreatedAt); err != nil {
+			if err := tx.QueryRowContext(ctx, "INSERT INTO forum_posts (topic_id, user_id, body, mentioned_usernames, reply_to_post_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at", topicID, userID, body, mentionedJSON, replyToPostID).Scan(&post.ID, &post.CreatedAt); err != nil {
 				return fmt.Errorf("create post: %w", err)
 			}
-			post.TopicID, post.UserID, post.Body, post.ReplyToPostID = topicID, userID, body, replyToPostID
+			post.TopicID, post.UserID, post.Body, post.MentionedUsernames, post.ReplyToPostID = topicID, userID, body, mentioned, replyToPostID
 			if _, err := tx.ExecContext(ctx, "UPDATE forum_topics SET post_count = post_count + 1, last_post_id = $1, last_post_at = $2, updated_at = NOW() WHERE id = $3", post.ID, post.CreatedAt, topicID); err != nil {
 				return fmt.Errorf("update topic counts: %w", err)
 			}
@@ -350,7 +367,7 @@ func (s *ForumService) CreatePost(ctx context.Context, topicID, userID int64, pe
 			return nil, err
 		}
 	} else {
-		pp := &model.ForumPost{TopicID: topicID, UserID: userID, Body: body, ReplyToPostID: replyToPostID}
+		pp := &model.ForumPost{TopicID: topicID, UserID: userID, Body: body, MentionedUsernames: mentioned, ReplyToPostID: replyToPostID}
 		if err := s.posts.Create(ctx, pp); err != nil {
 			return nil, fmt.Errorf("create post: %w", err)
 		}
@@ -478,6 +495,17 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 		return post, nil
 	}
 
+	// Resolved before CreateEdit, not between it and Update: CreateEdit and
+	// Update are two independent, non-transactional writes (no s.db-backed tx
+	// wraps EditPost, unlike CreateTopic/CreatePost), so a fallible call sitting
+	// between them would widen the window where history records an edit that
+	// never actually lands. Resolving first means a resolution failure aborts
+	// before anything is written, instead of after edit history already is.
+	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
+	}
+
 	// Record edit history before updating
 	edit := &model.ForumPostEdit{
 		PostID:   postID,
@@ -490,6 +518,7 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 	}
 
 	post.Body = body
+	post.MentionedUsernames = mentioned
 	post.EditedBy = &userID
 	if err := s.posts.Update(ctx, post); err != nil {
 		return nil, fmt.Errorf("update post: %w", err)

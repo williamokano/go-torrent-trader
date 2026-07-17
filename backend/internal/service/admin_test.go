@@ -124,6 +124,68 @@ func TestAdminUpdateUser_InvalidGroup(t *testing.T) {
 	}
 }
 
+func TestAdminUpdateUser_ChangeUsername(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "renameme",
+		Email:    "renameme@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	newUsername := "renamed_user"
+	view, err := svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{
+		Username: &newUsername,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if view.Username != "renamed_user" {
+		t.Errorf("expected username renamed_user, got %s", view.Username)
+	}
+}
+
+// Profile URLs are now built directly from the username (/user/{username}),
+// so an admin setting a malformed value would silently break every link to
+// this account — the same charset check registration already enforces must
+// also gate this path.
+func TestAdminUpdateUser_RejectsInvalidUsername(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, _ := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "keepme",
+		Email:    "keepme@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	for _, bad := range []string{"has a space", "has/slash", "ab", "way-too-long-for-the-limit-of-twenty", "has#hash", ""} {
+		bad := bad
+		t.Run(bad, func(t *testing.T) {
+			_, err := svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{
+				Username: &bad,
+			})
+			if !errors.Is(err, ErrAdminInvalidUsername) {
+				t.Errorf("username %q: expected ErrAdminInvalidUsername, got %v", bad, err)
+			}
+		})
+	}
+
+	// The rejected attempt must not have partially applied.
+	unchanged, err := userRepo.GetByID(context.Background(), result.User.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if unchanged.Username != "keepme" {
+		t.Errorf("username changed to %q despite validation failure", unchanged.Username)
+	}
+}
+
 func TestAdminUpdateUser_NotFound(t *testing.T) {
 	userRepo := newMockUserRepo()
 	groupRepo := newMockAdminGroupRepo()

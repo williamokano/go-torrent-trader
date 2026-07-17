@@ -82,6 +82,7 @@ func (m *mockCommentRepo) Update(_ context.Context, c *model.Comment) error {
 	for i, existing := range m.comments {
 		if existing.ID == c.ID {
 			m.comments[i].Body = c.Body
+			m.comments[i].MentionedUsernames = c.MentionedUsernames
 			return nil
 		}
 	}
@@ -209,6 +210,7 @@ func setupCommentService() *service.CommentService {
 		newMockCommentRepo(),
 		newMockRatingRepo(),
 		newMockTorrentRepoForComment(),
+		newMockUserRepoForMessage(),
 		event.NewInMemoryBus(),
 	)
 }
@@ -237,7 +239,7 @@ func TestCreateComment_PublishesMentionEvent(t *testing.T) {
 		return nil
 	})
 	svc := service.NewCommentService(
-		newMockCommentRepo(), newMockRatingRepo(), newMockTorrentRepoForComment(), bus,
+		newMockCommentRepo(), newMockRatingRepo(), newMockTorrentRepoForComment(), newMockUserRepoForMessage(), bus,
 	)
 
 	if _, err := svc.CreateComment(context.Background(), 1, 10, "nice work @bob"); err != nil {
@@ -267,7 +269,7 @@ func TestCreateComment_NoMentionNoEvent(t *testing.T) {
 		return nil
 	})
 	svc := service.NewCommentService(
-		newMockCommentRepo(), newMockRatingRepo(), newMockTorrentRepoForComment(), bus,
+		newMockCommentRepo(), newMockRatingRepo(), newMockTorrentRepoForComment(), newMockUserRepoForMessage(), bus,
 	)
 
 	if _, err := svc.CreateComment(context.Background(), 1, 10, "no mentions here"); err != nil {

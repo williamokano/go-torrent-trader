@@ -115,7 +115,7 @@ beforeEach(() => {
 });
 
 describe("CommentsSection markdown", () => {
-  function mockComment(body: string) {
+  function mockComment(body: string, mentionedUsernames: string[] = []) {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -125,6 +125,7 @@ describe("CommentsSection markdown", () => {
               user_id: 5,
               username: "alice",
               body,
+              mentioned_usernames: mentionedUsernames,
               created_at: "2026-03-05T10:00:00Z",
               updated_at: "2026-03-05T10:00:00Z",
             },
@@ -146,6 +147,29 @@ describe("CommentsSection markdown", () => {
       expect(container.querySelector("strong")?.textContent).toBe("seeded");
     });
     expect(container.querySelector("details")).toBeInTheDocument();
+  });
+
+  test("links a resolved @mention to the mentioned user's profile", async () => {
+    mockComment("great work @bob", ["bob"]);
+    const { container } = renderComments();
+
+    await waitFor(() => {
+      expect(container.querySelector("a.mention")).toBeInTheDocument();
+    });
+    const link = container.querySelector("a.mention");
+    expect(link?.getAttribute("href")).toBe("/user/bob");
+    expect(link?.textContent).toBe("@bob");
+  });
+
+  test("does not link an @mention the backend never resolved", async () => {
+    mockComment("hey @notauser", []);
+    const { container } = renderComments();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading comments...")).not.toBeInTheDocument();
+    });
+    expect(container.querySelector("a.mention")).not.toBeInTheDocument();
+    expect(container.textContent).toContain("@notauser");
   });
 
   test("sanitizes XSS payloads in comment bodies", async () => {

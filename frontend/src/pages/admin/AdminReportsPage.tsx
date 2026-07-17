@@ -177,6 +177,7 @@ export function AdminReportsPage() {
                             report.reporter_username ||
                             `User #${report.reporter_id}`
                           }
+                          noLink={!report.reporter_username}
                         />
                       </td>
                       <td>

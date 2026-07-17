@@ -30,14 +30,14 @@ func TestListByTopicOrdersByCreatedAtThenID(t *testing.T) {
 	// pagination stability and the deep link.
 	sameInstant := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	rows := sqlmock.NewRows([]string{
-		"id", "topic_id", "user_id", "body", "reply_to_post_id",
+		"id", "topic_id", "user_id", "body", "mentioned_usernames", "reply_to_post_id",
 		"edited_at", "edited_by", "deleted_at", "deleted_by", "created_at",
 		"username", "avatar", "group_name", "user_created_at", "user_post_count",
 	}).
-		AddRow(int64(10), int64(7), int64(1), "first", nil,
+		AddRow(int64(10), int64(7), int64(1), "first", []byte("[]"), nil,
 			nil, nil, nil, nil, sameInstant,
 			"alice", nil, "User", sameInstant, 5).
-		AddRow(int64(11), int64(7), int64(2), "second", nil,
+		AddRow(int64(11), int64(7), int64(2), "second", []byte(`["alice"]`), nil,
 			nil, nil, nil, nil, sameInstant,
 			"bob", nil, "User", sameInstant, 3)
 
@@ -85,10 +85,10 @@ func TestListByTopicCountIncludesSoftDeletedPosts(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
 
 	rows := sqlmock.NewRows([]string{
-		"id", "topic_id", "user_id", "body", "reply_to_post_id",
+		"id", "topic_id", "user_id", "body", "mentioned_usernames", "reply_to_post_id",
 		"edited_at", "edited_by", "deleted_at", "deleted_by", "created_at",
 		"username", "avatar", "group_name", "user_created_at", "user_post_count",
-	}).AddRow(int64(10), int64(7), int64(1), "removed", nil,
+	}).AddRow(int64(10), int64(7), int64(1), "removed", []byte("[]"), nil,
 		nil, nil, deletedAt, deleter, createdAt,
 		"alice", nil, "User", createdAt, 5)
 

@@ -59,6 +59,36 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*model.U
 	return scanUser(r.db.QueryRowContext(ctx, query, username))
 }
 
+// GetByUsernames resolves multiple usernames in one round trip via
+// `= ANY($1)`. The Go []string is passed directly — the pgx v5 stdlib driver
+// encodes it as a native Postgres array on its own; no pq.Array()-style
+// wrapper (that's a lib/pq-only helper) is needed or correct here.
+func (r *UserRepo) GetByUsernames(ctx context.Context, usernames []string) ([]model.User, error) {
+	if len(usernames) == 0 {
+		return nil, nil
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM users WHERE username = ANY($1)", userColumns)
+	rows, err := r.db.QueryContext(ctx, query, usernames)
+	if err != nil {
+		return nil, fmt.Errorf("get users by usernames: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var users []model.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, *u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users: %w", err)
+	}
+	return users, nil
+}
+
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
 	query := fmt.Sprintf("SELECT %s FROM users WHERE email = $1", userColumns)
 	return scanUser(r.db.QueryRowContext(ctx, query, email))

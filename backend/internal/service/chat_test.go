@@ -167,6 +167,9 @@ func (r *mockChatUserRepo) GetByID(_ context.Context, id int64) (*model.User, er
 func (r *mockChatUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
+func (r *mockChatUserRepo) GetByUsernames(context.Context, []string) ([]model.User, error) {
+	return nil, nil
+}
 func (r *mockChatUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }

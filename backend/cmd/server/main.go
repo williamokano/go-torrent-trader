@@ -148,7 +148,7 @@ func run() int {
 
 	commentRepo := postgres.NewCommentRepo(db)
 	ratingRepo := postgres.NewRatingRepo(db)
-	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, eventBus)
+	commentService := service.NewCommentService(commentRepo, ratingRepo, torrentRepo, userRepo, eventBus)
 
 	messageRepo := postgres.NewMessageRepo(db)
 	messageService := service.NewMessageService(messageRepo, userRepo, eventBus)

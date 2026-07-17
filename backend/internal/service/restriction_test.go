@@ -141,6 +141,9 @@ func (m *mockUserRepoForRestrictions) GetByID(_ context.Context, id int64) (*mod
 func (m *mockUserRepoForRestrictions) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
+func (m *mockUserRepoForRestrictions) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 func (m *mockUserRepoForRestrictions) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,7 +21,7 @@ func NewUserHandler(users *service.UserService) *UserHandler {
 	return &UserHandler{users: users}
 }
 
-// HandleGetProfile handles GET /api/v1/users/{id}.
+// HandleGetProfile handles GET /api/v1/users/{username}.
 func (h *UserHandler) HandleGetProfile(w http.ResponseWriter, r *http.Request) {
 	viewerID, ok := middleware.UserIDFromContext(r.Context())
 	if !ok {
@@ -30,14 +29,13 @@ func (h *UserHandler) HandleGetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idParam := chi.URLParam(r, "id")
-	userID, err := strconv.ParseInt(idParam, 10, 64)
-	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid user ID")
+	username := chi.URLParam(r, "username")
+	if username == "" {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid username")
 		return
 	}
 
-	profile, err := h.users.GetProfile(r.Context(), userID, viewerID)
+	profile, err := h.users.GetProfile(r.Context(), username, viewerID)
 	if err != nil {
 		handleUserError(w, err)
 		return

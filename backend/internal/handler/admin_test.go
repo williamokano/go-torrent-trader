@@ -122,6 +122,26 @@ func TestHandleUpdateUser_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateUser_InvalidUsername(t *testing.T) {
+	router, sessions := setupAdminRouter()
+
+	registerAndGetToken(t, router)
+	adminToken := createSessionWithGroup(sessions, 2100, 1)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"username": "has a space",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/users/1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleUpdateUser_InvalidBody(t *testing.T) {
 	router, sessions := setupAdminRouter()
 

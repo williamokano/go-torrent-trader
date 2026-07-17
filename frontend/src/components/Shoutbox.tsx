@@ -121,7 +121,7 @@ export function Shoutbox() {
               <ChatModMenu userId={msg.user_id} username={msg.username} />
             ) : (
               <Link
-                to={`/user/${msg.user_id}`}
+                to={`/user/${msg.username}`}
                 className="shoutbox__message-user"
               >
                 {msg.username}

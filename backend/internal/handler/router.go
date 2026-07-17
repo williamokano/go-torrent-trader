@@ -168,7 +168,7 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Get("/staff", members.HandleStaff)
 						}
 
-						r.Get("/{id}", users.HandleGetProfile)
+						r.Get("/{username}", users.HandleGetProfile)
 
 						// User warnings endpoint (owner sees active, staff sees all)
 						if deps.WarningService != nil {

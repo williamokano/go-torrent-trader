@@ -122,7 +122,7 @@ export function Chat() {
                   <ChatModMenu userId={msg.user_id} username={msg.username} />
                 ) : (
                   <Link
-                    to={`/user/${msg.user_id}`}
+                    to={`/user/${msg.username}`}
                     className="chat__message-user"
                   >
                     {msg.username}

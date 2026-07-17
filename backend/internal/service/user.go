@@ -86,17 +86,17 @@ func NewUserService(users repository.UserRepository, sessions SessionStore, grou
 	return &UserService{users: users, sessions: sessions, groups: groups, peers: peers, torrents: torrents}
 }
 
-// GetProfile returns a user's profile. If viewerID matches the profile user ID,
-// private fields are included.
-func (s *UserService) GetProfile(ctx context.Context, userID, viewerID int64) (interface{}, error) {
-	user, err := s.users.GetByID(ctx, userID)
+// GetProfile returns a user's profile by username. If viewerID matches the
+// profile user's ID, private fields are included.
+func (s *UserService) GetProfile(ctx context.Context, username string, viewerID int64) (interface{}, error) {
+	user, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
 
 	pub := s.buildPublicProfile(ctx, user)
 
-	if viewerID == userID {
+	if viewerID == user.ID {
 		return buildOwnerProfile(user, pub), nil
 	}
 

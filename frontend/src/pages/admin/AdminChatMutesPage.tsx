@@ -117,7 +117,7 @@ export function AdminChatMutesPage() {
                   {mutes.map((m) => (
                     <tr key={m.id}>
                       <td className="admin-table__name">
-                        <Link to={`/user/${m.user_id}`}>{m.username}</Link>
+                        <Link to={`/user/${m.username}`}>{m.username}</Link>
                       </td>
                       <td
                         className="admin-chat-mutes__reason-cell"
