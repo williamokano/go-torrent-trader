@@ -20,7 +20,7 @@ func NewCommentRepo(db *sql.DB) repository.CommentRepository {
 }
 
 func (r *CommentRepo) Create(ctx context.Context, comment *model.Comment) error {
-	mentioned, err := marshalMentionedUsernames(comment.MentionedUsernames)
+	mentioned, err := MarshalMentionedUsernames(comment.MentionedUsernames)
 	if err != nil {
 		return fmt.Errorf("marshal mentioned usernames: %w", err)
 	}
@@ -48,7 +48,7 @@ func (r *CommentRepo) GetByID(ctx context.Context, id int64) (*model.Comment, er
 	if err != nil {
 		return nil, err
 	}
-	c.MentionedUsernames = scanMentionedUsernames(mentioned)
+	c.MentionedUsernames = ScanMentionedUsernames(mentioned)
 	return &c, nil
 }
 
@@ -83,7 +83,7 @@ func (r *CommentRepo) ListByTorrent(ctx context.Context, torrentID int64, page, 
 		if err := rows.Scan(&c.ID, &c.TorrentID, &c.UserID, &c.Username, &c.Body, &mentioned, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan comment: %w", err)
 		}
-		c.MentionedUsernames = scanMentionedUsernames(mentioned)
+		c.MentionedUsernames = ScanMentionedUsernames(mentioned)
 		comments = append(comments, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -94,7 +94,7 @@ func (r *CommentRepo) ListByTorrent(ctx context.Context, torrentID int64, page, 
 }
 
 func (r *CommentRepo) Update(ctx context.Context, comment *model.Comment) error {
-	mentioned, err := marshalMentionedUsernames(comment.MentionedUsernames)
+	mentioned, err := MarshalMentionedUsernames(comment.MentionedUsernames)
 	if err != nil {
 		return fmt.Errorf("marshal mentioned usernames: %w", err)
 	}

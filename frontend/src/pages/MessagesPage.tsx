@@ -18,6 +18,7 @@ interface Message {
   receiver_username: string;
   subject: string;
   body: string;
+  mentioned_usernames?: string[];
   is_read: boolean;
   created_at: string;
 }
@@ -350,6 +351,7 @@ export function MessagesPage() {
         <MarkdownRenderer
           content={selectedMessage.body}
           className="messages__detail-body"
+          mentionedUsernames={selectedMessage.mentioned_usernames}
         />
         <div className="messages__detail-actions">
           <button

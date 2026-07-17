@@ -65,8 +65,18 @@ func (s *stubUserRepo) GetByID(_ context.Context, id int64) (*model.User, error)
 func (s *stubUserRepo) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("user not found")
 }
-func (s *stubUserRepo) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
-	return nil, nil
+func (s *stubUserRepo) GetByUsernames(_ context.Context, usernames []string) ([]model.User, error) {
+	want := make(map[string]bool, len(usernames))
+	for _, name := range usernames {
+		want[name] = true
+	}
+	var found []model.User
+	for _, u := range s.users {
+		if want[u.Username] {
+			found = append(found, *u)
+		}
+	}
+	return found, nil
 }
 func (s *stubUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("user not found")

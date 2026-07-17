@@ -77,12 +77,21 @@ func (s *MessageService) SendMessage(ctx context.Context, senderID int64, req Se
 		}
 	}
 
+	// Links only, deliberately — the recipient already gets a "new message"
+	// notification for the PM itself, so a mention notification here would be
+	// redundant. No publishMention call anywhere in this method.
+	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
+	}
+
 	msg := &model.Message{
-		SenderID:   senderID,
-		ReceiverID: req.ReceiverID,
-		Subject:    subject,
-		Body:       body,
-		ParentID:   req.ParentID,
+		SenderID:           senderID,
+		ReceiverID:         req.ReceiverID,
+		Subject:            subject,
+		Body:               body,
+		MentionedUsernames: mentioned,
+		ParentID:           req.ParentID,
 	}
 
 	if err := s.messages.Create(ctx, msg); err != nil {

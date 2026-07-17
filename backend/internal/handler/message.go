@@ -211,15 +211,16 @@ func handleMessageError(w http.ResponseWriter, err error) {
 
 func messageResponse(m *model.Message) map[string]interface{} {
 	resp := map[string]interface{}{
-		"id":                m.ID,
-		"sender_id":         m.SenderID,
-		"sender_username":   m.SenderUsername,
-		"receiver_id":       m.ReceiverID,
-		"receiver_username": m.ReceiverUsername,
-		"subject":           m.Subject,
-		"body":              m.Body,
-		"is_read":           m.IsRead,
-		"created_at":        m.CreatedAt,
+		"id":                  m.ID,
+		"sender_id":           m.SenderID,
+		"sender_username":     m.SenderUsername,
+		"receiver_id":         m.ReceiverID,
+		"receiver_username":   m.ReceiverUsername,
+		"subject":             m.Subject,
+		"body":                m.Body,
+		"mentioned_usernames": m.MentionedUsernames,
+		"is_read":             m.IsRead,
+		"created_at":          m.CreatedAt,
 	}
 	if m.ParentID != nil {
 		resp["parent_id"] = *m.ParentID
