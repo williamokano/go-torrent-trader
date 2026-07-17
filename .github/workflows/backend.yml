@@ -39,14 +39,17 @@ jobs:
       # Drop packages that coverage cannot say anything useful about, so the
       # percentage describes business logic rather than being diluted by code
       # nobody would ever write tests *for*:
-      #   cmd/server       — process bootstrap and dependency wiring
+      #   cmd/server                    — process bootstrap and dependency wiring
+      #   cmd/backfill-mentions/main.go — same: flag parsing, config load, DB
+      #     connect. Its actual logic lives in backfill.go, which is NOT
+      #     excluded and is well covered by cmd/backfill-mentions's own tests.
       #   internal/testutil — test helpers; they are test code, not tested code
       # Their tests still RUN (this filters the profile, not the test set) —
       # only the coverage denominator changes.
       - name: Filter coverage profile
         working-directory: backend
         env:
-          COVERAGE_EXCLUDE: '/backend/(cmd/server|internal/testutil)/'
+          COVERAGE_EXCLUDE: '/backend/(cmd/server/|internal/testutil/|cmd/backfill-mentions/main\.go)'
         run: |
           grep -Ev "$COVERAGE_EXCLUDE" coverage.out > coverage.filtered.out
           echo "excluded $(( $(wc -l < coverage.out) - $(wc -l < coverage.filtered.out) )) profile blocks matching $COVERAGE_EXCLUDE"

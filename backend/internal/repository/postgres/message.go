@@ -20,31 +20,38 @@ func NewMessageRepo(db *sql.DB) repository.MessageRepository {
 }
 
 func (r *MessageRepo) Create(ctx context.Context, msg *model.Message) error {
-	query := `INSERT INTO messages (sender_id, receiver_id, subject, body, parent_id)
-		VALUES ($1, $2, $3, $4, $5)
+	mentioned, err := MarshalMentionedUsernames(msg.MentionedUsernames)
+	if err != nil {
+		return fmt.Errorf("marshal mentioned usernames: %w", err)
+	}
+
+	query := `INSERT INTO messages (sender_id, receiver_id, subject, body, mentioned_usernames, parent_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, is_read, sender_deleted, receiver_deleted, created_at`
 
 	return r.db.QueryRowContext(ctx, query,
-		msg.SenderID, msg.ReceiverID, msg.Subject, msg.Body, msg.ParentID,
+		msg.SenderID, msg.ReceiverID, msg.Subject, msg.Body, mentioned, msg.ParentID,
 	).Scan(&msg.ID, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.CreatedAt)
 }
 
 func (r *MessageRepo) GetByID(ctx context.Context, id int64) (*model.Message, error) {
 	query := `SELECT m.id, m.sender_id, su.username, m.receiver_id, ru.username,
-			m.subject, m.body, m.is_read, m.sender_deleted, m.receiver_deleted, m.parent_id, m.created_at
+			m.subject, m.body, m.mentioned_usernames, m.is_read, m.sender_deleted, m.receiver_deleted, m.parent_id, m.created_at
 		FROM messages m
 		JOIN users su ON su.id = m.sender_id
 		JOIN users ru ON ru.id = m.receiver_id
 		WHERE m.id = $1`
 
 	var msg model.Message
+	var mentioned []byte
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&msg.ID, &msg.SenderID, &msg.SenderUsername, &msg.ReceiverID, &msg.ReceiverUsername,
-		&msg.Subject, &msg.Body, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.ParentID, &msg.CreatedAt,
+		&msg.Subject, &msg.Body, &mentioned, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.ParentID, &msg.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+	msg.MentionedUsernames = ScanMentionedUsernames(mentioned)
 	return &msg, nil
 }
 
@@ -59,7 +66,7 @@ func (r *MessageRepo) ListInbox(ctx context.Context, userID int64, page, perPage
 
 	offset := (page - 1) * perPage
 	query := `SELECT m.id, m.sender_id, su.username, m.receiver_id, ru.username,
-			m.subject, m.body, m.is_read, m.sender_deleted, m.receiver_deleted, m.parent_id, m.created_at
+			m.subject, m.body, m.mentioned_usernames, m.is_read, m.sender_deleted, m.receiver_deleted, m.parent_id, m.created_at
 		FROM messages m
 		JOIN users su ON su.id = m.sender_id
 		JOIN users ru ON ru.id = m.receiver_id
@@ -76,12 +83,14 @@ func (r *MessageRepo) ListInbox(ctx context.Context, userID int64, page, perPage
 	var messages []model.Message
 	for rows.Next() {
 		var msg model.Message
+		var mentioned []byte
 		if err := rows.Scan(
 			&msg.ID, &msg.SenderID, &msg.SenderUsername, &msg.ReceiverID, &msg.ReceiverUsername,
-			&msg.Subject, &msg.Body, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.ParentID, &msg.CreatedAt,
+			&msg.Subject, &msg.Body, &mentioned, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.ParentID, &msg.CreatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan message: %w", err)
 		}
+		msg.MentionedUsernames = ScanMentionedUsernames(mentioned)
 		messages = append(messages, msg)
 	}
 	if err := rows.Err(); err != nil {
@@ -102,7 +111,7 @@ func (r *MessageRepo) ListOutbox(ctx context.Context, userID int64, page, perPag
 
 	offset := (page - 1) * perPage
 	query := `SELECT m.id, m.sender_id, su.username, m.receiver_id, ru.username,
-			m.subject, m.body, m.is_read, m.sender_deleted, m.receiver_deleted, m.parent_id, m.created_at
+			m.subject, m.body, m.mentioned_usernames, m.is_read, m.sender_deleted, m.receiver_deleted, m.parent_id, m.created_at
 		FROM messages m
 		JOIN users su ON su.id = m.sender_id
 		JOIN users ru ON ru.id = m.receiver_id
@@ -119,12 +128,14 @@ func (r *MessageRepo) ListOutbox(ctx context.Context, userID int64, page, perPag
 	var messages []model.Message
 	for rows.Next() {
 		var msg model.Message
+		var mentioned []byte
 		if err := rows.Scan(
 			&msg.ID, &msg.SenderID, &msg.SenderUsername, &msg.ReceiverID, &msg.ReceiverUsername,
-			&msg.Subject, &msg.Body, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.ParentID, &msg.CreatedAt,
+			&msg.Subject, &msg.Body, &mentioned, &msg.IsRead, &msg.SenderDeleted, &msg.ReceiverDeleted, &msg.ParentID, &msg.CreatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan message: %w", err)
 		}
+		msg.MentionedUsernames = ScanMentionedUsernames(mentioned)
 		messages = append(messages, msg)
 	}
 	if err := rows.Err(); err != nil {

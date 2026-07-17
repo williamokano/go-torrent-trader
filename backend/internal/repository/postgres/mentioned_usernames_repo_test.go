@@ -267,3 +267,111 @@ func TestForumPostRepoMentionedUsernamesRoundTrip(t *testing.T) {
 		t.Errorf("after edit, mentioned_usernames = %v, want [%s]", updated.MentionedUsernames, other.Username)
 	}
 }
+
+func TestMessageRepoMentionedUsernamesRoundTrip(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewMessageRepo(db)
+
+	sender := newUser(t, db)
+	receiver := newUser(t, db)
+	mentioned := newUser(t, db)
+
+	msg := &model.Message{
+		SenderID:           sender.ID,
+		ReceiverID:         receiver.ID,
+		Subject:            "hi",
+		Body:               "hey @" + mentioned.Username,
+		MentionedUsernames: []string{mentioned.Username},
+	}
+	if err := repo.Create(ctx, msg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if len(got.MentionedUsernames) != 1 || got.MentionedUsernames[0] != mentioned.Username {
+		t.Errorf("GetByID mentioned_usernames = %v, want [%s]", got.MentionedUsernames, mentioned.Username)
+	}
+
+	inbox, _, err := repo.ListInbox(ctx, receiver.ID, 1, 10)
+	if err != nil {
+		t.Fatalf("ListInbox: %v", err)
+	}
+	if len(inbox) != 1 || len(inbox[0].MentionedUsernames) != 1 || inbox[0].MentionedUsernames[0] != mentioned.Username {
+		t.Errorf("ListInbox mentioned_usernames = %+v, want one entry [%s]", inbox, mentioned.Username)
+	}
+
+	outbox, _, err := repo.ListOutbox(ctx, sender.ID, 1, 10)
+	if err != nil {
+		t.Fatalf("ListOutbox: %v", err)
+	}
+	if len(outbox) != 1 || len(outbox[0].MentionedUsernames) != 1 || outbox[0].MentionedUsernames[0] != mentioned.Username {
+		t.Errorf("ListOutbox mentioned_usernames = %+v, want one entry [%s]", outbox, mentioned.Username)
+	}
+}
+
+func TestMessageRepoCreateWithNoMentionsStoresEmptyArray(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewMessageRepo(db)
+
+	sender := newUser(t, db)
+	receiver := newUser(t, db)
+
+	msg := &model.Message{SenderID: sender.ID, ReceiverID: receiver.ID, Subject: "hi", Body: "no mentions here"}
+	if err := repo.Create(ctx, msg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.MentionedUsernames == nil {
+		t.Error("MentionedUsernames should unmarshal to an empty (non-nil) slice, not nil")
+	}
+	if len(got.MentionedUsernames) != 0 {
+		t.Errorf("MentionedUsernames = %v, want empty", got.MentionedUsernames)
+	}
+}
+
+func TestMessageRepoMalformedMentionedUsernamesDegradesGracefully(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewMessageRepo(db)
+
+	sender := newUser(t, db)
+	receiver := newUser(t, db)
+	msg := &model.Message{SenderID: sender.ID, ReceiverID: receiver.ID, Subject: "hi", Body: "fine"}
+	if err := repo.Create(ctx, msg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE messages SET mentioned_usernames = '{"not":"an array"}' WHERE id = $1`, msg.ID); err != nil {
+		t.Fatalf("corrupting mentioned_usernames: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("GetByID should degrade, not error, on malformed mentioned_usernames: %v", err)
+	}
+	if len(got.MentionedUsernames) != 0 {
+		t.Errorf("MentionedUsernames = %v, want empty for a malformed row", got.MentionedUsernames)
+	}
+
+	inbox, total, err := repo.ListInbox(ctx, receiver.ID, 1, 10)
+	if err != nil {
+		t.Fatalf("ListInbox should degrade, not error, on a malformed row: %v", err)
+	}
+	if total != 1 || len(inbox) != 1 {
+		t.Fatalf("want the corrupted row still listed, got %d (total %d)", len(inbox), total)
+	}
+	if len(inbox[0].MentionedUsernames) != 0 {
+		t.Errorf("ListInbox MentionedUsernames = %v, want empty for the malformed row", inbox[0].MentionedUsernames)
+	}
+}

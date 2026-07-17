@@ -125,7 +125,7 @@ function renderMessagesPage() {
 }
 
 describe("MessagesPage markdown", () => {
-  function renderDetail(body: string) {
+  function renderDetail(body: string, mentionedUsernames: string[] = []) {
     mockFetch.mockImplementation((url: string) => {
       if (url.includes("/unread-count")) {
         return Promise.resolve({
@@ -136,7 +136,14 @@ describe("MessagesPage markdown", () => {
       if (/\/api\/v1\/messages\/1$/.test(url)) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ message: { ...FAKE_INBOX[0], body } }),
+          json: () =>
+            Promise.resolve({
+              message: {
+                ...FAKE_INBOX[0],
+                body,
+                mentioned_usernames: mentionedUsernames,
+              },
+            }),
         });
       }
       return Promise.resolve({
@@ -178,6 +185,27 @@ describe("MessagesPage markdown", () => {
     expect(container.querySelector("script")).not.toBeInTheDocument();
     expect(container.innerHTML).not.toContain("onerror");
     expect(container.innerHTML).not.toContain("alert");
+  });
+
+  test("links a resolved @mention in the message body to the mentioned user's profile", async () => {
+    const { container } = renderDetail("hey @alice, check this", ["alice"]);
+
+    await waitFor(() => {
+      expect(container.querySelector("a.mention")).toBeInTheDocument();
+    });
+    const link = container.querySelector("a.mention");
+    expect(link?.getAttribute("href")).toBe("/user/alice");
+    expect(link?.textContent).toBe("@alice");
+  });
+
+  test("does not link an @mention the backend never resolved", async () => {
+    const { container } = renderDetail("hey @notauser", []);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+    expect(container.querySelector("a.mention")).not.toBeInTheDocument();
+    expect(container.textContent).toContain("@notauser");
   });
 
   test("composes messages with the markdown editor", async () => {

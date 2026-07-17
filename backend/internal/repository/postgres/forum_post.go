@@ -41,7 +41,7 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 	if err != nil {
 		return nil, err
 	}
-	post.MentionedUsernames = scanMentionedUsernames(mentioned)
+	post.MentionedUsernames = ScanMentionedUsernames(mentioned)
 	return &post, nil
 }
 
@@ -87,14 +87,14 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan post: %w", err)
 		}
-		post.MentionedUsernames = scanMentionedUsernames(mentioned)
+		post.MentionedUsernames = ScanMentionedUsernames(mentioned)
 		posts = append(posts, post)
 	}
 	return posts, total, rows.Err()
 }
 
 func (r *ForumPostRepo) Create(ctx context.Context, post *model.ForumPost) error {
-	mentioned, err := marshalMentionedUsernames(post.MentionedUsernames)
+	mentioned, err := MarshalMentionedUsernames(post.MentionedUsernames)
 	if err != nil {
 		return fmt.Errorf("marshal mentioned usernames: %w", err)
 	}
@@ -109,7 +109,7 @@ func (r *ForumPostRepo) Create(ctx context.Context, post *model.ForumPost) error
 }
 
 func (r *ForumPostRepo) Update(ctx context.Context, post *model.ForumPost) error {
-	mentioned, err := marshalMentionedUsernames(post.MentionedUsernames)
+	mentioned, err := MarshalMentionedUsernames(post.MentionedUsernames)
 	if err != nil {
 		return fmt.Errorf("marshal mentioned usernames: %w", err)
 	}

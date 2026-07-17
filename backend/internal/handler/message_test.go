@@ -70,7 +70,7 @@ func TestSendMessageCreatesMessage(t *testing.T) {
 	if !ok {
 		t.Fatal("response has no message object")
 	}
-	for _, key := range []string{"id", "sender_id", "receiver_id", "subject", "body", "is_read", "created_at"} {
+	for _, key := range []string{"id", "sender_id", "receiver_id", "subject", "body", "mentioned_usernames", "is_read", "created_at"} {
 		if _, present := msg[key]; !present {
 			t.Errorf("message response is missing key %q the frontend depends on", key)
 		}

@@ -1377,6 +1377,22 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Review finding from BE-5.3 — hard delete has no audit trail, no undo, and creates dangling references. Edit-then-delete abuse vector exists without history.
 
+#### BE-9.23: Forum Post Edit History via Diff Storage [M]
+**As a** developer
+**I want** post edits to reconstruct history from diffs instead of storing a full body snapshot per edit
+**So that** repeated small edits to the same post don't multiply storage with near-duplicate full-text copies
+
+**Acceptance Criteria:**
+- Editable by: the post's author, or a staff member acting on behalf of another user
+- Not editable when: the topic/post is locked, or the editor no longer has permission to edit/post (mirror the existing create-post capability checks)
+- `forum_post_edits` stores a diff against the previous version instead of a full `old_body` snapshot — `forum_posts.body` is always the latest version; history is reconstructed by walking edits backward from latest, applying each diff in reverse
+- No merge-conflict handling needed: edits on a given post are strictly linear (one body, edits applied in server-received order), so diff reconstruction is always deterministic
+- Each edit record stores who actually made that edit (the real editor — author or staff — not just the post's original author)
+- When a staff member edits on behalf of someone else: an optional "reason" field on that edit, staff-only visible (never shown to the post's author or other regular users viewing edit history)
+- Existing edit-history viewer (BE-9.7) keeps working unchanged from the viewer's perspective — reconstructed diffs render the same "previous version" view it already shows staff
+
+> **Origin:** Follow-up to BE-9.7, which stores a full `old_body` snapshot per edit — requested to avoid unbounded storage growth from repeated small edits to the same post. Deferred until after BE-8.21/FE-5.18 (mention backfill + PM mention linking).
+
 #### BE-9.8: Forum Moderation Reason & Hierarchy [S] [DONE]
 **As a** staff member
 **I want** moderation actions to require a reason and respect role hierarchy
@@ -2303,6 +2319,20 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - **Scope, deliberately**: comments + forum posts only for v1. PMs are not just "unwired" but arguably a different problem — they're strictly 1:1 in this app, so a mention notification inside one would almost always duplicate the "new message" notification the sole recipient already gets, and the one case where it'd add information (mentioning a third party outside the thread) isn't representable in the current message model. News is deferred as genuinely net-new wiring (no existing resolution call site).
 - Tests: repository (`GetByUsernames`, mentioned_usernames round-tripping through Create/Update/GetByID/List for both tables, via testcontainers), service (`ResolveMentionedUsernames` incl. dedup/unknown-token/email-boundary/error-propagation, the five call sites setting it, the edit-does-not-notify split), handler (response field, the soft-delete redaction case), frontend (`remarkMention` via `MarkdownRenderer.test.tsx` — valid/unresolved/omitted/email-boundary/multi-mention/start-of-string/code-span/inline-mode cases — plus `CommentsSection`/`ForumTopicViewPage` prop-threading).
 - **Caught in review:** the `className` schema fix above was a real bug caught by the test suite itself — the first attempt appended a *second* `['className', 'mention']` tuple to the sanitize schema, which silently never took effect because `hast-util-sanitize` only consults the first entry per attribute name (the existing footnote-backref entry). Positive-assertion tests (does the link have the class), not just negative ones (does an invalid token stay plain), are what caught it — a purely negative-assertion suite would have shipped this passing.
+
+#### BE-8.21 / FE-5.18: Backfill Historical @Mentions + Resolve @Mentions in PM Bodies (Links Only) [M] [BUG] [DONE]
+**As a** tracker operator
+**I want** existing comments/posts to get working @mention links retroactively, and PM bodies to resolve @mentions too
+**So that** the mention feature doesn't silently only work on content created after it shipped, and a mention in a PM is something you can click through to like everywhere else
+
+**Context:** found immediately after BE-8.20/FE-5.17 shipped in v0.15.0 — the operator tested it live and found mentions in pre-existing posts/comments rendered as plain text while a brand-new post worked. Root cause: migration 058 added `mentioned_usernames` with `DEFAULT '[]'::jsonb` but never backfilled existing rows — the column is only populated on create/edit, so anything written before the feature existed is stuck at `[]` forever. Separately, the operator asked for PM body mentions to link too; BE-8.20's PM exclusion was specifically about not duplicating the "new message" notification, which doesn't block link-only rendering.
+
+**Delivered:**
+- `backend/cmd/backfill-mentions`: one-off tool (`go run ./cmd/backfill-mentions [--dry-run]`) that keyset-paginates `torrent_comments`, `forum_posts`, and `messages`, reruns the real `service.ResolveMentionedUsernames` against each row's body, and writes back via a narrow `UPDATE <table> SET mentioned_usernames = $1 WHERE id = $2` only — deliberately not `CommentRepo.Update`/`ForumPostRepo.Update`, both of which also stamp `updated_at`/`edited_at`+`edited_by` and would have made every backfilled row incorrectly show up as "(edited)". Reprocesses unconditionally (mentioned_usernames=[] is indistinguishable between "processed, no mentions" and "never touched", and resolution is a pure function of body, so re-running is always safe/idempotent — demonstrated by its own test suite). `MarshalMentionedUsernames`/`ScanMentionedUsernames` (`internal/repository/postgres/mentioned_usernames.go`) exported so the tool shares the exact encoding, not a hand-rolled copy. Never touches the event bus — no retroactive "you were mentioned" notifications from historical content.
+- Migration 059 extends `mentioned_usernames` to `messages`. `MessageService.SendMessage` now calls `ResolveMentionedUsernames` and persists the result — links only, exactly as before: no `publishMention` call anywhere in the message flow, guarded by a dedicated regression test (`TestSendMessage_MentionDoesNotPublishUserMentionedEvent`) so a future copy-paste from `CreateComment` can't silently reopen the notification-duplication problem this was originally excluded to avoid.
+- Frontend: `MessagesPage`'s one `MarkdownRenderer` call for the opened message body now receives `mentionedUsernames={selectedMessage.mentioned_usernames}` — the only frontend change needed, since `MarkdownRenderer`/`remarkMention` were already generic.
+- **Explicitly out of scope, confirmed correct as-is, no change made:** forum topic titles never resolve mentions (`CreateTopic` only extracts from the first post's body) and the PM subject field has no autocomplete (plain `<input>`, never wired to `MarkdownEditor`) — both were already the desired behavior.
+- Tests: repository (`mentioned_usernames_repo_test.go` gains a messages round-trip + malformed-JSON-degrades case, mirroring the existing comment/forum ones), service (mention resolution + the no-notification regression guard), handler (`stubUserRepo.GetByUsernames` was a hardcoded no-op that would have silently no-op'd any mention test built on it — fixed to filter by username like the other mock user repos — plus a positive content-assertion test, not just key presence), frontend (`MessagesPage.test.tsx` mention-link-renders / unresolved-stays-plain, mirroring `CommentsSection.test.tsx`), and three `backend/cmd/backfill-mentions` integration tests via the same testcontainers pattern (resolves across all three tables while leaving `updated_at`/`edited_at` untouched; `--dry-run` writes nothing; schema check passes post-migration).
 
 #### FE-5.14: Bonus Store Page + Points Display [M] [DONE]
 **As a** member

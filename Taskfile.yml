@@ -112,7 +112,7 @@ tasks:
     vars:
       # Keep these in sync with .github/workflows/backend.yml
       COVERAGE_FLOOR: '80.0'
-      COVERAGE_EXCLUDE: '/backend/(cmd/server|internal/testutil)/'
+      COVERAGE_EXCLUDE: '/backend/(cmd/server/|internal/testutil/|cmd/backfill-mentions/main\.go)'
     cmds:
       - go test -coverprofile=coverage.out ./...
       - grep -Ev '{{.COVERAGE_EXCLUDE}}' coverage.out > coverage.filtered.out
