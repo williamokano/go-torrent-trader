@@ -2013,6 +2013,18 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Optional: list of online usernames (respects privacy settings)
 - Updates periodically (polling or WebSocket)
 
+#### BE-9.22 / FE-4.4: Gate Footer Site Stats Behind Authentication [S] [BUG] [DONE]
+**As a** tracker operator
+**I want** site-wide stats (online users, totals, peers/seeders/leechers) hidden from anonymous visitors
+**So that** membership/activity numbers aren't leaked to the public on a private tracker with no anonymous browsing (docs/NOT_PORTING.md §9)
+
+**Context:** `/api/v1/stats` and the footer that renders it (BE-9.3/FE-4.3) were registered as fully public with no auth gate on either side — an oversight, not an intentional guest-access feature.
+
+**Delivered:**
+- `GET /api/v1/stats` moved from the router's public-endpoints section into the `authMiddleware`-gated block (same `r.Route("/x", func(r){ authMiddleware(r); ... })` idiom as `/activity-logs`, `/store`); anonymous callers now get 401. Handler logic (`HandleStats`) unchanged. OpenAPI spec updated to declare `bearerAuth` + a 401 response.
+- Frontend: `RootLayout`'s stats-polling effect now gates on `isAuthenticated`, sends `Authorization: Bearer <token>` (read fresh on every 60s tick, not hoisted, so a mid-session token refresh is picked up), and the footer `<p className="footer__stats">` block itself is gated on `isAuthenticated` too (not just on `siteStats` being non-null) — `clearInterval` on effect cleanup doesn't cancel an in-flight request, so this is what prevents a response landing just after logout from flashing stale numbers.
+- Tests: `route_authz_test.go` — `fullRouterDeps` now wires a `StatsCache` (sqlmock + miniredis, matching `stats_test.go`'s technique); added `/api/v1/stats` to the member-reachability check and a dedicated `TestStatsRouteRejectsAnonymous`. `RootLayout.test.tsx` — `@/api` mock made configurable (mirrors `AuthContext.test.tsx`), the old "renders footer with stats placeholder" assertion flipped to absence-for-anonymous, new test asserts presence once authenticated.
+
 ---
 
 ### Epic FE-5: Admin Panel [L] [PARTIAL — foundation, layout, routing, users/reports/groups pages done]

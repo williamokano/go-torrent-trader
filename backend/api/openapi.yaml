@@ -29,6 +29,8 @@ paths:
       operationId: getStats
       summary: Get site-wide statistics
       tags: [system]
+      security:
+        - bearerAuth: []
       responses:
         '200':
           description: Site statistics
@@ -39,6 +41,12 @@ paths:
                 properties:
                   stats:
                     $ref: '#/components/schemas/SiteStats'
+        '401':
+          description: Missing or invalid authorization header
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:

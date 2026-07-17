@@ -82,9 +82,6 @@ func NewRouter(deps *Deps) chi.Router {
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints
-		if deps != nil && deps.StatsCache != nil {
-			r.Get("/stats", HandleStats(deps.StatsCache))
-		}
 		if deps != nil && deps.DB != nil {
 			r.Get("/categories", HandleCategories(deps.DB))
 		}
@@ -141,6 +138,14 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/me", auth.HandleMe)
 				})
 			})
+
+			// Site stats (members only — private tracker, no anonymous browsing)
+			if deps.StatsCache != nil {
+				r.Route("/stats", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/", HandleStats(deps.StatsCache))
+				})
+			}
 
 			// User profile and member list endpoints
 			if deps.UserService != nil {

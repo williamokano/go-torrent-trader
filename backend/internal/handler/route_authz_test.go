@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -59,6 +62,17 @@ func fullRouterDeps(t *testing.T) *Deps {
 	torrentSvc := service.NewTorrentService(nil, &stubTorrentRepo{}, users, &stubStorage{},
 		service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, &stubReseedRepo{})
 
+	// StatsCache needs a real (mocked) DB/Redis pair — no stub interface exists
+	// for it, since the service type itself is concrete, not an interface.
+	statsDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = statsDB.Close() })
+	statsRedis := miniredis.RunT(t)
+	statsRDB := redis.NewClient(&redis.Options{Addr: statsRedis.Addr()})
+	t.Cleanup(func() { _ = statsRDB.Close() })
+
 	return &Deps{
 		AuthService: service.NewAuthService(users, sessions,
 			testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost", bus),
@@ -82,6 +96,7 @@ func fullRouterDeps(t *testing.T) *Deps {
 		DashboardRepo: &stubDashboardRepo{},
 		BackupService: &backupManagerStub{},
 		UserRepo:      users,
+		StatsCache:    service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
 	}
 }
 
@@ -271,10 +286,23 @@ func TestMemberRoutesRemainReachableForMembers(t *testing.T) {
 	for _, r := range []route{
 		{http.MethodGet, "/api/v1/notifications"},
 		{http.MethodGet, "/api/v1/messages/inbox"},
+		{http.MethodGet, "/api/v1/stats"},
 	} {
 		code := request(t, router, r, member)
 		if code == http.StatusUnauthorized || code == http.StatusForbidden {
 			t.Errorf("%s %s = %d for a logged-in member, want it reachable", r.method, r.pattern, code)
 		}
+	}
+}
+
+// Site stats leak membership/activity counts, so on a private tracker with no
+// anonymous browsing (docs/NOT_PORTING.md §9) an anonymous caller must be
+// rejected by the auth middleware, not just answer something non-2xx.
+func TestStatsRouteRejectsAnonymous(t *testing.T) {
+	router := NewRouter(fullRouterDeps(t))
+
+	r := route{http.MethodGet, "/api/v1/stats"}
+	if !rejectedByAuthMiddleware(t, router, r) {
+		t.Errorf("%s %s is reachable without a session — it must require auth", r.method, r.pattern)
 	}
 }
