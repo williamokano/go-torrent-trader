@@ -8,7 +8,8 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
-// HandleStats returns site-wide statistics (public endpoint).
+// HandleStats returns site-wide statistics. Requires authentication — this is
+// a private tracker with no anonymous browsing (see docs/NOT_PORTING.md §9).
 func HandleStats(cache *service.StatsCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stats, err := cache.Get(r.Context())

@@ -1,20 +1,23 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, test, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@/themes";
 import { AuthProvider } from "@/features/auth";
 import { RootLayout } from "@/layouts/RootLayout";
+import {
+  clearTokens,
+  setAccessToken,
+  setRefreshToken,
+  setTokenExpiry,
+} from "@/features/auth/token";
+
+const mockPost = vi.fn();
+const mockGet = vi.fn();
 
 vi.mock("@/api", () => ({
   api: {
-    POST: vi.fn().mockResolvedValue({
-      data: null,
-      error: { error: { message: "not implemented" } },
-    }),
-    GET: vi.fn().mockResolvedValue({
-      data: null,
-      error: { error: { message: "not implemented" } },
-    }),
+    POST: (...args: unknown[]) => mockPost(...args),
+    GET: (...args: unknown[]) => mockGet(...args),
   },
 }));
 
@@ -37,6 +40,41 @@ vi.mock("@/lib/useChat", () => ({
     loadMore: vi.fn(),
   }),
 }));
+
+const sampleUser = {
+  id: 1,
+  username: "testuser",
+  email: "test@example.com",
+  group_id: 1,
+  uploaded: 0,
+  downloaded: 0,
+  enabled: true,
+  can_download: true,
+  can_upload: true,
+  can_chat: true,
+  created_at: "2026-01-01T00:00:00Z",
+};
+
+/** Seed a valid, non-expired access token plus a refresh token. */
+function seedValidSession() {
+  setAccessToken("valid-access");
+  setRefreshToken("valid-refresh");
+  setTokenExpiry(3600); // well beyond the 5-minute refresh buffer
+}
+
+beforeEach(() => {
+  clearTokens();
+  localStorage.clear();
+  vi.clearAllMocks();
+  mockPost.mockResolvedValue({
+    data: null,
+    error: { error: { message: "not implemented" } },
+  });
+  mockGet.mockResolvedValue({
+    data: null,
+    error: { error: { message: "not implemented" } },
+  });
+});
 
 afterEach(cleanup);
 
@@ -80,9 +118,21 @@ describe("RootLayout", () => {
     expect(screen.getByText("Sign Up")).toBeInTheDocument();
   });
 
-  test("renders footer with stats placeholder", () => {
+  test("does not render footer stats for unauthenticated visitors", () => {
     renderLayout();
-    expect(screen.getByText(/Torrents:/)).toBeInTheDocument();
+    expect(screen.queryByText(/Torrents:/)).not.toBeInTheDocument();
+  });
+
+  test("shows footer stats once authenticated", async () => {
+    seedValidSession();
+    mockGet.mockResolvedValueOnce({
+      data: { user: sampleUser },
+      error: undefined,
+    });
+
+    renderLayout();
+
+    await screen.findByText(/Torrents:/);
   });
 
   test("renders footer links", () => {

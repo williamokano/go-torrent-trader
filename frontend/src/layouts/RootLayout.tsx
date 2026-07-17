@@ -99,8 +99,14 @@ export function RootLayout() {
   } | null>(null);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     function fetchStats() {
-      fetch(`${getConfig().API_URL}/api/v1/stats`)
+      const token = getAccessToken();
+      if (!token) return;
+      fetch(`${getConfig().API_URL}/api/v1/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
         .then((r) => r.json())
         .then((d) => setSiteStats(d?.stats ?? null))
         .catch(() => {});
@@ -108,7 +114,7 @@ export function RootLayout() {
     fetchStats();
     const interval = setInterval(fetchStats, 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
 
   return (
     <div className="root-layout">
@@ -382,14 +388,16 @@ export function RootLayout() {
       {isAuthenticated && <Chat />}
 
       <footer className="footer">
-        <p className="footer__stats">
-          Online: {siteStats ? formatNumber(siteStats.online_users) : "--"} |
-          Users: {siteStats ? formatNumber(siteStats.users) : "--"} | Torrents:{" "}
-          {siteStats ? formatNumber(siteStats.torrents) : "--"} | Peers:{" "}
-          {siteStats ? formatNumber(siteStats.peers) : "--"} | Seeders:{" "}
-          {siteStats ? formatNumber(siteStats.seeders) : "--"} | Leechers:{" "}
-          {siteStats ? formatNumber(siteStats.leechers) : "--"}
-        </p>
+        {isAuthenticated && (
+          <p className="footer__stats">
+            Online: {siteStats ? formatNumber(siteStats.online_users) : "--"} |
+            Users: {siteStats ? formatNumber(siteStats.users) : "--"} |
+            Torrents: {siteStats ? formatNumber(siteStats.torrents) : "--"} |
+            Peers: {siteStats ? formatNumber(siteStats.peers) : "--"} | Seeders:{" "}
+            {siteStats ? formatNumber(siteStats.seeders) : "--"} | Leechers:{" "}
+            {siteStats ? formatNumber(siteStats.leechers) : "--"}
+          </p>
+        )}
         <div className="footer__links">
           <a href="#" className="footer__link">
             About
