@@ -181,6 +181,21 @@ func (m *mockUserRepoForMessage) GetByID(_ context.Context, id int64) (*model.Us
 func (m *mockUserRepoForMessage) GetByUsername(context.Context, string) (*model.User, error) {
 	return nil, errors.New("not implemented")
 }
+func (m *mockUserRepoForMessage) GetByUsernames(_ context.Context, usernames []string) ([]model.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := make(map[string]bool, len(usernames))
+	for _, name := range usernames {
+		want[name] = true
+	}
+	var found []model.User
+	for _, u := range m.users {
+		if want[u.Username] {
+			found = append(found, *u)
+		}
+	}
+	return found, nil
+}
 func (m *mockUserRepoForMessage) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, errors.New("not implemented")
 }

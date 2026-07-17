@@ -719,22 +719,27 @@ func topicResponse(t *model.ForumTopic) map[string]interface{} {
 
 func postResponse(p *model.ForumPost, isStaff bool) map[string]interface{} {
 	body := p.Body
+	mentioned := p.MentionedUsernames
+	// A viewer who can no longer see a soft-deleted post's body must not be
+	// able to see who it mentioned either — same redaction, same branch.
 	if p.DeletedAt != nil && !isStaff {
 		body = ""
+		mentioned = nil
 	}
 	resp := map[string]interface{}{
-		"id":              p.ID,
-		"topic_id":        p.TopicID,
-		"user_id":         p.UserID,
-		"username":        p.Username,
-		"avatar":          p.Avatar,
-		"group_name":      p.GroupName,
-		"body":            body,
-		"created_at":      p.CreatedAt,
-		"user_created_at": p.UserCreatedAt,
-		"user_post_count": p.UserPostCount,
-		"is_deleted":      p.DeletedAt != nil,
-		"is_first_post":   p.IsFirstPost,
+		"id":                  p.ID,
+		"topic_id":            p.TopicID,
+		"user_id":             p.UserID,
+		"username":            p.Username,
+		"avatar":              p.Avatar,
+		"group_name":          p.GroupName,
+		"body":                body,
+		"mentioned_usernames": mentioned,
+		"created_at":          p.CreatedAt,
+		"user_created_at":     p.UserCreatedAt,
+		"user_post_count":     p.UserPostCount,
+		"is_deleted":          p.DeletedAt != nil,
+		"is_first_post":       p.IsFirstPost,
 	}
 	if p.ReplyToPostID != nil {
 		resp["reply_to_post_id"] = *p.ReplyToPostID

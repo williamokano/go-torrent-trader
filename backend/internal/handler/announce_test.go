@@ -43,6 +43,9 @@ func (r *announceUserRepo) GetByID(context.Context, int64) (*model.User, error) 
 func (r *announceUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
+func (r *announceUserRepo) GetByUsernames(context.Context, []string) ([]model.User, error) {
+	return nil, nil
+}
 func (r *announceUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }

@@ -1384,6 +1384,7 @@ export function AdminUserDetailPage() {
                                   entry.changed_by_username ||
                                   `#${entry.changed_by}`
                                 }
+                                noLink={!entry.changed_by_username}
                               />
                             ) : (
                               <span className="admin-muted">

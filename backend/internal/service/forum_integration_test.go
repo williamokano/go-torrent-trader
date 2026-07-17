@@ -507,7 +507,7 @@ func TestCreateTopic_Transactional(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 			AddRow(100, now, now))
 	mock.ExpectQuery("INSERT INTO forum_posts").
-		WithArgs(int64(100), userID, "Hello world", nil).
+		WithArgs(int64(100), userID, "Hello world", []byte("[]"), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 			AddRow(200, now))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").
@@ -565,7 +565,7 @@ func TestCreateTopic_Transactional_Rollback(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 			AddRow(100, now, now))
 	mock.ExpectQuery("INSERT INTO forum_posts").
-		WithArgs(int64(100), userID, "Hello world", nil).
+		WithArgs(int64(100), userID, "Hello world", []byte("[]"), nil).
 		WillReturnError(fmt.Errorf("db: unique violation"))
 	mock.ExpectRollback()
 
@@ -616,7 +616,7 @@ func TestCreatePost_Transactional(t *testing.T) {
 	// Expect: BEGIN -> INSERT post -> UPDATE topic counts -> UPDATE forum counts -> COMMIT
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO forum_posts").
-		WithArgs(topicID, userID, "Reply body", nil).
+		WithArgs(topicID, userID, "Reply body", []byte("[]"), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 			AddRow(postID, now))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").
@@ -669,7 +669,7 @@ func TestCreatePost_Transactional_Rollback(t *testing.T) {
 	// INSERT post succeeds, UPDATE topic counts fails -> ROLLBACK
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO forum_posts").
-		WithArgs(topicID, userID, "Reply body", nil).
+		WithArgs(topicID, userID, "Reply body", []byte("[]"), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 			AddRow(postID, now))
 	mock.ExpectExec("UPDATE forum_topics SET post_count =").

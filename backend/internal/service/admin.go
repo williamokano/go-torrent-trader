@@ -27,6 +27,13 @@ var (
 	ErrModNoteNotFound          = fmt.Errorf("mod note not found")
 	ErrInvalidModNote           = fmt.Errorf("invalid mod note")
 	ErrAdminNegativeBonusPoints = fmt.Errorf("bonus points cannot be negative")
+	// ErrAdminInvalidUsername guards the same charset registration enforces
+	// (usernameRe, auth.go). Profile URLs are now built directly from the
+	// username (/user/{username}), so a malformed value set here — a slash,
+	// a space, anything encodeURIComponent would need to escape — would
+	// silently break every link to this account sitewide the moment an admin
+	// edits it, not just look wrong in a text field.
+	ErrAdminInvalidUsername = fmt.Errorf("username must be 3-20 alphanumeric characters or underscores")
 )
 
 // AdminUserView is the user representation returned by admin endpoints.
@@ -430,6 +437,9 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	}
 
 	if req.Username != nil {
+		if !usernameRe.MatchString(*req.Username) {
+			return nil, ErrAdminInvalidUsername
+		}
 		record("username", user.Username, *req.Username)
 		user.Username = *req.Username
 	}

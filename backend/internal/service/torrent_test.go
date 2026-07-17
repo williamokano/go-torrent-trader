@@ -202,6 +202,9 @@ func (m *memUserRepo) GetByID(_ context.Context, id int64) (*model.User, error) 
 func (m *memUserRepo) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("not found")
 }
+func (m *memUserRepo) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 
 func (m *memUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("not found")

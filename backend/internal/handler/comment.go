@@ -228,13 +228,14 @@ func handleCommentError(w http.ResponseWriter, err error) {
 
 func commentResponse(c *model.Comment) map[string]interface{} {
 	return map[string]interface{}{
-		"id":         c.ID,
-		"torrent_id": c.TorrentID,
-		"user_id":    c.UserID,
-		"username":   c.Username,
-		"body":       c.Body,
-		"created_at": c.CreatedAt,
-		"updated_at": c.UpdatedAt,
+		"id":                  c.ID,
+		"torrent_id":          c.TorrentID,
+		"user_id":             c.UserID,
+		"username":            c.Username,
+		"body":                c.Body,
+		"mentioned_usernames": c.MentionedUsernames,
+		"created_at":          c.CreatedAt,
+		"updated_at":          c.UpdatedAt,
 	}
 }
 

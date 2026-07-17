@@ -20,28 +20,35 @@ func NewCommentRepo(db *sql.DB) repository.CommentRepository {
 }
 
 func (r *CommentRepo) Create(ctx context.Context, comment *model.Comment) error {
-	query := `INSERT INTO torrent_comments (torrent_id, user_id, body)
-		VALUES ($1, $2, $3)
+	mentioned, err := marshalMentionedUsernames(comment.MentionedUsernames)
+	if err != nil {
+		return fmt.Errorf("marshal mentioned usernames: %w", err)
+	}
+
+	query := `INSERT INTO torrent_comments (torrent_id, user_id, body, mentioned_usernames)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
-		comment.TorrentID, comment.UserID, comment.Body,
+		comment.TorrentID, comment.UserID, comment.Body, mentioned,
 	).Scan(&comment.ID, &comment.CreatedAt, &comment.UpdatedAt)
 }
 
 func (r *CommentRepo) GetByID(ctx context.Context, id int64) (*model.Comment, error) {
-	query := `SELECT tc.id, tc.torrent_id, tc.user_id, u.username, tc.body, tc.created_at, tc.updated_at
+	query := `SELECT tc.id, tc.torrent_id, tc.user_id, u.username, tc.body, tc.mentioned_usernames, tc.created_at, tc.updated_at
 		FROM torrent_comments tc
 		JOIN users u ON u.id = tc.user_id
 		WHERE tc.id = $1`
 
 	var c model.Comment
+	var mentioned []byte
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.TorrentID, &c.UserID, &c.Username, &c.Body, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.TorrentID, &c.UserID, &c.Username, &c.Body, &mentioned, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+	c.MentionedUsernames = scanMentionedUsernames(mentioned)
 	return &c, nil
 }
 
@@ -56,7 +63,7 @@ func (r *CommentRepo) ListByTorrent(ctx context.Context, torrentID int64, page, 
 	}
 
 	offset := (page - 1) * perPage
-	query := `SELECT tc.id, tc.torrent_id, tc.user_id, u.username, tc.body, tc.created_at, tc.updated_at
+	query := `SELECT tc.id, tc.torrent_id, tc.user_id, u.username, tc.body, tc.mentioned_usernames, tc.created_at, tc.updated_at
 		FROM torrent_comments tc
 		JOIN users u ON u.id = tc.user_id
 		WHERE tc.torrent_id = $1
@@ -72,9 +79,11 @@ func (r *CommentRepo) ListByTorrent(ctx context.Context, torrentID int64, page, 
 	var comments []model.Comment
 	for rows.Next() {
 		var c model.Comment
-		if err := rows.Scan(&c.ID, &c.TorrentID, &c.UserID, &c.Username, &c.Body, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var mentioned []byte
+		if err := rows.Scan(&c.ID, &c.TorrentID, &c.UserID, &c.Username, &c.Body, &mentioned, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan comment: %w", err)
 		}
+		c.MentionedUsernames = scanMentionedUsernames(mentioned)
 		comments = append(comments, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -85,11 +94,16 @@ func (r *CommentRepo) ListByTorrent(ctx context.Context, torrentID int64, page, 
 }
 
 func (r *CommentRepo) Update(ctx context.Context, comment *model.Comment) error {
-	query := `UPDATE torrent_comments SET body = $1, updated_at = NOW()
-		WHERE id = $2
+	mentioned, err := marshalMentionedUsernames(comment.MentionedUsernames)
+	if err != nil {
+		return fmt.Errorf("marshal mentioned usernames: %w", err)
+	}
+
+	query := `UPDATE torrent_comments SET body = $1, mentioned_usernames = $2, updated_at = NOW()
+		WHERE id = $3
 		RETURNING updated_at`
 
-	return r.db.QueryRowContext(ctx, query, comment.Body, comment.ID).Scan(&comment.UpdatedAt)
+	return r.db.QueryRowContext(ctx, query, comment.Body, mentioned, comment.ID).Scan(&comment.UpdatedAt)
 }
 
 func (r *CommentRepo) Delete(ctx context.Context, id int64) error {

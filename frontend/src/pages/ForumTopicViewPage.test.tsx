@@ -20,7 +20,17 @@ vi.mock("@/components/UsernameDisplay", () => ({
   ),
 }));
 vi.mock("@/components/MarkdownRenderer", () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
+  MarkdownRenderer: ({
+    content,
+    mentionedUsernames,
+  }: {
+    content: string;
+    mentionedUsernames?: string[];
+  }) => (
+    <div data-mentioned-usernames={(mentionedUsernames ?? []).join(",")}>
+      {content}
+    </div>
+  ),
 }));
 vi.mock("@/components/Pagination", () => ({
   Pagination: () => <div data-testid="pagination" />,
@@ -156,6 +166,39 @@ describe("ForumTopicViewPage", () => {
     });
     expect(screen.getByText("First post body")).toBeInTheDocument();
     expect(screen.getByText("Reply body")).toBeInTheDocument();
+  });
+
+  test("passes a post's resolved mentions through to MarkdownRenderer", async () => {
+    // MarkdownRenderer is stubbed above (this file deliberately isolates
+    // page-level tests from real Markdown/mention-link rendering — that's
+    // covered exhaustively by MarkdownRenderer.test.tsx and, with a real
+    // renderer, CommentsSection.test.tsx). This only confirms the prop is
+    // threaded through correctly for the right post.
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ...FAKE_RESPONSE,
+          posts: [
+            {
+              ...FAKE_RESPONSE.posts[0],
+              body: "welcome @bob",
+              mentioned_usernames: ["bob"],
+            },
+            FAKE_RESPONSE.posts[1],
+          ],
+        }),
+    });
+    const { container } = renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+    const mentioned = container.querySelector(
+      '[data-mentioned-usernames="bob"]',
+    );
+    expect(mentioned).toBeInTheDocument();
+    expect(mentioned?.textContent).toBe("welcome @bob");
   });
 
   test("shows reply form when topic is not locked", async () => {

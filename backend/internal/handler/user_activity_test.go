@@ -124,6 +124,9 @@ func (m *mockActivityUserRepo) GetByID(context.Context, int64) (*model.User, err
 func (m *mockActivityUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
 	return nil, nil
 }
+func (m *mockActivityUserRepo) GetByUsernames(context.Context, []string) ([]model.User, error) {
+	return nil, nil
+}
 func (m *mockActivityUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, nil
 }

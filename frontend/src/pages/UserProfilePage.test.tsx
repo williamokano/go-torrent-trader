@@ -76,11 +76,11 @@ beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
 });
 
-function renderProfilePage(id = "7") {
+function renderProfilePage(username = "jdoe") {
   return render(
-    <MemoryRouter initialEntries={[`/user/${id}`]}>
+    <MemoryRouter initialEntries={[`/user/${username}`]}>
       <Routes>
-        <Route path="/user/:id" element={<UserProfilePage />} />
+        <Route path="/user/:username" element={<UserProfilePage />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -186,14 +186,6 @@ describe("UserProfilePage", () => {
     });
   });
 
-  test("shows error for invalid user ID", async () => {
-    renderProfilePage("abc");
-    await waitFor(() => {
-      expect(screen.getByText("Invalid user ID")).toBeInTheDocument();
-    });
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
   test("does not render bio section when info is empty", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
@@ -207,7 +199,7 @@ describe("UserProfilePage", () => {
   });
 
   test("does not show Edit Profile link for other users", async () => {
-    renderProfilePage("7");
+    renderProfilePage("jdoe");
     await waitFor(() => {
       expect(screen.getByText("jdoe")).toBeInTheDocument();
     });
@@ -219,7 +211,7 @@ describe("UserProfilePage", () => {
       ok: true,
       json: () => Promise.resolve({ user: { ...FAKE_PROFILE, id: 42 } }),
     });
-    renderProfilePage("42");
+    renderProfilePage("self");
     await waitFor(() => {
       expect(screen.getByText("Edit Profile")).toBeInTheDocument();
     });
@@ -229,7 +221,7 @@ describe("UserProfilePage", () => {
     renderProfilePage();
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost:8080/api/v1/users/7",
+        "http://localhost:8080/api/v1/users/jdoe",
         expect.objectContaining({
           headers: { Authorization: "Bearer fake-token" },
         }),
@@ -266,7 +258,7 @@ describe("UserProfilePage", () => {
     });
 
     const user = userEvent.setup();
-    renderProfilePage("42");
+    renderProfilePage("self");
 
     await waitFor(() => {
       expect(screen.getByText("jdoe")).toBeInTheDocument();
@@ -303,7 +295,7 @@ describe("UserProfilePage", () => {
     });
 
     const user = userEvent.setup();
-    renderProfilePage("42");
+    renderProfilePage("self");
 
     await waitFor(() => {
       expect(screen.getByText("jdoe")).toBeInTheDocument();

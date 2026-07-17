@@ -12,6 +12,9 @@ import (
 type UserRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 	GetByUsername(ctx context.Context, username string) (*model.User, error)
+	// GetByUsernames resolves multiple usernames in one round trip. Unknown
+	// usernames are simply absent from the result — not an error.
+	GetByUsernames(ctx context.Context, usernames []string) ([]model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	GetByPasskey(ctx context.Context, passkey string) (*model.User, error)
 	Count(ctx context.Context) (int64, error)

@@ -70,6 +70,9 @@ func (r *mockUserRepo) GetByID(_ context.Context, id int64) (*model.User, error)
 func (r *mockUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
 	return nil, nil
 }
+func (r *mockUserRepo) GetByUsernames(context.Context, []string) ([]model.User, error) {
+	return nil, nil
+}
 func (r *mockUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, nil
 }

@@ -44,6 +44,9 @@ func (m *trackerMockUserRepo) GetByID(_ context.Context, id int64) (*model.User,
 func (m *trackerMockUserRepo) GetByUsername(_ context.Context, username string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
+func (m *trackerMockUserRepo) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 
 func (m *trackerMockUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows

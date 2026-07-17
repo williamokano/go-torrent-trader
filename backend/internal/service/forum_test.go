@@ -269,6 +269,11 @@ func (m *mockForumPostRepo) ListEdits(_ context.Context, _ int64) ([]model.Forum
 type mockForumUserRepo struct {
 	user *model.User
 	err  error
+	// byUsername backs GetByUsernames for mention-resolution tests; nil/empty
+	// means no username ever resolves (matches every existing test's implicit
+	// assumption, since none of them exercise mentions).
+	byUsername   map[string]*model.User
+	usernamesErr error
 }
 
 func (m *mockForumUserRepo) GetByID(_ context.Context, _ int64) (*model.User, error) {
@@ -276,6 +281,18 @@ func (m *mockForumUserRepo) GetByID(_ context.Context, _ int64) (*model.User, er
 }
 func (m *mockForumUserRepo) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
+}
+func (m *mockForumUserRepo) GetByUsernames(_ context.Context, usernames []string) ([]model.User, error) {
+	if m.usernamesErr != nil {
+		return nil, m.usernamesErr
+	}
+	var found []model.User
+	for _, name := range usernames {
+		if u, ok := m.byUsername[name]; ok {
+			found = append(found, *u)
+		}
+	}
+	return found, nil
 }
 func (m *mockForumUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows

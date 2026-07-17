@@ -131,6 +131,9 @@ func (m *mockNewsUserRepo) GetByID(_ context.Context, id int64) (*model.User, er
 func (m *mockNewsUserRepo) GetByUsername(context.Context, string) (*model.User, error) {
 	return nil, errors.New("not implemented")
 }
+func (m *mockNewsUserRepo) GetByUsernames(context.Context, []string) ([]model.User, error) {
+	return nil, nil
+}
 func (m *mockNewsUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, errors.New("not implemented")
 }

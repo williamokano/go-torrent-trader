@@ -3,7 +3,6 @@ package handler_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,10 +53,10 @@ func registerUserAndGetToken(t *testing.T, router http.Handler, username, email,
 func TestHandleGetProfile_PublicView(t *testing.T) {
 	_, router := setupUserRouter()
 
-	_, userID := registerUserAndGetToken(t, router, "target", "target@example.com", "password123")
+	registerUserAndGetToken(t, router, "target", "target@example.com", "password123")
 	viewerToken, _ := registerUserAndGetToken(t, router, "viewer", "viewer@example.com", "password123")
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/users/%d", int64(userID)), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/target", nil)
 	req.Header.Set("Authorization", "Bearer "+viewerToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -82,9 +81,9 @@ func TestHandleGetProfile_PublicView(t *testing.T) {
 func TestHandleGetProfile_OwnerView(t *testing.T) {
 	_, router := setupUserRouter()
 
-	token, userID := registerUserAndGetToken(t, router, "owner", "owner@example.com", "password123")
+	token, _ := registerUserAndGetToken(t, router, "owner", "owner@example.com", "password123")
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/users/%d", int64(userID)), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/owner", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -110,28 +109,13 @@ func TestHandleGetProfile_NotFound(t *testing.T) {
 
 	token, _ := registerUserAndGetToken(t, router, "finder", "finder@example.com", "password123")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/9999", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/nosuchuser", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
-	}
-}
-
-func TestHandleGetProfile_InvalidID(t *testing.T) {
-	_, router := setupUserRouter()
-
-	token, _ := registerUserAndGetToken(t, router, "badid", "badid@example.com", "password123")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/abc", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
 	}
 }
 

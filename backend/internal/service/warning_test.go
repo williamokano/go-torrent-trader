@@ -183,6 +183,9 @@ func (m *mockUserRepoForWarnings) GetByID(_ context.Context, id int64) (*model.U
 func (m *mockUserRepoForWarnings) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
+func (m *mockUserRepoForWarnings) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 func (m *mockUserRepoForWarnings) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }

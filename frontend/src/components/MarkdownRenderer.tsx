@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { remarkSpoiler } from "./remarkSpoiler";
+import { remarkMention } from "./remarkMention";
 import "./markdown.css";
 
 interface MarkdownRendererProps {
@@ -15,12 +16,32 @@ interface MarkdownRendererProps {
    * heading or a table would wreck the layout.
    */
   inline?: boolean;
+  /**
+   * Usernames resolved as real @mentions when this content was saved (see
+   * ResolveMentionedUsernames on the backend) — only these tokens render as
+   * links to the mentioned user's profile; anything else stays plain text.
+   */
+  mentionedUsernames?: string[];
 }
 
-// Extend the default sanitize schema to allow <details>/<summary> for spoilers
+// Extend the default sanitize schema to allow <details>/<summary> for
+// spoilers, and a "mention" class on <a> so a mention link can be styled
+// distinctly from a plain link. defaultSchema.attributes.a already has one
+// `["className", "data-footnote-backref"]` entry — hast-util-sanitize's
+// findDefinition takes the *first* entry matching a given property name, so
+// a second separate `["className", ...]` tuple would silently be dead code.
+// "mention" has to be appended to that existing entry's allow-list instead.
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
+  attributes: {
+    ...defaultSchema.attributes,
+    a: (defaultSchema.attributes?.a ?? []).map((entry) =>
+      Array.isArray(entry) && entry[0] === "className"
+        ? [...entry, "mention"]
+        : entry,
+    ),
+  },
 };
 
 // Elements kept in inline mode; anything else is unwrapped to its text.
@@ -65,6 +86,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className = "",
   inline = false,
+  mentionedUsernames,
 }: MarkdownRendererProps) {
   const classes = [
     "markdown-body",
@@ -75,11 +97,16 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     .join(" ");
 
   const Wrapper = inline ? "span" : "div";
+  const validMentions = new Set(mentionedUsernames ?? []);
 
   return (
     <Wrapper className={classes}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkSpoiler]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkSpoiler,
+          [remarkMention, { validMentions }],
+        ]}
         rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
         components={components}
         allowedElements={inline ? INLINE_ELEMENTS : undefined}

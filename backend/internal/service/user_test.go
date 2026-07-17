@@ -24,7 +24,7 @@ func TestGetProfile_PublicView(t *testing.T) {
 	}, "127.0.0.1")
 
 	// View as different user
-	profile, err := svc.GetProfile(context.Background(), result.User.ID, 999)
+	profile, err := svc.GetProfile(context.Background(), "profileuser", 999)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestGetProfile_OwnerView(t *testing.T) {
 		Password: "password123",
 	}, "127.0.0.1")
 
-	profile, err := svc.GetProfile(context.Background(), result.User.ID, result.User.ID)
+	profile, err := svc.GetProfile(context.Background(), "owneruser", result.User.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 	sessions := newTestSessionStore()
 	svc := NewUserService(repo, sessions, nil, nil, nil)
 
-	_, err := svc.GetProfile(context.Background(), 999, 1)
+	_, err := svc.GetProfile(context.Background(), "nosuchuser", 1)
 	if !errors.Is(err, ErrUserNotFound) {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}

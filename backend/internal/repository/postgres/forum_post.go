@@ -21,7 +21,7 @@ func NewForumPostRepo(db *sql.DB) repository.ForumPostRepository {
 }
 
 func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost, error) {
-	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
+	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.mentioned_usernames, p.reply_to_post_id,
 		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
 		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id AND deleted_at IS NULL)
@@ -31,8 +31,9 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 	WHERE p.id = $1`
 
 	var post model.ForumPost
+	var mentioned []byte
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&post.ID, &post.TopicID, &post.UserID, &post.Body, &post.ReplyToPostID,
+		&post.ID, &post.TopicID, &post.UserID, &post.Body, &mentioned, &post.ReplyToPostID,
 		&post.EditedAt, &post.EditedBy, &post.DeletedAt, &post.DeletedBy, &post.CreatedAt,
 		&post.Username, &post.Avatar, &post.GroupName, &post.UserCreatedAt,
 		&post.UserPostCount,
@@ -40,6 +41,7 @@ func (r *ForumPostRepo) GetByID(ctx context.Context, id int64) (*model.ForumPost
 	if err != nil {
 		return nil, err
 	}
+	post.MentionedUsernames = scanMentionedUsernames(mentioned)
 	return &post, nil
 }
 
@@ -56,7 +58,7 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 	// The p.id tiebreaker keeps pagination deterministic when two posts share a
 	// created_at, and makes this order match the id-rank that Search computes as
 	// post_number — the deep-link page number is derived from that rank.
-	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.reply_to_post_id,
+	query := `SELECT p.id, p.topic_id, p.user_id, p.body, p.mentioned_usernames, p.reply_to_post_id,
 		p.edited_at, p.edited_by, p.deleted_at, p.deleted_by, p.created_at,
 		u.username, u.avatar, g.name, u.created_at,
 		(SELECT COUNT(*) FROM forum_posts WHERE user_id = p.user_id AND deleted_at IS NULL)
@@ -76,33 +78,45 @@ func (r *ForumPostRepo) ListByTopic(ctx context.Context, topicID int64, page, pe
 	var posts []model.ForumPost
 	for rows.Next() {
 		var post model.ForumPost
+		var mentioned []byte
 		if err := rows.Scan(
-			&post.ID, &post.TopicID, &post.UserID, &post.Body, &post.ReplyToPostID,
+			&post.ID, &post.TopicID, &post.UserID, &post.Body, &mentioned, &post.ReplyToPostID,
 			&post.EditedAt, &post.EditedBy, &post.DeletedAt, &post.DeletedBy, &post.CreatedAt,
 			&post.Username, &post.Avatar, &post.GroupName, &post.UserCreatedAt,
 			&post.UserPostCount,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan post: %w", err)
 		}
+		post.MentionedUsernames = scanMentionedUsernames(mentioned)
 		posts = append(posts, post)
 	}
 	return posts, total, rows.Err()
 }
 
 func (r *ForumPostRepo) Create(ctx context.Context, post *model.ForumPost) error {
-	query := `INSERT INTO forum_posts (topic_id, user_id, body, reply_to_post_id)
-		VALUES ($1, $2, $3, $4)
+	mentioned, err := marshalMentionedUsernames(post.MentionedUsernames)
+	if err != nil {
+		return fmt.Errorf("marshal mentioned usernames: %w", err)
+	}
+
+	query := `INSERT INTO forum_posts (topic_id, user_id, body, mentioned_usernames, reply_to_post_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at`
 
 	return r.db.QueryRowContext(ctx, query,
-		post.TopicID, post.UserID, post.Body, post.ReplyToPostID,
+		post.TopicID, post.UserID, post.Body, mentioned, post.ReplyToPostID,
 	).Scan(&post.ID, &post.CreatedAt)
 }
 
 func (r *ForumPostRepo) Update(ctx context.Context, post *model.ForumPost) error {
-	_, err := r.db.ExecContext(ctx,
-		"UPDATE forum_posts SET body = $1, edited_at = NOW(), edited_by = $2 WHERE id = $3",
-		post.Body, post.EditedBy, post.ID,
+	mentioned, err := marshalMentionedUsernames(post.MentionedUsernames)
+	if err != nil {
+		return fmt.Errorf("marshal mentioned usernames: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx,
+		"UPDATE forum_posts SET body = $1, mentioned_usernames = $2, edited_at = NOW(), edited_by = $3 WHERE id = $4",
+		post.Body, mentioned, post.EditedBy, post.ID,
 	)
 	return err
 }

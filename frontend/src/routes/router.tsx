@@ -145,7 +145,7 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: "user/:id",
+        path: "user/:username",
         element: (
           <ProtectedRoute>
             <UserProfilePage />

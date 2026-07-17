@@ -320,7 +320,7 @@ export function RootLayout() {
                 onNavigate={closeMenu}
               >
                 <NavLink
-                  to={`/user/${user?.id}`}
+                  to={`/user/${user?.username}`}
                   className="header__dropdown-item"
                   onClick={closeMenu}
                 >

@@ -43,6 +43,12 @@
   text-decoration: underline;
 }
 
+/* A resolved @mention — bolder than a plain link so it reads as referring to
+   a person, not just a hyperlink. */
+.markdown-body a.mention {
+  font-weight: 600;
+}
+
 .markdown-body strong {
   color: var(--color-text-primary);
   font-weight: 700;

@@ -65,6 +65,9 @@ func (s *stubUserRepo) GetByID(_ context.Context, id int64) (*model.User, error)
 func (s *stubUserRepo) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("user not found")
 }
+func (s *stubUserRepo) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 func (s *stubUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, errors.New("user not found")
 }

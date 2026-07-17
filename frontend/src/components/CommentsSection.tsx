@@ -16,6 +16,7 @@ export interface Comment {
   user_id: number;
   username?: string;
   body: string;
+  mentioned_usernames?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -278,6 +279,7 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
                     <UsernameDisplay
                       userId={comment.user_id}
                       username={comment.username ?? `User #${comment.user_id}`}
+                      noLink={!comment.username}
                     />
                   </span>
                   <time
@@ -321,6 +323,7 @@ export function CommentsSection({ torrentId }: CommentsSectionProps) {
                   <MarkdownRenderer
                     content={comment.body}
                     className="comments-section__body"
+                    mentionedUsernames={comment.mentioned_usernames}
                   />
                 )}
 

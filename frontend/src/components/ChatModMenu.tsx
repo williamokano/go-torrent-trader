@@ -92,7 +92,7 @@ export function ChatModMenu({ userId, username }: ChatModMenuProps) {
       {open && (
         <div className="chat-mod-menu__dropdown" style={dropdownStyle}>
           <Link
-            to={`/user/${userId}`}
+            to={`/user/${username}`}
             className="chat-mod-menu__item"
             onClick={() => setOpen(false)}
           >

@@ -105,6 +105,15 @@ func (m *mockNotifUsers) GetByUsername(_ context.Context, username string) (*mod
 	}
 	return &model.User{ID: id, Username: username}, nil
 }
+func (m *mockNotifUsers) GetByUsernames(_ context.Context, usernames []string) ([]model.User, error) {
+	var found []model.User
+	for _, name := range usernames {
+		if id, ok := m.byName[name]; ok {
+			found = append(found, model.User{ID: id, Username: name})
+		}
+	}
+	return found, nil
+}
 func (m *mockNotifUsers) GetByID(_ context.Context, _ int64) (*model.User, error) { return nil, nil }
 func (m *mockNotifUsers) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil

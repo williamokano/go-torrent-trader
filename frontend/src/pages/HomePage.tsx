@@ -242,6 +242,7 @@ export function HomePage() {
                         userId={t.uploader_id!}
                         username={t.uploader_name ?? "Unknown"}
                         warned={t.uploader_warned}
+                        noLink={!t.uploader_name}
                       />
                     )}
                   </td>

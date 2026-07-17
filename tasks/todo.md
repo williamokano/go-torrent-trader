@@ -2,6 +2,57 @@
 
 The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
+## Session 2026-07-17 — BE-8.20 / FE-5.17: username profile route + resolved @mentions
+
+Branch `feat/username-profile-and-mention-links` (worktree `username-route-and-mentions`).
+Follows two smaller same-session fixes: PR #108 (release workflow Go version) and
+PR #109 (mention-dropdown caret positioning, `MarkdownEditor`'s typeahead — a
+different feature from the @mention *linking* built here).
+
+**Part A** — `/user/{id}` → `/user/{username}`: backend `GetProfile` resolves via
+`GetByUsername`; frontend route/fetch/`UsernameDisplay`/5 direct link sites updated;
+6 synthesized-fallback call sites (`comment.username ?? "User #123"`) gained `noLink`
+guards so a missing username can't build a garbage link. Clean break, no numeric-ID
+fallback (usernames can legally be all-numeric — dual resolution would risk collision).
+
+**Part B** — resolved @mention linking: migration 058 (`mentioned_usernames` JSONB on
+`torrent_comments`/`forum_posts`), `UserRepository.GetByUsernames`, new
+`ResolveMentionedUsernames` service helper (parallel to, not replacing, the existing
+`publishMention` notification pipeline), wired into Create/Update/Edit for comments
+and forum posts. Frontend `remarkMention` plugin (mirrors `remarkSpoiler`'s pattern)
+linkifies only resolved usernames in `MarkdownRenderer`. v1 scope: comments + forum
+posts only — PMs and news deferred (PMs argued to be a different problem, not just
+unwired, since they're strictly 1:1 and a mention notification would just duplicate
+the existing "new message" one).
+
+- [x] Both parts implemented, backend + frontend, with tests at each layer
+- [x] Devil's-advocate + code-reviewer agents run in parallel per CLAUDE.md §5.
+      Code reviewer: clean, 0 blocking findings. Devil's advocate: 4 confirmed,
+      empirically-verified findings, all fixed:
+      1. `EditPost` reordered so `ResolveMentionedUsernames` (a new fallible call)
+         runs *before* `CreateEdit`, not between it and `Update` — closes a window
+         where edit history could record an edit that never landed.
+      2. `remarkMention` only honored the backend's `^`-boundary rule for a
+         paragraph's *first* text node; later sibling nodes (after `*emphasis*`,
+         links, code spans) treated their own start as a fresh `^`, so
+         `*cool*@alice` could wrongly linkify. Fixed with a second boundary-less
+         regex for non-first children — verified via the agent's own live
+         reproduction before and after.
+      3. `scanMentionedUsernames` errors used to abort the whole `ListByTorrent`/
+         `ListByTopic` page on one malformed row. Now logs and degrades to `[]`
+         for that row only — `mentioned_usernames` is a pure rendering aid, must
+         never take the page down.
+      4. `AdminService.UpdateUser` set `user.Username` with zero format
+         validation, unlike registration — harmless before this PR, now
+         consequential since the username *is* the routing key. Added the same
+         `usernameRe` check registration already uses.
+- [x] Final backend/frontend verification re-run after the 4 fixes: go build/vet/test
+      (incl. Docker repo tests — migration 058 applies cleanly), golangci-lint 0
+      issues, coverage 80.2% ≥ 80.0% floor, vitest 615 passed, frontend build/lint/
+      format green
+- [x] `docs/IMPLEMENTATION_TASKS.md` updated (BE-8.20 / FE-5.17 added, DONE)
+- [ ] Commit, push, open PR
+
 ## Session 2026-07-16 (cont'd 2) — admin user detail revamp + edit history
 
 Branch `feat/admin-user-detail-revamp` (worktree). Brief: revamp `/admin/users/{id}`.

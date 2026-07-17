@@ -67,7 +67,7 @@ interface TorrentUpload {
 type ActivityTab = "uploads" | "seeding" | "leeching" | "history";
 
 export function UserProfilePage() {
-  const { id } = useParams<{ id: string }>();
+  const { username } = useParams<{ username: string }>();
   const { user: currentUser } = useAuth();
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
@@ -96,21 +96,21 @@ export function UserProfilePage() {
     setActivity([]);
     setActivityTotal(0);
     setActivityPage(1);
-  }, [id]);
+  }, [username]);
 
   useEffect(() => {
-    const numericId = Number(id);
-    if (!id || isNaN(numericId)) {
-      setError("Invalid user ID");
+    if (!username) {
+      setError("Invalid username");
       setLoading(false);
       return;
     }
+    const targetUsername = username;
 
     async function fetchProfile() {
       try {
         const token = getAccessToken();
         const res = await fetch(
-          `${getConfig().API_URL}/api/v1/users/${numericId}`,
+          `${getConfig().API_URL}/api/v1/users/${encodeURIComponent(targetUsername)}`,
           {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           },
@@ -136,7 +136,7 @@ export function UserProfilePage() {
     }
 
     fetchProfile();
-  }, [id]);
+  }, [username]);
 
   const canViewPrivateActivity =
     profile &&
@@ -169,13 +169,13 @@ export function UserProfilePage() {
 
   const fetchUploads = useCallback(
     async (page: number) => {
-      if (!id) return;
+      if (!profile) return;
       setTabLoading(true);
       setTabError(null);
       try {
         const token = getAccessToken();
         const res = await fetch(
-          `${getConfig().API_URL}/api/v1/users/${id}/torrents?page=${page}&per_page=${perPage}`,
+          `${getConfig().API_URL}/api/v1/users/${profile.id}/torrents?page=${page}&per_page=${perPage}`,
           { headers: token ? { Authorization: `Bearer ${token}` } : {} },
         );
         if (res.ok) {
@@ -191,18 +191,18 @@ export function UserProfilePage() {
         setTabLoading(false);
       }
     },
-    [id],
+    [profile],
   );
 
   const fetchActivity = useCallback(
     async (tab: "seeding" | "leeching" | "history", page: number) => {
-      if (!id) return;
+      if (!profile) return;
       setTabLoading(true);
       setTabError(null);
       try {
         const token = getAccessToken();
         const res = await fetch(
-          `${getConfig().API_URL}/api/v1/users/${id}/activity?tab=${tab}&page=${page}&per_page=${perPage}`,
+          `${getConfig().API_URL}/api/v1/users/${profile.id}/activity?tab=${tab}&page=${page}&per_page=${perPage}`,
           { headers: token ? { Authorization: `Bearer ${token}` } : {} },
         );
         if (res.ok) {
@@ -218,7 +218,7 @@ export function UserProfilePage() {
         setTabLoading(false);
       }
     },
-    [id],
+    [profile],
   );
 
   // Fetch data when tab or page changes

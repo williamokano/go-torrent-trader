@@ -215,6 +215,9 @@ func (m *mockEscalationUserRepo) GetByID(_ context.Context, id int64) (*model.Us
 func (m *mockEscalationUserRepo) GetByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil
 }
+func (m *mockEscalationUserRepo) GetByUsernames(_ context.Context, _ []string) ([]model.User, error) {
+	return nil, nil
+}
 func (m *mockEscalationUserRepo) GetByEmail(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil
 }

@@ -23,6 +23,7 @@ type CommentService struct {
 	comments repository.CommentRepository
 	ratings  repository.RatingRepository
 	torrents repository.TorrentRepository
+	users    repository.UserRepository
 	eventBus event.Bus
 }
 
@@ -31,12 +32,14 @@ func NewCommentService(
 	comments repository.CommentRepository,
 	ratings repository.RatingRepository,
 	torrents repository.TorrentRepository,
+	users repository.UserRepository,
 	bus event.Bus,
 ) *CommentService {
 	return &CommentService{
 		comments: comments,
 		ratings:  ratings,
 		torrents: torrents,
+		users:    users,
 		eventBus: bus,
 	}
 }
@@ -54,10 +57,16 @@ func (s *CommentService) CreateComment(ctx context.Context, torrentID, userID in
 		return nil, ErrTorrentNotFound
 	}
 
+	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
+	}
+
 	comment := &model.Comment{
-		TorrentID: torrentID,
-		UserID:    userID,
-		Body:      body,
+		TorrentID:          torrentID,
+		UserID:             userID,
+		Body:               body,
+		MentionedUsernames: mentioned,
 	}
 
 	if err := s.comments.Create(ctx, comment); err != nil {
@@ -143,7 +152,13 @@ func (s *CommentService) UpdateComment(ctx context.Context, commentID, userID in
 		return nil, ErrForbidden
 	}
 
+	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
+	}
+
 	comment.Body = body
+	comment.MentionedUsernames = mentioned
 	if err := s.comments.Update(ctx, comment); err != nil {
 		return nil, fmt.Errorf("update comment: %w", err)
 	}

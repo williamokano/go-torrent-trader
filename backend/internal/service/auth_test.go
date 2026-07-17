@@ -45,6 +45,22 @@ func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (*model
 	return nil, errors.New("not found")
 }
 
+func (m *mockUserRepo) GetByUsernames(_ context.Context, usernames []string) ([]model.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := make(map[string]bool, len(usernames))
+	for _, name := range usernames {
+		want[name] = true
+	}
+	var found []model.User
+	for _, u := range m.users {
+		if want[u.Username] {
+			found = append(found, *u)
+		}
+	}
+	return found, nil
+}
+
 func (m *mockUserRepo) GetByEmail(_ context.Context, email string) (*model.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

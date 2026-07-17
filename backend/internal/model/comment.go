@@ -4,13 +4,14 @@ import "time"
 
 // Comment represents a user comment on a torrent.
 type Comment struct {
-	ID        int64
-	TorrentID int64
-	UserID    int64
-	Username  string
-	Body      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                 int64
+	TorrentID          int64
+	UserID             int64
+	Username           string
+	Body               string
+	MentionedUsernames []string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // Rating represents a user's rating of a torrent.
