@@ -2,11 +2,39 @@ import { describe, test, expect } from "vitest";
 import {
   notificationLink,
   notificationMessage,
+  groupLink,
+  groupMessage,
   type Notification,
+  type NotificationGroup,
 } from "./notificationDisplay";
 
-function notif(type: string, data: Record<string, unknown>): Notification {
-  return { id: 1, type, data, read: false, created_at: "2026-07-15T00:00:00Z" };
+function notif(
+  type: string,
+  data: Record<string, unknown>,
+  overrides: Partial<Notification> = {},
+): Notification {
+  return {
+    id: 1,
+    type,
+    data,
+    read: false,
+    created_at: "2026-07-15T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function group(overrides: Partial<NotificationGroup> = {}): NotificationGroup {
+  return {
+    key: "topic_reply:4",
+    type: "topic_reply",
+    count: 1,
+    unread: true,
+    last_actors: [],
+    latest_created_at: "2026-07-15T00:00:00Z",
+    data: {},
+    notifications: [],
+    ...overrides,
+  };
 }
 
 describe("mention notification rendering", () => {
@@ -56,5 +84,67 @@ describe("mention notification rendering", () => {
   test("legacy forum_mention still links via topic_id", () => {
     const n = notif("forum_mention", { topic_id: 42, topic_title: "T" });
     expect(notificationLink(n)).toBe("/forums/topics/42");
+  });
+});
+
+describe("notification group rendering (BE-9.14)", () => {
+  test("a singleton group (count 1) renders exactly like its one notification", () => {
+    const n = notif("mention", { actor_username: "bob", context_title: "X" });
+    const g = group({ type: "mention", count: 1, notifications: [n] });
+    expect(groupMessage(g)).toBe(notificationMessage(n));
+    expect(groupLink(g)).toBe(notificationLink(n));
+  });
+
+  test("a collapsed group names the count, topic, and actors", () => {
+    const g = group({
+      count: 5,
+      data: { topic_id: 4, topic_title: "Release Discussion" },
+      last_actors: ["carol", "bob", "alice"],
+    });
+    expect(groupMessage(g)).toBe(
+      '5 new replies in "Release Discussion" from carol, bob, and alice',
+    );
+  });
+
+  test("drops the 'new' label once every reply in the group has been read", () => {
+    const g = group({
+      count: 5,
+      unread: false,
+      data: { topic_id: 4, topic_title: "Release Discussion" },
+      last_actors: ["carol", "bob", "alice"],
+    });
+    expect(groupMessage(g)).toBe(
+      '5 replies in "Release Discussion" from carol, bob, and alice',
+    );
+  });
+
+  test("a collapsed group links to the topic", () => {
+    const g = group({ count: 3, data: { topic_id: 9 } });
+    expect(groupLink(g)).toBe("/forums/topics/9");
+  });
+
+  test("falls back to a generic topic label when the title is missing", () => {
+    const g = group({ count: 2, data: {}, last_actors: ["alice"] });
+    expect(groupMessage(g)).toBe('2 new replies in "a topic" from alice');
+  });
+
+  test("formats two actors with 'and', three+ with an Oxford comma", () => {
+    expect(
+      groupMessage(group({ count: 2, last_actors: ["alice", "bob"] })),
+    ).toContain("alice and bob");
+    expect(
+      groupMessage(group({ count: 3, last_actors: ["alice", "bob", "carol"] })),
+    ).toContain("alice, bob, and carol");
+  });
+
+  test("falls back to a neutral phrase when no actors were recorded", () => {
+    expect(groupMessage(group({ count: 4, last_actors: [] }))).toContain(
+      "several people",
+    );
+  });
+
+  test("a collapsed group without a topic_id has no link", () => {
+    const g = group({ count: 2, data: {} });
+    expect(groupLink(g)).toBeNull();
   });
 });

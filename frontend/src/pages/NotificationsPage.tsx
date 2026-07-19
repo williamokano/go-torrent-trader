@@ -7,8 +7,11 @@ import { useChat } from "@/lib/useChat";
 import { Pagination } from "@/components/Pagination";
 import {
   type Notification,
+  type NotificationGroup,
   notificationLink,
   notificationMessage,
+  groupLink,
+  groupMessage,
 } from "./notificationDisplay";
 import "./notifications.css";
 
@@ -62,7 +65,8 @@ export function NotificationsPage() {
   const toast = useToast();
   const { setNotifUnreadCount } = useChat();
   const [tab, setTab] = useState<"all" | "unread" | "preferences">("all");
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [groups, setGroups] = useState<NotificationGroup[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -85,13 +89,26 @@ export function NotificationsPage() {
       if (tab === "unread") params.set("unread_only", "true");
 
       const res = await fetch(
-        `${getConfig().API_URL}/api/v1/notifications?${params}`,
+        `${getConfig().API_URL}/api/v1/notifications/grouped?${params}`,
         { headers: authHeaders() },
       );
       if (!res.ok) throw new Error("Failed to fetch notifications");
       const body = await res.json();
-      setNotifications(body.notifications ?? []);
-      setTotal(body.total ?? 0);
+      const fetchedTotal = body.total ?? 0;
+
+      // Marking a whole group read can wipe out an entire page in one
+      // click (unlike the old per-notification flow, which only ever
+      // removed one row at a time) -- if that leaves `page` past the end,
+      // snap back instead of rendering an empty page while unread items
+      // still exist earlier in the list.
+      const lastPage = Math.max(1, Math.ceil(fetchedTotal / PER_PAGE));
+      if (page > lastPage) {
+        setPage(lastPage);
+        return;
+      }
+
+      setGroups(body.groups ?? []);
+      setTotal(fetchedTotal);
     } catch {
       toast.error("Failed to load notifications");
     } finally {
@@ -143,26 +160,88 @@ export function NotificationsPage() {
     }
   }, [tab, fetchPreferences, fetchDigestFrequency]);
 
-  async function handleMarkRead(id: number) {
+  // PUTs a single notification read and applies the local optimistic
+  // update. Does not touch the unread-count badge -- callers refetch it
+  // once, after all their PUTs have settled (see handleMarkRead /
+  // handleMarkGroupRead below). Returns whether the PUT succeeded so a
+  // caller marking several notifications at once can report partial
+  // failure instead of silently swallowing it.
+  async function markNotificationRead(id: number): Promise<boolean> {
     try {
       const res = await fetch(
         `${getConfig().API_URL}/api/v1/notifications/${id}/read`,
         { method: "PUT", headers: authHeaders() },
       );
       if (!res.ok) throw new Error();
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (!g.notifications.some((n) => n.id === id)) return g;
+          const notifications = g.notifications.map((n) =>
+            n.id === id ? { ...n, read: true } : n,
+          );
+          return {
+            ...g,
+            notifications,
+            unread: notifications.some((n) => !n.read),
+          };
+        }),
       );
-      // Refetch the actual count from server for accuracy
-      fetch(`${getConfig().API_URL}/api/v1/notifications/unread-count`, {
-        headers: authHeaders(),
-      })
-        .then((r) => r.json())
-        .then((d) => setNotifUnreadCount(d?.count ?? 0))
-        .catch(() => {});
+      return true;
     } catch {
-      toast.error("Failed to mark notification as read");
+      return false;
     }
+  }
+
+  // Refetches the authoritative unread count from the server. Called once
+  // per user action (never once per PUT) so marking several notifications
+  // read at once can't race itself into a stale badge.
+  function refreshUnreadCount() {
+    fetch(`${getConfig().API_URL}/api/v1/notifications/unread-count`, {
+      headers: authHeaders(),
+    })
+      .then((r) => r.json())
+      .then((d) => setNotifUnreadCount(d?.count ?? 0))
+      .catch(() => {});
+  }
+
+  async function handleMarkRead(id: number) {
+    const ok = await markNotificationRead(id);
+    if (!ok) {
+      toast.error("Failed to mark notification as read");
+      return;
+    }
+    refreshUnreadCount();
+  }
+
+  // Marks every still-unread notification underlying a collapsed group as
+  // read (e.g. clicking through a "5 new replies" group, or its explicit
+  // "Mark all read" control). Reuses the existing per-notification endpoint
+  // -- grouping never needed a batch endpoint of its own. The PUTs run in
+  // parallel (each targets a distinct notification, so there's no write
+  // conflict), but the unread-count badge is refreshed exactly once after
+  // they all settle, rather than once per PUT racing to write the badge.
+  async function handleMarkGroupRead(g: NotificationGroup) {
+    const unreadIds = g.notifications.filter((n) => !n.read).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+    const results = await Promise.all(
+      unreadIds.map((id) => markNotificationRead(id)),
+    );
+    if (results.some((ok) => !ok)) {
+      toast.error("Failed to mark some notifications as read");
+    }
+    refreshUnreadCount();
+  }
+
+  function toggleExpanded(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   }
 
   async function handleMarkAllRead() {
@@ -172,7 +251,13 @@ export function NotificationsPage() {
         { method: "PUT", headers: authHeaders() },
       );
       if (!res.ok) throw new Error();
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setGroups((prev) =>
+        prev.map((g) => ({
+          ...g,
+          unread: false,
+          notifications: g.notifications.map((n) => ({ ...n, read: true })),
+        })),
+      );
       setNotifUnreadCount(0);
       toast.success("All notifications marked as read");
     } catch {
@@ -229,11 +314,139 @@ export function NotificationsPage() {
     }
   }
 
+  // renderNotification renders a single notification exactly as the
+  // pre-grouping UI did: type, message, time, and a "Mark read" control
+  // when unread. Used both for singleton groups (count === 1, the common
+  // case) and for each entry inside an expanded group.
+  function renderNotification(n: Notification) {
+    const link = notificationLink(n);
+    const content = (
+      <div
+        className={`notifs-item${!n.read ? " notifs-item--unread" : ""}`}
+        key={n.id}
+      >
+        <div className="notifs-item__type">{TYPE_LABELS[n.type] ?? n.type}</div>
+        <div className="notifs-item__message">{notificationMessage(n)}</div>
+        <div className="notifs-item__meta">
+          <span className="notifs-item__time">{formatTime(n.created_at)}</span>
+          {!n.read && (
+            <button
+              className="notifs-item__mark-read"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleMarkRead(n.id);
+              }}
+            >
+              Mark read
+            </button>
+          )}
+        </div>
+      </div>
+    );
+
+    return link ? (
+      <Link
+        key={n.id}
+        to={link}
+        className="notifs-item__link"
+        onClick={() => {
+          if (!n.read) handleMarkRead(n.id);
+        }}
+      >
+        {content}
+      </Link>
+    ) : (
+      content
+    );
+  }
+
+  // renderGroup renders a collapsed entry: a singleton (count === 1) looks
+  // identical to a plain notification, while a real group (multiple
+  // topic_reply notifications for the same topic) shows the combined
+  // message, count, and an expand toggle that reveals the individual
+  // notifications underneath via renderNotification.
+  function renderGroup(g: NotificationGroup) {
+    if (g.count <= 1) {
+      return g.notifications[0] ? renderNotification(g.notifications[0]) : null;
+    }
+
+    const isOpen = expanded.has(g.key);
+    const link = groupLink(g);
+    // Only the type + message (the navigable part) sits inside the Link.
+    // The count badge, "Mark all read", and expand toggle are rendered as
+    // its siblings, not its children -- nesting <button>s inside an <a>
+    // is invalid HTML and confuses screen readers, and this group summary
+    // has two of them (the singleton notification view below still nests
+    // its one "Mark read" button inside the Link, matching this page's
+    // pre-existing pattern; not touched here to keep this fix scoped).
+    const summaryText = (
+      <>
+        <div className="notifs-item__type">{TYPE_LABELS[g.type] ?? g.type}</div>
+        <div className="notifs-item__message">{groupMessage(g)}</div>
+      </>
+    );
+
+    return (
+      <div className="notifs-group" key={g.key}>
+        <div
+          className={`notifs-item notifs-item--group${g.unread ? " notifs-item--unread" : ""}`}
+        >
+          {link ? (
+            <Link
+              to={link}
+              className="notifs-item__link notifs-group__summary-link"
+              onClick={() => {
+                if (g.unread) handleMarkGroupRead(g);
+              }}
+            >
+              {summaryText}
+            </Link>
+          ) : (
+            summaryText
+          )}
+          <div className="notifs-item__meta">
+            <span className="notifs-item__time">
+              {formatTime(g.latest_created_at)}
+            </span>
+            <span
+              className="notifs-group__count"
+              title={`${g.count} notifications`}
+              aria-hidden="true"
+            >
+              {g.count}
+            </span>
+            {g.unread && (
+              <button
+                className="notifs-item__mark-read"
+                onClick={() => handleMarkGroupRead(g)}
+              >
+                Mark all read
+              </button>
+            )}
+            <button
+              className="notifs-group__toggle"
+              aria-expanded={isOpen}
+              onClick={() => toggleExpanded(g.key)}
+            >
+              {isOpen ? "Hide" : "Show"} individual replies
+            </button>
+          </div>
+        </div>
+        {isOpen && (
+          <div className="notifs-group__children">
+            {g.notifications.map((n) => renderNotification(n))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="notifs-page">
       <div className="notifs-page__header">
         <h1 className="notifs-page__title">Notifications</h1>
-        {tab !== "preferences" && notifications.some((n) => !n.read) && (
+        {tab !== "preferences" && groups.some((g) => g.unread) && (
           <button className="notifs-page__mark-all" onClick={handleMarkAllRead}>
             Mark all read
           </button>
@@ -330,7 +543,7 @@ export function NotificationsPage() {
         </div>
       ) : loading ? (
         <p className="notifs-page__empty">Loading...</p>
-      ) : notifications.length === 0 ? (
+      ) : groups.length === 0 ? (
         <p className="notifs-page__empty">
           {tab === "unread"
             ? "No unread notifications"
@@ -338,56 +551,7 @@ export function NotificationsPage() {
         </p>
       ) : (
         <>
-          <div className="notifs-list">
-            {notifications.map((n) => {
-              const link = notificationLink(n);
-              const content = (
-                <div
-                  className={`notifs-item${!n.read ? " notifs-item--unread" : ""}`}
-                  key={n.id}
-                >
-                  <div className="notifs-item__type">
-                    {TYPE_LABELS[n.type] ?? n.type}
-                  </div>
-                  <div className="notifs-item__message">
-                    {notificationMessage(n)}
-                  </div>
-                  <div className="notifs-item__meta">
-                    <span className="notifs-item__time">
-                      {formatTime(n.created_at)}
-                    </span>
-                    {!n.read && (
-                      <button
-                        className="notifs-item__mark-read"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleMarkRead(n.id);
-                        }}
-                      >
-                        Mark read
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-
-              return link ? (
-                <Link
-                  key={n.id}
-                  to={link}
-                  className="notifs-item__link"
-                  onClick={() => {
-                    if (!n.read) handleMarkRead(n.id);
-                  }}
-                >
-                  {content}
-                </Link>
-              ) : (
-                content
-              );
-            })}
-          </div>
+          <div className="notifs-list">{groups.map((g) => renderGroup(g))}</div>
           <Pagination
             currentPage={page}
             totalPages={totalPages}
