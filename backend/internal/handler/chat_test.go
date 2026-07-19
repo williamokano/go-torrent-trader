@@ -56,12 +56,20 @@ func (s *stubChatMessageRepo) created() []model.ChatMessage {
 	return append([]model.ChatMessage(nil), s.createdMsgs...)
 }
 func (s *stubChatMessageRepo) ListRecent(_ context.Context, limit int) ([]model.ChatMessage, error) {
+	// Same concurrency requirement as Create/created above: the WebSocket
+	// tests can drive this from multiple connections' goroutines at once
+	// (each one triggers its own backfill on connect), so the recorded
+	// field has to be safe for concurrent use too.
+	s.mu.Lock()
 	s.lastLimit = limit
+	s.mu.Unlock()
 	return s.recent, s.listErr
 }
 func (s *stubChatMessageRepo) ListBefore(_ context.Context, beforeID int64, limit int) ([]model.ChatMessage, error) {
+	s.mu.Lock()
 	s.lastBeforeID = beforeID
 	s.lastLimit = limit
+	s.mu.Unlock()
 	return s.before, s.listErr
 }
 func (s *stubChatMessageRepo) Delete(_ context.Context, id int64) error {
