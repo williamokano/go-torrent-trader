@@ -4,6 +4,7 @@ import {
   screen,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -126,6 +127,35 @@ describe("AdminCategoriesPage", () => {
     });
   });
 
+  test("does not close the category form on Escape, preserving in-progress input", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ categories: FAKE_CATEGORIES }),
+    } as Response);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Movies").length).toBeGreaterThanOrEqual(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Category" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    const nameInput = screen.getByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "Draft category name" } });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // The edit/create form is a real-data-entry modal, so it opts out of
+    // Escape-to-close — a stray Escape press must not discard the draft.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Draft category name");
+  });
+
   test("opens edit modal when Edit is clicked", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
@@ -219,14 +249,17 @@ describe("AdminCategoriesPage", () => {
       json: async () => ({ categories: FAKE_CATEGORIES }),
     } as Response);
 
-    // Mock window.confirm
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     renderPage();
 
     await waitFor(() => {
       expect(screen.getAllByText("Movies").length).toBeGreaterThanOrEqual(1);
     });
+
+    const deleteButtons = screen.getAllByText("Delete");
+    fireEvent.click(deleteButtons[0]);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Delete the "Movies"/)).toBeInTheDocument();
 
     // DELETE fails with conflict
     fetchSpy.mockResolvedValueOnce({
@@ -240,8 +273,7 @@ describe("AdminCategoriesPage", () => {
       }),
     } as Response);
 
-    const deleteButtons = screen.getAllByText("Delete");
-    fireEvent.click(deleteButtons[0]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(
@@ -249,5 +281,34 @@ describe("AdminCategoriesPage", () => {
           .length,
       ).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  test("does not delete when confirmation dialog is cancelled", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ categories: FAKE_CATEGORIES }),
+    } as Response);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Movies").length).toBeGreaterThanOrEqual(1);
+    });
+
+    const deleteButtons = screen.getAllByText("Delete");
+    fireEvent.click(deleteButtons[0]);
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("/admin/categories/1"),
+      expect.anything(),
+    );
   });
 });

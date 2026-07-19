@@ -102,14 +102,40 @@ describe("AdminGroupsPage", () => {
     expect(JSON.parse(post!.body!)).toMatchObject({ name: "Seedbox" });
   });
 
+  test("does not close the group form on Escape, preserving in-progress input", async () => {
+    mockApi();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("VIP");
+    await user.click(screen.getByRole("button", { name: "New group" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByLabelText("Name");
+    await user.type(nameInput, "Draft group name");
+
+    await user.keyboard("{Escape}");
+
+    // The edit/create form is a real-data-entry modal, so it opts out of
+    // Escape-to-close (unlike the delete ConfirmModal above) — a stray
+    // Escape press must not discard what the admin was typing.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(nameInput).toHaveValue("Draft group name");
+  });
+
   test("deletes a group after confirmation", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
 
     await screen.findByText("VIP");
     await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/Delete the "VIP" group\?/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(
@@ -121,7 +147,6 @@ describe("AdminGroupsPage", () => {
   });
 
   test("does not delete when confirmation is declined", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
@@ -129,8 +154,29 @@ describe("AdminGroupsPage", () => {
     await screen.findByText("VIP");
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    // Give any erroneous request a chance to fire.
-    await new Promise((r) => setTimeout(r, 0));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  test("does not delete when confirmation is dismissed via Escape", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("VIP");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 });

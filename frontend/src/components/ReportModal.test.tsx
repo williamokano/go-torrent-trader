@@ -170,4 +170,17 @@ describe("ReportModal", () => {
 
     expect(props.onClose).toHaveBeenCalled();
   });
+
+  test("does not close on Escape, preserving an in-progress report reason", () => {
+    const { props } = renderModal();
+
+    const textarea = screen.getByLabelText("Reason");
+    fireEvent.change(textarea, { target: { value: "Draft report text" } });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Report Torrent")).toBeInTheDocument();
+    expect(textarea).toHaveValue("Draft report text");
+  });
 });

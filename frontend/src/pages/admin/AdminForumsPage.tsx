@@ -475,6 +475,7 @@ export function AdminForumsPage() {
         isOpen={catModalOpen}
         onClose={closeCatModal}
         title={editingCatId ? "Edit Forum Category" : "Add Forum Category"}
+        closeOnEscape={false}
       >
         <div className="admin-forums__modal-form">
           <Input
@@ -513,6 +514,7 @@ export function AdminForumsPage() {
         isOpen={forumModalOpen}
         onClose={closeForumModal}
         title={editingForumId ? "Edit Forum" : "Add Forum"}
+        closeOnEscape={false}
       >
         <div className="admin-forums__modal-form">
           <Input

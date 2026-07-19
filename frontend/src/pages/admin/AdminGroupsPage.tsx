@@ -4,6 +4,7 @@ import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { Input, Checkbox, Button } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
+import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import "./admin-ui.css";
 
 interface Group {
@@ -81,6 +82,8 @@ export function AdminGroupsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<GroupFormData>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchGroups = useCallback(async () => {
     const token = getAccessToken();
@@ -176,28 +179,28 @@ export function AdminGroupsPage() {
     }
   };
 
-  const handleDelete = async (group: Group) => {
-    if (
-      !window.confirm(
-        `Delete the "${group.name}" group? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+  const handleDelete = async () => {
+    if (!deletingGroup) return;
+    setDeleting(true);
     const token = getAccessToken();
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/groups/${group.id}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-    if (res.ok) {
-      toast.success("Group deleted");
-      fetchGroups();
-    } else {
-      const data = await res.json().catch(() => null);
-      toast.error(data?.error?.message ?? "Failed to delete group");
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/groups/${deletingGroup.id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (res.ok) {
+        toast.success("Group deleted");
+        fetchGroups();
+      } else {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error?.message ?? "Failed to delete group");
+      }
+    } finally {
+      setDeleting(false);
+      setDeletingGroup(null);
     }
   };
 
@@ -276,7 +279,7 @@ export function AdminGroupsPage() {
                     <Button
                       variant="danger"
                       size="sm"
-                      onClick={() => handleDelete(group)}
+                      onClick={() => setDeletingGroup(group)}
                     >
                       Delete
                     </Button>
@@ -292,6 +295,7 @@ export function AdminGroupsPage() {
         isOpen={modalOpen}
         onClose={closeModal}
         title={editingId ? "Edit group" : "New group"}
+        closeOnEscape={false}
       >
         <div className="admin-modal-form">
           <Input
@@ -359,6 +363,17 @@ export function AdminGroupsPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={deletingGroup !== null}
+        title="Delete Group"
+        message={`Delete the "${deletingGroup?.name}" group? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeletingGroup(null)}
+      />
     </div>
   );
 }

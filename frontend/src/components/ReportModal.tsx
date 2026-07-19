@@ -49,7 +49,12 @@ export function ReportModal({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Report Torrent">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Report Torrent"
+      closeOnEscape={false}
+    >
       <div className="report-modal">
         <p className="report-modal__description">
           Please describe why you are reporting this torrent. Reports are

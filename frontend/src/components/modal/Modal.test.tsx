@@ -39,6 +39,18 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("does not call onClose on Escape when closeOnEscape is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen={true} onClose={onClose} closeOnEscape={false}>
+        <p>Escape opt-out test</p>
+      </Modal>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("calls onClose when overlay is clicked", () => {
     const onClose = vi.fn();
     render(
