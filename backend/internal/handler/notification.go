@@ -191,3 +191,55 @@ func (h *NotificationHandler) HandleUpdatePreferences(w http.ResponseWriter, r *
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// HandleGetDigestPreference handles GET /api/v1/notifications/digest-preference.
+func (h *NotificationHandler) HandleGetDigestPreference(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	freq, err := h.notifSvc.GetDigestFrequency(r.Context(), userID)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to get digest preference")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"frequency": freq,
+	})
+}
+
+// HandleUpdateDigestPreference handles PUT /api/v1/notifications/digest-preference.
+func (h *NotificationHandler) HandleUpdateDigestPreference(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	var body struct {
+		Frequency string `json:"frequency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	if body.Frequency == "" {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "frequency is required")
+		return
+	}
+
+	if err := h.notifSvc.SetDigestFrequency(r.Context(), userID, body.Frequency); err != nil {
+		if errors.Is(err, service.ErrInvalidNotification) {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to update digest preference")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

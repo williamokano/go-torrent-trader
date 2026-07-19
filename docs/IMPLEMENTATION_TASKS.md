@@ -1462,7 +1462,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Review findings from BE-8.5 — TOCTOU race on check-then-delete with CASCADE FKs, plus `window.confirm` inconsistency.
 
-#### BE-9.13: Notification Email Digest [S]
+#### BE-9.13: Notification Email Digest [S] [DONE]
 **As a** user
 **I want** email digests of my unread notifications
 **So that** I don't miss important activity when I'm not on the site
@@ -1473,6 +1473,19 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Email summarizes unread notifications since last digest
 
 > **Origin:** Deferred from BE-5.9 — in-app + WS push covers the immediate need.
+>
+> **Implementation notes:** Digest frequency lives in a new `notification_digest_preferences`
+> table (migration 061) rather than folding into `notification_preferences` — that table is
+> keyed on `(user_id, notification_type)` for per-type booleans, while digest frequency is a
+> single per-user tri-state value that also needs its own `last_digest_sent_at` cursor, which
+> has no natural home on a per-type row. `NotificationDigestService.Run` is scheduled once
+> daily at `0 6 * * *` (an hour after promotion/invite distribution, to avoid contending with
+> them) and gates each recipient independently by elapsed time since their last send (24h for
+> daily, 7d for weekly) rather than a fixed calendar day — a missed scheduler run self-heals on
+> the next tick instead of skipping a user's weekly digest. Emails reuse the existing
+> asynq `TaskEnqueuer` → `email:send` pipeline (same as auth emails), summarizing unread
+> notifications grouped by type since the last digest. Frontend control added to the
+> Notifications page's Preferences tab (off/daily/weekly select).
 
 #### BE-9.14: Notification Batching [S]
 **As a** user

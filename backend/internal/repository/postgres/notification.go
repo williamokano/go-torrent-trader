@@ -128,3 +128,39 @@ func (r *NotificationRepo) DeleteOld(ctx context.Context, before time.Time) (int
 	}
 	return result.RowsAffected()
 }
+
+func (r *NotificationRepo) CountUnreadSince(ctx context.Context, userID int64, since time.Time) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = FALSE AND created_at > $2`,
+		userID, since,
+	).Scan(&count)
+	return count, err
+}
+
+func (r *NotificationRepo) ListUnreadSince(ctx context.Context, userID int64, since time.Time, limit int) ([]model.Notification, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, user_id, type, data, is_read, created_at FROM notifications
+		WHERE user_id = $1 AND is_read = FALSE AND created_at > $2
+		ORDER BY created_at DESC LIMIT $3`,
+		userID, since, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list unread notifications since: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var notifications []model.Notification
+	for rows.Next() {
+		var n model.Notification
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Type, &n.Data, &n.Read, &n.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan notification: %w", err)
+		}
+		notifications = append(notifications, n)
+	}
+	return notifications, rows.Err()
+}

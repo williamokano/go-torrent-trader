@@ -258,9 +258,16 @@ func run() int {
 	// Notification system
 	notificationRepo := postgres.NewNotificationRepo(db)
 	notificationPrefRepo := postgres.NewNotificationPreferenceRepo(db)
+	notificationDigestPrefRepo := postgres.NewNotificationDigestPreferenceRepo(db)
 	topicSubscriptionRepo := postgres.NewTopicSubscriptionRepo(db)
-	notificationService := service.NewNotificationService(notificationRepo, notificationPrefRepo, topicSubscriptionRepo, forumTopicRepo, forumRepo, chatHub.SendToUser)
+	notificationService := service.NewNotificationService(notificationRepo, notificationPrefRepo, notificationDigestPrefRepo, topicSubscriptionRepo, forumTopicRepo, forumRepo, chatHub.SendToUser)
 	listener.RegisterNotificationListeners(eventBus, notificationService, userRepo, forumPostRepo, topicSubscriptionRepo)
+
+	// BE-9.13: daily/weekly email digest of unread notifications, reusing the
+	// same asynq-backed email pipeline as auth emails (see TaskEnqueuer).
+	notificationDigestService := service.NewNotificationDigestService(
+		notificationDigestPrefRepo, notificationRepo, worker.NewAsynqEmailEnqueuer(asynqClient), cfg.Site.BaseURL,
+	)
 
 	deps := &handler.Deps{
 		DB:                        db,
@@ -326,6 +333,7 @@ func run() int {
 		PromotionSvc:          promotionService,
 		BonusSvc:              bonusService,
 		InviteDistributionSvc: inviteDistributionService,
+		DigestSvc:             notificationDigestService,
 		SendToUser:            chatHub.SendToUser,
 
 		NotificationRepo:      notificationRepo,

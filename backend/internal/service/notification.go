@@ -20,6 +20,7 @@ var (
 type NotificationService struct {
 	notifications repository.NotificationRepository
 	preferences   repository.NotificationPreferenceRepository
+	digestPrefs   repository.NotificationDigestPreferenceRepository
 	subscriptions repository.TopicSubscriptionRepository
 	topics        repository.ForumTopicRepository
 	forums        repository.ForumRepository
@@ -30,6 +31,7 @@ type NotificationService struct {
 func NewNotificationService(
 	notifications repository.NotificationRepository,
 	preferences repository.NotificationPreferenceRepository,
+	digestPrefs repository.NotificationDigestPreferenceRepository,
 	subscriptions repository.TopicSubscriptionRepository,
 	topics repository.ForumTopicRepository,
 	forums repository.ForumRepository,
@@ -38,6 +40,7 @@ func NewNotificationService(
 	return &NotificationService{
 		notifications: notifications,
 		preferences:   preferences,
+		digestPrefs:   digestPrefs,
 		subscriptions: subscriptions,
 		topics:        topics,
 		forums:        forums,
@@ -154,6 +157,37 @@ func (s *NotificationService) SetPreference(ctx context.Context, userID int64, n
 		return fmt.Errorf("%w: unknown notification type %q", ErrInvalidNotification, notifType)
 	}
 	return s.preferences.Set(ctx, userID, notifType, enabled)
+}
+
+// GetDigestFrequency returns the user's email digest frequency preference,
+// defaulting to model.DigestOff.
+func (s *NotificationService) GetDigestFrequency(ctx context.Context, userID int64) (string, error) {
+	if s.digestPrefs == nil {
+		return model.DigestOff, nil
+	}
+	freq, err := s.digestPrefs.GetFrequency(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("get digest frequency: %w", err)
+	}
+	return freq, nil
+}
+
+// SetDigestFrequency sets the user's email digest frequency preference.
+func (s *NotificationService) SetDigestFrequency(ctx context.Context, userID int64, frequency string) error {
+	valid := false
+	for _, f := range model.AllDigestFrequencies {
+		if f == frequency {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("%w: unknown digest frequency %q", ErrInvalidNotification, frequency)
+	}
+	if s.digestPrefs == nil {
+		return errors.New("digest preferences not configured")
+	}
+	return s.digestPrefs.SetFrequency(ctx, userID, frequency)
 }
 
 // Subscribe subscribes a user to topic notifications.

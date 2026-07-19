@@ -489,6 +489,12 @@ type NotificationRepository interface {
 	MarkAllRead(ctx context.Context, userID int64) error
 	CountUnread(ctx context.Context, userID int64) (int, error)
 	DeleteOld(ctx context.Context, before time.Time) (int64, error)
+	// CountUnreadSince returns how many unread notifications were created after
+	// since. Used by the email digest job to size "N unread since your last digest".
+	CountUnreadSince(ctx context.Context, userID int64, since time.Time) (int, error)
+	// ListUnreadSince returns up to limit unread notifications created after
+	// since, most recent first. Used to build the digest email body.
+	ListUnreadSince(ctx context.Context, userID int64, since time.Time, limit int) ([]model.Notification, error)
 }
 
 // ListNotificationsOptions holds filtering and pagination options for listing notifications.
@@ -512,6 +518,22 @@ type NotificationPreferenceRepository interface {
 	GetAll(ctx context.Context, userID int64) ([]model.NotificationPreference, error)
 	Set(ctx context.Context, userID int64, notifType string, enabled bool) error
 	IsEnabled(ctx context.Context, userID int64, notifType string) (bool, error)
+}
+
+// NotificationDigestPreferenceRepository defines persistence operations for a
+// user's email digest frequency and send cursor. Kept separate from
+// NotificationPreferenceRepository — see migration 061 for why.
+type NotificationDigestPreferenceRepository interface {
+	// GetFrequency returns the user's digest frequency, defaulting to
+	// model.DigestOff when no preference has been saved.
+	GetFrequency(ctx context.Context, userID int64) (string, error)
+	SetFrequency(ctx context.Context, userID int64, frequency string) error
+	// ListDue returns every enabled user on frequency whose last digest (if
+	// any) was sent before sentBefore — i.e. who is due for another run.
+	ListDue(ctx context.Context, frequency string, sentBefore time.Time) ([]model.DigestRecipient, error)
+	// MarkSent records that a digest run was processed for the user at sentAt,
+	// advancing the "since" cursor regardless of whether an email was sent.
+	MarkSent(ctx context.Context, userID int64, sentAt time.Time) error
 }
 
 // DashboardStats holds aggregated counts for the admin dashboard.

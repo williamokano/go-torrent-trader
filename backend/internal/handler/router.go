@@ -348,6 +348,8 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Put("/{id}/read", notifs.HandleMarkRead)
 					r.Get("/preferences", notifs.HandleGetPreferences)
 					r.Put("/preferences", notifs.HandleUpdatePreferences)
+					r.Get("/digest-preference", notifs.HandleGetDigestPreference)
+					r.Put("/digest-preference", notifs.HandleUpdateDigestPreference)
 				})
 			}
 
