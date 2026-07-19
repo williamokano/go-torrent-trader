@@ -3,6 +3,7 @@ import {
   cleanMetadataValues,
   formatMetadataValue,
   fetchCategorySchema,
+  detectMetadataFromName,
   type MetadataField,
 } from "@/utils/metadata";
 
@@ -100,5 +101,74 @@ describe("fetchCategorySchema", () => {
   it("returns [] when fetch throws", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"));
     expect(await fetchCategorySchema(5)).toEqual([]);
+  });
+});
+
+describe("detectMetadataFromName", () => {
+  const detectSchema: MetadataField[] = [
+    { key: "year", label: "Year", type: "number", integer: true },
+    {
+      key: "resolution",
+      label: "Resolution",
+      type: "select",
+      options: ["720p", "1080p", "2160p"],
+    },
+    {
+      key: "source",
+      label: "Source",
+      type: "select",
+      options: ["Blu-Ray", "WEB-DL", "HDTV"],
+    },
+    {
+      key: "codec",
+      label: "Codec",
+      type: "select",
+      options: ["x264", "x265"],
+    },
+    {
+      key: "audio",
+      label: "Audio",
+      type: "multiselect",
+      options: ["DTS-HD", "AC3", "AAC"],
+    },
+  ];
+
+  it("parses a full scene-style name onto matching schema fields", () => {
+    const out = detectMetadataFromName(
+      "The.Matrix.1999.1080p.BluRay.x265.DTS-HD",
+      detectSchema,
+    );
+    expect(out).toEqual({
+      year: 1999,
+      resolution: "1080p",
+      source: "Blu-Ray", // matched despite the name's "BluRay" spelling
+      codec: "x265",
+      audio: ["DTS-HD"], // multiselect → array
+    });
+  });
+
+  it("maps 4K/UHD to a 2160p option", () => {
+    const out = detectMetadataFromName("Dune.2021.4K.WEB-DL", detectSchema);
+    expect(out.resolution).toBe("2160p");
+    expect(out.source).toBe("WEB-DL");
+  });
+
+  it("omits select values with no matching option", () => {
+    // XviD isn't among the codec options, so it isn't set.
+    const out = detectMetadataFromName("Old.Movie.2003.XviD", detectSchema);
+    expect(out).toEqual({ year: 2003 });
+  });
+
+  it("ignores attributes with no schema field", () => {
+    const yearOnly: MetadataField[] = [
+      { key: "year", label: "Year", type: "number" },
+    ];
+    const out = detectMetadataFromName("Show.2020.1080p.x264", yearOnly);
+    expect(out).toEqual({ year: 2020 });
+  });
+
+  it("returns nothing for an empty name or empty schema", () => {
+    expect(detectMetadataFromName("", detectSchema)).toEqual({});
+    expect(detectMetadataFromName("Movie.2024.1080p", [])).toEqual({});
   });
 });

@@ -677,24 +677,43 @@ browse/search filtering by metadata fields.
 > **MT-1.2 note:** the JSONB `metadata` column is migration-compatible — the torrent migration can
 > map legacy attributes into a category's schema without schema changes.
 
-#### BE-3.13a: Filter Browse/Search by Metadata Fields [M] [TODO]
+#### BE-3.13a: Filter Browse/Search by Metadata Fields [M] [DONE — JSONB filters on browse/search + category-aware filter UI]
 **As a** user
 **I want** to filter torrents by category metadata (e.g. `year=2024`, `codec=x265`)
 **So that** I can find content by specific attributes
 
-- Extend `GET /torrents` and `/torrents/search` with metadata predicates (JSONB `@>` containment
-  and/or range queries), indexed via a GIN index on `torrents.metadata`.
-- Frontend: surface filter controls for the selected category's fields on the browse page.
+**Chosen approach (shipped):** `GET /api/v1/torrents` (the same endpoint serves search via
+`?search=`) accepts `meta_<key>` equality params plus `meta_<key>__gte` / `meta_<key>__lte`
+numeric ranges. Because a raw query value is an untyped string, the handler resolves the selected
+category's *effective* schema (`service.ResolveCategorySchema`) and coerces each value to its
+field's type via `metadata.CoerceFilterValue` — so metadata filters **require a `cat`**. An
+unknown field, a missing category, or a range on a non-numeric field is a 400.
+
+- Equality predicates are merged into a single JSONB containment check (`t.metadata @> $n::jsonb`),
+  index-backed by a **GIN index on `torrents.metadata`** (migration `066`). Multiselect equality
+  matches array containment.
+- Numeric ranges compare `(t.metadata ->> key)::numeric`, guarded by `jsonb_typeof(... ) = 'number'`
+  so a drifted non-numeric value can never abort the cast for the whole query.
+- Threaded through `repository.MetadataFilter` / `ListTorrentsOptions.MetadataFilters` and the
+  `torrent.go` WHERE builder.
+- **Frontend:** `MetadataFilterControls` renders per-field controls (select/multiselect → dropdown,
+  boolean → Any/Yes/No, number → Min/Max) when a category is selected on the browse page; filter
+  state lives in the URL. Free-text fields are intentionally omitted (exact-match containment isn't
+  useful for prose; still filterable via the API). Changing category clears stale filters.
 - Follow-up to **BE-3.13**, which shipped define + validate + display only.
 
-#### BE-3.13b: Auto-Detect Metadata from Torrent Name [S] [TODO]
+#### BE-3.13b: Auto-Detect Metadata from Torrent Name [S] [DONE — client-side name parsing pre-fills upload fields]
 **As an** uploader
 **I want** metadata pre-filled by parsing the torrent name
 **So that** I don't type year/resolution/codec by hand
 
-- Parse patterns like `Movie.2024.1080p.BluRay.x265.DTS` → year/resolution/source/codec/audio and
-  pre-populate the matching category schema fields (user can still edit before submit).
-- Purely additive to **BE-3.13**; the manual fields remain the source of truth.
+**Chosen approach (shipped):** a **frontend-only** aid (`detectMetadataFromName` in
+`utils/metadata.ts`). It parses scene-style names like `Movie.2024.1080p.BluRay.x265.DTS-HD` for
+year/resolution/source/codec/audio and pre-fills the matching category-schema fields on the upload
+form — only keys the schema defines, and select/multiselect values only when they match a defined
+option (adapting to the admin's spelling). Purely additive: it fills empty fields only, the user
+can still edit, and the manual fields remain the source of truth. **No backend change** — it's a UI
+convenience over the existing upload endpoint, which still validates on submit.
 
 #### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user

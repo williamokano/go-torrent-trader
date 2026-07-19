@@ -207,6 +207,44 @@ func ValidateValues(effective []FieldDef, values map[string]any) (map[string]any
 	return out, nil
 }
 
+// CoerceFilterValue coerces a raw query-string filter value into the field's
+// underlying JSON type so a JSONB predicate compares like with like. Unlike
+// ValidateValues it does NOT enforce required/option/length constraints — an
+// out-of-range or non-option filter value is allowed and simply matches no
+// rows. Its only job is to guarantee the value's JSON type matches the field
+// (numbers as numbers, booleans as booleans) so containment and numeric range
+// comparisons behave correctly.
+//
+// For text/select/multiselect it returns the trimmed string; multiselect
+// callers wrap it in a single-element array for array containment. An empty
+// value is rejected so callers can treat "present but empty" as no filter.
+func CoerceFilterValue(f FieldDef, raw string) (any, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("%w: field %q filter value is empty", ErrInvalidValues, f.Key)
+	}
+	switch f.Type {
+	case TypeNumber:
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: field %q filter must be a number", ErrInvalidValues, f.Key)
+		}
+		return n, nil
+	case TypeBoolean:
+		switch strings.ToLower(raw) {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		}
+		return nil, fmt.Errorf("%w: field %q filter must be true or false", ErrInvalidValues, f.Key)
+	case TypeText, TypeSelect, TypeMultiselect:
+		return raw, nil
+	default:
+		return nil, fmt.Errorf("%w: field %q: unknown type %q", ErrInvalidValues, f.Key, f.Type)
+	}
+}
+
 // isEmpty reports whether a submitted value should be treated as "not provided".
 func isEmpty(v any) bool {
 	switch val := v.(type) {

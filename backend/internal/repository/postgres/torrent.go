@@ -120,6 +120,41 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		conditions = append(conditions, "t.anonymous = false")
 	}
 
+	// Metadata predicates (BE-3.13a). Equality filters are merged into a single
+	// JSONB containment check so they can use the GIN index on torrents.metadata
+	// (migration 066); numeric range filters compare the extracted value and are
+	// guarded by jsonb_typeof so a non-numeric stored value can never abort the
+	// ::numeric cast for the whole query.
+	metaEq := make(map[string]any)
+	for _, mf := range opts.MetadataFilters {
+		switch mf.Op {
+		case repository.MetaFilterGte, repository.MetaFilterLte:
+			op := ">="
+			if mf.Op == repository.MetaFilterLte {
+				op = "<="
+			}
+			keyPh := nextArg()
+			args = append(args, mf.Key)
+			valPh := nextArg()
+			args = append(args, mf.Value)
+			// keyPh is referenced twice; Postgres allows reusing a placeholder.
+			conditions = append(conditions, fmt.Sprintf(
+				"jsonb_typeof(t.metadata -> %s) = 'number' AND (t.metadata ->> %s)::numeric %s %s",
+				keyPh, keyPh, op, valPh,
+			))
+		default: // MetaFilterEq
+			metaEq[mf.Key] = mf.Value
+		}
+	}
+	if len(metaEq) > 0 {
+		raw, mErr := json.Marshal(metaEq)
+		if mErr != nil {
+			return nil, 0, fmt.Errorf("encoding metadata filter: %w", mErr)
+		}
+		conditions = append(conditions, fmt.Sprintf("t.metadata @> %s::jsonb", nextArg()))
+		args = append(args, string(raw))
+	}
+
 	// useFullText tracks whether to apply ts_rank ordering.
 	var useFullText bool
 

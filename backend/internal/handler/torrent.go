@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -148,6 +150,13 @@ func (h *TorrentHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 			opts.UploaderID = &uid
 		}
 	}
+
+	filters, err := h.parseMetadataFilters(r.Context(), opts.CategoryID, r.URL.Query())
+	if err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	opts.MetadataFilters = filters
 
 	torrents, total, err := h.torrentSvc.List(r.Context(), opts)
 	if err != nil {
@@ -430,6 +439,95 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		resp["metadata"] = json.RawMessage("{}")
 	}
 	return resp
+}
+
+// metadataFilterPrefix marks browse/search query params that filter by a
+// category-schema metadata field, e.g. ?meta_year=2024&meta_year__gte=2000.
+const metadataFilterPrefix = "meta_"
+
+// parseMetadataFilters builds typed metadata predicates (BE-3.13a) from
+// meta_<key> (equality), meta_<key>__gte and meta_<key>__lte (numeric range)
+// query params. A raw query value is an untyped string, so it resolves the
+// selected category's effective schema to coerce each value to its field's real
+// type before building a predicate. Metadata filtering therefore requires a
+// valid category: any meta_* param without one — or naming a field the schema
+// doesn't define, or a range on a non-numeric field — is a client error the
+// caller surfaces as 400.
+func (h *TorrentHandler) parseMetadataFilters(ctx context.Context, categoryID *int64, q url.Values) ([]repository.MetadataFilter, error) {
+	// Collect the meta_* params actually present (non-empty), so unrecognized
+	// ones can be rejected rather than silently ignored.
+	var present []string
+	for name, vals := range q {
+		if strings.HasPrefix(name, metadataFilterPrefix) && len(vals) > 0 && vals[0] != "" {
+			present = append(present, name)
+		}
+	}
+	if len(present) == 0 {
+		return nil, nil
+	}
+	if categoryID == nil {
+		return nil, fmt.Errorf("metadata filters require a category (cat)")
+	}
+	if h.categoryRepo == nil {
+		return nil, fmt.Errorf("metadata filtering is unavailable")
+	}
+
+	schema, err := service.ResolveCategorySchema(ctx, h.categoryRepo, *categoryID)
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve category schema for metadata filters")
+	}
+
+	recognized := make(map[string]bool)
+	var filters []repository.MetadataFilter
+
+	for i := range schema {
+		f := schema[i]
+		base := metadataFilterPrefix + f.Key
+
+		if raw := q.Get(base); raw != "" {
+			val, cErr := metadata.CoerceFilterValue(f, raw)
+			if cErr != nil {
+				return nil, cErr
+			}
+			// Multiselect stores an array; wrap the single value so JSONB
+			// containment matches rows whose array includes it.
+			if f.Type == metadata.TypeMultiselect {
+				if s, ok := val.(string); ok {
+					val = []string{s}
+				}
+			}
+			filters = append(filters, repository.MetadataFilter{Key: f.Key, Op: repository.MetaFilterEq, Value: val})
+			recognized[base] = true
+		}
+
+		// Range filters only make sense for numeric fields.
+		if f.Type == metadata.TypeNumber {
+			for suffix, op := range map[string]repository.MetadataFilterOp{
+				"__gte": repository.MetaFilterGte,
+				"__lte": repository.MetaFilterLte,
+			} {
+				name := base + suffix
+				raw := q.Get(name)
+				if raw == "" {
+					continue
+				}
+				val, cErr := metadata.CoerceFilterValue(f, raw)
+				if cErr != nil {
+					return nil, cErr
+				}
+				filters = append(filters, repository.MetadataFilter{Key: f.Key, Op: op, Value: val})
+				recognized[name] = true
+			}
+		}
+	}
+
+	for _, name := range present {
+		if !recognized[name] {
+			return nil, fmt.Errorf("unknown metadata filter %q for this category", name)
+		}
+	}
+
+	return filters, nil
 }
 
 // buildCategoryPath walks up the parent chain and returns the full breadcrumb
