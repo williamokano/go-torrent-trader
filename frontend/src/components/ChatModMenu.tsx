@@ -32,10 +32,19 @@ export function ChatModMenu({ userId, username }: ChatModMenuProps) {
     });
   }, [open]);
 
-  // Close menu on outside click or Escape
+  // Close menu on outside click or Escape. While the mute form is open the
+  // user may be mid-composing a duration/reason, so — mirroring Modal's
+  // closeOnEscape/closeOnDismissClick opt-outs for the same class of
+  // accidental-dismissal — outside clicks and Escape are ignored rather
+  // than silently collapsing the dropdown out from under them. Explicit
+  // actions still close it: re-clicking the trigger button always resets
+  // both `open` and `showMuteForm` (see its onClick below), so the menu
+  // can never get stuck open; toggling "Mute user" again, submitting, and
+  // following a link all work too.
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      if (showMuteForm) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpen(false);
         setShowMuteForm(false);
@@ -43,6 +52,7 @@ export function ChatModMenu({ userId, username }: ChatModMenuProps) {
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (showMuteForm) return;
         setOpen(false);
         setShowMuteForm(false);
       }
@@ -53,7 +63,7 @@ export function ChatModMenu({ userId, username }: ChatModMenuProps) {
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [open, showMuteForm]);
 
   const handleDeleteAll = useCallback(async () => {
     await deleteUserMessages(userId);

@@ -296,6 +296,7 @@ export function AdminGroupsPage() {
         onClose={closeModal}
         title={editingId ? "Edit group" : "New group"}
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="admin-modal-form">
           <Input

@@ -54,6 +54,7 @@ export function ReportModal({
       onClose={handleClose}
       title="Report Torrent"
       closeOnEscape={false}
+      closeOnDismissClick={false}
     >
       <div className="report-modal">
         <p className="report-modal__description">

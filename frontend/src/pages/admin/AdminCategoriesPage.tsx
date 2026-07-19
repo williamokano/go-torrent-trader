@@ -269,6 +269,7 @@ export function AdminCategoriesPage() {
         onClose={closeModal}
         title={editingId ? "Edit Category" : "Add Category"}
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="admin-categories__modal-form">
           <Input
