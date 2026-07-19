@@ -2334,7 +2334,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - **Explicitly out of scope, confirmed correct as-is, no change made:** forum topic titles never resolve mentions (`CreateTopic` only extracts from the first post's body) and the PM subject field has no autocomplete (plain `<input>`, never wired to `MarkdownEditor`) — both were already the desired behavior.
 - Tests: repository (`mentioned_usernames_repo_test.go` gains a messages round-trip + malformed-JSON-degrades case, mirroring the existing comment/forum ones), service (mention resolution + the no-notification regression guard), handler (`stubUserRepo.GetByUsernames` was a hardcoded no-op that would have silently no-op'd any mention test built on it — fixed to filter by username like the other mock user repos — plus a positive content-assertion test, not just key presence), frontend (`MessagesPage.test.tsx` mention-link-renders / unresolved-stays-plain, mirroring `CommentsSection.test.tsx`), and three `backend/cmd/backfill-mentions` integration tests via the same testcontainers pattern (resolves across all three tables while leaving `updated_at`/`edited_at` untouched; `--dry-run` writes nothing; schema check passes post-migration).
 
-#### BE-9.23: Restrict Sensitive Activity Log Entries to Staff [S] [BUG] [DONE]
+#### BE-9.24: Restrict Sensitive Activity Log Entries to Staff [S] [BUG] [DONE]
 **As a** tracker operator
 **I want** operationally sensitive activity log entries (backups, cheat flags, ban patterns, moderation actions) hidden from regular members
 **So that** the public activity log doesn't hand cheaters detection tells, ban evaders the banned patterns, or expose infrastructure details and private moderation
