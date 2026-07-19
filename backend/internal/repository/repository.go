@@ -235,8 +235,13 @@ type ActivityLogRepository interface {
 type ListActivityLogsOptions struct {
 	EventType *string
 	ActorID   *int64
-	Page      int
-	PerPage   int
+	// IncludeStaffOnly is interpreted by the service layer: when false, the
+	// service populates ExcludeEventTypes with the staff-only event types.
+	IncludeStaffOnly bool
+	// ExcludeEventTypes filters out entries with these event types.
+	ExcludeEventTypes []string
+	Page              int
+	PerPage           int
 }
 
 // ReseedRequestRepository defines persistence operations for reseed requests.

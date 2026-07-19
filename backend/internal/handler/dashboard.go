@@ -72,10 +72,12 @@ func HandleDashboard(dashRepo repository.DashboardRepository, activityLogs *serv
 			ActiveMutes:    dbStats.ActiveMutes,
 		}
 
-		// Fetch last 10 activity log entries
+		// Fetch last 10 activity log entries. The dashboard is admin-only
+		// (mounted behind RequireAdmin), so staff-only entries are included.
 		logs, _, err := activityLogs.List(ctx, repository.ListActivityLogsOptions{
-			Page:    1,
-			PerPage: 10,
+			IncludeStaffOnly: true,
+			Page:             1,
+			PerPage:          10,
 		})
 		if err != nil {
 			slog.Error("dashboard: failed to query activity logs", "error", err)

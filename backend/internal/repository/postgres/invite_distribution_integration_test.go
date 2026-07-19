@@ -105,7 +105,8 @@ func TestInviteDistributionEndToEnd_GrantsOnceAndLogsActivity(t *testing.T) {
 	}
 
 	// A sensible, self-contained activity log entry must exist for each grant.
-	logs, total, err := activityLogSvc.List(ctx, repository.ListActivityLogsOptions{Page: 1, PerPage: 10})
+	// invite_auto_granted is a staff-only event type, so list as a staff viewer.
+	logs, total, err := activityLogSvc.List(ctx, repository.ListActivityLogsOptions{IncludeStaffOnly: true, Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatalf("list activity logs: %v", err)
 	}

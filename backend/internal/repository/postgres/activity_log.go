@@ -59,6 +59,18 @@ func (r *ActivityLogRepo) List(ctx context.Context, opts repository.ListActivity
 		args = append(args, *opts.ActorID)
 		argIdx++
 	}
+	if len(opts.ExcludeEventTypes) > 0 {
+		placeholders := ""
+		for i, et := range opts.ExcludeEventTypes {
+			if i > 0 {
+				placeholders += ", "
+			}
+			placeholders += fmt.Sprintf("$%d", argIdx)
+			args = append(args, et)
+			argIdx++
+		}
+		where += fmt.Sprintf(" AND al.event_type NOT IN (%s)", placeholders)
+	}
 
 	// Count
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM activity_logs al %s", where)
