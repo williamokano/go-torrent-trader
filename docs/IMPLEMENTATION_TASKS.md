@@ -2487,6 +2487,21 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Follow-up to BE-9.12's `window.confirm` → `ConfirmModal` migration, which missed `AdminGroupsPage`/`AdminCategoriesPage`; combined with a UX request to stop discarding in-progress edits on a stray Escape press. Devil's-advocate + code-reviewer pass (per this doc's Post-Implementation Review process) surfaced the `modReason` carry-over bug, the stale-error-banner bug, the `AdminTorrentsPage` loading-guard inconsistency, and the `ChatModMenu` gap.
 
+#### FE-BUG-1: Invites Page Doesn't Reflect Updated Invite Count After Admin Edit [S] [BUG] [DONE]
+**As a** member whose invite count was changed by staff
+**I want** the Invites page to show my current invite balance
+**So that** I don't have to log out and back in to see (or use) invites an admin just granted me
+
+**Context:** tracked informally in `tasks/todo.md`'s Known Bugs section before this story. `InvitesPage` reads `user.invites` from `AuthContext`, which fetches `/api/v1/auth/me` once on app bootstrap/login and caches the result in React state; `refreshUser()` re-fetches it but nothing calls it automatically. When staff edit a user's `invites` field via `AdminUserDetailPage` (`PUT /api/v1/admin/users/:id`, backed by the race-safe `UserRepo.SetInvites` from BE-8.17/BE-8.18), the edited member's own already-open session never sees the new value — `InvitesPage` only called `refreshUser()` after its own self-service "Generate Invite" action, never on mount. This isn't a one-off: `UserSettingsPage` hit the identical staleness class for `avatar`/`title`/`info`/`passkey` and already fixes it with a dedicated `useEffect(() => { refreshUser(); }, [refreshUser])` on mount — `InvitesPage` had simply never adopted that pattern. Confirmed by reading, not reproduced live: the two effects (`fetchInvites` and `refreshUser`) are independent, fire once per mount, and `refreshUser` is a stable `useCallback` off `AuthContext`, so no race/loop risk.
+
+**Delivered:**
+- `InvitesPage.tsx`: added the same mount-time `useEffect(() => { refreshUser(); }, [refreshUser])` `UserSettingsPage` already uses, so the "Remaining invites" count and the Generate-Invite gate reflect the live server value every time the page is opened, not just after the user's own actions.
+- `InvitesPage.test.tsx`: `useAuth` mock now exposes `refreshUser`, plus a new test asserting it's called on mount.
+- Numbered `FE-BUG-1` rather than the next free `FE-x.y` slot (deliberately, not an oversight): this story shipped from a worktree running in parallel with several sibling stories against the same `main`, all editing this same backlog file. `FE-BUG-1` matches the identifier already used informally in `tasks/todo.md` and avoids a numbering collision with siblings that independently pick "next free slot" from the same starting point.
+
+**Deferred / explicitly out of scope:**
+- `BonusStorePage` (`bonus_points`) and `UserProfilePage`/nav chrome (`can_upload`/`can_chat`/`donor`/`warned`/`enabled`) read the same cached `AuthContext.user` and would show the same staleness for admin-edited fields until their own next `refreshUser()` trigger. Not fixed here — out of this bug's scope (Invites page only) — but the fix here is the established, reusable pattern (`UserSettingsPage` already proved it out) for whichever of those is reported next, rather than a one-off endpoint or a broader refetch-on-focus mechanism for the whole app.
+
 ---
 
 ## Migration Tool Epics (MT-)
