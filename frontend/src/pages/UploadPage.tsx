@@ -11,6 +11,7 @@ import { buildCategoryOptions } from "@/utils/categories";
 import {
   fetchCategorySchema,
   cleanMetadataValues,
+  detectMetadataFromName,
   type MetadataField,
   type MetadataValues,
 } from "@/utils/metadata";
@@ -73,6 +74,28 @@ export function UploadPage() {
       cancelled = true;
     };
   }, [categoryId]);
+
+  // Auto-detect metadata from the torrent name (BE-3.13b). Additive: only fills
+  // schema fields the user hasn't set, so manual edits always win.
+  useEffect(() => {
+    if (schema.length === 0 || !name.trim()) return;
+    const detected = detectMetadataFromName(name, schema);
+    if (Object.keys(detected).length === 0) return;
+    setMetadata((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(detected)) {
+        const cur = next[key];
+        const empty =
+          cur == null || cur === "" || (Array.isArray(cur) && cur.length === 0);
+        if (empty) {
+          next[key] = value;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [name, schema]);
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith(".torrent")) {

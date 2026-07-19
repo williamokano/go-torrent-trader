@@ -194,6 +194,29 @@ type RatingRepository interface {
 	GetStatsByTorrent(ctx context.Context, torrentID int64) (average float64, count int, err error)
 }
 
+// MetadataFilterOp enumerates the comparison a MetadataFilter applies to a
+// torrent's JSONB metadata.
+type MetadataFilterOp string
+
+const (
+	// MetaFilterEq matches by JSONB containment: metadata @> {key: value}.
+	MetaFilterEq MetadataFilterOp = "eq"
+	// MetaFilterGte matches numeric fields where (metadata->>key)::numeric >= value.
+	MetaFilterGte MetadataFilterOp = "gte"
+	// MetaFilterLte matches numeric fields where (metadata->>key)::numeric <= value.
+	MetaFilterLte MetadataFilterOp = "lte"
+)
+
+// MetadataFilter is a single typed predicate on a torrent's JSONB metadata.
+// Value has already been coerced to the field's real type (float64, bool,
+// string, or []string for multiselect containment) from the category schema,
+// so the repository builds the SQL predicate without re-parsing.
+type MetadataFilter struct {
+	Key   string
+	Op    MetadataFilterOp
+	Value any
+}
+
 // ListTorrentsOptions holds filtering and pagination options for listing torrents.
 type ListTorrentsOptions struct {
 	CategoryID       *int64
@@ -202,11 +225,12 @@ type ListTorrentsOptions struct {
 	SortOrder        string // asc, desc
 	Page             int
 	PerPage          int
-	CreatedAfter     *time.Time // for "today's torrents"
-	MaxSeeders       *int       // for "need seed" (seeders <= N)
-	UploaderID       *int64     // for "my uploads" or user's torrents
-	ExcludeAnonymous bool       // when true, filter out anonymous torrents (for non-owner/non-staff viewers)
-	IncludeHidden    bool       // when true, skip visible/banned filters (admin context)
+	CreatedAfter     *time.Time       // for "today's torrents"
+	MaxSeeders       *int             // for "need seed" (seeders <= N)
+	UploaderID       *int64           // for "my uploads" or user's torrents
+	ExcludeAnonymous bool             // when true, filter out anonymous torrents (for non-owner/non-staff viewers)
+	IncludeHidden    bool             // when true, skip visible/banned filters (admin context)
+	MetadataFilters  []MetadataFilter // category-schema metadata predicates (BE-3.13a)
 }
 
 // GroupRepository defines persistence operations for groups.

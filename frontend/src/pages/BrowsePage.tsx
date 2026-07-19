@@ -1,16 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api";
+import type { paths } from "@/api/schema";
 import { getAccessToken } from "@/features/auth/token";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
+import { MetadataFilterControls } from "@/components/MetadataFilterControls";
+import { fetchCategorySchema, type MetadataField } from "@/utils/metadata";
 import { formatBytes, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import { buildCategoryOptions } from "@/utils/categories";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import "./browse.css";
+
+// The typed client can't express the data-driven meta_<field> query params, so
+// the list query is assembled as a plain record and cast to the operation's
+// query type; openapi-fetch serializes every key it's given.
+type ListTorrentsQuery = NonNullable<
+  paths["/api/v1/torrents"]["get"]["parameters"]["query"]
+>;
 
 const SORT_OPTIONS = [
   { value: "created_at", label: "Date" },
@@ -50,6 +60,7 @@ export function BrowsePage() {
   const [categoryOptions, setCategoryOptions] = useState<
     { value: string; label: string }[]
   >([{ value: "", label: "All Categories" }]);
+  const [schema, setSchema] = useState<MetadataField[]>([]);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -71,6 +82,36 @@ export function BrowsePage() {
     fetchCategories();
   }, []);
 
+  // Load the selected category's effective schema so its metadata fields can be
+  // offered as filters. Resolves to [] when no category is selected.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const fields = category ? await fetchCategorySchema(category) : [];
+      if (!cancelled) setSchema(fields);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
+
+  // Active metadata filter params (meta_<field>...), restricted to fields the
+  // current category actually defines so a stale param can't reach the backend.
+  const metaQuery = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const field of schema) {
+      const eq = searchParams.get(`meta_${field.key}`);
+      if (eq) out[`meta_${field.key}`] = eq;
+      if (field.type === "number") {
+        const gte = searchParams.get(`meta_${field.key}__gte`);
+        const lte = searchParams.get(`meta_${field.key}__lte`);
+        if (gte) out[`meta_${field.key}__gte`] = gte;
+        if (lte) out[`meta_${field.key}__lte`] = lte;
+      }
+    }
+    return out;
+  }, [schema, searchParams]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -78,18 +119,19 @@ export function BrowsePage() {
       setLoading(true);
       setError(null);
 
+      const listQuery: Record<string, string | number> = {
+        sort: sortBy,
+        order: sortDir,
+        page,
+        per_page: PER_PAGE,
+        ...metaQuery,
+      };
+      if (query) listQuery.search = query;
+      if (category) listQuery.cat = Number(category);
+
       const token = getAccessToken();
       const { data, error: apiError } = await api.GET("/api/v1/torrents", {
-        params: {
-          query: {
-            search: query || undefined,
-            cat: category ? Number(category) : undefined,
-            sort: sortBy,
-            order: sortDir,
-            page,
-            per_page: PER_PAGE,
-          },
-        },
+        params: { query: listQuery as unknown as ListTorrentsQuery },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
@@ -113,7 +155,7 @@ export function BrowsePage() {
     return () => {
       cancelled = true;
     };
-  }, [query, category, sortBy, sortDir, page]);
+  }, [query, category, sortBy, sortDir, page, metaQuery]);
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
@@ -127,6 +169,27 @@ export function BrowsePage() {
           next.delete(key);
         }
         if (key !== "page") next.delete("page");
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
+
+  // Changing category drops the previous category's metadata filters, which
+  // don't apply to the new schema (and would be rejected by the backend).
+  const handleCategoryChange = useCallback(
+    (value: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        for (const key of [...next.keys()]) {
+          if (key.startsWith("meta_")) next.delete(key);
+        }
+        if (value) {
+          next.set("cat", value);
+        } else {
+          next.delete("cat");
+        }
+        next.delete("page");
         return next;
       });
     },
@@ -188,7 +251,7 @@ export function BrowsePage() {
               label="Category"
               options={categoryOptions}
               value={category}
-              onChange={(e) => setParam("cat", e.target.value)}
+              onChange={(e) => handleCategoryChange(e.target.value)}
             />
           </div>
           <div className="browse__sort">
@@ -200,6 +263,15 @@ export function BrowsePage() {
             />
           </div>
         </div>
+        {category && schema.length > 0 && (
+          <div className="browse__meta-filters">
+            <MetadataFilterControls
+              schema={schema}
+              get={(paramKey) => searchParams.get(paramKey) ?? ""}
+              set={setParam}
+            />
+          </div>
+        )}
       </div>
 
       {loading ? (

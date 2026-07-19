@@ -23,6 +23,10 @@
   align-items: flex-end;
 }
 
+.browse__meta-filters {
+  margin-top: var(--space-md);
+}
+
 .browse__search {
   flex: 1;
   min-width: 200px;

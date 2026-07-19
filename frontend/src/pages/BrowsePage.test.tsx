@@ -16,6 +16,17 @@ vi.mock("@/features/auth/token", () => ({
   getAccessToken: () => "fake-token",
 }));
 
+// Control the category-schema fetch so tests don't hit the network; defaults to
+// no schema (no filter controls) unless a test overrides it.
+const mockFetchSchema = vi.fn();
+vi.mock("@/utils/metadata", async (importActual) => {
+  const actual = await importActual<typeof import("@/utils/metadata")>();
+  return {
+    ...actual,
+    fetchCategorySchema: (id: number | string) => mockFetchSchema(id),
+  };
+});
+
 const FAKE_CATEGORIES = [
   { id: 1, name: "Movies", parent_id: null, sort_order: 1 },
   { id: 2, name: "TV", parent_id: null, sort_order: 2 },
@@ -64,6 +75,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockFetchSchema.mockResolvedValue([]);
   mockGET.mockImplementation((url: string) => {
     if (url === "/api/v1/categories") {
       return Promise.resolve({
@@ -234,6 +246,46 @@ describe("BrowsePage", () => {
         expect.objectContaining({
           params: expect.objectContaining({
             query: expect.objectContaining({ search: "a" }),
+          }),
+        }),
+      );
+    });
+  });
+
+  test("renders metadata filter controls for the selected category schema", async () => {
+    mockFetchSchema.mockResolvedValue([
+      {
+        key: "resolution",
+        label: "Resolution",
+        type: "select",
+        options: ["720p", "1080p"],
+      },
+    ]);
+    renderBrowsePage(["/browse?cat=1"]);
+
+    await waitFor(() => {
+      expect(mockFetchSchema).toHaveBeenCalledWith("1");
+    });
+    expect(await screen.findByLabelText("Resolution")).toBeInTheDocument();
+  });
+
+  test("forwards active metadata filters to the torrents query", async () => {
+    mockFetchSchema.mockResolvedValue([
+      {
+        key: "resolution",
+        label: "Resolution",
+        type: "select",
+        options: ["720p", "1080p"],
+      },
+    ]);
+    renderBrowsePage(["/browse?cat=1&meta_resolution=1080p"]);
+
+    await waitFor(() => {
+      expect(mockGET).toHaveBeenLastCalledWith(
+        "/api/v1/torrents",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            query: expect.objectContaining({ meta_resolution: "1080p" }),
           }),
         }),
       );
