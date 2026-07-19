@@ -373,6 +373,26 @@
   padding: var(--space-lg);
 }
 
+/* Shown inline in the error banner on a 409 draft/template save conflict
+   (BE-7.5) — a one-click way to load the server's current version into the
+   compose form without losing the error text explaining what happened. */
+.messages__error-action {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.messages__error-action:hover {
+  opacity: 0.85;
+}
+
 .messages__success {
   text-align: center;
   color: var(--color-success, #10b981);

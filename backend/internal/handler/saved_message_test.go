@@ -67,6 +67,9 @@ func TestSaveDraftCreatesDraftEvenWithoutSubjectOrBody(t *testing.T) {
 	if draft["receiver_id"].(float64) != 9 {
 		t.Errorf("receiver_id = %v, want 9", draft["receiver_id"])
 	}
+	if draft["version"].(float64) != 1 {
+		t.Errorf("version = %v, want 1 for a freshly created draft (BE-7.5)", draft["version"])
+	}
 }
 
 func TestSaveDraftRejectsEntirelyEmpty(t *testing.T) {
@@ -104,6 +107,9 @@ func TestSaveTemplateCreatesTemplate(t *testing.T) {
 	}
 	if _, present := tmpl["receiver_id"]; present {
 		t.Error("template response must not carry a receiver_id")
+	}
+	if tmpl["version"].(float64) != 1 {
+		t.Errorf("version = %v, want 1 for a freshly created template (BE-7.5)", tmpl["version"])
 	}
 }
 
@@ -208,6 +214,122 @@ func TestUpdateTemplateRejectsKindMismatch(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 when updating a draft via the templates route", w.Code)
+	}
+}
+
+// --- update: optimistic concurrency (BE-7.5) -------------------------------
+
+// A PUT that carries a stale version (someone else's save already landed)
+// must come back as a clean 409 with the current server-side state attached
+// — not a silent overwrite, and not a generic 500.
+func TestUpdateDraftRejectsStaleVersion(t *testing.T) {
+	saved := newStubSavedMessageRepo()
+	saved.byID[1] = &model.SavedMessage{ID: 1, UserID: 7, Kind: model.SavedMessageKindDraft, Body: "server has this", Version: 3}
+	h := newSavedMessageHandler(saved, newStubMessageRepo(), newStubUserRepo())
+
+	req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/messages/drafts/1", strings.NewReader(`{"body":"stale edit","version":2}`)), 7, 1)
+	req = withURLParam(req, "id", "1")
+	w := httptest.NewRecorder()
+	h.HandleUpdateDraft(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBody(t, w)
+	errBody, ok := resp["error"].(map[string]interface{})
+	if !ok || errBody["code"] != "conflict" {
+		t.Errorf("error.code = %v, want conflict", resp["error"])
+	}
+	draft, ok := resp["draft"].(map[string]interface{})
+	if !ok {
+		t.Fatal("409 response must carry the current draft so the client can react")
+	}
+	if draft["body"] != "server has this" {
+		t.Errorf("returned body = %q, want the server's current content, not the stale request's", draft["body"])
+	}
+	if draft["version"].(float64) != 3 {
+		t.Errorf("returned version = %v, want 3 (the current server-side version)", draft["version"])
+	}
+	// The stale write must not have applied.
+	if saved.byID[1].Body != "server has this" {
+		t.Errorf("stale update must not have overwritten the newer content, got body = %q", saved.byID[1].Body)
+	}
+}
+
+// A PUT that carries the version the server currently has must succeed and
+// bump the version, so a subsequent stale attempt (still holding the old
+// version) is correctly rejected as a conflict rather than succeeding too.
+func TestUpdateDraftWithCurrentVersionSucceedsAndBumpsVersion(t *testing.T) {
+	saved := newStubSavedMessageRepo()
+	saved.byID[1] = &model.SavedMessage{ID: 1, UserID: 7, Kind: model.SavedMessageKindDraft, Body: "v1", Version: 1}
+	h := newSavedMessageHandler(saved, newStubMessageRepo(), newStubUserRepo())
+
+	req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/messages/drafts/1", strings.NewReader(`{"body":"v2","version":1}`)), 7, 1)
+	req = withURLParam(req, "id", "1")
+	w := httptest.NewRecorder()
+	h.HandleUpdateDraft(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	draft := decodeBody(t, w)["draft"].(map[string]interface{})
+	if draft["version"].(float64) != 2 {
+		t.Errorf("version = %v, want 2 after a successful update", draft["version"])
+	}
+	if saved.byID[1].Version != 2 || saved.byID[1].Body != "v2" {
+		t.Errorf("stored draft = %+v, want body v2 version 2", saved.byID[1])
+	}
+}
+
+// The 409 path is shared plumbing (handleUpdate/handleSavedMessageError) for
+// both drafts and templates, but the response is built under a different key
+// per kind ("template" here vs "draft" above) — worth its own test rather
+// than assuming the draft coverage implies the template path works too.
+func TestUpdateTemplateRejectsStaleVersion(t *testing.T) {
+	saved := newStubSavedMessageRepo()
+	saved.byID[5] = &model.SavedMessage{ID: 5, UserID: 7, Kind: model.SavedMessageKindTemplate, Body: "server has this", Version: 2}
+	h := newSavedMessageHandler(saved, newStubMessageRepo(), newStubUserRepo())
+
+	req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/messages/templates/5", strings.NewReader(`{"body":"stale edit","version":1}`)), 7, 1)
+	req = withURLParam(req, "id", "5")
+	w := httptest.NewRecorder()
+	h.HandleUpdateTemplate(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBody(t, w)
+	errBody, ok := resp["error"].(map[string]interface{})
+	if !ok || errBody["code"] != "conflict" {
+		t.Errorf("error.code = %v, want conflict", resp["error"])
+	}
+	tmpl, ok := resp["template"].(map[string]interface{})
+	if !ok {
+		t.Fatal("409 response must carry the current template under the \"template\" key")
+	}
+	if tmpl["body"] != "server has this" || tmpl["version"].(float64) != 2 {
+		t.Errorf("returned template = %v, want the server's current content at version 2", tmpl)
+	}
+	if saved.byID[5].Body != "server has this" {
+		t.Errorf("stale update must not have overwritten the newer content, got body = %q", saved.byID[5].Body)
+	}
+}
+
+// getOwnedOfKind runs before the version comparison, so a wrong-kind request
+// must be rejected as 404 regardless of what version it carries — a stale
+// version on a kind mismatch must not somehow read as a 409.
+func TestUpdateTemplateRejectsKindMismatchEvenWithStaleVersion(t *testing.T) {
+	saved := newStubSavedMessageRepo()
+	saved.byID[1] = &model.SavedMessage{ID: 1, UserID: 7, Kind: model.SavedMessageKindDraft, Body: "v1", Version: 5}
+	h := newSavedMessageHandler(saved, newStubMessageRepo(), newStubUserRepo())
+
+	req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/messages/templates/1", strings.NewReader(`{"body":"v2","version":1}`)), 7, 1)
+	req = withURLParam(req, "id", "1")
+	w := httptest.NewRecorder()
+	h.HandleUpdateTemplate(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (kind mismatch must win over a stale version), body: %s", w.Code, w.Body.String())
 	}
 }
 

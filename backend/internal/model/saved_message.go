@@ -25,6 +25,12 @@ type SavedMessage struct {
 	Subject          string
 	Body             string
 	ParentID         *int64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// Version is a monotonic counter incremented on every successful update
+	// (migrations/064_add_version_to_saved_messages.sql). Callers updating a
+	// saved message must send back the version they last read; the repo's
+	// conditional UPDATE uses it to detect a lost-update race (see
+	// SavedMessageRepository.Update and SavedMessageConflictError).
+	Version   int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

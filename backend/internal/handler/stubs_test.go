@@ -266,11 +266,15 @@ func (s *stubSavedMessageRepo) Create(_ context.Context, sm *model.SavedMessage)
 	}
 	sm.ID = s.nextID
 	s.nextID++
+	sm.Version = 1
 	stored := *sm
 	s.byID[sm.ID] = &stored
 	return nil
 }
 
+// Update mirrors the real repo's optimistic-concurrency contract: sm.Version
+// must match the stored row's version, or it's a conflict, not a silent
+// overwrite (see repository.SavedMessageConflictError).
 func (s *stubSavedMessageRepo) Update(_ context.Context, sm *model.SavedMessage) error {
 	if s.updateErr != nil {
 		return s.updateErr
@@ -279,10 +283,15 @@ func (s *stubSavedMessageRepo) Update(_ context.Context, sm *model.SavedMessage)
 	if !ok || existing.UserID != sm.UserID {
 		return errors.New("saved message not found")
 	}
+	if existing.Version != sm.Version {
+		current := *existing
+		return &repository.SavedMessageConflictError{Current: &current}
+	}
 	existing.ReceiverID = sm.ReceiverID
 	existing.Subject = sm.Subject
 	existing.Body = sm.Body
 	existing.ParentID = sm.ParentID
+	existing.Version++
 	*sm = *existing
 	return nil
 }

@@ -3,9 +3,12 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 func newSavedMessage(t *testing.T, db *sql.DB, userID int64, kind model.SavedMessageKind, receiverID *int64) *model.SavedMessage {
@@ -48,12 +51,18 @@ func TestSavedMessageRepoCreateGetUpdate(t *testing.T) {
 	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
 		t.Error("expected created_at/updated_at to be populated")
 	}
+	if got.Version != 1 {
+		t.Errorf("version = %d, want 1 for a freshly created row", got.Version)
+	}
 
 	got.Subject = "updated subject"
 	got.Body = "updated body"
 	got.ReceiverID = nil
 	if err := repo.Update(ctx, got); err != nil {
 		t.Fatalf("Update: %v", err)
+	}
+	if got.Version != 2 {
+		t.Errorf("version = %d after a successful update, want 2", got.Version)
 	}
 
 	reloaded, err := repo.GetByID(ctx, draft.ID)
@@ -65,6 +74,9 @@ func TestSavedMessageRepoCreateGetUpdate(t *testing.T) {
 	}
 	if reloaded.ReceiverID != nil {
 		t.Errorf("expected receiver_id cleared, got %v", reloaded.ReceiverID)
+	}
+	if reloaded.Version != 2 {
+		t.Errorf("reloaded version = %d, want 2", reloaded.Version)
 	}
 }
 
@@ -214,6 +226,126 @@ func TestSavedMessageRepoUpdateRefusesWrongOwner(t *testing.T) {
 	}
 	if reloaded.Subject == "hijacked" {
 		t.Error("bob's update must not have applied to alice's draft")
+	}
+}
+
+// --- optimistic concurrency (BE-7.5) ----------------------------------------
+
+// Sequential version of the concurrency scenario: two reads at the same
+// version, one writer saves first (and bumps the version), the second writer
+// — still holding the version from before the first write — must be rejected
+// as a conflict, and the conflict must carry the winner's current row so a
+// caller can react without an extra query.
+func TestSavedMessageRepoUpdateRejectsStaleVersion(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewSavedMessageRepo(db)
+	alice := newUser(t, db)
+	sm := newSavedMessage(t, db, alice.ID, model.SavedMessageKindDraft, nil)
+
+	tabA, err := repo.GetByID(ctx, sm.ID)
+	if err != nil {
+		t.Fatalf("GetByID (tab A read): %v", err)
+	}
+	tabB, err := repo.GetByID(ctx, sm.ID)
+	if err != nil {
+		t.Fatalf("GetByID (tab B read): %v", err)
+	}
+
+	tabA.Body = "tab A's edit"
+	if err := repo.Update(ctx, tabA); err != nil {
+		t.Fatalf("tab A's update should succeed: %v", err)
+	}
+
+	tabB.Body = "tab B's stale edit"
+	err = repo.Update(ctx, tabB)
+	var conflict *repository.SavedMessageConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected *repository.SavedMessageConflictError for tab B's stale write, got %v", err)
+	}
+	if conflict.Current.Body != "tab A's edit" {
+		t.Errorf("conflict.Current.Body = %q, want tab A's winning edit", conflict.Current.Body)
+	}
+	if conflict.Current.Version != tabA.Version {
+		t.Errorf("conflict.Current.Version = %d, want %d (tab A's post-write version)", conflict.Current.Version, tabA.Version)
+	}
+
+	// No data corruption: what's actually stored is tab A's write, untouched
+	// by tab B's rejected stale one — not some partial mix of the two.
+	reloaded, err := repo.GetByID(ctx, sm.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if reloaded.Body != "tab A's edit" || reloaded.Version != tabA.Version {
+		t.Errorf("reloaded = %+v, want tab A's edit at version %d to have survived untouched", reloaded, tabA.Version)
+	}
+}
+
+// True concurrency, not just sequential ordering: two goroutines race to
+// update the same row starting from the same version. Postgres serializes
+// the two UPDATEs via the row's lock, so exactly one of them must see its
+// conditional WHERE match (and win), and the other must see zero rows
+// affected (and get a conflict) — never both succeeding, and never a torn or
+// mixed write landing in the row.
+func TestSavedMessageRepoUpdateConcurrentWritersOnlyOneWins(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewSavedMessageRepo(db)
+	alice := newUser(t, db)
+	sm := newSavedMessage(t, db, alice.ID, model.SavedMessageKindDraft, nil)
+
+	readForWriter := func(body string) *model.SavedMessage {
+		got, err := repo.GetByID(ctx, sm.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		got.Body = body
+		return got
+	}
+	writerA := readForWriter("writer A")
+	writerB := readForWriter("writer B")
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	wg.Add(2)
+	go func() { defer wg.Done(); errs[0] = repo.Update(ctx, writerA) }()
+	go func() { defer wg.Done(); errs[1] = repo.Update(ctx, writerB) }()
+	wg.Wait()
+
+	successes, conflicts := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.As(err, new(*repository.SavedMessageConflictError)):
+			conflicts++
+		default:
+			t.Fatalf("unexpected error from a concurrent update: %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes=%d conflicts=%d, want exactly one of each — concurrent writers must not both land", successes, conflicts)
+	}
+
+	// The stored row must be exactly whichever writer's update actually
+	// succeeded — not a mix, not the loser's content.
+	final, err := repo.GetByID(ctx, sm.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	wantBody := "writer A"
+	if errs[0] != nil {
+		wantBody = "writer B"
+	}
+	if final.Body != wantBody {
+		t.Errorf("final body = %q, want %q (the writer whose Update returned nil)", final.Body, wantBody)
+	}
+	if final.Version != 2 {
+		t.Errorf("final version = %d, want 2 (exactly one increment, from exactly one winning writer)", final.Version)
 	}
 }
 

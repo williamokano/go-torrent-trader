@@ -33,6 +33,12 @@ type saveMessageBody struct {
 	Subject    string `json:"subject"`
 	Body       string `json:"body"`
 	ParentID   *int64 `json:"parent_id,omitempty"`
+	// Version is only meaningful on PUT (handleUpdate) — it must be the
+	// version the client last saw (from a prior save/get/list response), and
+	// is compared against the stored row to detect a lost-update race. It's
+	// ignored on POST (handleSave): a brand-new row has nothing to conflict
+	// with yet.
+	Version int64 `json:"version"`
 }
 
 // HandleSaveDraft handles POST /api/v1/messages/drafts.
@@ -132,7 +138,7 @@ func (h *SavedMessageHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sm, err := h.svc.Update(r.Context(), id, userID, kind, service.SaveMessageRequest{
+	sm, err := h.svc.Update(r.Context(), id, userID, kind, body.Version, service.SaveMessageRequest{
 		ReceiverID: body.ReceiverID,
 		Subject:    body.Subject,
 		Body:       body.Body,
@@ -225,7 +231,21 @@ func (h *SavedMessageHandler) handleDelete(w http.ResponseWriter, r *http.Reques
 }
 
 func handleSavedMessageError(w http.ResponseWriter, err error) {
+	var conflict *service.SavedMessageConflictError
 	switch {
+	case errors.As(err, &conflict):
+		// The client's PUT carried a stale version — another save (a
+		// different tab, a different device) already landed. Echo back the
+		// saved message as it stands right now (same shape/key as every
+		// other endpoint, via savedMessageResponse) so the frontend can show
+		// the caller what actually happened without a second request.
+		JSON(w, http.StatusConflict, map[string]interface{}{
+			"error": map[string]string{
+				"code":    "conflict",
+				"message": "this was changed elsewhere — reload before saving again",
+			},
+			string(conflict.Current.Kind): savedMessageResponse(conflict.Current),
+		})
 	case errors.Is(err, service.ErrSavedMessageNotFound):
 		ErrorResponse(w, http.StatusNotFound, "not_found", "not found")
 	case errors.Is(err, service.ErrInvalidSavedMessage):
@@ -241,6 +261,7 @@ func savedMessageResponse(sm *model.SavedMessage) map[string]interface{} {
 		"kind":       sm.Kind,
 		"subject":    sm.Subject,
 		"body":       sm.Body,
+		"version":    sm.Version,
 		"created_at": sm.CreatedAt,
 		"updated_at": sm.UpdatedAt,
 	}
