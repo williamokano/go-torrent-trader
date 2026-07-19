@@ -16,6 +16,20 @@ var (
 	ErrInvalidSavedMessage  = errors.New("invalid saved message")
 )
 
+// SavedMessageConflictError is returned by Update when the caller's
+// expectedVersion no longer matches what's stored — another save (a
+// different tab, a different device) landed first since the caller last
+// read this draft/template. Current is the row as it stands right now
+// (including its up-to-date Version), so a handler can hand it straight
+// back to the client in a 409 response without a second lookup.
+type SavedMessageConflictError struct {
+	Current *model.SavedMessage
+}
+
+func (e *SavedMessageConflictError) Error() string {
+	return fmt.Sprintf("saved message %d: version conflict, current version is %d", e.Current.ID, e.Current.Version)
+}
+
 // SaveMessageRequest holds the data needed to create or update a draft or
 // template. ReceiverID/ParentID only apply to drafts — a template is never
 // addressed to anyone, so build() rejects them for that kind.
@@ -59,7 +73,15 @@ func (s *SavedMessageService) Save(ctx context.Context, userID int64, kind model
 // Update overwrites an existing draft or template. The caller must own it and
 // it must already be of the given kind (a draft cannot silently become a
 // template through the templates endpoint, and vice versa).
-func (s *SavedMessageService) Update(ctx context.Context, id, userID int64, kind model.SavedMessageKind, req SaveMessageRequest) (*model.SavedMessage, error) {
+//
+// expectedVersion must be the Version the caller last read (e.g. from the
+// response of a prior Save/Update/Get/List call). It's compared against the
+// row's current version by a conditional UPDATE in the repository — see
+// SavedMessageConflictError — so two overlapping edits of the same
+// draft/template (two tabs, two devices) can't silently overwrite each
+// other: whichever save lands second gets a conflict instead of clobbering
+// the first.
+func (s *SavedMessageService) Update(ctx context.Context, id, userID int64, kind model.SavedMessageKind, expectedVersion int64, req SaveMessageRequest) (*model.SavedMessage, error) {
 	existing, err := s.getOwnedOfKind(ctx, id, userID, kind)
 	if err != nil {
 		return nil, err
@@ -70,8 +92,13 @@ func (s *SavedMessageService) Update(ctx context.Context, id, userID int64, kind
 		return nil, err
 	}
 	built.ID = existing.ID
+	built.Version = expectedVersion
 
 	if err := s.saved.Update(ctx, built); err != nil {
+		var conflict *repository.SavedMessageConflictError
+		if errors.As(err, &conflict) {
+			return nil, &SavedMessageConflictError{Current: conflict.Current}
+		}
 		// getOwnedOfKind just confirmed this row exists and is owned by
 		// userID, but if it was deleted in between (a narrow TOCTOU window),
 		// Update's own ownership-scoped WHERE clause (see SavedMessageRepo.

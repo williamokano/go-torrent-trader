@@ -35,8 +35,24 @@ interface SavedMessageItem {
   subject: string;
   body: string;
   parent_id?: number;
+  // Monotonic counter, bumped by the server on every successful update
+  // (BE-7.5). Must be echoed back on the next PUT so the server can detect
+  // whether this draft/template changed elsewhere (another tab, another
+  // device) since it was last read — see handleSaveDraft/handleSaveTemplate.
+  version: number;
   created_at: string;
   updated_at: string;
+}
+
+// Shape of the 409 response body a PUT to /messages/drafts/{id} or
+// /messages/templates/{id} comes back with when the version sent doesn't
+// match what's stored anymore (backend/internal/handler/saved_message.go,
+// handleSavedMessageError) — the current row is included under the same
+// "draft"/"template" key a 200 response would use.
+interface SavedMessageConflictBody {
+  error: { code: string; message: string };
+  draft?: SavedMessageItem;
+  template?: SavedMessageItem;
 }
 
 type Tab = "inbox" | "outbox" | "drafts" | "templates" | "compose";
@@ -64,7 +80,13 @@ export function MessagesPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The error banner and its optional "Load latest version" conflict action
+  // (BE-7.5) are one unit, not two independently-set pieces of state — see
+  // showError below. Read as `errorBanner?.message` / `errorBanner?.conflict`.
+  const [errorBanner, setErrorBanner] = useState<{
+    message: string;
+    conflict: { kind: "draft" | "template"; latest: SavedMessageItem } | null;
+  } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Detail view state
@@ -87,11 +109,16 @@ export function MessagesPage() {
   // Draft/template state (BE-7.2). When the compose form was opened by
   // editing a draft or loading a template, its id is tracked here so "Save
   // Draft"/"Save as Template" overwrite it (PUT) instead of creating a new
-  // one (POST) on every click.
+  // one (POST) on every click. currentDraftVersion/currentTemplateVersion
+  // (BE-7.5) track the version last seen from the server for that same row,
+  // round-tripped on every PUT so the server can detect a lost-update race
+  // (see handleSaveDraft/handleSaveTemplate below).
   const [currentDraftId, setCurrentDraftId] = useState<number | null>(null);
+  const [currentDraftVersion, setCurrentDraftVersion] = useState(0);
   const [currentTemplateId, setCurrentTemplateId] = useState<number | null>(
     null,
   );
+  const [currentTemplateVersion, setCurrentTemplateVersion] = useState(0);
   const [savingDraft, setSavingDraft] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
 
@@ -100,6 +127,24 @@ export function MessagesPage() {
   const [savedItems, setSavedItems] = useState<SavedMessageItem[]>([]);
   const [savedTotal, setSavedTotal] = useState(0);
   const [savedPage, setSavedPage] = useState(1);
+
+  // Sets (or clears, with a null message) the error banner. This is the only
+  // way errorBanner is ever written, and it always replaces the whole thing
+  // — message and conflict together — so an error that isn't a version
+  // conflict can never leave a *previous* conflict's "Load latest version"
+  // button dangling next to it (a real bug caught in review: handleSend and
+  // several other error paths used to clear only the message, not the
+  // conflict, so an unrelated later error could show a stale "Load latest
+  // version" that discarded the wrong draft/template into the compose form).
+  const showError = (
+    message: string | null,
+    conflict: {
+      kind: "draft" | "template";
+      latest: SavedMessageItem;
+    } | null = null,
+  ) => {
+    setErrorBanner(message ? { message, conflict } : null);
+  };
 
   // Sync compose receiver from URL when navigating to ?tab=compose&to=username&to_id=N
   const urlTo = searchParams.get("to") || "";
@@ -176,7 +221,7 @@ export function MessagesPage() {
   const fetchMessages = useCallback(async () => {
     if (tab !== "inbox" && tab !== "outbox") return;
     setLoading(true);
-    setError(null);
+    showError(null);
     setSelectedMessage(null);
     try {
       const endpoint = tab === "inbox" ? "inbox" : "outbox";
@@ -189,13 +234,13 @@ export function MessagesPage() {
       );
       const body = await res.json();
       if (!res.ok) {
-        setError(body?.error?.message ?? "Failed to load messages");
+        showError(body?.error?.message ?? "Failed to load messages");
         return;
       }
       setMessages(body?.messages ?? []);
       setTotal(body?.total ?? 0);
     } catch {
-      setError("Failed to load messages");
+      showError("Failed to load messages");
     } finally {
       setLoading(false);
     }
@@ -212,7 +257,7 @@ export function MessagesPage() {
   const fetchSaved = useCallback(async () => {
     if (!isSavedKindTab(tab)) return;
     setLoading(true);
-    setError(null);
+    showError(null);
     try {
       const params = new URLSearchParams();
       params.set("page", String(savedPage));
@@ -223,13 +268,13 @@ export function MessagesPage() {
       );
       const body = await res.json();
       if (!res.ok) {
-        setError(body?.error?.message ?? `Failed to load ${tab}`);
+        showError(body?.error?.message ?? `Failed to load ${tab}`);
         return;
       }
       setSavedItems(body?.[tab] ?? []);
       setSavedTotal(body?.total ?? 0);
     } catch {
-      setError(`Failed to load ${tab}`);
+      showError(`Failed to load ${tab}`);
     } finally {
       setLoading(false);
     }
@@ -248,7 +293,7 @@ export function MessagesPage() {
   const fetchMessageDetail = useCallback(
     async (msgId: number) => {
       setDetailLoading(true);
-      setError(null);
+      showError(null);
       try {
         const res = await fetch(
           `${getConfig().API_URL}/api/v1/messages/${msgId}`,
@@ -262,7 +307,7 @@ export function MessagesPage() {
             prev.map((m) => (m.id === msgId ? { ...m, is_read: true } : m)),
           );
         } else {
-          setError("Message not found");
+          showError("Message not found");
           setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
             next.delete("msg");
@@ -270,7 +315,7 @@ export function MessagesPage() {
           });
         }
       } catch {
-        setError("Failed to load message");
+        showError("Failed to load message");
         setSearchParams((prev) => {
           const next = new URLSearchParams(prev);
           next.delete("msg");
@@ -293,7 +338,7 @@ export function MessagesPage() {
     setPage(1);
     setSavedPage(1);
     setSelectedMessage(null);
-    setError(null);
+    showError(null);
     setSendSuccess(null);
     // Switching to Compose via the tab bar (as opposed to editing a draft or
     // loading a template, which set the URL directly — see
@@ -301,7 +346,9 @@ export function MessagesPage() {
     // any draft/template this compose session was tracking is forgotten.
     if (newTab === "compose") {
       setCurrentDraftId(null);
+      setCurrentDraftVersion(0);
       setCurrentTemplateId(null);
+      setCurrentTemplateVersion(0);
     }
     setSearchParams({ tab: newTab });
   };
@@ -322,7 +369,7 @@ export function MessagesPage() {
       });
       if (!res.ok) {
         const body = await res.json();
-        setError(body?.error?.message ?? "Failed to delete message");
+        showError(body?.error?.message ?? "Failed to delete message");
         return;
       }
       if (selectedMessage?.id === id) {
@@ -335,7 +382,7 @@ export function MessagesPage() {
       fetchMessages();
       fetchUnreadCount();
     } catch {
-      setError("Failed to delete message");
+      showError("Failed to delete message");
     }
   };
 
@@ -343,11 +390,11 @@ export function MessagesPage() {
     e.preventDefault();
     if (sending) return;
     setSending(true);
-    setError(null);
+    showError(null);
     setSendSuccess(null);
     try {
       if (!composeReceiverId) {
-        setError("Please select a user from the suggestions");
+        showError("Please select a user from the suggestions");
         return;
       }
 
@@ -370,7 +417,7 @@ export function MessagesPage() {
       });
       const body = await res.json();
       if (!res.ok) {
-        setError(body?.error?.message ?? "Failed to send message");
+        showError(body?.error?.message ?? "Failed to send message");
         return;
       }
       setSendSuccess("Message sent successfully!");
@@ -395,9 +442,11 @@ export function MessagesPage() {
         ).catch(() => {});
       }
       setCurrentDraftId(null);
+      setCurrentDraftVersion(0);
       setCurrentTemplateId(null);
+      setCurrentTemplateVersion(0);
     } catch {
-      setError("Failed to send message");
+      showError("Failed to send message");
     } finally {
       setSending(false);
     }
@@ -419,14 +468,21 @@ export function MessagesPage() {
   // this session already saved one, rather than piling up duplicates on
   // every click. Mirrors the backend's leniency: a draft may have any subset
   // of receiver/subject/body filled in, as long as something is there.
+  //
+  // On PUT, currentDraftVersion is sent back so the server can detect a
+  // lost-update race (BE-7.5): a 409 means someone/something else saved a
+  // newer version first. That's surfaced as an error plus a "Load latest
+  // version" action (errorBanner.conflict/loadConflictingVersion) rather
+  // than silently overwriting it or auto-discarding the user's in-progress
+  // edits.
   const handleSaveDraft = async () => {
     if (savingDraft) return;
     if (!composeReceiverId && !composeSubject.trim() && !composeBody.trim()) {
-      setError("Nothing to save yet — write something first.");
+      showError("Nothing to save yet — write something first.");
       return;
     }
     setSavingDraft(true);
-    setError(null);
+    showError(null);
     setSendSuccess(null);
     try {
       const reqBody: Record<string, unknown> = {
@@ -435,6 +491,7 @@ export function MessagesPage() {
       };
       if (composeReceiverId) reqBody.receiver_id = composeReceiverId;
       if (composeParentId) reqBody.parent_id = composeParentId;
+      if (currentDraftId) reqBody.version = currentDraftVersion;
 
       const url = currentDraftId
         ? `${getConfig().API_URL}/api/v1/messages/drafts/${currentDraftId}`
@@ -445,14 +502,25 @@ export function MessagesPage() {
         body: JSON.stringify(reqBody),
       });
       const body = await res.json();
+      if (res.status === 409) {
+        const conflictBody = body as SavedMessageConflictBody;
+        showError(
+          "This draft was changed elsewhere — reload it before saving again. Your edits below are untouched if you want to copy anything over first.",
+          conflictBody?.draft
+            ? { kind: "draft", latest: conflictBody.draft }
+            : null,
+        );
+        return;
+      }
       if (!res.ok || !body?.draft?.id) {
-        setError(body?.error?.message ?? "Failed to save draft");
+        showError(body?.error?.message ?? "Failed to save draft");
         return;
       }
       setCurrentDraftId(body.draft.id);
+      setCurrentDraftVersion(body.draft.version ?? 0);
       setSendSuccess("Draft saved.");
     } catch {
-      setError("Failed to save draft");
+      showError("Failed to save draft");
     } finally {
       setSavingDraft(false);
     }
@@ -461,20 +529,22 @@ export function MessagesPage() {
   // Saves the current compose body as a reusable template. Unlike a draft, a
   // template is never addressed to anyone — receiver_id/parent_id are never
   // sent, even if the compose form currently has them set (e.g. mid-reply).
+  // See handleSaveDraft above for the version/409 handling, which mirrors it.
   const handleSaveTemplate = async () => {
     if (savingTemplate) return;
     if (!composeBody.trim()) {
-      setError("A template needs a body to be worth saving.");
+      showError("A template needs a body to be worth saving.");
       return;
     }
     setSavingTemplate(true);
-    setError(null);
+    showError(null);
     setSendSuccess(null);
     try {
-      const reqBody = {
+      const reqBody: Record<string, unknown> = {
         subject: composeSubject.trim(),
         body: composeBody.trim(),
       };
+      if (currentTemplateId) reqBody.version = currentTemplateVersion;
 
       const url = currentTemplateId
         ? `${getConfig().API_URL}/api/v1/messages/templates/${currentTemplateId}`
@@ -485,22 +555,54 @@ export function MessagesPage() {
         body: JSON.stringify(reqBody),
       });
       const body = await res.json();
+      if (res.status === 409) {
+        const conflictBody = body as SavedMessageConflictBody;
+        showError(
+          "This template was changed elsewhere — reload it before saving again. Your edits below are untouched if you want to copy anything over first.",
+          conflictBody?.template
+            ? { kind: "template", latest: conflictBody.template }
+            : null,
+        );
+        return;
+      }
       if (!res.ok || !body?.template?.id) {
-        setError(body?.error?.message ?? "Failed to save template");
+        showError(body?.error?.message ?? "Failed to save template");
         return;
       }
       setCurrentTemplateId(body.template.id);
+      setCurrentTemplateVersion(body.template.version ?? 0);
       setSendSuccess("Template saved.");
     } catch {
-      setError("Failed to save template");
+      showError("Failed to save template");
     } finally {
       setSavingTemplate(false);
     }
   };
 
+  // One explicit click to resolve errorBanner.conflict: replaces the compose
+  // form's subject/body (and, for a draft, its recipient) with the server's
+  // current content, and adopts its version so the next save attempt is no
+  // longer stale. Not automatic — see showError's declaration for why.
+  const loadConflictingVersion = () => {
+    const conflict = errorBanner?.conflict;
+    if (!conflict) return;
+    const latest = conflict.latest;
+    setComposeSubject(latest.subject ?? "");
+    setComposeBody(latest.body ?? "");
+    if (conflict.kind === "draft") {
+      setComposeReceiver(latest.receiver_username ?? "");
+      setComposeReceiverId(latest.receiver_id ?? null);
+      setComposeParentId(latest.parent_id ?? null);
+      setCurrentDraftVersion(latest.version);
+    } else {
+      setCurrentTemplateVersion(latest.version);
+    }
+    showError(null);
+  };
+
   // Opens a saved draft back in the compose form for continued editing.
   const loadDraftIntoCompose = async (id: number) => {
-    setError(null);
+    showError(null);
     try {
       const res = await fetch(
         `${getConfig().API_URL}/api/v1/messages/drafts/${id}`,
@@ -508,7 +610,7 @@ export function MessagesPage() {
       );
       const body = await res.json();
       if (!res.ok || !body?.draft) {
-        setError(body?.error?.message ?? "Failed to load draft");
+        showError(body?.error?.message ?? "Failed to load draft");
         return;
       }
       const d = body.draft;
@@ -518,18 +620,20 @@ export function MessagesPage() {
       setComposeBody(d.body ?? "");
       setComposeParentId(d.parent_id ?? null);
       setCurrentDraftId(d.id);
+      setCurrentDraftVersion(d.version ?? 0);
       setCurrentTemplateId(null);
+      setCurrentTemplateVersion(0);
       setSendSuccess(null);
       setSearchParams({ tab: "compose" });
     } catch {
-      setError("Failed to load draft");
+      showError("Failed to load draft");
     }
   };
 
   // Loads a template into the compose form to start a new message. The
   // recipient is deliberately left blank — a template has no fixed one.
   const loadTemplateIntoCompose = async (id: number) => {
-    setError(null);
+    showError(null);
     try {
       const res = await fetch(
         `${getConfig().API_URL}/api/v1/messages/templates/${id}`,
@@ -537,7 +641,7 @@ export function MessagesPage() {
       );
       const body = await res.json();
       if (!res.ok || !body?.template) {
-        setError(body?.error?.message ?? "Failed to load template");
+        showError(body?.error?.message ?? "Failed to load template");
         return;
       }
       const t = body.template;
@@ -547,11 +651,13 @@ export function MessagesPage() {
       setComposeBody(t.body ?? "");
       setComposeParentId(null);
       setCurrentTemplateId(t.id);
+      setCurrentTemplateVersion(t.version ?? 0);
       setCurrentDraftId(null);
+      setCurrentDraftVersion(0);
       setSendSuccess(null);
       setSearchParams({ tab: "compose" });
     } catch {
-      setError("Failed to load template");
+      showError("Failed to load template");
     }
   };
 
@@ -565,12 +671,12 @@ export function MessagesPage() {
       );
       if (!res.ok) {
         const body = await res.json();
-        setError(body?.error?.message ?? `Failed to delete ${label}`);
+        showError(body?.error?.message ?? `Failed to delete ${label}`);
         return;
       }
       fetchSaved();
     } catch {
-      setError(`Failed to delete ${label}`);
+      showError(`Failed to delete ${label}`);
     }
   };
 
@@ -692,7 +798,20 @@ export function MessagesPage() {
         </button>
       </div>
 
-      {error && <div className="messages__error">{error}</div>}
+      {errorBanner && (
+        <div className="messages__error">
+          {errorBanner.message}
+          {errorBanner.conflict && (
+            <button
+              type="button"
+              className="messages__error-action"
+              onClick={loadConflictingVersion}
+            >
+              Load latest version
+            </button>
+          )}
+        </div>
+      )}
 
       {tab === "compose" && (
         <>

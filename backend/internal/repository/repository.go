@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -308,10 +309,33 @@ type MessageRepository interface {
 // and templates (see model.SavedMessage — kind discriminates the two).
 type SavedMessageRepository interface {
 	Create(ctx context.Context, sm *model.SavedMessage) error
+	// Update performs an optimistic-concurrency update: sm.Version must hold
+	// the version the caller last read, and the underlying conditional
+	// UPDATE only matches a row whose stored version is still exactly that.
+	// On success sm.Version and sm.UpdatedAt are updated in place to the new
+	// values. If the row exists (owned by sm.UserID) but its stored version
+	// has moved on, Update returns *SavedMessageConflictError instead of
+	// silently overwriting it. If no such row exists at all (wrong id or
+	// wrong owner), it returns sql.ErrNoRows, same as before this existed.
 	Update(ctx context.Context, sm *model.SavedMessage) error
 	GetByID(ctx context.Context, id int64) (*model.SavedMessage, error)
 	ListByUser(ctx context.Context, userID int64, kind model.SavedMessageKind, page, perPage int) ([]model.SavedMessage, int64, error)
 	Delete(ctx context.Context, id, userID int64) error
+}
+
+// SavedMessageConflictError is returned by SavedMessageRepository.Update when
+// its conditional UPDATE (`... WHERE id = $1 AND user_id = $2 AND version =
+// $3`) matches zero rows because the row's version has already moved past
+// the one the caller last read — another save (a different browser tab, a
+// different device) landed first. Current is that row as it stands right
+// now, resolved by a follow-up lookup scoped exactly like the UPDATE itself,
+// so a caller building a 409 response needs no extra round trip of its own.
+type SavedMessageConflictError struct {
+	Current *model.SavedMessage
+}
+
+func (e *SavedMessageConflictError) Error() string {
+	return fmt.Sprintf("saved message %d: version conflict (current version is %d)", e.Current.ID, e.Current.Version)
 }
 
 // ChatMessageRepository defines persistence operations for chat messages.

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -36,6 +37,7 @@ func (m *mockSavedMessageRepo) Create(_ context.Context, sm *model.SavedMessage)
 	defer m.mu.Unlock()
 	sm.ID = m.nextID
 	m.nextID++
+	sm.Version = 1
 	copy := *sm
 	m.items[sm.ID] = &copy
 	return nil
@@ -45,7 +47,10 @@ func (m *mockSavedMessageRepo) Create(_ context.Context, sm *model.SavedMessage)
 // clause (see backend/internal/repository/postgres/saved_message.go) — a
 // mismatched owner returns sql.ErrNoRows exactly like an empty RETURNING
 // result would, so the service's TOCTOU handling in Update can be exercised
-// without a real database.
+// without a real database. It also enforces optimistic concurrency the same
+// way: a mismatched sm.Version returns *repository.SavedMessageConflictError
+// instead of applying the write, so the service's conflict-mapping logic can
+// be exercised without a real database too.
 func (m *mockSavedMessageRepo) Update(_ context.Context, sm *model.SavedMessage) error {
 	if m.updateErr != nil {
 		return m.updateErr
@@ -56,10 +61,16 @@ func (m *mockSavedMessageRepo) Update(_ context.Context, sm *model.SavedMessage)
 	if !ok || existing.UserID != sm.UserID {
 		return sql.ErrNoRows
 	}
+	if existing.Version != sm.Version {
+		current := *existing
+		return &repository.SavedMessageConflictError{Current: &current}
+	}
 	existing.ReceiverID = sm.ReceiverID
 	existing.Subject = sm.Subject
 	existing.Body = sm.Body
 	existing.ParentID = sm.ParentID
+	existing.Version++
+	sm.Version = existing.Version
 	return nil
 }
 
@@ -314,12 +325,15 @@ func TestUpdateDraft_Success(t *testing.T) {
 	svc, _ := setupSavedMessageService()
 	sm, _ := svc.Save(context.Background(), 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v1"})
 
-	updated, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v2"})
+	updated, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, sm.Version, service.SaveMessageRequest{Body: "v2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if updated.Body != "v2" {
 		t.Errorf("body = %q, want v2", updated.Body)
+	}
+	if updated.Version != sm.Version+1 {
+		t.Errorf("version = %d, want %d (bumped by exactly one)", updated.Version, sm.Version+1)
 	}
 }
 
@@ -327,7 +341,7 @@ func TestUpdateDraft_RejectsNonOwner(t *testing.T) {
 	svc, _ := setupSavedMessageService()
 	sm, _ := svc.Save(context.Background(), 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v1"})
 
-	_, err := svc.Update(context.Background(), sm.ID, 2, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v2"})
+	_, err := svc.Update(context.Background(), sm.ID, 2, model.SavedMessageKindDraft, sm.Version, service.SaveMessageRequest{Body: "v2"})
 	if !errors.Is(err, service.ErrSavedMessageNotFound) {
 		t.Errorf("expected ErrSavedMessageNotFound for a non-owner update, got %v", err)
 	}
@@ -348,7 +362,7 @@ func TestUpdateDraft_MapsRaceWithDeleteToNotFound(t *testing.T) {
 
 	repo.updateErr = sql.ErrNoRows
 
-	_, err = svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v2"})
+	_, err = svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, sm.Version, service.SaveMessageRequest{Body: "v2"})
 	if !errors.Is(err, service.ErrSavedMessageNotFound) {
 		t.Errorf("expected ErrSavedMessageNotFound when Update races a delete, got %v", err)
 	}
@@ -359,9 +373,105 @@ func TestUpdateDraft_RejectsKindMismatch(t *testing.T) {
 	sm, _ := svc.Save(context.Background(), 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v1"})
 
 	// Trying to update a draft through the templates endpoint must not find it.
-	_, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindTemplate, service.SaveMessageRequest{Body: "v2"})
+	_, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindTemplate, sm.Version, service.SaveMessageRequest{Body: "v2"})
 	if !errors.Is(err, service.ErrSavedMessageNotFound) {
 		t.Errorf("expected ErrSavedMessageNotFound for a kind mismatch, got %v", err)
+	}
+}
+
+// getOwnedOfKind (kind check) runs before build/Update ever compares
+// versions, so a kind mismatch must win as a 404-mapped
+// ErrSavedMessageNotFound even when the version supplied is also stale — it
+// must never be reported as a version conflict instead.
+func TestUpdateDraft_KindMismatchWinsOverStaleVersion(t *testing.T) {
+	svc, _ := setupSavedMessageService()
+	sm, _ := svc.Save(context.Background(), 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v1"})
+	// A second update bumps the version so sm.Version is now stale...
+	if _, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, sm.Version, service.SaveMessageRequest{Body: "v2"}); err != nil {
+		t.Fatalf("bump version: %v", err)
+	}
+
+	// ...and the request also targets the wrong kind. Kind mismatch must win.
+	_, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindTemplate, sm.Version, service.SaveMessageRequest{Body: "v3"})
+	if !errors.Is(err, service.ErrSavedMessageNotFound) {
+		t.Errorf("expected ErrSavedMessageNotFound (kind mismatch), got %v", err)
+	}
+	var conflict *service.SavedMessageConflictError
+	if errors.As(err, &conflict) {
+		t.Error("a kind mismatch must not be reported as a version conflict")
+	}
+}
+
+// --- update: optimistic concurrency (BE-7.5) --------------------------------
+
+// The core regression case: two overlapping edits of the same draft (e.g.
+// two browser tabs). The first save (holding the version both started from)
+// must win; the second, still holding that same now-stale version, must be
+// rejected as a conflict rather than silently clobbering the first save's
+// content — and the conflict response must carry the winner's current state.
+func TestUpdateDraft_SecondStaleWriterGetsConflictNotSilentOverwrite(t *testing.T) {
+	svc, _ := setupSavedMessageService()
+	sm, err := svc.Save(context.Background(), 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v1"})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	staleVersion := sm.Version // both "tabs" read this same version
+
+	// Tab A saves first — succeeds, bumps the version.
+	winner, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, staleVersion, service.SaveMessageRequest{Body: "tab A's edit"})
+	if err != nil {
+		t.Fatalf("first update (tab A) should succeed: %v", err)
+	}
+
+	// Tab B saves second, still holding the version from before tab A's
+	// write landed — must be rejected, not silently applied.
+	_, err = svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, staleVersion, service.SaveMessageRequest{Body: "tab B's stale edit"})
+	var conflict *service.SavedMessageConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected a SavedMessageConflictError for tab B's stale write, got %v", err)
+	}
+	if conflict.Current.Body != "tab A's edit" {
+		t.Errorf("conflict.Current.Body = %q, want tab A's winning content", conflict.Current.Body)
+	}
+	if conflict.Current.Version != winner.Version {
+		t.Errorf("conflict.Current.Version = %d, want %d (tab A's post-write version)", conflict.Current.Version, winner.Version)
+	}
+
+	// Data corruption check: reload from the store and confirm tab A's write
+	// is still what's there — tab B's rejected write must not have applied
+	// even partially.
+	final, err := svc.Get(context.Background(), sm.ID, 1, model.SavedMessageKindDraft)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if final.Body != "tab A's edit" {
+		t.Errorf("final stored body = %q, want tab A's edit to have survived tab B's rejected stale write", final.Body)
+	}
+}
+
+// A retry with the fresh version returned by the conflict succeeds — the
+// conflict is a signal to reload and retry, not a dead end.
+func TestUpdateDraft_RetryWithCurrentVersionAfterConflictSucceeds(t *testing.T) {
+	svc, _ := setupSavedMessageService()
+	sm, _ := svc.Save(context.Background(), 1, model.SavedMessageKindDraft, service.SaveMessageRequest{Body: "v1"})
+	staleVersion := sm.Version
+
+	if _, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, staleVersion, service.SaveMessageRequest{Body: "v2"}); err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+
+	_, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, staleVersion, service.SaveMessageRequest{Body: "v3-stale"})
+	var conflict *service.SavedMessageConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected a conflict on the second stale write, got %v", err)
+	}
+
+	retried, err := svc.Update(context.Background(), sm.ID, 1, model.SavedMessageKindDraft, conflict.Current.Version, service.SaveMessageRequest{Body: "v3-retried"})
+	if err != nil {
+		t.Fatalf("retry with the current version should succeed: %v", err)
+	}
+	if retried.Body != "v3-retried" {
+		t.Errorf("body = %q, want v3-retried", retried.Body)
 	}
 }
 
