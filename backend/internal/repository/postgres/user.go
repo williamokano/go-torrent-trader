@@ -129,31 +129,63 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 }
 
 // Update writes every user-editable column except can_download, can_upload,
-// can_chat, can_invite, and invites. The four privilege flags are governed by
-// RestrictionService; invites is governed by InviteService/
-// InviteDistributionService's AdjustInvites and AdminService's SetInvites.
-// All five are deliberately excluded here — mirroring how bonus_points is
-// excluded — so a stale read-modify-write elsewhere (login's LastLogin write,
-// an admin profile save) can never clobber a privilege flag changed
-// concurrently by a restriction apply/lift, or an invite balance changed
-// concurrently by a grant/decrement. Use SetPrivilegeFlag, AdjustInvites, or
-// SetInvites to change one of those five columns.
+// can_chat, can_invite, invites, uploaded, and downloaded. The four privilege
+// flags are governed by RestrictionService; invites is governed by
+// InviteService/InviteDistributionService's AdjustInvites and AdminService's
+// SetInvites; uploaded/downloaded are governed by IncrementStats (announce
+// accrual) and AdminService's SetStats. All seven are deliberately excluded
+// here — mirroring how bonus_points is excluded — so a stale read-modify-write
+// elsewhere (login's LastLogin write, an admin profile save) can never clobber
+// a privilege flag changed concurrently by a restriction apply/lift, an invite
+// balance changed concurrently by a grant/decrement, or stats accrued
+// concurrently by an announce. Use SetPrivilegeFlag, AdjustInvites,
+// SetInvites, or SetStats to change one of those columns.
 func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
+	return updateUserRow(ctx, r.db, user)
+}
+
+// UpdateWithHistory is Update plus an audit trail: the full-row write and the
+// user_edit_history rows describing it are committed in a single transaction,
+// so a failed audit insert rolls back the update instead of leaving a
+// persisted change with no trail. This is AdminService's path for the profile
+// fields it diffs (username, email, group, enabled, warned, ...); a nil or
+// empty entries slice skips the audit insert but still performs the update.
+func (r *UserRepo) UpdateWithHistory(ctx context.Context, user *model.User, entries []model.UserEditHistory) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("update user with history: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := updateUserRow(ctx, tx, user); err != nil {
+		return fmt.Errorf("update user with history: %w", err)
+	}
+	if err := insertEditHistoryTx(ctx, tx, entries); err != nil {
+		return fmt.Errorf("update user with history: record: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("update user with history: commit: %w", err)
+	}
+	return nil
+}
+
+// updateUserRow runs the full-row UPDATE against either the pool or an
+// open transaction (DBTX is satisfied by both *sql.DB and *sql.Tx), so
+// Update and UpdateWithHistory share one query instead of drifting apart.
+func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
 	query := `UPDATE users SET
 		username = $1, email = $2, password_hash = $3, password_scheme = $4,
-		passkey = $5, group_id = $6, uploaded = $7, downloaded = $8,
-		avatar = $9, title = $10, info = $11, enabled = $12, parked = $13,
-		ip = $14, last_login = $15, last_access = $16,
-		warned = $17, warn_until = $18, donor = $19, invited_by = $20,
-		can_forum = $21, disabled_until = $22, activated_at = $23, updated_at = NOW()
-	WHERE id = $24
+		passkey = $5, group_id = $6, avatar = $7, title = $8, info = $9,
+		enabled = $10, parked = $11, ip = $12, last_login = $13, last_access = $14,
+		warned = $15, warn_until = $16, donor = $17, invited_by = $18,
+		can_forum = $19, disabled_until = $20, activated_at = $21, updated_at = NOW()
+	WHERE id = $22
 	RETURNING updated_at`
 
-	return r.db.QueryRowContext(ctx, query,
+	return q.QueryRowContext(ctx, query,
 		user.Username, user.Email, user.PasswordHash, user.PasswordScheme,
-		user.Passkey, user.GroupID, user.Uploaded, user.Downloaded,
-		user.Avatar, user.Title, user.Info, user.Enabled, user.Parked,
-		user.IP, user.LastLogin, user.LastAccess,
+		user.Passkey, user.GroupID, user.Avatar, user.Title, user.Info,
+		user.Enabled, user.Parked, user.IP, user.LastLogin, user.LastAccess,
 		user.Warned, user.WarnUntil, user.Donor, user.InvitedBy,
 		user.CanForum, user.DisabledUntil, user.ActivatedAt, user.ID,
 	).Scan(&user.UpdatedAt)
@@ -229,9 +261,18 @@ func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64)
 // AdminService's path for an admin's explicit "set invites to N" edit; unlike
 // AdjustInvites it is not a delta, so two racing calls are a plain
 // last-write-wins on the same column (the admin's intended target value),
-// not a stale-read clobber of an unrelated concurrent change.
-func (r *UserRepo) SetInvites(ctx context.Context, userID int64, invites int) error {
-	res, err := r.db.ExecContext(ctx,
+// not a stale-read clobber of an unrelated concurrent change. The invites
+// write and its audit entries commit in one transaction — its only caller
+// (AdminService) always wants both or neither. A nil or empty entries slice
+// skips the audit insert but still sets the balance.
+func (r *UserRepo) SetInvites(ctx context.Context, userID int64, invites int, entries []model.UserEditHistory) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("set invites: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
 		`UPDATE users SET invites = $1, updated_at = NOW() WHERE id = $2`, invites, userID)
 	if err != nil {
 		return fmt.Errorf("set invites: %w", err)
@@ -242,6 +283,55 @@ func (r *UserRepo) SetInvites(ctx context.Context, userID int64, invites int) er
 	}
 	if n == 0 {
 		return sql.ErrNoRows
+	}
+
+	if err := insertEditHistoryTx(ctx, tx, entries); err != nil {
+		return fmt.Errorf("set invites: record: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("set invites: commit: %w", err)
+	}
+	return nil
+}
+
+// SetStats atomically sets a user's uploaded/downloaded counters — bypassing
+// Update's (now stats-free) full-row write — for AdminService's admin edit
+// path only; announce accrual continues to go through IncrementStats. Each
+// of uploaded and downloaded is independently optional (COALESCE keeps the
+// current DB value when nil): an admin edit that only touches one of the two
+// must not overwrite the other with a value read at request start, which
+// would reopen exactly the clobber window this method exists to close if the
+// admin edits, say, uploaded while an announce concurrently accrues
+// downloaded. The write and its audit entries commit in one transaction.
+func (r *UserRepo) SetStats(ctx context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("set stats: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE users SET
+			uploaded = COALESCE($1, uploaded),
+			downloaded = COALESCE($2, downloaded),
+			updated_at = NOW()
+		WHERE id = $3`, uploaded, downloaded, userID)
+	if err != nil {
+		return fmt.Errorf("set stats: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set stats rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+
+	if err := insertEditHistoryTx(ctx, tx, entries); err != nil {
+		return fmt.Errorf("set stats: record: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("set stats: commit: %w", err)
 	}
 	return nil
 }

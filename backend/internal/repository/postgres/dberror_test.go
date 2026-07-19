@@ -80,11 +80,18 @@ func TestRepositoriesPropagateDBErrors(t *testing.T) {
 			return err
 		},
 		"UserRepo.Update": func() error { return NewUserRepo(db).Update(ctx, &model.User{ID: 1}) },
+		"UserRepo.UpdateWithHistory": func() error {
+			return NewUserRepo(db).UpdateWithHistory(ctx, &model.User{ID: 1}, nil)
+		},
 		"UserRepo.SetPrivilegeFlag": func() error {
 			return NewUserRepo(db).SetPrivilegeFlag(ctx, 1, model.RestrictionTypeDownload, false)
 		},
-		"UserRepo.AdjustInvites":  func() error { return NewUserRepo(db).AdjustInvites(ctx, 1, 1) },
-		"UserRepo.SetInvites":     func() error { return NewUserRepo(db).SetInvites(ctx, 1, 1) },
+		"UserRepo.AdjustInvites": func() error { return NewUserRepo(db).AdjustInvites(ctx, 1, 1) },
+		"UserRepo.SetInvites":    func() error { return NewUserRepo(db).SetInvites(ctx, 1, 1, nil) },
+		"UserRepo.SetStats": func() error {
+			amt := int64(1)
+			return NewUserRepo(db).SetStats(ctx, 1, &amt, &amt, nil)
+		},
 		"UserRepo.IncrementStats": func() error { return NewUserRepo(db).IncrementStats(ctx, 1, 1, 1) },
 		"UserRepo.List": func() error {
 			users, _, err := NewUserRepo(db).List(ctx, repository.ListUsersOptions{})

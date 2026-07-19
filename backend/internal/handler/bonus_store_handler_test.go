@@ -45,7 +45,9 @@ func (s *stubBonusRepo) GetItem(_ context.Context, id int64) (*model.BonusStoreI
 func (s *stubBonusRepo) AwardPoints(_ context.Context, _ map[int64]int64, _ string) error {
 	return nil
 }
-func (s *stubBonusRepo) SetPoints(_ context.Context, _, _, _ int64) error { return nil }
+func (s *stubBonusRepo) SetPoints(_ context.Context, _, _, _ int64, _ []model.UserEditHistory) error {
+	return nil
+}
 
 func (s *stubBonusRepo) PurchaseItem(_ context.Context, _, itemID int64) (*model.BonusStoreItem, int64, error) {
 	if s.purchaseErr != nil {

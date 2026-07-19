@@ -102,9 +102,13 @@ func (r *BonusRepo) AwardPoints(ctx context.Context, awards map[int64]int64, rea
 }
 
 // SetPoints sets an absolute balance under a row lock and records the delta as
-// an admin_adjust ledger entry referencing the acting admin. No ledger row is
-// written when the balance is unchanged.
-func (r *BonusRepo) SetPoints(ctx context.Context, userID, newBalance, actorID int64) error {
+// an admin_adjust ledger entry referencing the acting admin, plus the given
+// user_edit_history entries — all three writes commit in one transaction, so
+// a failed audit insert rolls back the balance change and ledger row instead
+// of leaving a persisted change with no trail. No ledger row is written when
+// the balance is unchanged; a nil or empty entries slice skips the audit
+// insert but still sets the balance.
+func (r *BonusRepo) SetPoints(ctx context.Context, userID, newBalance, actorID int64, entries []model.UserEditHistory) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin set-points tx: %w", err)
@@ -118,18 +122,20 @@ func (r *BonusRepo) SetPoints(ctx context.Context, userID, newBalance, actorID i
 	}
 
 	delta := newBalance - current
-	if delta == 0 {
-		return tx.Commit()
+	if delta != 0 {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE users SET bonus_points = $1 WHERE id = $2`, newBalance, userID); err != nil {
+			return fmt.Errorf("set points for user %d: %w", userID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO bonus_transactions (user_id, delta, reason, ref_id) VALUES ($1, $2, $3, $4)`,
+			userID, delta, model.BonusReasonAdminAdjust, actorID); err != nil {
+			return fmt.Errorf("ledger admin adjust for user %d: %w", userID, err)
+		}
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE users SET bonus_points = $1 WHERE id = $2`, newBalance, userID); err != nil {
-		return fmt.Errorf("set points for user %d: %w", userID, err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO bonus_transactions (user_id, delta, reason, ref_id) VALUES ($1, $2, $3, $4)`,
-		userID, delta, model.BonusReasonAdminAdjust, actorID); err != nil {
-		return fmt.Errorf("ledger admin adjust for user %d: %w", userID, err)
+	if err := insertEditHistoryTx(ctx, tx, entries); err != nil {
+		return fmt.Errorf("set points for user %d: record: %w", userID, err)
 	}
 
 	if err := tx.Commit(); err != nil {

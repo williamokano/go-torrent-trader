@@ -118,7 +118,7 @@ func TestUserRepoUpdateDoesNotWriteInvites(t *testing.T) {
 
 	repo := NewUserRepo(db)
 	u := newUser(t, db)
-	if err := repo.SetInvites(ctx, u.ID, 1); err != nil {
+	if err := repo.SetInvites(ctx, u.ID, 1, nil); err != nil {
 		t.Fatalf("seed invites: %v", err)
 	}
 
@@ -133,6 +133,277 @@ func TestUserRepoUpdateDoesNotWriteInvites(t *testing.T) {
 	}
 	if got.Invites != 1 {
 		t.Errorf("invites = %d, want 1 (Update must not write this column)", got.Invites)
+	}
+}
+
+// TestUserRepoUpdateDoesNotWriteStats documents that Update() excludes
+// uploaded/downloaded entirely (mirroring invites and the four privilege
+// flags): in-memory Uploaded/Downloaded values on the struct passed to
+// Update are silently ignored rather than persisted. IncrementStats (announce
+// accrual) and SetStats (admin edit) are the only paths that may change them.
+func TestUserRepoUpdateDoesNotWriteStats(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+	if err := repo.IncrementStats(ctx, u.ID, 100, 50); err != nil {
+		t.Fatalf("seed stats: %v", err)
+	}
+
+	u.Uploaded = 999999 // in-memory values Update() must not persist
+	u.Downloaded = 888888
+	if err := repo.Update(ctx, u); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Uploaded != 100 || got.Downloaded != 50 {
+		t.Errorf("uploaded=%d downloaded=%d, want 100/50 (Update must not write these columns)", got.Uploaded, got.Downloaded)
+	}
+}
+
+// TestUserRepoUpdate_DoesNotClobberStats is the regression test for the same
+// race class TestUserRepoUpdate_DoesNotClobberPrivilegeFlags closes for the
+// privilege flags, applied to uploaded/downloaded — the exact race BE-8.18 was
+// written to close: a flow (e.g. an admin profile save) reads a user, and its
+// full-row Update() lands AFTER a concurrent announce accrues stats via
+// IncrementStats — but was built from data read BEFORE. Because Update() no
+// longer writes uploaded/downloaded at all, the stale write must be
+// structurally incapable of clobbering the accrual — regardless of timing.
+func TestUserRepoUpdate_DoesNotClobberStats(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	// Another flow reads the user before a concurrent announce.
+	stale, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	// An announce accrues stats concurrently via the atomic path.
+	if err := repo.IncrementStats(ctx, u.ID, 100, 50); err != nil {
+		t.Fatalf("IncrementStats: %v", err)
+	}
+
+	// The stale flow's own full-row Update() finally lands, carrying
+	// Uploaded=Downloaded=0 because that's what it read before the accrual.
+	// It also makes an unrelated change, to prove Update still works.
+	stale.Title = ptr("unrelated change")
+	if err := repo.Update(ctx, stale); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID after stale Update: %v", err)
+	}
+	if got.Uploaded != 100 || got.Downloaded != 50 {
+		t.Errorf("stale full-row Update clobbered concurrently-accrued stats: uploaded=%d downloaded=%d, want 100/50", got.Uploaded, got.Downloaded)
+	}
+	if got.Title == nil || *got.Title != "unrelated change" {
+		t.Error("Update should still persist unrelated columns")
+	}
+}
+
+func TestUserRepoSetStats(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	uploaded, downloaded := int64(500), int64(250)
+	if err := repo.SetStats(ctx, u.ID, &uploaded, &downloaded, nil); err != nil {
+		t.Fatalf("SetStats: %v", err)
+	}
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Uploaded != 500 || got.Downloaded != 250 {
+		t.Errorf("uploaded=%d downloaded=%d, want 500/250", got.Uploaded, got.Downloaded)
+	}
+
+	if err := repo.SetStats(ctx, 999999, &uploaded, &downloaded, nil); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("SetStats(missing user) = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// TestUserRepoSetStats_PartialUpdateDoesNotClobberConcurrentAccrual proves
+// SetStats's COALESCE semantics: an admin edit that only sets one of
+// uploaded/downloaded (the other pointer is nil — the field wasn't dirty)
+// must not overwrite the untouched counter with a value read at request
+// start, which would reopen the exact clobber window this story closes if a
+// concurrent announce accrues that counter in between.
+func TestUserRepoSetStats_PartialUpdateDoesNotClobberConcurrentAccrual(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	// An admin's edit only touches uploaded; downloaded is deliberately nil,
+	// as if the admin only changed the uploaded field on the form.
+	uploaded := int64(1000)
+	if err := repo.SetStats(ctx, u.ID, &uploaded, nil, nil); err != nil {
+		t.Fatalf("SetStats: %v", err)
+	}
+
+	// An announce concurrently accrues both counters in between.
+	if err := repo.IncrementStats(ctx, u.ID, 10, 20); err != nil {
+		t.Fatalf("IncrementStats: %v", err)
+	}
+
+	// A second admin edit, still only touching uploaded, must not clobber the
+	// downloaded value the announce just accrued.
+	uploaded2 := int64(2000)
+	if err := repo.SetStats(ctx, u.ID, &uploaded2, nil, nil); err != nil {
+		t.Fatalf("SetStats: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Uploaded != 2000 {
+		t.Errorf("uploaded = %d, want 2000 (the admin's explicit set)", got.Uploaded)
+	}
+	if got.Downloaded != 20 {
+		t.Errorf("downloaded = %d, want 20 (SetStats(nil) must leave it at the announce-accrued value, not clobber it)", got.Downloaded)
+	}
+}
+
+// TestUserRepoUpdateWithHistory_RecordsAtomically proves the successful path:
+// the full-row write and its audit rows are both visible afterward.
+func TestUserRepoUpdateWithHistory_RecordsAtomically(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+	admin := newUser(t, db)
+
+	u.Title = ptr("Elite")
+	entries := []model.UserEditHistory{
+		{UserID: u.ID, ChangedBy: &admin.ID, ChangedByUsername: admin.Username, Field: "title", OldValue: "", NewValue: "Elite"},
+	}
+	if err := repo.UpdateWithHistory(ctx, u, entries); err != nil {
+		t.Fatalf("UpdateWithHistory: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "Elite" {
+		t.Errorf("title = %v, want Elite", got.Title)
+	}
+
+	hist, total, err := NewUserEditHistoryRepo(db).ListByUser(ctx, u.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListByUser: %v", err)
+	}
+	if total != 1 || len(hist) != 1 || hist[0].Field != "title" {
+		t.Fatalf("want 1 title entry, got %+v (total=%d)", hist, total)
+	}
+}
+
+// TestUserRepoUpdateWithHistory_AuditFailureRollsBackWrite is the regression
+// test for this story's headline change: the update and its audit rows now
+// commit in one transaction, so an audit insert that fails — here, a
+// changed_by referencing a nonexistent admin, which violates the FK — must
+// roll back the user update too, not just fail to record while the update
+// stands (BE-8.17's prior best-effort behavior).
+func TestUserRepoUpdateWithHistory_AuditFailureRollsBackWrite(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	bogusAdmin := int64(999999999)
+	u.Title = ptr("should not persist")
+	entries := []model.UserEditHistory{
+		{UserID: u.ID, ChangedBy: &bogusAdmin, Field: "title", OldValue: "", NewValue: "should not persist"},
+	}
+	if err := repo.UpdateWithHistory(ctx, u, entries); err == nil {
+		t.Fatal("expected an error from the changed_by FK violation")
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Title != nil {
+		t.Errorf("title = %v, want nil — a failed audit insert must roll back the update too", got.Title)
+	}
+}
+
+// TestUserRepoSetStats_AuditFailureRollsBackWrite is SetStats's half of the
+// same atomicity guarantee UpdateWithHistory proves above.
+func TestUserRepoSetStats_AuditFailureRollsBackWrite(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	bogusAdmin := int64(999999999)
+	uploaded := int64(12345)
+	entries := []model.UserEditHistory{
+		{UserID: u.ID, ChangedBy: &bogusAdmin, Field: "uploaded", OldValue: "0", NewValue: "12345"},
+	}
+	if err := repo.SetStats(ctx, u.ID, &uploaded, nil, entries); err == nil {
+		t.Fatal("expected an error from the changed_by FK violation")
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Uploaded != 0 {
+		t.Errorf("uploaded = %d, want 0 — a failed audit insert must roll back the stats write too", got.Uploaded)
+	}
+}
+
+// TestUserRepoSetInvites_AuditFailureRollsBackWrite is SetInvites's half of
+// the same atomicity guarantee.
+func TestUserRepoSetInvites_AuditFailureRollsBackWrite(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+	u := newUser(t, db)
+
+	bogusAdmin := int64(999999999)
+	entries := []model.UserEditHistory{
+		{UserID: u.ID, ChangedBy: &bogusAdmin, Field: "invites", OldValue: "0", NewValue: "9"},
+	}
+	if err := repo.SetInvites(ctx, u.ID, 9, entries); err == nil {
+		t.Fatal("expected an error from the changed_by FK violation")
+	}
+
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Invites != 0 {
+		t.Errorf("invites = %d, want 0 — a failed audit insert must roll back the invites write too", got.Invites)
 	}
 }
 
@@ -295,7 +566,7 @@ func TestUserRepoAdjustInvitesDoesNotLoseConcurrentWrite(t *testing.T) {
 
 	repo := NewUserRepo(db)
 	u := newUser(t, db)
-	if err := repo.SetInvites(ctx, u.ID, 5); err != nil {
+	if err := repo.SetInvites(ctx, u.ID, 5, nil); err != nil {
 		t.Fatalf("seed invites: %v", err)
 	}
 
@@ -344,7 +615,7 @@ func TestUserRepoSetInvitesIsAbsolute(t *testing.T) {
 	if err := repo.AdjustInvites(ctx, u.ID, 7); err != nil {
 		t.Fatalf("AdjustInvites: %v", err)
 	}
-	if err := repo.SetInvites(ctx, u.ID, 2); err != nil {
+	if err := repo.SetInvites(ctx, u.ID, 2, nil); err != nil {
 		t.Fatalf("SetInvites: %v", err)
 	}
 
@@ -356,7 +627,7 @@ func TestUserRepoSetInvitesIsAbsolute(t *testing.T) {
 		t.Errorf("invites = %d, want 2 (SetInvites is absolute, not a delta)", got.Invites)
 	}
 
-	if err := repo.SetInvites(ctx, 999999, 1); !errors.Is(err, sql.ErrNoRows) {
+	if err := repo.SetInvites(ctx, 999999, 1, nil); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("SetInvites(missing user) = %v, want sql.ErrNoRows", err)
 	}
 }

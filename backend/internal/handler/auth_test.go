@@ -18,11 +18,20 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
 
+// historyPusher is implemented by memEditHistoryRepo (admin_edit_history_test.go)
+// so mockUserRepo can forward audit entries to it directly, matching how
+// production writes go into user_edit_history via UserRepo's own transaction
+// rather than through UserEditHistoryRepo.Record.
+type historyPusher interface {
+	push(entries []model.UserEditHistory)
+}
+
 // mockUserRepo is an in-memory user repository for handler tests.
 type mockUserRepo struct {
-	mu     sync.Mutex
-	users  []*model.User
-	nextID int64
+	mu          sync.Mutex
+	users       []*model.User
+	nextID      int64
+	historySink historyPusher // optional; entries are discarded if nil
 }
 
 func newMockUserRepo() *mockUserRepo {
@@ -167,16 +176,59 @@ func (m *mockUserRepo) AdjustInvites(_ context.Context, userID int64, delta int6
 	return errors.New("not found")
 }
 
-func (m *mockUserRepo) SetInvites(_ context.Context, userID int64, invites int) error {
+func (m *mockUserRepo) SetInvites(_ context.Context, userID int64, invites int, entries []model.UserEditHistory) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, u := range m.users {
 		if u.ID == userID {
 			u.Invites = invites
+			m.pushHistory(entries)
 			return nil
 		}
 	}
 	return errors.New("not found")
+}
+
+func (m *mockUserRepo) SetStats(_ context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == userID {
+			if uploaded != nil {
+				u.Uploaded = *uploaded
+			}
+			if downloaded != nil {
+				u.Downloaded = *downloaded
+			}
+			m.pushHistory(entries)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+func (m *mockUserRepo) UpdateWithHistory(_ context.Context, user *model.User, entries []model.UserEditHistory) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, u := range m.users {
+		if u.ID == user.ID {
+			m.users[i] = user
+			m.pushHistory(entries)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+// pushHistory forwards audit entries to historySink when the test fixture set
+// one (e.g. admin_edit_history_test.go's memEditHistoryRepo), mirroring how,
+// in production, UserRepo's *WithHistory methods write into the same
+// user_edit_history table independent of UserEditHistoryRepo.Record. Callers
+// must already hold m.mu.
+func (m *mockUserRepo) pushHistory(entries []model.UserEditHistory) {
+	if m.historySink != nil {
+		m.historySink.push(entries)
+	}
 }
 
 func (m *mockUserRepo) ListStaff(_ context.Context) ([]model.User, error) {

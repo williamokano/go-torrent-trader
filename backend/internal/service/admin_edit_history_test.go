@@ -9,9 +9,22 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
+// fakeEditHistoryRepo backs both sides of AdminService's edit-history split:
+// ListUserEditHistory reads through it (via ListByUser, the interface
+// AdminService actually holds), while the *write* side is fed directly by
+// mockUserRepo/fakeBonusRepo's push() calls — mirroring how, in production,
+// UserRepo/BonusRepo write into the same user_edit_history table each within
+// their own transaction, not through UserEditHistoryRepo.Record. Record()
+// still works standalone (it's exercised directly by repository tests and
+// kept here so this fake fully implements the interface), but UpdateUser no
+// longer calls it.
 type fakeEditHistoryRepo struct {
 	recorded  []model.UserEditHistory
 	recordErr error
+}
+
+func (f *fakeEditHistoryRepo) push(entries []model.UserEditHistory) {
+	f.recorded = append(f.recorded, entries...)
 }
 
 func (f *fakeEditHistoryRepo) Record(_ context.Context, entries []model.UserEditHistory) error {
@@ -49,6 +62,7 @@ func newEditHistoryFixture(t *testing.T) (*AdminService, *fakeEditHistoryRepo, i
 	groupRepo := newMockAdminGroupRepo()
 	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
 	hist := &fakeEditHistoryRepo{}
+	userRepo.historySink = hist
 	svc.SetEditHistoryRepo(hist)
 
 	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
@@ -158,17 +172,127 @@ func TestAdminUpdateUser_GroupChangeRecordsNames(t *testing.T) {
 	}
 }
 
-func TestAdminUpdateUser_RecordFailureDoesNotFailUpdate(t *testing.T) {
-	svc, hist, userID, actorID := newEditHistoryFixture(t)
-	hist.recordErr = errors.New("db down")
+// TestAdminUpdateUser_UpdateWithHistoryFailureAbortsWholeUpdate is the
+// regression test for this story's headline change: UpdateWithHistory commits
+// the diffed profile fields and their audit rows in one transaction, so a
+// failure there — including an audit-insert failure — must abort the whole
+// call, instead of BE-8.17's best-effort behavior (a failed audit recording
+// was logged and swallowed, leaving the already-committed update in place
+// with no trail). UpdateWithHistory runs first, before SetStats/SetInvites/
+// SetPoints, so failing it here also proves those later stages never run —
+// asserted via Uploaded, since admin.go only mutates user.Uploaded *after*
+// SetStats succeeds (unlike the fields UpdateWithHistory itself diffs, which
+// are mutated on the shared *model.User before UpdateWithHistory is even
+// called — mockUserRepo.GetByID hands back that same live pointer rather than
+// a defensive copy, so asserting on one of those wouldn't actually prove
+// UpdateWithHistory's failure prevented persistence, just that the caller's
+// own in-memory diff happened, which is true either way).
+// mockUserRepo.updateErr stands in for "the shared transaction failed" —
+// from the caller's side, a real Postgres rollback and this mock's refusal
+// to mutate state look the same: the write is not observable afterward.
+func TestAdminUpdateUser_UpdateWithHistoryFailureAbortsWholeUpdate(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	svc := NewAdminService(userRepo, groupRepo, event.NewInMemoryBus())
+	hist := &fakeEditHistoryRepo{}
+	userRepo.historySink = hist
+	svc.SetEditHistoryRepo(hist)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, err := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "writefail",
+		Email:    "writefail@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("register fixture user: %v", err)
+	}
+
+	userRepo.updateErr = errors.New("tx rolled back")
 
 	uploaded := int64(42)
-	view, err := svc.UpdateUser(context.Background(), actorID, userID, AdminUpdateUserRequest{Uploaded: &uploaded})
-	if err != nil {
-		t.Fatalf("UpdateUser should not fail when audit recording fails: %v", err)
+	title := "should not persist"
+	_, err = svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{Title: &title, Uploaded: &uploaded})
+	if err == nil {
+		t.Fatal("UpdateUser should fail when the write+audit transaction fails")
 	}
-	if view.Uploaded != 42 {
-		t.Errorf("view.Uploaded = %d, want 42", view.Uploaded)
+
+	got, getErr := userRepo.GetByID(context.Background(), result.User.ID)
+	if getErr != nil {
+		t.Fatalf("GetByID: %v", getErr)
+	}
+	if got.Uploaded != 0 {
+		t.Errorf("uploaded = %d, want 0 (UpdateWithHistory failing must stop UpdateUser before SetStats ever runs)", got.Uploaded)
+	}
+	if len(hist.recorded) != 0 {
+		t.Errorf("recorded %d entries for a failed write: %+v (audit must not survive a rolled-back write)", len(hist.recorded), hist.recorded)
+	}
+}
+
+// TestAdminUpdateUser_LaterStageFailureLeavesEarlierWriteCommitted documents
+// the accepted shape of the remaining trade-off: UpdateWithHistory, SetStats,
+// SetInvites, and BonusRepo.SetPoints are four independent transactions, each
+// atomic with its own audit rows, not one whole-request transaction (that
+// wasn't this story's scope — see BE-8.18's "accepted trade-offs" note). So
+// when an earlier stage (here, UpdateWithHistory, banning the user) commits
+// and a later, unrelated stage (SetStats) then fails, the ban and its audit
+// row are durable and — the specific gap this test guards — the UserBanned
+// event still fires, because event publishing now happens right after
+// UpdateWithHistory commits rather than being deferred to the end of the
+// whole call. Only the field the failed stage owns (uploaded) is left
+// unchanged, and the admin sees an error either way.
+func TestAdminUpdateUser_LaterStageFailureLeavesEarlierWriteCommitted(t *testing.T) {
+	userRepo := newMockUserRepo()
+	groupRepo := newMockAdminGroupRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewAdminService(userRepo, groupRepo, bus)
+	hist := &fakeEditHistoryRepo{}
+	userRepo.historySink = hist
+	svc.SetEditHistoryRepo(hist)
+
+	authSvc := NewAuthService(userRepo, newTestSessionStore(), newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+	result, err := authSvc.Register(context.Background(), RegisterRequest{
+		Username: "laterstagefail",
+		Email:    "laterstagefail@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("register fixture user: %v", err)
+	}
+
+	var banned bool
+	bus.Subscribe(event.UserBanned, func(_ context.Context, _ event.Event) error {
+		banned = true
+		return nil
+	})
+
+	userRepo.statsErr = errors.New("stats tx rolled back")
+
+	enabled := false
+	uploaded := int64(42)
+	_, err = svc.UpdateUser(context.Background(), 99, result.User.ID, AdminUpdateUserRequest{Enabled: &enabled, Uploaded: &uploaded})
+	if err == nil {
+		t.Fatal("UpdateUser should fail when SetStats's transaction fails")
+	}
+
+	got, getErr := userRepo.GetByID(context.Background(), result.User.ID)
+	if getErr != nil {
+		t.Fatalf("GetByID: %v", getErr)
+	}
+	if got.Enabled {
+		t.Error("enabled = true, want false — UpdateWithHistory already committed the ban before SetStats failed")
+	}
+	if got.Uploaded != 0 {
+		t.Errorf("uploaded = %d, want 0 — SetStats's own transaction must have rolled back", got.Uploaded)
+	}
+	if !banned {
+		t.Error("UserBannedEvent was not published — a committed ban must still be evented even when a later, unrelated write fails")
+	}
+	if e := findEntry(hist.recorded, "enabled"); e == nil || e.NewValue != "false" {
+		t.Errorf("enabled audit entry = %+v, want a committed true->false entry", e)
+	}
+	if e := findEntry(hist.recorded, "uploaded"); e != nil {
+		t.Errorf("uploaded audit entry = %+v, want none — SetStats's audit insert must not have survived its rollback", e)
 	}
 }
 
