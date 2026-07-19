@@ -188,6 +188,29 @@ func TestRegister_Success(t *testing.T) {
 	}
 }
 
+// TestRegister_SetsActivatedAtWhenNoConfirmationRequired is part of the
+// regression coverage for BE-8.19: when no email confirmation is required,
+// the account is usable the instant it's created, so ActivatedAt must be
+// stamped at registration — not left to a login or some later request that
+// may never come (e.g. the account is banned before either happens).
+func TestRegister_SetsActivatedAtWhenNoConfirmationRequired(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := newTestSessionStore()
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+
+	result, err := svc.Register(context.Background(), RegisterRequest{
+		Username: "activateduser",
+		Email:    "activated@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.User.ActivatedAt == nil {
+		t.Error("ActivatedAt must be set at registration when no email confirmation is required")
+	}
+}
+
 func TestRegister_FirstUserGetsAdmin(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
@@ -329,6 +352,86 @@ func TestLogin_Success(t *testing.T) {
 	}
 	if tokens.AccessToken == "" {
 		t.Error("expected non-empty access token")
+	}
+}
+
+// TestLogin_SetsActivatedAtOnFirstLogin is part of the regression coverage
+// for BE-8.19. A user created directly with ActivatedAt unset (as an
+// email-confirmation-required registration would leave it) must have
+// ActivatedAt stamped on their very first successful login — not on some
+// later request. A user banned immediately after this login must not read
+// as "never activated" and be swept up by the cleanup worker.
+func TestLogin_SetsActivatedAtOnFirstLogin(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := newTestSessionStore()
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+
+	hash, err := HashPassword("password123")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	seeded := &model.User{
+		Username:       "neveractivated",
+		Email:          "neveractivated@example.com",
+		PasswordHash:   hash,
+		PasswordScheme: "argon2id",
+		GroupID:        1,
+		Enabled:        true,
+		// ActivatedAt deliberately left nil, mirroring a user who confirmed
+		// via a path that predates ActivatedAt tracking, or any other route
+		// to enabled=true that isn't Register/ConfirmEmail.
+	}
+	if err := repo.Create(context.Background(), seeded); err != nil {
+		t.Fatalf("seeding user: %v", err)
+	}
+
+	user, _, err := svc.Login(context.Background(), LoginRequest{
+		Username: "neveractivated",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user.ActivatedAt == nil {
+		t.Error("ActivatedAt must be set on first successful login")
+	}
+}
+
+// TestLogin_PreservesEarlierActivatedAt proves a second login does not push
+// ActivatedAt forward — it records when the account was first activated, not
+// when it was last logged into (that's LastLogin's job).
+func TestLogin_PreservesEarlierActivatedAt(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := newTestSessionStore()
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+
+	hash, err := HashPassword("password123")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	firstActivation := time.Now().Add(-72 * time.Hour)
+	seeded := &model.User{
+		Username:       "repeatlogin",
+		Email:          "repeatlogin@example.com",
+		PasswordHash:   hash,
+		PasswordScheme: "argon2id",
+		GroupID:        1,
+		Enabled:        true,
+		ActivatedAt:    &firstActivation,
+	}
+	if err := repo.Create(context.Background(), seeded); err != nil {
+		t.Fatalf("seeding user: %v", err)
+	}
+
+	user, _, err := svc.Login(context.Background(), LoginRequest{
+		Username: "repeatlogin",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user.ActivatedAt == nil || !user.ActivatedAt.Equal(firstActivation) {
+		t.Errorf("ActivatedAt = %v, want unchanged from the seeded %v", user.ActivatedAt, firstActivation)
 	}
 }
 

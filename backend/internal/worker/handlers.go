@@ -101,11 +101,31 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task
 			slog.Info("cleanup: dead torrents hidden", "count", n)
 		}
 
-		// 4. Delete expired pending registrations (enabled=false, older than 7 days)
-		// Exclude users who still have a pending (unclaimed, unexpired) email confirmation
+		// 4. Delete expired pending registrations (never activated, older than 7 days)
+		//
+		// enabled=false alone is NOT a safe signal here: banning a user also sets
+		// enabled=false (see AdminService.UpdateUser / QuickBanUser), and neither
+		// path touches activated_at. So a banned user whose *registration* happens
+		// to be older than 7 days would otherwise match and be hard-deleted here,
+		// cascading away their torrents/notes/warnings and erasing the ban record
+		// itself.
+		//
+		// activated_at IS NULL is the "never activated" signal (BE-8.19):
+		// model.User.ActivatedAt is stamped exactly once — at registration when
+		// no email confirmation is required, at email confirmation, or at first
+		// login, whichever happens first (see AuthService.Register/Login/
+		// ConfirmEmail) — and is never touched by a ban. Deliberately not
+		// last_access: that column only updates on a *subsequent* authenticated
+		// request (ActivityTracker middleware, debounced), so a user banned
+		// immediately after registering or logging in once would still read as
+		// "never activated" under last_access and get caught by this same bug.
+		// activated_at requires no follow-up request, so it only stays NULL for
+		// an account that was created and genuinely never activated at all.
+		// Exclude users who still have a pending (unclaimed, unexpired) email confirmation.
 		res, err = deps.DB.ExecContext(ctx, `
 			DELETE FROM users
 			WHERE enabled = false
+			  AND activated_at IS NULL
 			  AND created_at < NOW() - INTERVAL '7 days'
 			  AND NOT EXISTS (
 			    SELECT 1 FROM email_confirmations ec

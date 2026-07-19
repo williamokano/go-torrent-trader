@@ -310,6 +310,16 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		CanInvite:      true,
 	}
 
+	// No confirmation step means the account is usable the instant it's
+	// created — that's activation, not merely registration. Stamping
+	// ActivatedAt here (rather than relying on last_access from a later
+	// request) is what lets the cleanup worker (BE-8.19) tell "banned right
+	// after signing up" apart from "registered and never touched again".
+	if !needsConfirmation {
+		now := time.Now()
+		user.ActivatedAt = &now
+	}
+
 	// Link inviter to invitee
 	if validatedInvite != nil {
 		user.InvitedBy = &validatedInvite.InviterID
@@ -408,6 +418,13 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	now := time.Now()
 	user.LastLogin = &now
 	user.IP = &ip
+	// A successful login proves the account is under someone's control even
+	// if this is the only authenticated request they ever make — set once,
+	// so it reads as "first activated at", not "last login". See ActivatedAt
+	// on model.User and BE-8.19.
+	if user.ActivatedAt == nil {
+		user.ActivatedAt = &now
+	}
 	if err := s.users.Update(ctx, user); err != nil {
 		slog.Error("failed to update last login", "user_id", user.ID, "error", err)
 	}
@@ -632,6 +649,13 @@ func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
 	}
 
 	user.Enabled = true
+	// Confirming email is activation for the confirmation-required flow: it
+	// proves control of the account even before any authenticated request is
+	// made. See ActivatedAt on model.User and BE-8.19.
+	if user.ActivatedAt == nil {
+		now := time.Now()
+		user.ActivatedAt = &now
+	}
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("enable user: %w", err)
 	}
