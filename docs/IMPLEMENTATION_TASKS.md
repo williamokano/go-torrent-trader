@@ -2145,7 +2145,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 ---
 
-### Epic FE-5: Admin Panel [L] [PARTIAL — foundation, layout, routing, users/reports/groups pages done]
+### Epic FE-5: Admin Panel [L] [DONE — all FE-5.x child stories complete]
 
 #### FE-5.0: Admin Panel Foundation [S] [DONE]
 **As an** admin
