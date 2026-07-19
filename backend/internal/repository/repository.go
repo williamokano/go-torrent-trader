@@ -117,8 +117,9 @@ type BonusRepository interface {
 	// deltas are skipped.
 	AwardPoints(ctx context.Context, awards map[int64]int64, reason string) error
 	// SetPoints sets an absolute balance and records the delta as an
-	// admin_adjust ledger row referencing the acting admin.
-	SetPoints(ctx context.Context, userID, newBalance, actorID int64) error
+	// admin_adjust ledger row referencing the acting admin, plus the given
+	// user_edit_history entries, all in one transaction.
+	SetPoints(ctx context.Context, userID, newBalance, actorID int64, entries []model.UserEditHistory) error
 	// PurchaseItem owns the whole purchase transaction: conditional balance
 	// decrement, reward application, and ledger insert.
 	PurchaseItem(ctx context.Context, userID, itemID int64) (*model.BonusStoreItem, int64, error)

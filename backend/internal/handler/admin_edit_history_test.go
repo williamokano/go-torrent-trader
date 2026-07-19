@@ -19,6 +19,13 @@ type memEditHistoryRepo struct {
 	entries []model.UserEditHistory
 }
 
+// push is how mockUserRepo's UpdateWithHistory/SetStats/SetInvites deliver
+// audit entries in this test's fixture — mirroring production, where those
+// writes insert into user_edit_history directly rather than through Record.
+func (m *memEditHistoryRepo) push(entries []model.UserEditHistory) {
+	m.entries = append(m.entries, entries...)
+}
+
 func (m *memEditHistoryRepo) Record(_ context.Context, entries []model.UserEditHistory) error {
 	m.entries = append(m.entries, entries...)
 	return nil
@@ -50,7 +57,9 @@ func setupEditHistoryRouter() (http.Handler, service.SessionStore) {
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupRepo, bus)
 	adminSvc := service.NewAdminService(userRepo, groupRepo, bus)
 	adminSvc.SetSessionStore(sessions)
-	adminSvc.SetEditHistoryRepo(&memEditHistoryRepo{})
+	hist := &memEditHistoryRepo{}
+	userRepo.historySink = hist
+	adminSvc.SetEditHistoryRepo(hist)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,

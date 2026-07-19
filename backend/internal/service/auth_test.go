@@ -12,15 +12,41 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
+// historyRecorder is implemented by fakeEditHistoryRepo (admin_edit_history_test.go)
+// so mockUserRepo and fakeBonusRepo can push audit entries directly into it —
+// mirroring how, in production, UserRepo.UpdateWithHistory/SetStats/SetInvites
+// and BonusRepo.SetPoints each insert into the same user_edit_history table
+// within their own transaction, independent of UserEditHistoryRepo.Record.
+type historyRecorder interface {
+	push(entries []model.UserEditHistory)
+}
+
 // mockUserRepo is an in-memory user repository for testing.
 type mockUserRepo struct {
-	mu     sync.Mutex
-	users  []*model.User
-	nextID int64
+	mu          sync.Mutex
+	users       []*model.User
+	nextID      int64
+	historySink historyRecorder // optional; entries are discarded if nil
+	// updateErr/statsErr/invitesErr independently fail UpdateWithHistory/
+	// SetStats/SetInvites without mutating state or pushing history —
+	// simulating that one method's write+audit transaction failing. Kept as
+	// three separate fields (not one shared error) so a test can prove a
+	// later stage failing does not touch what an earlier stage already
+	// committed, matching how these are genuinely independent transactions
+	// against real Postgres.
+	updateErr  error
+	statsErr   error
+	invitesErr error
 }
 
 func newMockUserRepo() *mockUserRepo {
 	return &mockUserRepo{nextID: 1}
+}
+
+func (m *mockUserRepo) push(entries []model.UserEditHistory) {
+	if m.historySink != nil {
+		m.historySink.push(entries)
+	}
 }
 
 func (m *mockUserRepo) GetByID(_ context.Context, id int64) (*model.User, error) {
@@ -136,12 +162,53 @@ func (m *mockUserRepo) List(_ context.Context, opts repository.ListUsersOptions)
 
 func (m *mockUserRepo) UpdateLastAccess(_ context.Context, _ int64) error { return nil }
 
-func (m *mockUserRepo) SetInvites(_ context.Context, userID int64, invites int) error {
+func (m *mockUserRepo) SetInvites(_ context.Context, userID int64, invites int, entries []model.UserEditHistory) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.invitesErr != nil {
+		return m.invitesErr
+	}
 	for _, u := range m.users {
 		if u.ID == userID {
 			u.Invites = invites
+			m.push(entries)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+func (m *mockUserRepo) SetStats(_ context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.statsErr != nil {
+		return m.statsErr
+	}
+	for _, u := range m.users {
+		if u.ID == userID {
+			if uploaded != nil {
+				u.Uploaded = *uploaded
+			}
+			if downloaded != nil {
+				u.Downloaded = *downloaded
+			}
+			m.push(entries)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+func (m *mockUserRepo) UpdateWithHistory(_ context.Context, user *model.User, entries []model.UserEditHistory) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	for i, u := range m.users {
+		if u.ID == user.ID {
+			m.users[i] = user
+			m.push(entries)
 			return nil
 		}
 	}

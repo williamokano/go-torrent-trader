@@ -112,20 +112,35 @@ type AdminUpdateUserRequest struct {
 	BonusPoints *int64 `json:"bonus_points"`
 }
 
-// inviteSetRepository is repository.UserRepository plus the ability to
-// atomically set a user's absolute invite balance without a full-row Update.
-// Kept local to this file rather than added to repository.UserRepository, so
-// the many existing mocks implementing UserRepository elsewhere in the test
-// suite are untouched — the same approach service/restriction.go uses for
+// adminUserWriteRepository is repository.UserRepository plus the
+// admin-edit-only writes AdminService needs: an atomic absolute invite
+// balance set, an atomic stats (uploaded/downloaded) set, and a full-row
+// update — each committing its user_edit_history rows in the same
+// transaction as the write it describes. (Named for what it does, not just
+// invites, now that it also covers stats and the full-row update — it grew
+// past its original invites-only scope over BE-8.17/BE-8.18.) Kept local to
+// this file rather than added to repository.UserRepository, so the many
+// existing mocks implementing UserRepository elsewhere in the test suite are
+// untouched — the same approach service/restriction.go uses for
 // privilegeFlagRepository.
-type inviteSetRepository interface {
+type adminUserWriteRepository interface {
 	repository.UserRepository
-	SetInvites(ctx context.Context, userID int64, invites int) error
+	// SetInvites atomically sets the invite balance and its audit entries in
+	// one transaction.
+	SetInvites(ctx context.Context, userID int64, invites int, entries []model.UserEditHistory) error
+	// SetStats atomically sets uploaded/downloaded (independently, via nil to
+	// leave a counter untouched) and their audit entries in one transaction —
+	// bypassing UpdateWithHistory's full-row write, which no longer touches
+	// either column, so a stale read elsewhere can never clobber stats
+	// accrued concurrently by an announce.
+	SetStats(ctx context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error
+	// UpdateWithHistory is Update plus its audit entries, committed together.
+	UpdateWithHistory(ctx context.Context, user *model.User, entries []model.UserEditHistory) error
 }
 
 // AdminService handles admin-only business logic.
 type AdminService struct {
-	users       inviteSetRepository
+	users       adminUserWriteRepository
 	groups      repository.GroupRepository
 	groupWriter repository.GroupWriteRepository
 	sessions    SessionStore
@@ -141,7 +156,7 @@ type AdminService struct {
 }
 
 // NewAdminService creates a new AdminService.
-func NewAdminService(users inviteSetRepository, groups repository.GroupRepository, bus event.Bus) *AdminService {
+func NewAdminService(users adminUserWriteRepository, groups repository.GroupRepository, bus event.Bus) *AdminService {
 	return &AdminService{users: users, groups: groups, eventBus: bus}
 }
 
@@ -190,8 +205,11 @@ func (s *AdminService) SetBonusRepo(repo repository.BonusRepository) {
 	s.bonus = repo
 }
 
-// SetEditHistoryRepo sets the repository recording the audit trail of admin
-// edits to user profile fields.
+// SetEditHistoryRepo sets the repository used to read back the audit trail of
+// admin edits to user profile fields (ListUserEditHistory). Writes no longer
+// go through this repo's Record: UpdateWithHistory, SetStats, SetInvites, and
+// BonusRepository.SetPoints each insert their own audit rows in the same
+// transaction as the write they describe.
 func (s *AdminService) SetEditHistoryRepo(repo repository.UserEditHistoryRepository) {
 	s.editHistory = repo
 }
@@ -419,8 +437,11 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	actor := s.actorFromUserID(ctx, actorID)
 
 	// Every field change is diffed into the edit-history audit trail: one row
-	// per field with the old value, new value and acting admin. Entries are
-	// recorded only after the write that persists them succeeds.
+	// per field with the old value, new value and acting admin. Each batch is
+	// built here, then handed to the write that persists the fields it
+	// describes (UpdateWithHistory/SetStats/SetInvites/BonusRepo.SetPoints),
+	// which commits the write and the audit rows in one transaction — not
+	// recorded as a separate best-effort step afterward.
 	var audit []model.UserEditHistory
 	record := func(field, oldValue, newValue string) {
 		if oldValue == newValue {
@@ -469,14 +490,6 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		}
 		user.GroupID = *req.GroupID
 	}
-	if req.Uploaded != nil {
-		record("uploaded", strconv.FormatInt(user.Uploaded, 10), strconv.FormatInt(*req.Uploaded, 10))
-		user.Uploaded = *req.Uploaded
-	}
-	if req.Downloaded != nil {
-		record("downloaded", strconv.FormatInt(user.Downloaded, 10), strconv.FormatInt(*req.Downloaded, 10))
-		user.Downloaded = *req.Downloaded
-	}
 	if req.Enabled != nil {
 		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
 		user.Enabled = *req.Enabled
@@ -494,48 +507,21 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		user.Parked = *req.Parked
 	}
 
-	if err := s.users.Update(ctx, user); err != nil {
+	// UpdateWithHistory commits the full-row write and its audit rows in one
+	// transaction: a failed audit insert now rolls back the update, instead of
+	// (as before this story) the update landing with the audit recorded
+	// best-effort afterward.
+	if err := s.users.UpdateWithHistory(ctx, user, audit); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
-	s.recordEditHistory(ctx, user.ID, actorID, audit)
 	audit = nil
 
-	// Invites are set through the dedicated SetInvites method, never the
-	// full-row Update: two concurrent writers (this admin edit and an
-	// auto-grant or invite creation elsewhere) could otherwise clobber each
-	// other via a stale read, the same race BE-8.16 closed for the privilege
-	// flags and this story closes for invites.
-	if req.Invites != nil {
-		oldInvites := user.Invites
-		if err := s.users.SetInvites(ctx, user.ID, *req.Invites); err != nil {
-			return nil, fmt.Errorf("set invites: %w", err)
-		}
-		user.Invites = *req.Invites
-		record("invites", strconv.Itoa(oldInvites), strconv.Itoa(*req.Invites))
-		s.recordEditHistory(ctx, user.ID, actorID, audit)
-		audit = nil
-	}
-
-	// Bonus points are set through the bonus repo, never the full-row Update:
-	// the dedicated path takes a row lock and writes the admin_adjust ledger
-	// entry, so it coexists with concurrent worker awards.
-	if req.BonusPoints != nil {
-		if *req.BonusPoints < 0 {
-			return nil, ErrAdminNegativeBonusPoints
-		}
-		if s.bonus == nil {
-			return nil, fmt.Errorf("bonus repository not configured")
-		}
-		oldBonus := user.BonusPoints
-		if err := s.bonus.SetPoints(ctx, user.ID, *req.BonusPoints, actorID); err != nil {
-			return nil, fmt.Errorf("set bonus points: %w", err)
-		}
-		user.BonusPoints = *req.BonusPoints
-		record("bonus_points", strconv.FormatInt(oldBonus, 10), strconv.FormatInt(*req.BonusPoints, 10))
-		s.recordEditHistory(ctx, user.ID, actorID, audit)
-	}
-
-	// Publish events for state changes
+	// Publish events for the state changes UpdateWithHistory just committed,
+	// right away rather than after the independent stats/invites/bonus writes
+	// below: those are separate transactions against unrelated columns, and a
+	// later one failing must not leave an already-persisted ban/unban/warn/
+	// unwarn/group-change silently un-evented (no ban PM, no downstream
+	// listeners) just because this single request also touched, say, stats.
 	if oldEnabled && !user.Enabled {
 		s.eventBus.Publish(ctx, &event.UserBannedEvent{
 			Base:     event.NewBase(event.UserBanned, actor),
@@ -576,6 +562,67 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 			OldGroupName: oldGroupName,
 			NewGroupName: newGroupName,
 		})
+	}
+
+	// Uploaded/downloaded are set through the dedicated SetStats method, never
+	// the full-row Update: Update no longer writes either column at all, so a
+	// stale read elsewhere (this same handler, minted at request start) can
+	// never clobber stats accrued concurrently by an announce — the same race
+	// BE-8.16 closed for the privilege flags and BE-8.17 closed for invites,
+	// now closed here for stats. uploaded/downloaded are independently
+	// optional, so only the field(s) actually present in the request are sent
+	// to SetStats; the other stays nil and SetStats leaves that column alone
+	// via COALESCE rather than writing back a value read at request start.
+	if req.Uploaded != nil || req.Downloaded != nil {
+		if req.Uploaded != nil {
+			record("uploaded", strconv.FormatInt(user.Uploaded, 10), strconv.FormatInt(*req.Uploaded, 10))
+		}
+		if req.Downloaded != nil {
+			record("downloaded", strconv.FormatInt(user.Downloaded, 10), strconv.FormatInt(*req.Downloaded, 10))
+		}
+		if err := s.users.SetStats(ctx, user.ID, req.Uploaded, req.Downloaded, audit); err != nil {
+			return nil, fmt.Errorf("set stats: %w", err)
+		}
+		if req.Uploaded != nil {
+			user.Uploaded = *req.Uploaded
+		}
+		if req.Downloaded != nil {
+			user.Downloaded = *req.Downloaded
+		}
+		audit = nil
+	}
+
+	// Invites are set through the dedicated SetInvites method, never the
+	// full-row Update: two concurrent writers (this admin edit and an
+	// auto-grant or invite creation elsewhere) could otherwise clobber each
+	// other via a stale read, the same race BE-8.16 closed for the privilege
+	// flags and this story closes for invites.
+	if req.Invites != nil {
+		oldInvites := user.Invites
+		record("invites", strconv.Itoa(oldInvites), strconv.Itoa(*req.Invites))
+		if err := s.users.SetInvites(ctx, user.ID, *req.Invites, audit); err != nil {
+			return nil, fmt.Errorf("set invites: %w", err)
+		}
+		user.Invites = *req.Invites
+		audit = nil
+	}
+
+	// Bonus points are set through the bonus repo, never the full-row Update:
+	// the dedicated path takes a row lock and writes the admin_adjust ledger
+	// entry, so it coexists with concurrent worker awards.
+	if req.BonusPoints != nil {
+		if *req.BonusPoints < 0 {
+			return nil, ErrAdminNegativeBonusPoints
+		}
+		if s.bonus == nil {
+			return nil, fmt.Errorf("bonus repository not configured")
+		}
+		oldBonus := user.BonusPoints
+		record("bonus_points", strconv.FormatInt(oldBonus, 10), strconv.FormatInt(*req.BonusPoints, 10))
+		if err := s.bonus.SetPoints(ctx, user.ID, *req.BonusPoints, actorID, audit); err != nil {
+			return nil, fmt.Errorf("set bonus points: %w", err)
+		}
+		user.BonusPoints = *req.BonusPoints
 	}
 
 	groupName := ""
@@ -622,18 +669,6 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		view.LastAccess = &la
 	}
 	return view
-}
-
-// recordEditHistory persists audit entries best-effort: the user update has
-// already been committed, so a failure here must not roll it back — it is
-// logged loudly instead. A nil repo (tests, partial wiring) skips recording.
-func (s *AdminService) recordEditHistory(ctx context.Context, userID, actorID int64, entries []model.UserEditHistory) {
-	if s.editHistory == nil || len(entries) == 0 {
-		return
-	}
-	if err := s.editHistory.Record(ctx, entries); err != nil {
-		slog.Error("failed to record user edit history", "user_id", userID, "actor_id", actorID, "error", err)
-	}
 }
 
 // AdminUserEditHistoryView is the edit-history entry representation returned

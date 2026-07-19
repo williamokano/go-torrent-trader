@@ -94,7 +94,7 @@ func TestBonusRepo_SetPoints(t *testing.T) {
 	u := newUser(t, db)
 	admin := newUser(t, db)
 
-	if err := repo.SetPoints(ctx, u.ID, 500, admin.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, 500, admin.ID, nil); err != nil {
 		t.Fatalf("SetPoints: %v", err)
 	}
 	if got := bonusBalance(t, db, u.ID); got != 500 {
@@ -109,7 +109,7 @@ func TestBonusRepo_SetPoints(t *testing.T) {
 	}
 
 	// Lowering the balance records a negative delta.
-	if err := repo.SetPoints(ctx, u.ID, 200, admin.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, 200, admin.ID, nil); err != nil {
 		t.Fatalf("SetPoints lower: %v", err)
 	}
 	ledger = bonusLedger(t, db, u.ID)
@@ -118,11 +118,70 @@ func TestBonusRepo_SetPoints(t *testing.T) {
 	}
 
 	// Unchanged balance writes no ledger row.
-	if err := repo.SetPoints(ctx, u.ID, 200, admin.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, 200, admin.ID, nil); err != nil {
 		t.Fatalf("SetPoints unchanged: %v", err)
 	}
 	if got := len(bonusLedger(t, db, u.ID)); got != 2 {
 		t.Errorf("ledger rows after no-op set = %d, want 2", got)
+	}
+}
+
+// TestBonusRepo_SetPoints_RecordsHistoryAtomically proves the successful
+// path: the balance write, ledger row, and user_edit_history entries are all
+// visible afterward from one SetPoints call.
+func TestBonusRepo_SetPoints_RecordsHistoryAtomically(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewBonusRepo(db)
+
+	u := newUser(t, db)
+	admin := newUser(t, db)
+	entries := []model.UserEditHistory{
+		{UserID: u.ID, ChangedBy: &admin.ID, ChangedByUsername: admin.Username, Field: "bonus_points", OldValue: "0", NewValue: "500"},
+	}
+	if err := repo.SetPoints(ctx, u.ID, 500, admin.ID, entries); err != nil {
+		t.Fatalf("SetPoints: %v", err)
+	}
+	if got := bonusBalance(t, db, u.ID); got != 500 {
+		t.Fatalf("balance = %d, want 500", got)
+	}
+
+	hist, total, err := NewUserEditHistoryRepo(db).ListByUser(ctx, u.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListByUser: %v", err)
+	}
+	if total != 1 || len(hist) != 1 || hist[0].Field != "bonus_points" {
+		t.Fatalf("want 1 bonus_points entry, got %+v (total=%d)", hist, total)
+	}
+}
+
+// TestBonusRepo_SetPoints_AuditFailureRollsBackWrite is the regression test
+// for this story's headline change applied to bonus points: SetPoints's
+// balance write, ledger row, and audit entries now commit in one transaction,
+// so an audit insert that violates the changed_by FK (a nonexistent admin id)
+// must roll back the balance change and ledger row too — not just fail to
+// record while the balance change stands.
+func TestBonusRepo_SetPoints_AuditFailureRollsBackWrite(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewBonusRepo(db)
+
+	u := newUser(t, db)
+	bogusAdmin := int64(999999999)
+	entries := []model.UserEditHistory{
+		{UserID: u.ID, ChangedBy: &bogusAdmin, Field: "bonus_points", OldValue: "0", NewValue: "500"},
+	}
+	if err := repo.SetPoints(ctx, u.ID, 500, u.ID, entries); err == nil {
+		t.Fatal("expected an error from the changed_by FK violation")
+	}
+
+	if got := bonusBalance(t, db, u.ID); got != 0 {
+		t.Errorf("balance = %d, want 0 — a failed audit insert must roll back the balance write too", got)
+	}
+	if got := len(bonusLedger(t, db, u.ID)); got != 0 {
+		t.Errorf("ledger rows = %d, want 0 — a failed audit insert must roll back the ledger row too", got)
 	}
 }
 
@@ -134,7 +193,7 @@ func TestBonusRepo_PurchaseInvite(t *testing.T) {
 
 	u := newUser(t, db)
 	item := itemBySlug(t, db, "invite-1")
-	if err := repo.SetPoints(ctx, u.ID, item.Price+100, u.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, item.Price+100, u.ID, nil); err != nil {
 		t.Fatalf("fund user: %v", err)
 	}
 
@@ -169,7 +228,7 @@ func TestBonusRepo_PurchaseUploadCredit(t *testing.T) {
 
 	u := newUser(t, db)
 	item := itemBySlug(t, db, "upload-5gib")
-	if err := repo.SetPoints(ctx, u.ID, item.Price, u.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, item.Price, u.ID, nil); err != nil {
 		t.Fatalf("fund user: %v", err)
 	}
 
@@ -200,7 +259,7 @@ func TestBonusRepo_PurchaseInsufficientBalance(t *testing.T) {
 
 	u := newUser(t, db)
 	item := itemBySlug(t, db, "invite-1")
-	if err := repo.SetPoints(ctx, u.ID, item.Price-1, u.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, item.Price-1, u.ID, nil); err != nil {
 		t.Fatalf("fund user: %v", err)
 	}
 	ledgerBefore := len(bonusLedger(t, db, u.ID))
@@ -230,7 +289,7 @@ func TestBonusRepo_PurchaseDisabledAndUnknownItems(t *testing.T) {
 	repo := NewBonusRepo(db)
 
 	u := newUser(t, db)
-	if err := repo.SetPoints(ctx, u.ID, 100000, u.ID); err != nil {
+	if err := repo.SetPoints(ctx, u.ID, 100000, u.ID, nil); err != nil {
 		t.Fatalf("fund user: %v", err)
 	}
 

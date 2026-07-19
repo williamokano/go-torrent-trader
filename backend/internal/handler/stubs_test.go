@@ -129,13 +129,31 @@ func (s *stubUserRepo) AdjustInvites(_ context.Context, userID int64, delta int6
 	return nil
 }
 
-func (s *stubUserRepo) SetInvites(_ context.Context, userID int64, invites int) error {
+func (s *stubUserRepo) SetInvites(_ context.Context, userID int64, invites int, _ []model.UserEditHistory) error {
 	u, ok := s.users[userID]
 	if !ok {
 		return errors.New("user not found")
 	}
 	u.Invites = invites
 	return nil
+}
+
+func (s *stubUserRepo) SetStats(_ context.Context, userID int64, uploaded, downloaded *int64, _ []model.UserEditHistory) error {
+	u, ok := s.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	if uploaded != nil {
+		u.Uploaded = *uploaded
+	}
+	if downloaded != nil {
+		u.Downloaded = *downloaded
+	}
+	return nil
+}
+
+func (s *stubUserRepo) UpdateWithHistory(ctx context.Context, u *model.User, _ []model.UserEditHistory) error {
+	return s.Update(ctx, u)
 }
 
 // --- private messages -------------------------------------------------------

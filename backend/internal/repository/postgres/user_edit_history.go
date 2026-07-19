@@ -29,22 +29,40 @@ func (r *UserEditHistoryRepo) Record(ctx context.Context, entries []model.UserEd
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := insertEditHistoryTx(ctx, tx, entries); err != nil {
+		return fmt.Errorf("record user edit history: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("record user edit history: commit: %w", err)
+	}
+	return nil
+}
+
+// insertEditHistoryTx inserts audit rows using an already-open transaction. It
+// is the shared building block behind both UserEditHistoryRepo.Record (which
+// opens its own tx) and UserRepo/BonusRepo's *WithHistory-style methods, which
+// insert into user_edit_history inside the same transaction as the write the
+// entries describe — so a failed audit insert rolls back the write too,
+// instead of leaving a persisted change with no trail (or vice versa). A nil
+// or empty slice is a no-op.
+func insertEditHistoryTx(ctx context.Context, tx *sql.Tx, entries []model.UserEditHistory) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO user_edit_history
 		(user_id, changed_by, changed_by_username, field, old_value, new_value)
 		VALUES ($1, $2, $3, $4, $5, $6)`)
 	if err != nil {
-		return fmt.Errorf("record user edit history: prepare: %w", err)
+		return fmt.Errorf("prepare: %w", err)
 	}
 	defer func() { _ = stmt.Close() }()
 
 	for i := range entries {
 		e := &entries[i]
 		if _, err := stmt.ExecContext(ctx, e.UserID, e.ChangedBy, e.ChangedByUsername, e.Field, e.OldValue, e.NewValue); err != nil {
-			return fmt.Errorf("record user edit history: insert %s: %w", e.Field, err)
+			return fmt.Errorf("insert %s: %w", e.Field, err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("record user edit history: commit: %w", err)
 	}
 	return nil
 }

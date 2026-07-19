@@ -21,6 +21,7 @@ type fakeBonusRepo struct {
 	purchaseErr   error
 	purchasedItem *model.BonusStoreItem
 	purchaseCalls [][2]int64 // user, item
+	historySink   historyRecorder
 }
 
 func (f *fakeBonusRepo) ListEnabledItems(_ context.Context) ([]model.BonusStoreItem, error) {
@@ -48,8 +49,11 @@ func (f *fakeBonusRepo) AwardPoints(_ context.Context, awards map[int64]int64, r
 	return nil
 }
 
-func (f *fakeBonusRepo) SetPoints(_ context.Context, userID, newBalance, actorID int64) error {
+func (f *fakeBonusRepo) SetPoints(_ context.Context, userID, newBalance, actorID int64, entries []model.UserEditHistory) error {
 	f.setCalls = append(f.setCalls, [3]int64{userID, newBalance, actorID})
+	if f.historySink != nil {
+		f.historySink.push(entries)
+	}
 	return nil
 }
 
