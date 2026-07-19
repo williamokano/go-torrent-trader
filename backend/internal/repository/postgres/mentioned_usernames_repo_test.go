@@ -253,10 +253,11 @@ func TestForumPostRepoMentionedUsernamesRoundTrip(t *testing.T) {
 		t.Fatal("post not found in ListByTopic results")
 	}
 
+	oldBody := got.Body
 	got.Body = "edited, mentions someone else now"
 	other := newUser(t, db)
 	got.MentionedUsernames = []string{other.Username}
-	if err := repo.Update(ctx, got); err != nil {
+	if err := repo.Update(ctx, got, oldBody); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	updated, err := repo.GetByID(ctx, post.ID)

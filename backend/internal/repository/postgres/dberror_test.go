@@ -191,7 +191,7 @@ func TestRepositoriesPropagateDBErrors(t *testing.T) {
 			_, _, err := NewForumPostRepo(db).ListByTopic(ctx, 1, 1, 10)
 			return err
 		},
-		"ForumPostRepo.Update": func() error { return NewForumPostRepo(db).Update(ctx, &model.ForumPost{ID: 1}) },
+		"ForumPostRepo.Update": func() error { return NewForumPostRepo(db).Update(ctx, &model.ForumPost{ID: 1}, "") },
 		"ForumPostRepo.Delete": func() error { return NewForumPostRepo(db).Delete(ctx, 1) },
 		"ForumPostRepo.CountByUser": func() error {
 			_, err := NewForumPostRepo(db).CountByUser(ctx, 1)

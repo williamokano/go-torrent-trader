@@ -28,6 +28,7 @@ var (
 	ErrInvalidSearch          = errors.New("invalid search query")
 	ErrPostNotFound           = errors.New("post not found")
 	ErrPostEditDenied         = errors.New("not authorized to edit this post")
+	ErrPostEditConflict       = errors.New("post was edited by someone else since it was read; reload and try again")
 	ErrPostDeleteDenied       = errors.New("not authorized to delete this post")
 	ErrCannotDeleteFirstPost  = errors.New("cannot delete the first post of a topic; delete the topic instead")
 	ErrSameForum              = errors.New("topic is already in this forum")
@@ -448,6 +449,24 @@ func (s *ForumService) Search(ctx context.Context, query string, perms model.Per
 // don't own (BE-9.23): it's stored on the edit history row and is visible
 // only to staff viewing that history, never to the post's author or other
 // regular users.
+//
+// The edit-history insert and the body update run in one transaction, and
+// the body update is conditional on the post's body still matching what was
+// read at the top of this call (BE-9.25): a second edit racing in between
+// would otherwise land a diff computed against a body the post no longer
+// has. See the oldBody comment below for why a conditional UPDATE was
+// chosen over SELECT ... FOR UPDATE, and ForumPostRepo.Update for why it's
+// safe without one (that safety assumes the transaction runs at Postgres's
+// default READ COMMITTED, which is what WithTx always uses — if that ever
+// becomes configurable per-call, a losing writer under a stricter isolation
+// level would get a serialization-failure error here instead of the clean
+// ErrPostEditConflict this method translates it to).
+//
+// This closes the body/diff race specifically. The permission checks below
+// (topic locked, forum access, can_forum) are still plain reads taken before
+// the transaction, same as CreateTopic/CreatePost/DeletePost elsewhere in
+// this file — a permission change landing in that window is a pre-existing,
+// separate class of staleness this story doesn't address.
 func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64, perms model.Permissions, body string, reason string) (*model.ForumPost, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -499,33 +518,21 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 		return post, nil
 	}
 
-	// Resolved before CreateEdit, not between it and Update: CreateEdit and
-	// Update are two independent, non-transactional writes (no s.db-backed tx
-	// wraps EditPost, unlike CreateTopic/CreatePost), so a fallible call sitting
-	// between them would widen the window where history records an edit that
-	// never actually lands. Resolving first means a resolution failure aborts
-	// before anything is written, instead of after edit history already is.
-	//
-	// That same non-transactional gap also means two edits racing against
-	// this same post can both read the body above before either writes,
-	// producing a diff that no longer matches what CreateEdit/Update
-	// actually land — BE-9.23's "edits are strictly linear" assumption is
-	// enforced by nothing here. ListPostEdits degrades gracefully if that
-	// ever produces an unreconstructable diff (see its docs), which bounds
-	// the damage to that one post's history instead of a hard failure, but
-	// doesn't prevent the race itself — closing that is tracked separately
-	// as BE-9.25 (optimistic concurrency control), since it needs a
-	// transaction/locking change to this write path.
+	// Resolved before the transaction below, not inside it: a fallible call
+	// sitting inside the transaction would widen the window a row lock (or,
+	// on the s.db == nil test fallback, the edit-history row) is held for no
+	// benefit. Resolving first means a resolution failure aborts before
+	// anything is written, instead of after edit history already is.
 	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
 	if err != nil {
 		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
 	}
 
-	// Record edit history before updating. Store a diff against the previous
-	// version (reversible: applying it to the new body reconstructs the old
-	// one) instead of a full old_body snapshot, so repeated small edits to
-	// the same post don't multiply storage with near-duplicate full-text
-	// copies (BE-9.23).
+	// Record edit history alongside the update. Store a diff against the
+	// previous version (reversible: applying it to the new body reconstructs
+	// the old one) instead of a full old_body snapshot, so repeated small
+	// edits to the same post don't multiply storage with near-duplicate
+	// full-text copies (BE-9.23).
 	edit := &model.ForumPostEdit{
 		PostID:   postID,
 		EditedBy: &userID,
@@ -538,15 +545,76 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 	if reason = strings.TrimSpace(reason); reason != "" && perms.IsStaff() && post.UserID != userID {
 		edit.Reason = &reason
 	}
-	if err := s.posts.CreateEdit(ctx, edit); err != nil {
-		return nil, fmt.Errorf("creating edit history: %w", err)
-	}
 
+	// oldBody anchors both the diff above and the conditional update below to
+	// the exact text this call read. BE-9.25: two overlapping edits can both
+	// reach this point having read the same starting body — the conditional
+	// UPDATE (WHERE body = oldBody) is what ensures only the first one to
+	// actually commit wins; the second finds its WHERE clause no longer
+	// matches and gets rejected as a conflict instead of silently landing a
+	// diff computed against a body the post no longer has.
+	//
+	// Chosen over SELECT ... FOR UPDATE: the diff above is pure CPU work with
+	// no I/O between the read and this write, so a pessimistic row lock held
+	// across it would buy nothing while making every edit on a post wait on
+	// whichever request happened to read first. The conditional UPDATE gets
+	// the same correctness under Postgres's default READ COMMITTED (see
+	// ForumPostRepo.Update) without holding a lock any longer than the write
+	// itself takes.
+	oldBody := post.Body
 	post.Body = body
 	post.MentionedUsernames = mentioned
 	post.EditedBy = &userID
-	if err := s.posts.Update(ctx, post); err != nil {
-		return nil, fmt.Errorf("update post: %w", err)
+
+	if s.db != nil {
+		err = repository.WithTx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx,
+				"INSERT INTO forum_post_edits (post_id, edited_by, diff, reason) VALUES ($1, $2, $3, $4)",
+				edit.PostID, edit.EditedBy, edit.Diff, edit.Reason,
+			); err != nil {
+				return fmt.Errorf("creating edit history: %w", err)
+			}
+			mentionedJSON, err := json.Marshal(mentioned)
+			if err != nil {
+				return fmt.Errorf("marshal mentioned usernames: %w", err)
+			}
+			res, err := tx.ExecContext(ctx,
+				"UPDATE forum_posts SET body = $1, mentioned_usernames = $2, edited_at = NOW(), edited_by = $3 WHERE id = $4 AND body = $5",
+				post.Body, mentionedJSON, post.EditedBy, post.ID, oldBody,
+			)
+			if err != nil {
+				return fmt.Errorf("update post: %w", err)
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("rows affected: %w", err)
+			}
+			if n == 0 {
+				// Rolling back the transaction discards the edit-history
+				// insert above too, so a losing writer never leaves a diff
+				// on record for a body the post never actually had.
+				return ErrPostEditConflict
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Non-transactional fallback (used in tests with nil db). Update is
+		// still conditional on oldBody, so a mock repository can simulate the
+		// conflict for unit tests, but nothing here rolls CreateEdit back on
+		// conflict — that guarantee only holds on the s.db != nil path above,
+		// which is what production always uses.
+		if err := s.posts.CreateEdit(ctx, edit); err != nil {
+			return nil, fmt.Errorf("creating edit history: %w", err)
+		}
+		if err := s.posts.Update(ctx, post, oldBody); err != nil {
+			if errors.Is(err, repository.ErrEditConflict) {
+				return nil, ErrPostEditConflict
+			}
+			return nil, fmt.Errorf("update post: %w", err)
+		}
 	}
 
 	// Re-fetch to get updated edited_at and denormalized fields
@@ -760,13 +828,14 @@ func (s *ForumService) RestorePost(ctx context.Context, postID int64, userID int
 // written before this migration are legacy full-snapshot rows (IsSnapshot
 // true) and pass through unchanged — no reconstruction needed.
 //
-// If a stored diff ever fails to apply (a corrupt row, or two edits racing
-// against the same post — see EditPost's docs for that residual risk), this
-// does not fail the whole request: reconstruction is unreliable for that
-// edit and everything older than it (the chain's anchor point is lost), so
-// those rows come back with ReconstructionFailed set and blank bodies
-// instead of either fabricating content or 500ing the entire history for
-// every other, unaffected edit on the same post.
+// If a stored diff ever fails to apply (e.g. a corrupt row — EditPost's
+// optimistic concurrency check (BE-9.25) rules out the racing-edits case
+// that used to make this reachable in practice), this does not fail the
+// whole request: reconstruction is unreliable for that edit and everything
+// older than it (the chain's anchor point is lost), so those rows come back
+// with ReconstructionFailed set and blank bodies instead of either
+// fabricating content or 500ing the entire history for every other,
+// unaffected edit on the same post.
 func (s *ForumService) ListPostEdits(ctx context.Context, postID int64, perms model.Permissions) ([]model.ForumPostEdit, error) {
 	if !perms.IsStaff() {
 		return nil, ErrForumAccessDenied

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 // newPost inserts a post through the repository under test and returns it, so a
@@ -93,7 +94,7 @@ func TestForumPostRepoUpdateStampsEditor(t *testing.T) {
 	}
 
 	post := &model.ForumPost{ID: id, Body: "edited", EditedBy: &editor.ID}
-	if err := repo.Update(ctx, post); err != nil {
+	if err := repo.Update(ctx, post, "original"); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -111,6 +112,40 @@ func TestForumPostRepoUpdateStampsEditor(t *testing.T) {
 	}
 	if after.EditedBy == nil || *after.EditedBy != editor.ID {
 		t.Errorf("EditedBy = %v, want %d", after.EditedBy, editor.ID)
+	}
+}
+
+// BE-9.25: Update's WHERE clause is conditional on the caller's oldBody
+// still matching the row. A stale oldBody (what a concurrent edit landing
+// first would produce) must be rejected rather than silently overwriting
+// whatever the row currently holds.
+func TestForumPostRepoUpdateRejectsStaleOldBody(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewForumPostRepo(db)
+	f := newForumFixture(t, db)
+	editor := newUser(t, db)
+	id := newPost(t, db, f.TopicID, f.UserID, "current body")
+
+	post := &model.ForumPost{ID: id, Body: "clobbered", EditedBy: &editor.ID}
+	err := repo.Update(ctx, post, "a stale body a concurrent reader saw earlier")
+	if !errors.Is(err, repository.ErrEditConflict) {
+		t.Fatalf("err = %v, want repository.ErrEditConflict", err)
+	}
+
+	// The row must be untouched: no partial write, no edited_at/edited_by
+	// stamped for an update that didn't actually happen.
+	after, err := repo.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if after.Body != "current body" {
+		t.Errorf("Body = %q after a rejected update, want the original %q untouched", after.Body, "current body")
+	}
+	if after.EditedAt != nil || after.EditedBy != nil {
+		t.Errorf("post stamped as edited (at=%v by=%v) despite the conditional update being rejected", after.EditedAt, after.EditedBy)
 	}
 }
 

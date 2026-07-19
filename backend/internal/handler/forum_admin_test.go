@@ -219,8 +219,10 @@ func (m *mockForumAdminPostRepo) GetByID(_ context.Context, _ int64) (*model.For
 func (m *mockForumAdminPostRepo) ListByTopic(_ context.Context, _ int64, _, _ int) ([]model.ForumPost, int64, error) {
 	return nil, 0, nil
 }
-func (m *mockForumAdminPostRepo) Create(_ context.Context, _ *model.ForumPost) error  { return nil }
-func (m *mockForumAdminPostRepo) Update(_ context.Context, _ *model.ForumPost) error  { return nil }
+func (m *mockForumAdminPostRepo) Create(_ context.Context, _ *model.ForumPost) error { return nil }
+func (m *mockForumAdminPostRepo) Update(_ context.Context, _ *model.ForumPost, _ string) error {
+	return nil
+}
 func (m *mockForumAdminPostRepo) Delete(_ context.Context, _ int64) error             { return nil }
 func (m *mockForumAdminPostRepo) CountByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockForumAdminPostRepo) Search(_ context.Context, _ string, _ *int64, _ int, _, _ int) ([]model.ForumSearchResult, int64, error) {

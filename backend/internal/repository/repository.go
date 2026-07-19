@@ -457,12 +457,25 @@ type ForumTopicRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// ErrEditConflict is returned by ForumPostRepository.Update when oldBody no
+// longer matches the post's current body — a concurrent edit landed first
+// (BE-9.25). It originates inside the conditional UPDATE (only the repo can
+// observe the affected row count), so it lives here rather than in service,
+// matching ErrInsufficientBonusPoints above.
+var ErrEditConflict = errors.New("post body changed since it was read")
+
 // ForumPostRepository defines persistence operations for forum posts.
 type ForumPostRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.ForumPost, error)
 	ListByTopic(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error)
 	Create(ctx context.Context, post *model.ForumPost) error
-	Update(ctx context.Context, post *model.ForumPost) error
+	// Update conditionally applies post.Body/MentionedUsernames/EditedBy: the
+	// write only lands if the row's current body still equals oldBody, the
+	// exact text the caller's diff/comparison was computed against. If a
+	// concurrent edit already changed it, no rows are touched and this
+	// returns ErrEditConflict (BE-9.25) instead of silently overwriting a
+	// diff that no longer applies.
+	Update(ctx context.Context, post *model.ForumPost, oldBody string) error
 	Delete(ctx context.Context, id int64) error
 	CountByUser(ctx context.Context, userID int64) (int, error)
 	Search(ctx context.Context, query string, forumID *int64, maxGroupLevel int, page, perPage int) ([]model.ForumSearchResult, int64, error)

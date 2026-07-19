@@ -11,6 +11,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -278,7 +279,7 @@ func (s *stubForumPostRepo) Create(_ context.Context, post *model.ForumPost) err
 	s.posts[post.ID] = &stored
 	return nil
 }
-func (s *stubForumPostRepo) Update(_ context.Context, post *model.ForumPost) error {
+func (s *stubForumPostRepo) Update(_ context.Context, post *model.ForumPost, _ string) error {
 	if s.updateErr != nil {
 		return s.updateErr
 	}
@@ -913,6 +914,45 @@ func TestEditPostRecordsHistoryAndUpdatesBody(t *testing.T) {
 	}
 	if len(d.posts.updated) != 1 || d.posts.updated[0].Body != "new text" {
 		t.Errorf("updated = %+v, want the post body replaced", d.posts.updated)
+	}
+}
+
+// BE-9.25: a concurrent edit that already changed the post's body must
+// surface as a clean 409 the frontend can show as "someone else edited this
+// post" — not a generic 500, and not a silently-accepted overwrite. The
+// actual race (two overlapping writers, one conditional UPDATE losing) is
+// exercised for real against Postgres in
+// internal/repository/postgres/forum_edit_concurrency_test.go; this only
+// checks that ForumService's conflict sentinel reaches the client as a 409.
+func TestEditPostConcurrentConflictReturns409(t *testing.T) {
+	d := newForumDeps()
+	d.topics.topics[100] = &model.ForumTopic{ID: 100, ForumID: 1, UserID: 7}
+	d.posts.posts[500] = &model.ForumPost{ID: 500, TopicID: 100, UserID: 7, Body: "old text"}
+	d.posts.updateErr = repository.ErrEditConflict
+	h := d.handler()
+
+	req := withForumAuth(httptest.NewRequest(http.MethodPut, "/api/v1/forums/posts/500",
+		strings.NewReader(`{"body":"new text"}`)), 7, memberPerms())
+	req = withURLParam(req, "id", "500")
+	w := httptest.NewRecorder()
+	h.HandleEditPost(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+	body := decodeBody(t, w)
+	errObj, ok := body["error"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("response missing error object: %v", body)
+	}
+	if errObj["code"] != "edit_conflict" {
+		t.Errorf("error.code = %v, want %q", errObj["code"], "edit_conflict")
+	}
+	if msg, _ := errObj["message"].(string); msg == "" {
+		t.Error("error.message is empty, want a message the frontend can show the user")
+	}
+	if len(d.posts.updated) != 0 {
+		t.Error("post body must not be recorded as updated when the write conflicted")
 	}
 }
 

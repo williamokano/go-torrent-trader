@@ -403,6 +403,58 @@ describe("ForumTopicViewPage", () => {
     expect(screen.queryByText("Save")).not.toBeInTheDocument();
   });
 
+  // BE-9.25: a 409 from the backend means a concurrent edit already landed.
+  // The frontend must show that plainly (not a generic failure toast) and
+  // must not silently discard the edit as if it had succeeded.
+  test("save edit conflict (409) shows a clear message and keeps the editor open", async () => {
+    const usr = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "alice", isAdmin: false, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    await usr.click(screen.getByText("Edit"));
+    const textarea = screen.getByPlaceholderText("Edit your post...");
+    await usr.clear(textarea);
+    await usr.type(textarea, "A stale edit");
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: () =>
+        Promise.resolve({
+          error: {
+            code: "edit_conflict",
+            message:
+              "This post was edited by someone else while you were editing it. Please reload and try again.",
+          },
+        }),
+    });
+
+    const callsBeforeSave = mockFetch.mock.calls.length;
+    await usr.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "This post was edited by someone else while you were editing it. Please reload and try again.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    // The editor stays open with the draft intact — unlike a successful
+    // save, which exits edit mode. No follow-up fetch is triggered: a page
+    // refresh here would flip the page-level loading flag and unmount the
+    // editor and this very message (see the component's comment), so only
+    // the PUT itself should have fired.
+    expect(screen.getByText("Save")).toBeInTheDocument();
+    expect(mockFetch.mock.calls.length).toBe(callsBeforeSave + 1);
+  });
+
   test("shows a reason input only when staff edits someone else's post, and sends it in the PUT body", async () => {
     const usr = userEvent.setup();
     mockUseAuth.mockReturnValue({
