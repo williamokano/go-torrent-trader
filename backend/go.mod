@@ -14,6 +14,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.98
 	github.com/pressly/goose/v3 v3.24.1
 	github.com/redis/go-redis/v9 v9.18.0
+	github.com/sergi/go-diff v1.3.1
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/zeebo/bencode v1.0.0

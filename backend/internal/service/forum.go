@@ -443,8 +443,12 @@ func (s *ForumService) Search(ctx context.Context, query string, perms model.Per
 	return s.posts.Search(ctx, query, forumID, perms.Level, page, perPage)
 }
 
-// EditPost updates a forum post body. Only the post author or staff can edit.
-func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64, perms model.Permissions, body string) (*model.ForumPost, error) {
+// EditPost updates a forum post body. Only the post author or staff can
+// edit. reason is optional and only meaningful when staff edits a post they
+// don't own (BE-9.23): it's stored on the edit history row and is visible
+// only to staff viewing that history, never to the post's author or other
+// regular users.
+func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64, perms model.Permissions, body string, reason string) (*model.ForumPost, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return nil, fmt.Errorf("%w: body cannot be empty", ErrInvalidPost)
@@ -501,17 +505,38 @@ func (s *ForumService) EditPost(ctx context.Context, postID int64, userID int64,
 	// between them would widen the window where history records an edit that
 	// never actually lands. Resolving first means a resolution failure aborts
 	// before anything is written, instead of after edit history already is.
+	//
+	// That same non-transactional gap also means two edits racing against
+	// this same post can both read the body above before either writes,
+	// producing a diff that no longer matches what CreateEdit/Update
+	// actually land — BE-9.23's "edits are strictly linear" assumption is
+	// enforced by nothing here. ListPostEdits degrades gracefully if that
+	// ever produces an unreconstructable diff (see its docs), which bounds
+	// the damage to that one post's history instead of a hard failure, but
+	// doesn't prevent the race itself — closing that is tracked separately
+	// as BE-9.25 (optimistic concurrency control), since it needs a
+	// transaction/locking change to this write path.
 	mentioned, err := ResolveMentionedUsernames(ctx, s.users, body)
 	if err != nil {
 		return nil, fmt.Errorf("resolve mentioned usernames: %w", err)
 	}
 
-	// Record edit history before updating
+	// Record edit history before updating. Store a diff against the previous
+	// version (reversible: applying it to the new body reconstructs the old
+	// one) instead of a full old_body snapshot, so repeated small edits to
+	// the same post don't multiply storage with near-duplicate full-text
+	// copies (BE-9.23).
 	edit := &model.ForumPostEdit{
 		PostID:   postID,
 		EditedBy: &userID,
-		OldBody:  post.Body,
-		NewBody:  body,
+		Diff:     computeReverseDiff(body, post.Body),
+	}
+	// Only ever stored for the scenario the acceptance criteria describes —
+	// staff editing on behalf of someone else — not accepted at face value
+	// from every editor. Otherwise any self-edit could carry a fabricated
+	// "reason" that staff would later see rendered as if authoritative.
+	if reason = strings.TrimSpace(reason); reason != "" && perms.IsStaff() && post.UserID != userID {
+		edit.Reason = &reason
 	}
 	if err := s.posts.CreateEdit(ctx, edit); err != nil {
 		return nil, fmt.Errorf("creating edit history: %w", err)
@@ -723,19 +748,65 @@ func (s *ForumService) RestorePost(ctx context.Context, postID int64, userID int
 	return nil
 }
 
-// ListPostEdits returns the edit history for a forum post. Staff only.
+// ListPostEdits returns the edit history for a forum post, newest first.
+// Staff only.
+//
+// forum_post_edits stores a reversible diff per edit rather than a full
+// old_body snapshot (BE-9.23), so this reconstructs the OldBody/NewBody pair
+// the BE-9.7 viewer expects: starting from the post's current body, it walks
+// the edits backward (newest to oldest) applying each stored diff in reverse
+// to recover the version immediately before that edit. Edits on a post are
+// normally strictly linear, so this reconstruction is deterministic. Rows
+// written before this migration are legacy full-snapshot rows (IsSnapshot
+// true) and pass through unchanged — no reconstruction needed.
+//
+// If a stored diff ever fails to apply (a corrupt row, or two edits racing
+// against the same post — see EditPost's docs for that residual risk), this
+// does not fail the whole request: reconstruction is unreliable for that
+// edit and everything older than it (the chain's anchor point is lost), so
+// those rows come back with ReconstructionFailed set and blank bodies
+// instead of either fabricating content or 500ing the entire history for
+// every other, unaffected edit on the same post.
 func (s *ForumService) ListPostEdits(ctx context.Context, postID int64, perms model.Permissions) ([]model.ForumPostEdit, error) {
 	if !perms.IsStaff() {
 		return nil, ErrForumAccessDenied
 	}
 
-	if _, err := s.posts.GetByID(ctx, postID); err != nil {
+	post, err := s.posts.GetByID(ctx, postID)
+	if err != nil {
 		return nil, ErrPostNotFound
 	}
 
 	edits, err := s.posts.ListEdits(ctx, postID)
 	if err != nil {
 		return nil, fmt.Errorf("list post edits: %w", err)
+	}
+
+	current := post.Body
+	chainBroken := false
+	for i := range edits {
+		e := &edits[i]
+		if chainBroken {
+			e.ReconstructionFailed = true
+			continue
+		}
+		if e.IsSnapshot {
+			// Legacy full-snapshot row: already has OldBody/NewBody, just
+			// continue the backward walk from its recorded old body.
+			current = e.OldBody
+			continue
+		}
+		e.NewBody = current
+		prev, err := applyReverseDiff(e.Diff, current)
+		if err != nil {
+			log.Printf("WARNING: forum post %d edit %d failed to reconstruct: %v", postID, e.ID, err)
+			e.NewBody = ""
+			e.ReconstructionFailed = true
+			chainBroken = true
+			continue
+		}
+		e.OldBody = prev
+		current = prev
 	}
 	return edits, nil
 }

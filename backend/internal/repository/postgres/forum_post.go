@@ -243,17 +243,31 @@ func (r *ForumPostRepo) Restore(ctx context.Context, id int64) error {
 	return err
 }
 
+// CreateEdit inserts an edit history row. New rows are diff-based (BE-9.23):
+// edit.Diff carries the reversible patch and old_body/new_body are left NULL.
+// edit.Reason is optional and only ever populated when staff edits on behalf
+// of another user.
 func (r *ForumPostRepo) CreateEdit(ctx context.Context, edit *model.ForumPostEdit) error {
 	return r.db.QueryRowContext(ctx,
-		`INSERT INTO forum_post_edits (post_id, edited_by, old_body, new_body)
+		`INSERT INTO forum_post_edits (post_id, edited_by, diff, reason)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at`,
-		edit.PostID, edit.EditedBy, edit.OldBody, edit.NewBody,
+		edit.PostID, edit.EditedBy, edit.Diff, edit.Reason,
 	).Scan(&edit.ID, &edit.CreatedAt)
 }
 
+// ListEdits returns raw edit history rows, newest first. diff/old_body/new_body
+// are read as-is (nullable): diff-based rows (BE-9.23) carry a non-empty Diff
+// and NULL old_body/new_body; legacy rows written before that migration carry
+// full OldBody/NewBody snapshots and a NULL diff. IsSnapshot is set from
+// old_body's SQL nullability (not inferred from Diff being empty), so it
+// stays correct even if a future diff-based row somehow ends up with an
+// empty Diff. Reconstructing OldBody/NewBody for diff-based rows is the
+// caller's job (ForumService.ListPostEdits) since it requires walking
+// backward from the post's current body — this method has no opinion on
+// that, it just returns what's stored.
 func (r *ForumPostRepo) ListEdits(ctx context.Context, postID int64) ([]model.ForumPostEdit, error) {
-	query := `SELECT e.id, e.post_id, e.edited_by, e.old_body, e.new_body, e.created_at, COALESCE(u.username, '')
+	query := `SELECT e.id, e.post_id, e.edited_by, e.diff, e.old_body, e.new_body, e.reason, e.created_at, COALESCE(u.username, '')
 		FROM forum_post_edits e
 		LEFT JOIN users u ON u.id = e.edited_by
 		WHERE e.post_id = $1
@@ -268,8 +282,16 @@ func (r *ForumPostRepo) ListEdits(ctx context.Context, postID int64) ([]model.Fo
 	var edits []model.ForumPostEdit
 	for rows.Next() {
 		var e model.ForumPostEdit
-		if err := rows.Scan(&e.ID, &e.PostID, &e.EditedBy, &e.OldBody, &e.NewBody, &e.CreatedAt, &e.Username); err != nil {
+		var diff, oldBody, newBody, reason sql.NullString
+		if err := rows.Scan(&e.ID, &e.PostID, &e.EditedBy, &diff, &oldBody, &newBody, &reason, &e.CreatedAt, &e.Username); err != nil {
 			return nil, fmt.Errorf("scan edit: %w", err)
+		}
+		e.Diff = diff.String
+		e.OldBody = oldBody.String
+		e.NewBody = newBody.String
+		e.IsSnapshot = oldBody.Valid
+		if reason.Valid {
+			e.Reason = &reason.String
 		}
 		edits = append(edits, e)
 	}

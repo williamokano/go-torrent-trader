@@ -337,14 +337,15 @@ func (h *ForumHandler) HandleEditPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Body string `json:"body"`
+		Body   string `json:"body"`
+		Reason string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
 
-	post, err := h.forumSvc.EditPost(r.Context(), postID, userID, perms, body.Body)
+	post, err := h.forumSvc.EditPost(r.Context(), postID, userID, perms, body.Body, truncateReason(body.Reason))
 	if err != nil {
 		handleForumError(w, err)
 		return
@@ -429,18 +430,32 @@ func actorFromRequest(r *http.Request) event.Actor {
 	return event.Actor{ID: userID, Username: perms.Username}
 }
 
+// maxReasonLength caps stored moderation/edit reasons so a caller can't
+// balloon activity log entries or edit-history rows with unbounded text.
+const maxReasonLength = 500
+
+// truncateReason caps reason to maxReasonLength characters (runes, not
+// bytes: a byte-based slice can land mid-rune on multi-byte UTF-8 text —
+// e.g. CJK or emoji — producing invalid UTF-8. That used to only ever reach
+// an activity-log event; BE-9.23 also writes it straight into a Postgres
+// TEXT column via forum_post_edits.reason, where invalid UTF-8 fails the
+// INSERT outright, so truncation must stay rune-safe here).
+func truncateReason(reason string) string {
+	if r := []rune(reason); len(r) > maxReasonLength {
+		return string(r[:maxReasonLength])
+	}
+	return reason
+}
+
 // parseModReasonBody parses an optional reason from the request body.
 // Returns empty string if body is empty or unparseable (reason is optional).
-// Reason is truncated to 500 characters.
+// Reason is truncated to maxReasonLength characters.
 func parseModReasonBody(r *http.Request) string {
 	var body struct {
 		Reason string `json:"reason"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	if len(body.Reason) > 500 {
-		body.Reason = body.Reason[:500]
-	}
-	return body.Reason
+	return truncateReason(body.Reason)
 }
 
 // HandleLockTopic handles POST /api/v1/forums/topics/{id}/lock — lock a topic.

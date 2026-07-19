@@ -1377,7 +1377,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Review finding from BE-5.3 — hard delete has no audit trail, no undo, and creates dangling references. Edit-then-delete abuse vector exists without history.
 
-#### BE-9.23: Forum Post Edit History via Diff Storage [M]
+#### BE-9.23: Forum Post Edit History via Diff Storage [M] [DONE]
 **As a** developer
 **I want** post edits to reconstruct history from diffs instead of storing a full body snapshot per edit
 **So that** repeated small edits to the same post don't multiply storage with near-duplicate full-text copies
@@ -1392,6 +1392,18 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Existing edit-history viewer (BE-9.7) keeps working unchanged from the viewer's perspective — reconstructed diffs render the same "previous version" view it already shows staff
 
 > **Origin:** Follow-up to BE-9.7, which stores a full `old_body` snapshot per edit — requested to avoid unbounded storage growth from repeated small edits to the same post. Deferred until after BE-8.21/FE-5.18 (mention backfill + PM mention linking).
+
+#### BE-9.25: Optimistic Concurrency Control on Forum Post Edits [S]
+**As a** developer
+**I want** `EditPost` to detect when a post's body changed underneath a stale read
+**So that** two overlapping edits to the same post can't produce a diff chain that no longer matches the post's actual history
+
+**Acceptance Criteria:**
+- `EditPost` currently reads the post, computes a diff against that read, then writes the edit row and the new body as two independent, non-transactional statements (documented in a comment on `ForumService.EditPost`) — a second edit racing in between can commit against the same stale body
+- Detect the race (e.g. a conditional update — `UPDATE ... WHERE id = $1 AND body = $2` — or a transaction with `SELECT ... FOR UPDATE`) and surface a clear conflict (e.g. HTTP 409) instead of silently landing a diff computed against a body that's no longer current
+- Add a regression test that exercises two concurrent `EditPost` calls against the same post and asserts one succeeds and the other is rejected as a conflict, not silently corrupted
+
+> **Origin:** Devil's Advocate review of BE-9.23 (diff-storage forum post edit history). `EditPost` was already non-transactional before that story (see the comment on it explaining why `CreateEdit`/`Update` are independent writes), so this race isn't new — but BE-9.23 changed its failure mode: under the old full-snapshot storage, a lost-update race produced silently-inconsistent-but-still-readable history; under diff storage, the same race can produce a stored diff that no longer matches the body it's later applied against. BE-9.23 addresses that specific regression by having `ListPostEdits` degrade gracefully (flag the unreconstructable edit and everything older than it as `reconstruction_failed` instead of failing the whole request), which closes the "one bad row 500s the entire staff view" failure mode. It does not close the race itself — that's this story, and the reason it's scoped separately: fixing it properly needs a transaction/locking change to `EditPost`'s write path (touching a pattern shared with `CreatePost`/`DeletePost`), which is more invasive than a single-PR follow-up alongside the storage-format change.
 
 #### BE-9.8: Forum Moderation Reason & Hierarchy [S] [DONE]
 **As a** staff member

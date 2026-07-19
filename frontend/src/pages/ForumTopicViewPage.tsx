@@ -66,6 +66,15 @@ interface PostEditData {
   new_body: string;
   created_at: string;
   username?: string;
+  // Staff-only note left when a staff member edits on behalf of someone
+  // else. This endpoint is already staff-gated, so it's safe to render
+  // whenever present.
+  reason?: string;
+  // Set when the backend couldn't reconstruct this edit's before/after text
+  // from its stored diff (a corrupt row, or two edits racing against the
+  // same post). old_body/new_body are unreliable when this is set, so the
+  // UI shows a placeholder instead of blank or stale-looking content.
+  reconstruction_failed?: boolean;
 }
 
 const PER_PAGE = 25;
@@ -93,6 +102,7 @@ export function ForumTopicViewPage() {
 
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editBody, setEditBody] = useState("");
+  const [editReason, setEditReason] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
@@ -268,12 +278,14 @@ export function ForumTopicViewPage() {
   const handleStartEdit = (post: PostData) => {
     setEditingPostId(post.id);
     setEditBody(post.body);
+    setEditReason("");
     setEditError(null);
   };
 
   const handleCancelEdit = () => {
     setEditingPostId(null);
     setEditBody("");
+    setEditReason("");
     setEditError(null);
   };
 
@@ -292,7 +304,7 @@ export function ForumTopicViewPage() {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ body: editBody }),
+          body: JSON.stringify({ body: editBody, reason: editReason.trim() }),
         },
       );
 
@@ -307,6 +319,7 @@ export function ForumTopicViewPage() {
       );
       setEditingPostId(null);
       setEditBody("");
+      setEditReason("");
     } catch (err) {
       setEditError((err as Error).message);
     } finally {
@@ -714,6 +727,19 @@ export function ForumTopicViewPage() {
                     onChange={setEditBody}
                     placeholder="Edit your post..."
                   />
+                  {!!user &&
+                    user.id !== post.user_id &&
+                    (user.isAdmin || user.isStaff) && (
+                      <input
+                        type="text"
+                        className="forum-post__edit-reason"
+                        style={{ marginTop: "0.5rem", width: "100%" }}
+                        placeholder="Reason (optional, staff-only — shown in edit history)"
+                        value={editReason}
+                        onChange={(e) => setEditReason(e.target.value)}
+                        maxLength={500}
+                      />
+                    )}
                   {editError && (
                     <div className="forum-post__error">{editError}</div>
                   )}
@@ -1100,33 +1126,59 @@ export function ForumTopicViewPage() {
                     </strong>{" "}
                     {timeAgo(edit.created_at)}
                   </div>
-                  <div style={{ fontSize: "0.85rem" }}>
+                  {edit.reason && (
                     <div
                       style={{
-                        color: "var(--danger-color, #c44)",
-                        marginBottom: "0.25rem",
+                        fontSize: "0.8rem",
+                        fontStyle: "italic",
+                        marginBottom: "0.5rem",
                       }}
                     >
-                      <strong>Before:</strong>
-                      <pre
+                      Reason: {edit.reason}
+                    </div>
+                  )}
+                  {edit.reconstruction_failed ? (
+                    <div
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "var(--text-muted, #888)",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      History unavailable for this edit.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.85rem" }}>
+                      <div
                         style={{
-                          whiteSpace: "pre-wrap",
-                          margin: "0.25rem 0",
-                          opacity: 0.7,
+                          color: "var(--danger-color, #c44)",
+                          marginBottom: "0.25rem",
                         }}
                       >
-                        {edit.old_body}
-                      </pre>
+                        <strong>Before:</strong>
+                        <pre
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            margin: "0.25rem 0",
+                            opacity: 0.7,
+                          }}
+                        >
+                          {edit.old_body}
+                        </pre>
+                      </div>
+                      <div style={{ color: "var(--success-color, #4c4)" }}>
+                        <strong>After:</strong>
+                        <pre
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            margin: "0.25rem 0",
+                          }}
+                        >
+                          {edit.new_body}
+                        </pre>
+                      </div>
                     </div>
-                    <div style={{ color: "var(--success-color, #4c4)" }}>
-                      <strong>After:</strong>
-                      <pre
-                        style={{ whiteSpace: "pre-wrap", margin: "0.25rem 0" }}
-                      >
-                        {edit.new_body}
-                      </pre>
-                    </div>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
