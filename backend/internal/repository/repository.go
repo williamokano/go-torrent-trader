@@ -498,6 +498,12 @@ type NotificationRepository interface {
 	List(ctx context.Context, userID int64, opts ListNotificationsOptions) ([]model.Notification, int64, error)
 	MarkRead(ctx context.Context, userID, id int64) error
 	MarkAllRead(ctx context.Context, userID int64) error
+	// MarkTopicReplyGroupRead marks every unread topic_reply notification for
+	// userID and topicID as read in a single set-based UPDATE, returning the
+	// number of rows affected. Backs the grouped-notifications (BE-9.14)
+	// "mark all read" batch endpoint (BE-9.26) so a topic with many replies
+	// doesn't need one MarkRead call per notification.
+	MarkTopicReplyGroupRead(ctx context.Context, userID, topicID int64) (int64, error)
 	CountUnread(ctx context.Context, userID int64) (int, error)
 	DeleteOld(ctx context.Context, before time.Time) (int64, error)
 	// CountUnreadSince returns how many unread notifications were created after

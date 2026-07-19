@@ -25,8 +25,11 @@ func (m *mockNotificationRepo) GetByID(_ context.Context, _ int64) (*model.Notif
 func (m *mockNotificationRepo) List(_ context.Context, _ int64, _ repository.ListNotificationsOptions) ([]model.Notification, int64, error) {
 	return nil, 0, nil
 }
-func (m *mockNotificationRepo) MarkRead(_ context.Context, _, _ int64) error        { return nil }
-func (m *mockNotificationRepo) MarkAllRead(_ context.Context, _ int64) error        { return nil }
+func (m *mockNotificationRepo) MarkRead(_ context.Context, _, _ int64) error { return nil }
+func (m *mockNotificationRepo) MarkAllRead(_ context.Context, _ int64) error { return nil }
+func (m *mockNotificationRepo) MarkTopicReplyGroupRead(_ context.Context, _, _ int64) (int64, error) {
+	return 0, nil
+}
 func (m *mockNotificationRepo) CountUnread(_ context.Context, _ int64) (int, error) { return 0, nil }
 
 func (m *mockNotificationRepo) DeleteOld(_ context.Context, before time.Time) (int64, error) {

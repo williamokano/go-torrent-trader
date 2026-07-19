@@ -41,8 +41,11 @@ func (m *digestNotifRepo) GetByID(_ context.Context, _ int64) (*model.Notificati
 func (m *digestNotifRepo) List(_ context.Context, _ int64, _ repository.ListNotificationsOptions) ([]model.Notification, int64, error) {
 	return nil, 0, nil
 }
-func (m *digestNotifRepo) MarkRead(_ context.Context, _, _ int64) error        { return nil }
-func (m *digestNotifRepo) MarkAllRead(_ context.Context, _ int64) error        { return nil }
+func (m *digestNotifRepo) MarkRead(_ context.Context, _, _ int64) error { return nil }
+func (m *digestNotifRepo) MarkAllRead(_ context.Context, _ int64) error { return nil }
+func (m *digestNotifRepo) MarkTopicReplyGroupRead(_ context.Context, _, _ int64) (int64, error) {
+	return 0, nil
+}
 func (m *digestNotifRepo) CountUnread(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *digestNotifRepo) DeleteOld(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil

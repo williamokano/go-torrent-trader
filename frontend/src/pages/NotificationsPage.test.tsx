@@ -340,7 +340,10 @@ describe("NotificationsPage grouping (BE-9.14)", () => {
     expect(screen.queryByText(/carol posted in/)).not.toBeInTheDocument();
   });
 
-  test("marking all read on a group PUTs each still-unread notification", async () => {
+  // BE-9.26: "Mark all read" on a group now fires a single batch request to
+  // /notifications/groups/{key}/read instead of one PUT per unread
+  // notification in the group.
+  test("marking all read on a group makes one batch request instead of one PUT per notification", async () => {
     renderPage();
     await screen.findByText(
       '3 new replies in "Release Discussion" from carol, bob, and alice',
@@ -357,17 +360,17 @@ describe("NotificationsPage grouping (BE-9.14)", () => {
     await user.click(groupMarkAllRead!);
 
     await waitFor(() => {
-      const readUrls = mockFetch.mock.calls
-        .map(([url]) => String(url))
-        .filter((url) => /\/notifications\/\d+\/read$/.test(url));
-      // Only notifications 2 and 3 were unread in the group (1 was already read).
-      expect(readUrls.sort()).toEqual(
-        [
-          "http://localhost:8080/api/v1/notifications/2/read",
-          "http://localhost:8080/api/v1/notifications/3/read",
-        ].sort(),
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/notifications/groups/topic_reply%3A4/read",
+        expect.objectContaining({ method: "PUT" }),
       );
     });
+
+    // No per-notification PUTs -- the whole group is one request now.
+    const individualReadUrls = mockFetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => /\/notifications\/\d+\/read$/.test(url));
+    expect(individualReadUrls).toEqual([]);
   });
 
   // Regression test: handleMarkGroupRead used to call handleMarkRead per
@@ -400,6 +403,36 @@ describe("NotificationsPage grouping (BE-9.14)", () => {
         String(url).includes("/unread-count"),
       ),
     ).toHaveLength(1);
+  });
+
+  test("shows an error toast and does not refetch the unread count when the batch request fails", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/notifications/groups/") && init?.method === "PUT") {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+      }
+      if (url.includes("/notifications/grouped")) {
+        return jsonResponse(GROUPED_RESPONSE);
+      }
+      if (url.includes("/unread-count")) return jsonResponse({ count: 3 });
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    renderPage();
+    await screen.findByText(
+      '3 new replies in "Release Discussion" from carol, bob, and alice',
+    );
+
+    const user = userEvent.setup();
+    const groupMarkAllRead = screen
+      .getAllByRole("button", { name: /mark all read/i })
+      .find((btn) => btn.closest(".notifs-group"));
+    await user.click(groupMarkAllRead!);
+
+    expect(
+      await screen.findByText("Failed to mark group as read"),
+    ).toBeInTheDocument();
+    expect(setNotifUnreadCount).not.toHaveBeenCalled();
   });
 });
 

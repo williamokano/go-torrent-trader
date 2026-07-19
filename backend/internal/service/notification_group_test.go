@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -27,8 +28,11 @@ func (r *pagingRaceRepo) Create(_ context.Context, _ *model.Notification) error 
 func (r *pagingRaceRepo) GetByID(_ context.Context, _ int64) (*model.Notification, error) {
 	return nil, sql.ErrNoRows
 }
-func (r *pagingRaceRepo) MarkRead(_ context.Context, _, _ int64) error        { return nil }
-func (r *pagingRaceRepo) MarkAllRead(_ context.Context, _ int64) error        { return nil }
+func (r *pagingRaceRepo) MarkRead(_ context.Context, _, _ int64) error { return nil }
+func (r *pagingRaceRepo) MarkAllRead(_ context.Context, _ int64) error { return nil }
+func (r *pagingRaceRepo) MarkTopicReplyGroupRead(_ context.Context, _, _ int64) (int64, error) {
+	return 0, nil
+}
 func (r *pagingRaceRepo) CountUnread(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (r *pagingRaceRepo) DeleteOld(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
@@ -511,5 +515,150 @@ func TestListGrouped_UnreadOnlyFiltersUnderlyingNotifications(t *testing.T) {
 	}
 	if groups[0].Count != 1 {
 		t.Errorf("expected the unread-only group to contain just the unread notification, got count %d", groups[0].Count)
+	}
+}
+
+// --- ParseTopicReplyGroupKey / MarkGroupRead --------------------------------
+
+func TestParseTopicReplyGroupKey(t *testing.T) {
+	tests := []struct {
+		name   string
+		key    string
+		wantID int64
+		wantOK bool
+	}{
+		{"valid topic_reply key", "topic_reply:42", 42, true},
+		{"singleton key is not batchable", "single:9", 0, false},
+		{"unrecognized prefix", "mention:9", 0, false},
+		{"non-numeric suffix", "topic_reply:abc", 0, false},
+		{"zero topic id", "topic_reply:0", 0, false},
+		{"negative topic id", "topic_reply:-5", 0, false},
+		{"empty key", "", 0, false},
+		{"prefix with no suffix", "topic_reply:", 0, false},
+		// strconv.ParseInt must reject an out-of-range suffix rather than
+		// wrapping/truncating into a bogus-but-"valid" int64.
+		{"suffix overflows int64", "topic_reply:99999999999999999999", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, ok := service.ParseTopicReplyGroupKey(tt.key)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if ok && id != tt.wantID {
+				t.Errorf("id = %d, want %d", id, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestMarkGroupRead_MarksOnlyTheGroupsUnreadNotifications(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _ := newTestNotifService()
+
+	// Two unread topic_reply notifications for topic 1, one already read,
+	// one for a different topic, and one unrelated type -- only the two
+	// unread topic-1 topic_reply notifications should be marked.
+	n1, err := svc.Create(ctx, 2, 10, model.NotifTopicReply, topicReplyData(1, "alice"))
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	n2, err := svc.Create(ctx, 2, 11, model.NotifTopicReply, topicReplyData(1, "bob"))
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	alreadyRead, err := svc.Create(ctx, 2, 12, model.NotifTopicReply, topicReplyData(1, "carol"))
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	if err := svc.MarkRead(ctx, 2, alreadyRead.ID); err != nil {
+		t.Fatalf("mark read error: %v", err)
+	}
+	otherTopic, err := svc.Create(ctx, 2, 13, model.NotifTopicReply, topicReplyData(2, "dave"))
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	otherType, err := svc.Create(ctx, 2, 14, model.NotifMention, json.RawMessage(`{"actor_username":"eve"}`))
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+
+	marked, err := svc.MarkGroupRead(ctx, 2, "topic_reply:1")
+	if err != nil {
+		t.Fatalf("mark group read error: %v", err)
+	}
+	if marked != 2 {
+		t.Fatalf("marked = %d, want 2", marked)
+	}
+
+	for _, id := range []int64{n1.ID, n2.ID} {
+		n, err := getNotification(ctx, svc, 2, id)
+		if err != nil {
+			t.Fatalf("fetch notification %d: %v", id, err)
+		}
+		if !n.Read {
+			t.Errorf("notification %d should be read after MarkGroupRead", id)
+		}
+	}
+	for _, id := range []int64{otherTopic.ID, otherType.ID} {
+		n, err := getNotification(ctx, svc, 2, id)
+		if err != nil {
+			t.Fatalf("fetch notification %d: %v", id, err)
+		}
+		if n.Read {
+			t.Errorf("notification %d belongs to a different topic/type and must not be marked read", id)
+		}
+	}
+}
+
+// getNotification fetches a single notification by scanning a full list --
+// simpler than adding a GetByID call to the service just for this test.
+func getNotification(ctx context.Context, svc *service.NotificationService, userID, id int64) (*model.Notification, error) {
+	notifs, _, err := svc.List(ctx, userID, 1, 100, false)
+	if err != nil {
+		return nil, err
+	}
+	for i := range notifs {
+		if notifs[i].ID == id {
+			return &notifs[i], nil
+		}
+	}
+	return nil, fmt.Errorf("notification %d not found", id)
+}
+
+func TestMarkGroupRead_IsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _ := newTestNotifService()
+
+	if _, err := svc.Create(ctx, 2, 10, model.NotifTopicReply, topicReplyData(1, "alice")); err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+
+	first, err := svc.MarkGroupRead(ctx, 2, "topic_reply:1")
+	if err != nil {
+		t.Fatalf("first mark group read error: %v", err)
+	}
+	if first != 1 {
+		t.Fatalf("first call marked = %d, want 1", first)
+	}
+
+	second, err := svc.MarkGroupRead(ctx, 2, "topic_reply:1")
+	if err != nil {
+		t.Fatalf("second mark group read error: %v, want no error (idempotent)", err)
+	}
+	if second != 0 {
+		t.Errorf("second call marked = %d, want 0 (nothing left unread)", second)
+	}
+}
+
+func TestMarkGroupRead_RejectsANonBatchableKey(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _ := newTestNotifService()
+
+	if _, err := svc.MarkGroupRead(ctx, 2, "single:9"); !errors.Is(err, service.ErrGroupNotBatchable) {
+		t.Errorf("error = %v, want ErrGroupNotBatchable", err)
+	}
+	if _, err := svc.MarkGroupRead(ctx, 2, "not-a-key"); !errors.Is(err, service.ErrGroupNotBatchable) {
+		t.Errorf("error = %v, want ErrGroupNotBatchable", err)
 	}
 }

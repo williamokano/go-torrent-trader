@@ -369,6 +369,7 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/grouped", notifs.HandleListNotificationsGrouped)
 					r.Get("/unread-count", notifs.HandleUnreadCount)
 					r.Put("/read-all", notifs.HandleMarkAllRead)
+					r.Put("/groups/{key}/read", notifs.HandleMarkGroupRead)
 					r.Put("/{id}/read", notifs.HandleMarkRead)
 					r.Get("/preferences", notifs.HandleGetPreferences)
 					r.Put("/preferences", notifs.HandleUpdatePreferences)

@@ -3,12 +3,24 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
+
+// ErrGroupNotBatchable is returned by MarkGroupRead when key does not
+// identify a batchable group. Only topic_reply groups are batchable today:
+// every other notification type is always its own "single:<id>" singleton
+// (see groupKeyFor), which the frontend never routes through this call --
+// a singleton group renders with the existing single-notification
+// MarkRead button instead (see NotificationsPage's renderGroup: the
+// "Mark all read" / batch path only appears once g.Count > 1).
+var ErrGroupNotBatchable = errors.New("notification group is not batchable")
 
 // groupWindow bounds how many of a user's most recent notifications (across
 // as many raw List() calls as it takes) are considered when building
@@ -32,6 +44,12 @@ const groupWindowPageSize = 100
 // maxGroupActors caps how many distinct "last actors" are surfaced per
 // group, matching the acceptance criteria's "last few actors".
 const maxGroupActors = 3
+
+// topicReplyGroupPrefix is the prefix groupKeyFor uses to build a
+// topic_reply group's Key ("topic_reply:<topic_id>"). Shared with
+// ParseTopicReplyGroupKey so the two stay in sync by construction rather
+// than by convention.
+const topicReplyGroupPrefix = model.NotifTopicReply + ":"
 
 // ListGrouped returns a page of read-time-collapsed notifications: multiple
 // topic_reply notifications for the same topic are folded into one
@@ -168,9 +186,50 @@ func groupNotifications(raw []model.Notification) []model.NotificationGroup {
 // callers have one uniform shape to render.
 func groupKeyFor(n model.Notification, topicID json.Number) string {
 	if n.Type == model.NotifTopicReply && topicID != "" {
-		return "topic_reply:" + topicID.String()
+		return topicReplyGroupPrefix + topicID.String()
 	}
 	return fmt.Sprintf("single:%d", n.ID)
+}
+
+// ParseTopicReplyGroupKey extracts the topic ID from a topic_reply group
+// key, as returned to callers via NotificationGroup.Key / groupKeyFor.
+// Reports ok=false for any other key shape -- a "single:<id>" singleton, an
+// unrecognized prefix, or a non-numeric/non-positive suffix -- since only
+// topic_reply groups are batchable (see MarkGroupRead).
+func ParseTopicReplyGroupKey(key string) (topicID int64, ok bool) {
+	suffix, found := strings.CutPrefix(key, topicReplyGroupPrefix)
+	if !found {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(suffix, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
+
+// MarkGroupRead marks every unread notification underlying the group
+// identified by key as read in one set-based UPDATE (see
+// repository.NotificationRepository.MarkTopicReplyGroupRead), returning the
+// number of rows affected. Replaces what the frontend previously did by
+// looping the single-notification MarkRead endpoint over every unread
+// notification in a group.
+//
+// A count of 0 is a valid, non-error result: the group may already be
+// fully read (e.g. a second click, or two tabs racing each other), which is
+// exactly what makes this idempotent -- calling it again after everything
+// is already read just matches zero rows.
+//
+// The match is live at execution time (see the "this is a live match"
+// note on MarkTopicReplyGroupRead), so a reply landing in this topic
+// between the caller's last group fetch and this call is included too --
+// intentional, not a race bug.
+func (s *NotificationService) MarkGroupRead(ctx context.Context, userID int64, key string) (int64, error) {
+	topicID, ok := ParseTopicReplyGroupKey(key)
+	if !ok {
+		return 0, ErrGroupNotBatchable
+	}
+	return s.notifications.MarkTopicReplyGroupRead(ctx, userID, topicID)
 }
 
 // notificationPayload holds the handful of fields grouping cares about from

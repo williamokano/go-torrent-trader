@@ -116,6 +116,49 @@ func (m *mockNotificationRepo) MarkAllRead(_ context.Context, userID int64) erro
 	return nil
 }
 
+// MarkTopicReplyGroupRead mirrors the real Postgres implementation's
+// filtering (user_id + type=topic_reply + unread + matching topic_id) so
+// tests exercising service.NotificationService.MarkGroupRead against this
+// fake behave the same way they would against the real repository.
+//
+// topic_id is compared as text, not unmarshaled straight into an int64:
+// Postgres's data->>'topic_id' stringifies whatever JSON scalar is there
+// (number or string) before comparing, so this mirrors that rather than
+// only matching a JSON-number topic_id and silently excluding a
+// JSON-string one that the real query would still match.
+func (m *mockNotificationRepo) MarkTopicReplyGroupRead(_ context.Context, userID, topicID int64) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := strconv.FormatInt(topicID, 10)
+	var marked int64
+	for _, n := range m.notifs {
+		if n.UserID != userID || n.Read || n.Type != model.NotifTopicReply {
+			continue
+		}
+		var payload struct {
+			TopicID interface{} `json:"topic_id"`
+		}
+		if err := json.Unmarshal(n.Data, &payload); err != nil {
+			continue
+		}
+		var got string
+		switch v := payload.TopicID.(type) {
+		case float64:
+			got = strconv.FormatInt(int64(v), 10)
+		case string:
+			got = v
+		default:
+			continue
+		}
+		if got != want {
+			continue
+		}
+		n.Read = true
+		marked++
+	}
+	return marked, nil
+}
+
 func (m *mockNotificationRepo) CountUnread(_ context.Context, userID int64) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // HandleListNotificationsGrouped handles GET /api/v1/notifications/grouped.
@@ -66,5 +70,37 @@ func (h *NotificationHandler) HandleListNotificationsGrouped(w http.ResponseWrit
 		"total":    total,
 		"page":     page,
 		"per_page": perPage,
+	})
+}
+
+// HandleMarkGroupRead handles PUT /api/v1/notifications/groups/{key}/read.
+// It marks every unread notification underlying the collapsed group
+// identified by key as read in a single set-based UPDATE, rather than the
+// frontend looping one PUT per notification in the group (the "accepted
+// but documented" trade-off BE-9.14 shipped with -- see BE-9.26).
+//
+// key is exactly the NotificationGroup.Key value the /grouped response
+// already hands the frontend (e.g. "topic_reply:42"), so this reuses the
+// existing grouping identity rather than inventing a second one.
+func (h *NotificationHandler) HandleMarkGroupRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	key := chi.URLParam(r, "key")
+	marked, err := h.notifSvc.MarkGroupRead(r.Context(), userID, key)
+	if err != nil {
+		if errors.Is(err, service.ErrGroupNotBatchable) {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "not a batchable notification group")
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to mark group as read")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"marked": marked,
 	})
 }
