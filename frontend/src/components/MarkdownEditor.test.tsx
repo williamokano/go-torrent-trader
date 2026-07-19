@@ -331,6 +331,18 @@ describe("MarkdownEditor", () => {
       expect(textarea.getAttribute("aria-activedescendant")).toBe(active.id);
     });
 
+    test("positions the dropdown at the caret instead of the textarea corner", async () => {
+      const textarea = setup();
+      fireEvent.change(textarea, { target: { value: "hi @al" } });
+      await screen.findAllByRole("option");
+
+      const dropdown = screen.getByRole("listbox");
+      // Anchored via inline style computed from the caret (getCaretCoordinates),
+      // not the old static `top: 100%; left: 0` CSS corner anchor.
+      expect(dropdown.style.top).not.toBe("");
+      expect(dropdown.style.left).not.toBe("");
+    });
+
     test("sends the bearer token when authenticated", async () => {
       setAccessToken("tok-123");
       try {

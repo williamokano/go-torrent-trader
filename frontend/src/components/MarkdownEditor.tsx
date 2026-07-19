@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
+import { getCaretCoordinates } from "@/utils/caretPosition";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import "./markdown-editor.css";
 
@@ -152,6 +153,12 @@ export function MarkdownEditor({
   const [mentions, setMentions] = useState<UserSuggestion[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Where to anchor the dropdown: the caret's pixel position, relative to the
+  // textarea's own top-left corner (its wrapper is the positioned ancestor).
+  const [mentionAnchor, setMentionAnchor] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const mentionsListId = useId();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Bumped on every search and on close; a resolving fetch whose seq is stale
@@ -165,6 +172,7 @@ export function MarkdownEditor({
     clearTimeout(debounceRef.current);
     setMentionOpen(false);
     setMentions([]);
+    setMentionAnchor(null);
   }, []);
 
   const searchUsers = useCallback((query: string) => {
@@ -200,6 +208,17 @@ export function MarkdownEditor({
       if (!mention || mention.query.length < 1) {
         closeMentions();
         return;
+      }
+      const textarea = textareaRef.current;
+      if (textarea) {
+        // Anchored at the `@` itself (not the caret), so the dropdown holds
+        // still while the query is typed instead of sliding right each
+        // keystroke.
+        const caretCoords = getCaretCoordinates(textarea, mention.at);
+        setMentionAnchor({
+          top: caretCoords.top + caretCoords.height,
+          left: caretCoords.left,
+        });
       }
       searchUsers(mention.query);
     },
@@ -398,12 +417,13 @@ export function MarkdownEditor({
               mentionsVisible ? `${mentionsListId}-${activeIndex}` : undefined
             }
           />
-          {mentionsVisible && (
+          {mentionsVisible && mentionAnchor && (
             <ul
               className="markdown-editor__mentions"
               id={mentionsListId}
               role="listbox"
               aria-label="User suggestions"
+              style={{ top: mentionAnchor.top, left: mentionAnchor.left }}
             >
               {mentions.map((user, i) => (
                 // The option carries the click handler directly — an interactive

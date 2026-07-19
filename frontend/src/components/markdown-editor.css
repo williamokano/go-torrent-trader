@@ -101,10 +101,11 @@
 }
 
 .markdown-editor__mentions {
+  /* top/left are set inline, anchored to the caret position (see
+     getCaretCoordinates in MarkdownEditor.tsx) — a plain <textarea> has no
+     API for this, so it's computed via a hidden mirror element. */
   position: absolute;
   z-index: 20;
-  top: 100%;
-  left: 0;
   margin: 0.15rem 0 0;
   padding: 0.2rem;
   list-style: none;
