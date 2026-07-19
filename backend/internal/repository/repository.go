@@ -303,6 +303,16 @@ type MessageRepository interface {
 	CountUnread(ctx context.Context, userID int64) (int, error)
 }
 
+// SavedMessageRepository defines persistence operations for saved PM drafts
+// and templates (see model.SavedMessage — kind discriminates the two).
+type SavedMessageRepository interface {
+	Create(ctx context.Context, sm *model.SavedMessage) error
+	Update(ctx context.Context, sm *model.SavedMessage) error
+	GetByID(ctx context.Context, id int64) (*model.SavedMessage, error)
+	ListByUser(ctx context.Context, userID int64, kind model.SavedMessageKind, page, perPage int) ([]model.SavedMessage, int64, error)
+	Delete(ctx context.Context, id, userID int64) error
+}
+
 // ChatMessageRepository defines persistence operations for chat messages.
 type ChatMessageRepository interface {
 	Create(ctx context.Context, msg *model.ChatMessage) error

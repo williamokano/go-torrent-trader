@@ -153,6 +153,9 @@ func run() int {
 	messageRepo := postgres.NewMessageRepo(db)
 	messageService := service.NewMessageService(messageRepo, userRepo, eventBus)
 
+	savedMessageRepo := postgres.NewSavedMessageRepo(db)
+	savedMessageService := service.NewSavedMessageService(savedMessageRepo, userRepo, messageRepo)
+
 	inviteRepo := postgres.NewInviteRepo(db)
 	inviteService := service.NewInviteService(inviteRepo, userRepo, eventBus)
 
@@ -287,6 +290,7 @@ func run() int {
 		SiteSettingsService:       siteSettingsService,
 		BanService:                banService,
 		MessageService:            messageService,
+		SavedMessageService:       savedMessageService,
 		WarningService:            warningService,
 		NewsService:               newsService,
 		RestrictionService:        restrictionService,

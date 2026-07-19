@@ -221,6 +221,85 @@ func (s *stubMessageRepo) CountUnread(_ context.Context, _ int64) (int, error) {
 	return s.unread, s.unreadErr
 }
 
+// --- saved messages (drafts & templates) -------------------------------------
+
+type stubSavedMessageRepo struct {
+	byID   map[int64]*model.SavedMessage
+	nextID int64
+
+	createErr error
+	updateErr error
+	getErr    error
+	listErr   error
+	deleteErr error
+
+	listResult []model.SavedMessage
+	listTotal  int64
+	deleted    []int64
+}
+
+func newStubSavedMessageRepo() *stubSavedMessageRepo {
+	return &stubSavedMessageRepo{byID: map[int64]*model.SavedMessage{}, nextID: 1}
+}
+
+func (s *stubSavedMessageRepo) Create(_ context.Context, sm *model.SavedMessage) error {
+	if s.createErr != nil {
+		return s.createErr
+	}
+	sm.ID = s.nextID
+	s.nextID++
+	stored := *sm
+	s.byID[sm.ID] = &stored
+	return nil
+}
+
+func (s *stubSavedMessageRepo) Update(_ context.Context, sm *model.SavedMessage) error {
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	existing, ok := s.byID[sm.ID]
+	if !ok || existing.UserID != sm.UserID {
+		return errors.New("saved message not found")
+	}
+	existing.ReceiverID = sm.ReceiverID
+	existing.Subject = sm.Subject
+	existing.Body = sm.Body
+	existing.ParentID = sm.ParentID
+	*sm = *existing
+	return nil
+}
+
+func (s *stubSavedMessageRepo) GetByID(_ context.Context, id int64) (*model.SavedMessage, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	sm, ok := s.byID[id]
+	if !ok {
+		return nil, errors.New("saved message not found")
+	}
+	return sm, nil
+}
+
+func (s *stubSavedMessageRepo) ListByUser(_ context.Context, _ int64, _ model.SavedMessageKind, _, _ int) ([]model.SavedMessage, int64, error) {
+	if s.listErr != nil {
+		return nil, 0, s.listErr
+	}
+	return s.listResult, s.listTotal, nil
+}
+
+func (s *stubSavedMessageRepo) Delete(_ context.Context, id, userID int64) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	sm, ok := s.byID[id]
+	if !ok || sm.UserID != userID {
+		return errors.New("saved message not found")
+	}
+	s.deleted = append(s.deleted, id)
+	delete(s.byID, id)
+	return nil
+}
+
 // --- site settings ----------------------------------------------------------
 
 type stubSiteSettingsRepo struct {

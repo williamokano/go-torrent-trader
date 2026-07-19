@@ -23,7 +23,28 @@ interface Message {
   created_at: string;
 }
 
-type Tab = "inbox" | "outbox" | "compose";
+// A draft is a specific in-progress message (may carry a receiver/parent_id
+// for a reply-in-progress) saved to finish later; a template is a reusable
+// pattern with no fixed recipient, loaded to start a new compose. Both are
+// returned by the same shape — see backend/internal/model/saved_message.go.
+interface SavedMessageItem {
+  id: number;
+  kind: "draft" | "template";
+  receiver_id?: number;
+  receiver_username?: string;
+  subject: string;
+  body: string;
+  parent_id?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+type Tab = "inbox" | "outbox" | "drafts" | "templates" | "compose";
+type SavedKind = "drafts" | "templates";
+
+function isSavedKindTab(tab: Tab): tab is SavedKind {
+  return tab === "drafts" || tab === "templates";
+}
 
 const PER_PAGE = 25;
 
@@ -62,6 +83,23 @@ export function MessagesPage() {
   const [composeParentId, setComposeParentId] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
+
+  // Draft/template state (BE-7.2). When the compose form was opened by
+  // editing a draft or loading a template, its id is tracked here so "Save
+  // Draft"/"Save as Template" overwrite it (PUT) instead of creating a new
+  // one (POST) on every click.
+  const [currentDraftId, setCurrentDraftId] = useState<number | null>(null);
+  const [currentTemplateId, setCurrentTemplateId] = useState<number | null>(
+    null,
+  );
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // Drafts/templates list state (separate from messages/total/page above,
+  // which are shaped for inbox/outbox and keep their own pagination).
+  const [savedItems, setSavedItems] = useState<SavedMessageItem[]>([]);
+  const [savedTotal, setSavedTotal] = useState(0);
+  const [savedPage, setSavedPage] = useState(1);
 
   // Sync compose receiver from URL when navigating to ?tab=compose&to=username&to_id=N
   const urlTo = searchParams.get("to") || "";
@@ -136,7 +174,7 @@ export function MessagesPage() {
   }, [setPmUnreadCount]);
 
   const fetchMessages = useCallback(async () => {
-    if (tab === "compose") return;
+    if (tab !== "inbox" && tab !== "outbox") return;
     setLoading(true);
     setError(null);
     setSelectedMessage(null);
@@ -167,6 +205,39 @@ export function MessagesPage() {
     fetchMessages();
     fetchUnreadCount();
   }, [fetchMessages, fetchUnreadCount]);
+
+  // Drafts/templates list (BE-7.2). Same list/paginate shape as inbox/outbox,
+  // but a distinct endpoint and response key per kind, so it's kept separate
+  // from fetchMessages rather than overloading it with a third resource shape.
+  const fetchSaved = useCallback(async () => {
+    if (!isSavedKindTab(tab)) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(savedPage));
+      params.set("per_page", String(PER_PAGE));
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/messages/${tab}?${params.toString()}`,
+        { headers: authHeaders() },
+      );
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body?.error?.message ?? `Failed to load ${tab}`);
+        return;
+      }
+      setSavedItems(body?.[tab] ?? []);
+      setSavedTotal(body?.total ?? 0);
+    } catch {
+      setError(`Failed to load ${tab}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [tab, savedPage]);
+
+  useEffect(() => {
+    fetchSaved();
+  }, [fetchSaved]);
 
   // Clear detail view when msg param is removed from URL
   if (!selectedMsgId && selectedMessage) {
@@ -220,9 +291,18 @@ export function MessagesPage() {
 
   const handleTabChange = (newTab: Tab) => {
     setPage(1);
+    setSavedPage(1);
     setSelectedMessage(null);
     setError(null);
     setSendSuccess(null);
+    // Switching to Compose via the tab bar (as opposed to editing a draft or
+    // loading a template, which set the URL directly — see
+    // loadDraftIntoCompose/loadTemplateIntoCompose) always starts fresh, so
+    // any draft/template this compose session was tracking is forgotten.
+    if (newTab === "compose") {
+      setCurrentDraftId(null);
+      setCurrentTemplateId(null);
+    }
     setSearchParams({ tab: newTab });
   };
 
@@ -299,6 +379,23 @@ export function MessagesPage() {
       setComposeSubject("");
       setComposeBody("");
       setComposeParentId(null);
+      // The message that was drafted is now sent — leaving its draft behind
+      // would just accumulate stale duplicates in the Drafts tab. This is
+      // best-effort cleanup: it never blocks or fails the send itself, and a
+      // template is deliberately NOT deleted here since it's meant to be
+      // reused across many sends.
+      if (currentDraftId) {
+        const draftIdToClean = currentDraftId;
+        fetch(
+          `${getConfig().API_URL}/api/v1/messages/drafts/${draftIdToClean}`,
+          {
+            method: "DELETE",
+            headers: authHeaders(),
+          },
+        ).catch(() => {});
+      }
+      setCurrentDraftId(null);
+      setCurrentTemplateId(null);
     } catch {
       setError("Failed to send message");
     } finally {
@@ -318,7 +415,167 @@ export function MessagesPage() {
     handleTabChange("compose");
   };
 
+  // Saves the current compose form as a draft. Overwrites currentDraftId if
+  // this session already saved one, rather than piling up duplicates on
+  // every click. Mirrors the backend's leniency: a draft may have any subset
+  // of receiver/subject/body filled in, as long as something is there.
+  const handleSaveDraft = async () => {
+    if (savingDraft) return;
+    if (!composeReceiverId && !composeSubject.trim() && !composeBody.trim()) {
+      setError("Nothing to save yet — write something first.");
+      return;
+    }
+    setSavingDraft(true);
+    setError(null);
+    setSendSuccess(null);
+    try {
+      const reqBody: Record<string, unknown> = {
+        subject: composeSubject.trim(),
+        body: composeBody.trim(),
+      };
+      if (composeReceiverId) reqBody.receiver_id = composeReceiverId;
+      if (composeParentId) reqBody.parent_id = composeParentId;
+
+      const url = currentDraftId
+        ? `${getConfig().API_URL}/api/v1/messages/drafts/${currentDraftId}`
+        : `${getConfig().API_URL}/api/v1/messages/drafts`;
+      const res = await fetch(url, {
+        method: currentDraftId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(reqBody),
+      });
+      const body = await res.json();
+      if (!res.ok || !body?.draft?.id) {
+        setError(body?.error?.message ?? "Failed to save draft");
+        return;
+      }
+      setCurrentDraftId(body.draft.id);
+      setSendSuccess("Draft saved.");
+    } catch {
+      setError("Failed to save draft");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // Saves the current compose body as a reusable template. Unlike a draft, a
+  // template is never addressed to anyone — receiver_id/parent_id are never
+  // sent, even if the compose form currently has them set (e.g. mid-reply).
+  const handleSaveTemplate = async () => {
+    if (savingTemplate) return;
+    if (!composeBody.trim()) {
+      setError("A template needs a body to be worth saving.");
+      return;
+    }
+    setSavingTemplate(true);
+    setError(null);
+    setSendSuccess(null);
+    try {
+      const reqBody = {
+        subject: composeSubject.trim(),
+        body: composeBody.trim(),
+      };
+
+      const url = currentTemplateId
+        ? `${getConfig().API_URL}/api/v1/messages/templates/${currentTemplateId}`
+        : `${getConfig().API_URL}/api/v1/messages/templates`;
+      const res = await fetch(url, {
+        method: currentTemplateId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(reqBody),
+      });
+      const body = await res.json();
+      if (!res.ok || !body?.template?.id) {
+        setError(body?.error?.message ?? "Failed to save template");
+        return;
+      }
+      setCurrentTemplateId(body.template.id);
+      setSendSuccess("Template saved.");
+    } catch {
+      setError("Failed to save template");
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  // Opens a saved draft back in the compose form for continued editing.
+  const loadDraftIntoCompose = async (id: number) => {
+    setError(null);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/messages/drafts/${id}`,
+        { headers: authHeaders() },
+      );
+      const body = await res.json();
+      if (!res.ok || !body?.draft) {
+        setError(body?.error?.message ?? "Failed to load draft");
+        return;
+      }
+      const d = body.draft;
+      setComposeReceiver(d.receiver_username ?? "");
+      setComposeReceiverId(d.receiver_id ?? null);
+      setComposeSubject(d.subject ?? "");
+      setComposeBody(d.body ?? "");
+      setComposeParentId(d.parent_id ?? null);
+      setCurrentDraftId(d.id);
+      setCurrentTemplateId(null);
+      setSendSuccess(null);
+      setSearchParams({ tab: "compose" });
+    } catch {
+      setError("Failed to load draft");
+    }
+  };
+
+  // Loads a template into the compose form to start a new message. The
+  // recipient is deliberately left blank — a template has no fixed one.
+  const loadTemplateIntoCompose = async (id: number) => {
+    setError(null);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/messages/templates/${id}`,
+        { headers: authHeaders() },
+      );
+      const body = await res.json();
+      if (!res.ok || !body?.template) {
+        setError(body?.error?.message ?? "Failed to load template");
+        return;
+      }
+      const t = body.template;
+      setComposeReceiver("");
+      setComposeReceiverId(null);
+      setComposeSubject(t.subject ?? "");
+      setComposeBody(t.body ?? "");
+      setComposeParentId(null);
+      setCurrentTemplateId(t.id);
+      setCurrentDraftId(null);
+      setSendSuccess(null);
+      setSearchParams({ tab: "compose" });
+    } catch {
+      setError("Failed to load template");
+    }
+  };
+
+  const handleDeleteSaved = async (id: number) => {
+    if (!isSavedKindTab(tab)) return;
+    const label = tab === "drafts" ? "draft" : "template";
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/messages/${tab}/${id}`,
+        { method: "DELETE", headers: authHeaders() },
+      );
+      if (!res.ok) {
+        const body = await res.json();
+        setError(body?.error?.message ?? `Failed to delete ${label}`);
+        return;
+      }
+      fetchSaved();
+    } catch {
+      setError(`Failed to delete ${label}`);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  const savedTotalPages = Math.max(1, Math.ceil(savedTotal / PER_PAGE));
 
   // Detail view
   if (selectedMessage) {
@@ -414,6 +671,20 @@ export function MessagesPage() {
         </button>
         <button
           type="button"
+          className={`messages__tab${tab === "drafts" ? " messages__tab--active" : ""}`}
+          onClick={() => handleTabChange("drafts")}
+        >
+          Drafts
+        </button>
+        <button
+          type="button"
+          className={`messages__tab${tab === "templates" ? " messages__tab--active" : ""}`}
+          onClick={() => handleTabChange("templates")}
+        >
+          Templates
+        </button>
+        <button
+          type="button"
           className={`messages__tab${tab === "compose" ? " messages__tab--active" : ""}`}
           onClick={() => handleTabChange("compose")}
         >
@@ -442,6 +713,14 @@ export function MessagesPage() {
                   onChange={(e) => {
                     setComposeReceiver(e.target.value);
                     setComposeReceiverId(null);
+                    // A parent_id ties this compose to a specific reply
+                    // thread with the *original* recipient. If the user
+                    // retypes "To" (e.g. after Reply pre-filled it), that
+                    // link is no longer guaranteed to point at whoever ends
+                    // up selected, so drop it — otherwise a saved draft
+                    // could end up addressed to someone unrelated to the
+                    // thread it's still flagged as replying to.
+                    setComposeParentId(null);
                     searchUsers(e.target.value);
                   }}
                   onFocus={() => {
@@ -498,13 +777,39 @@ export function MessagesPage() {
                 placeholder="Write your message..."
               />
             </div>
-            <button
-              type="submit"
-              className="messages__form-btn"
-              disabled={sending || !composeBody.trim()}
-            >
-              {sending ? "Sending..." : "Send Message"}
-            </button>
+            <div className="messages__form-actions">
+              <button
+                type="submit"
+                className="messages__form-btn"
+                disabled={sending || !composeBody.trim()}
+              >
+                {sending ? "Sending..." : "Send Message"}
+              </button>
+              <button
+                type="button"
+                className="messages__form-btn messages__form-btn--secondary"
+                disabled={savingDraft}
+                onClick={handleSaveDraft}
+              >
+                {savingDraft
+                  ? "Saving..."
+                  : currentDraftId
+                    ? "Update Draft"
+                    : "Save Draft"}
+              </button>
+              <button
+                type="button"
+                className="messages__form-btn messages__form-btn--secondary"
+                disabled={savingTemplate || !composeBody.trim()}
+                onClick={handleSaveTemplate}
+              >
+                {savingTemplate
+                  ? "Saving..."
+                  : currentTemplateId
+                    ? "Update Template"
+                    : "Save as Template"}
+              </button>
+            </div>
           </form>
         </>
       )}
@@ -585,6 +890,104 @@ export function MessagesPage() {
                   currentPage={page}
                   totalPages={totalPages}
                   onPageChange={setPage}
+                />
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {isSavedKindTab(tab) && (
+        <>
+          {loading ? (
+            <div className="messages__loading">
+              Loading {tab === "drafts" ? "drafts" : "templates"}...
+            </div>
+          ) : savedItems.length === 0 ? (
+            <div className="messages__empty">
+              {tab === "drafts"
+                ? "No saved drafts."
+                : "No saved templates yet."}
+            </div>
+          ) : (
+            <>
+              <table className="messages__table">
+                <thead>
+                  <tr>
+                    {tab === "drafts" && <th>To</th>}
+                    <th>Subject</th>
+                    <th>Updated</th>
+                    <th style={{ textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {savedItems.map((item) => (
+                    <tr key={item.id}>
+                      {tab === "drafts" && (
+                        <td>
+                          {item.receiver_id && item.receiver_username ? (
+                            <UsernameDisplay
+                              userId={item.receiver_id}
+                              username={item.receiver_username}
+                              className="messages__user-link"
+                            />
+                          ) : (
+                            <span className="messages__saved-empty">
+                              (no recipient yet)
+                            </span>
+                          )}
+                        </td>
+                      )}
+                      <td>
+                        <button
+                          type="button"
+                          className="messages__subject-link"
+                          onClick={() =>
+                            tab === "drafts"
+                              ? loadDraftIntoCompose(item.id)
+                              : loadTemplateIntoCompose(item.id)
+                          }
+                        >
+                          {item.subject || (
+                            <span className="messages__saved-empty">
+                              {tab === "drafts"
+                                ? "(no subject)"
+                                : "(untitled template)"}
+                            </span>
+                          )}
+                        </button>
+                      </td>
+                      <td>{formatDate(item.updated_at)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button
+                          type="button"
+                          className="messages__edit-btn"
+                          onClick={() =>
+                            tab === "drafts"
+                              ? loadDraftIntoCompose(item.id)
+                              : loadTemplateIntoCompose(item.id)
+                          }
+                        >
+                          {tab === "drafts" ? "Edit" : "Use"}
+                        </button>
+                        <button
+                          type="button"
+                          className="messages__delete-btn"
+                          onClick={() => handleDeleteSaved(item.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {savedTotalPages > 1 && (
+                <Pagination
+                  currentPage={savedPage}
+                  totalPages={savedTotalPages}
+                  onPageChange={setSavedPage}
                 />
               )}
             </>
