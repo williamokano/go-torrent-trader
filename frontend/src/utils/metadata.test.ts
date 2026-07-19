@@ -76,12 +76,14 @@ describe("fetchCategorySchema", () => {
   });
 
   it("returns the fields array on success", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        fields: [{ key: "year", label: "Year", type: "number" }],
-      }),
-    }) as unknown as typeof fetch;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          fields: [{ key: "year", label: "Year", type: "number" }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     const fields = await fetchCategorySchema(5);
     expect(fields).toHaveLength(1);
@@ -89,17 +91,14 @@ describe("fetchCategorySchema", () => {
   });
 
   it("returns [] on non-ok response", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({}),
-    }) as unknown as typeof fetch;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", { status: 500 }),
+    );
     expect(await fetchCategorySchema(5)).toEqual([]);
   });
 
   it("returns [] when fetch throws", async () => {
-    global.fetch = vi
-      .fn()
-      .mockRejectedValue(new Error("network")) as unknown as typeof fetch;
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"));
     expect(await fetchCategorySchema(5)).toEqual([]);
   });
 });
