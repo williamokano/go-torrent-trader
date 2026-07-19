@@ -162,10 +162,9 @@ export function NotificationsPage() {
 
   // PUTs a single notification read and applies the local optimistic
   // update. Does not touch the unread-count badge -- callers refetch it
-  // once, after all their PUTs have settled (see handleMarkRead /
-  // handleMarkGroupRead below). Returns whether the PUT succeeded so a
-  // caller marking several notifications at once can report partial
-  // failure instead of silently swallowing it.
+  // once after the PUT settles (see handleMarkRead below). Returns whether
+  // the PUT succeeded so a caller can report failure instead of silently
+  // swallowing it.
   async function markNotificationRead(id: number): Promise<boolean> {
     try {
       const res = await fetch(
@@ -215,20 +214,38 @@ export function NotificationsPage() {
 
   // Marks every still-unread notification underlying a collapsed group as
   // read (e.g. clicking through a "5 new replies" group, or its explicit
-  // "Mark all read" control). Reuses the existing per-notification endpoint
-  // -- grouping never needed a batch endpoint of its own. The PUTs run in
-  // parallel (each targets a distinct notification, so there's no write
-  // conflict), but the unread-count badge is refreshed exactly once after
-  // they all settle, rather than once per PUT racing to write the badge.
+  // "Mark all read" control) via one batch request (BE-9.26), rather than
+  // the earlier approach of looping the single-notification endpoint over
+  // every unread ID in the group in parallel. g.key is exactly the group
+  // identity the /grouped response already handed us, so it doubles as the
+  // batch endpoint's path param. Mirrors handleMarkRead's shape: one
+  // request, then a single unread-count refetch on success.
   async function handleMarkGroupRead(g: NotificationGroup) {
-    const unreadIds = g.notifications.filter((n) => !n.read).map((n) => n.id);
-    if (unreadIds.length === 0) return;
-    const results = await Promise.all(
-      unreadIds.map((id) => markNotificationRead(id)),
-    );
-    if (results.some((ok) => !ok)) {
-      toast.error("Failed to mark some notifications as read");
+    if (!g.unread) return;
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/notifications/groups/${encodeURIComponent(g.key)}/read`,
+        { method: "PUT", headers: authHeaders() },
+      );
+      if (!res.ok) throw new Error();
+    } catch {
+      toast.error("Failed to mark group as read");
+      return;
     }
+    setGroups((prev) =>
+      prev.map((group) =>
+        group.key !== g.key
+          ? group
+          : {
+              ...group,
+              unread: false,
+              notifications: group.notifications.map((n) => ({
+                ...n,
+                read: true,
+              })),
+            },
+      ),
+    );
     refreshUnreadCount();
   }
 

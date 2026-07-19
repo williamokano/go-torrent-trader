@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -115,6 +116,49 @@ func (r *NotificationRepo) MarkAllRead(ctx context.Context, userID int64) error 
 		`UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE`, userID,
 	)
 	return err
+}
+
+// MarkTopicReplyGroupRead marks every unread topic_reply notification for
+// userID and topicID as read in one set-based UPDATE, replacing what would
+// otherwise be one MarkRead call per notification in a collapsed group
+// (BE-9.14's read-time topic_reply grouping).
+//
+// topic_id is compared as text (data->>'topic_id'), not cast to bigint,
+// deliberately: a cast that fails on even one row aborts the whole UPDATE
+// with an error, whereas a text comparison just excludes a row with a
+// malformed/missing topic_id -- the same graceful-degradation behavior
+// grouping itself already has (see parseNotificationPayload in
+// service/notification_group.go).
+//
+// Scoped to user_id + type + is_read = FALSE + this exact topic_id, so it
+// can never mark another user's notifications, another topic's, or another
+// notification type's, and calling it again after everything in the group
+// is already read simply matches zero rows rather than erroring.
+//
+// This is a live match against whatever is unread at execution time, not
+// against the specific notification IDs the caller saw when it fetched the
+// group -- a reply that lands in this topic between the frontend's last
+// /grouped fetch and the "mark all read" click is swept in too. Deliberate,
+// not an oversight: it's what the acceptance criteria asked for ("same
+// topic, same type, unread"), it matches "mark this topic caught up"
+// (the same semantics MarkAllRead already has for the whole inbox), and an
+// ID-pinned alternative would need the frontend to ship a notification-ID
+// list up front, reintroducing per-item state the set-based design is
+// meant to avoid.
+func (r *NotificationRepo) MarkTopicReplyGroupRead(ctx context.Context, userID, topicID int64) (int64, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE notifications
+		 SET is_read = TRUE
+		 WHERE user_id = $1
+		   AND type = $2
+		   AND is_read = FALSE
+		   AND data->>'topic_id' = $3`,
+		userID, model.NotifTopicReply, strconv.FormatInt(topicID, 10),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (r *NotificationRepo) CountUnread(ctx context.Context, userID int64) (int, error) {

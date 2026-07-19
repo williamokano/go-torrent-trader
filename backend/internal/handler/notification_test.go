@@ -21,15 +21,20 @@ import (
 // --- mocks ------------------------------------------------------------------
 
 type notifStoreStub struct {
-	list        []model.Notification
-	total       int64
-	unread      int
-	listErr     error
-	unreadErr   error
-	markErr     error
-	markAllErr  error
-	markedRead  []int64
-	markedAllTo int64
+	list             []model.Notification
+	total            int64
+	unread           int
+	listErr          error
+	unreadErr        error
+	markErr          error
+	markAllErr       error
+	markedRead       []int64
+	markedAllTo      int64
+	markGroupResult  int64
+	markGroupErr     error
+	markGroupUserID  int64
+	markGroupTopicID int64
+	markGroupCalled  bool
 }
 
 func (m *notifStoreStub) Create(_ context.Context, _ *model.Notification) error { return nil }
@@ -46,6 +51,12 @@ func (m *notifStoreStub) MarkRead(_ context.Context, _, id int64) error {
 func (m *notifStoreStub) MarkAllRead(_ context.Context, userID int64) error {
 	m.markedAllTo = userID
 	return m.markAllErr
+}
+func (m *notifStoreStub) MarkTopicReplyGroupRead(_ context.Context, userID, topicID int64) (int64, error) {
+	m.markGroupCalled = true
+	m.markGroupUserID = userID
+	m.markGroupTopicID = topicID
+	return m.markGroupResult, m.markGroupErr
 }
 func (m *notifStoreStub) CountUnread(_ context.Context, _ int64) (int, error) {
 	return m.unread, m.unreadErr

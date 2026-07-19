@@ -126,3 +126,122 @@ func TestListNotificationsGroupedNonTopicReplyStaysSingleton(t *testing.T) {
 		t.Fatalf("total = %v, want 2 (non-topic_reply types are not collapsed)", body["total"])
 	}
 }
+
+// --- HandleMarkGroupRead ------------------------------------------------
+
+func TestMarkGroupReadRequiresAuth(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := httptest.NewRequest("PUT", "/api/v1/notifications/groups/topic_reply:1/read", nil)
+	req = withURLParam(req, "key", "topic_reply:1")
+	w := httptest.NewRecorder()
+	h.HandleMarkGroupRead(w, req)
+
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401 for an unauthenticated request", w.Code)
+	}
+}
+
+func TestMarkGroupReadDelegatesToTheStoreForATopicReplyKey(t *testing.T) {
+	store := &notifStoreStub{markGroupResult: 3}
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: store, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := authed(httptest.NewRequest("PUT", "/api/v1/notifications/groups/topic_reply:42/read", nil), 7, 1)
+	req = withURLParam(req, "key", "topic_reply:42")
+	w := httptest.NewRecorder()
+	h.HandleMarkGroupRead(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if !store.markGroupCalled {
+		t.Fatal("expected the store's batch mark-read to be called")
+	}
+	if store.markGroupUserID != 7 {
+		t.Errorf("marked for user %d, want the authenticated user 7", store.markGroupUserID)
+	}
+	if store.markGroupTopicID != 42 {
+		t.Errorf("marked topic %d, want 42 (parsed from the group key)", store.markGroupTopicID)
+	}
+	body := decodeBody(t, w)
+	if body["marked"].(float64) != 3 {
+		t.Errorf("marked = %v, want 3", body["marked"])
+	}
+}
+
+// A "single:<id>" key identifies a singleton group, which is never
+// batchable (the UI already covers it with the single-notification
+// MarkRead endpoint) -- the handler must reject it rather than silently
+// no-op or guess at a notification ID to mark.
+func TestMarkGroupReadRejectsASingletonKey(t *testing.T) {
+	store := &notifStoreStub{}
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: store, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := authed(httptest.NewRequest("PUT", "/api/v1/notifications/groups/single:9/read", nil), 7, 1)
+	req = withURLParam(req, "key", "single:9")
+	w := httptest.NewRecorder()
+	h.HandleMarkGroupRead(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for a non-batchable group key", w.Code)
+	}
+	if store.markGroupCalled {
+		t.Error("expected the store's batch mark-read to never be called for an unbatchable key")
+	}
+}
+
+func TestMarkGroupReadRejectsAMalformedKey(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := authed(httptest.NewRequest("PUT", "/api/v1/notifications/groups/not-a-key/read", nil), 7, 1)
+	req = withURLParam(req, "key", "not-a-key")
+	w := httptest.NewRecorder()
+	h.HandleMarkGroupRead(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400 for a malformed group key", w.Code)
+	}
+}
+
+func TestMarkGroupReadIsIdempotentWhenNothingIsUnread(t *testing.T) {
+	store := &notifStoreStub{markGroupResult: 0}
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: store, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := authed(httptest.NewRequest("PUT", "/api/v1/notifications/groups/topic_reply:42/read", nil), 7, 1)
+	req = withURLParam(req, "key", "topic_reply:42")
+	w := httptest.NewRecorder()
+	h.HandleMarkGroupRead(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (a second call with nothing left unread is not an error)", w.Code)
+	}
+	if decodeBody(t, w)["marked"].(float64) != 0 {
+		t.Errorf("marked = %v, want 0", decodeBody(t, w)["marked"])
+	}
+}
+
+func TestMarkGroupReadSurfacesStoreFailure(t *testing.T) {
+	store := &notifStoreStub{markGroupErr: fmt.Errorf("db down")}
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: store, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := authed(httptest.NewRequest("PUT", "/api/v1/notifications/groups/topic_reply:42/read", nil), 7, 1)
+	req = withURLParam(req, "key", "topic_reply:42")
+	w := httptest.NewRecorder()
+	h.HandleMarkGroupRead(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500 when the store fails", w.Code)
+	}
+}
