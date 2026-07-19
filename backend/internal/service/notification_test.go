@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -63,6 +64,15 @@ func (m *mockNotificationRepo) List(_ context.Context, userID int64, opts reposi
 		}
 		filtered = append(filtered, *n)
 	}
+	// Mirror the real Postgres implementation's ORDER BY created_at DESC so
+	// callers that depend on newest-first ordering (e.g. grouping) behave
+	// the same against this fake as against the real repository.
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
+			return filtered[i].ID > filtered[j].ID
+		}
+		return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+	})
 	total := int64(len(filtered))
 	page := opts.Page
 	perPage := opts.PerPage

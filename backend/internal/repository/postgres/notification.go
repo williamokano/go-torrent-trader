@@ -68,7 +68,13 @@ func (r *NotificationRepo) List(ctx context.Context, userID int64, opts reposito
 	if opts.UnreadOnly {
 		listQuery += ` AND is_read = FALSE`
 	}
-	listQuery += ` ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+	// id DESC breaks ties on created_at (two notifications can share a
+	// timestamp, e.g. topic_reply fan-out to several subscribers). Grouped
+	// listing (BE-9.14, service.NotificationService.ListGrouped) pages
+	// through this method across multiple calls and depends on it
+	// returning a strict, stable order -- without a tiebreaker, Postgres is
+	// free to return tied rows in a different order on each call.
+	listQuery += ` ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`
 
 	rows, err := r.db.QueryContext(ctx, listQuery, userID, perPage, offset)
 	if err != nil {

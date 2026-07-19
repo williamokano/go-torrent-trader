@@ -343,6 +343,7 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/notifications", func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/", notifs.HandleListNotifications)
+					r.Get("/grouped", notifs.HandleListNotificationsGrouped)
 					r.Get("/unread-count", notifs.HandleUnreadCount)
 					r.Put("/read-all", notifs.HandleMarkAllRead)
 					r.Put("/{id}/read", notifs.HandleMarkRead)

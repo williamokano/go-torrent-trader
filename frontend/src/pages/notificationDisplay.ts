@@ -6,6 +6,23 @@ export interface Notification {
   created_at: string;
 }
 
+/**
+ * A read-time collapse of one or more notifications sharing a grouping key
+ * (currently: same topic for `topic_reply`). Every other type comes back
+ * from the API as its own singleton group (count === 1) so the UI has one
+ * shape to render either way -- see backend/internal/service/notification_group.go.
+ */
+export interface NotificationGroup {
+  key: string;
+  type: string;
+  count: number;
+  unread: boolean;
+  last_actors: string[];
+  latest_created_at: string;
+  data: Record<string, unknown>;
+  notifications: Notification[];
+}
+
 /** The route a notification links to, or null if it isn't navigable. */
 export function notificationLink(n: Notification): string | null {
   const d = n.data;
@@ -57,4 +74,34 @@ export function notificationMessage(n: Notification): string {
     default:
       return "New notification";
   }
+}
+
+/** Human-readable summary line for a (possibly collapsed) notification group. */
+export function groupMessage(g: NotificationGroup): string {
+  if (g.count <= 1) {
+    return g.notifications[0]
+      ? notificationMessage(g.notifications[0])
+      : "New notification";
+  }
+  const topicTitle = (g.data.topic_title as string) || "a topic";
+  // "new" only while the group still has something unread -- once every
+  // reply in it has been read, calling them "new" would be misleading.
+  const label = g.unread ? "new replies" : "replies";
+  return `${g.count} ${label} in "${topicTitle}" from ${formatActorList(g.last_actors)}`;
+}
+
+/** The route a notification group links to, or null if it isn't navigable. */
+export function groupLink(g: NotificationGroup): string | null {
+  if (g.count <= 1) {
+    return g.notifications[0] ? notificationLink(g.notifications[0]) : null;
+  }
+  if (g.data.topic_id) return `/forums/topics/${g.data.topic_id}`;
+  return null;
+}
+
+function formatActorList(actors: string[]): string {
+  if (actors.length === 0) return "several people";
+  if (actors.length === 1) return actors[0];
+  if (actors.length === 2) return `${actors[0]} and ${actors[1]}`;
+  return `${actors.slice(0, -1).join(", ")}, and ${actors[actors.length - 1]}`;
 }
