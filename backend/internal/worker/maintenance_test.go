@@ -34,6 +34,14 @@ func (m *mockNotificationRepo) DeleteOld(_ context.Context, before time.Time) (i
 	return m.deleteOldCount, m.deleteOldErr
 }
 
+func (m *mockNotificationRepo) CountUnreadSince(_ context.Context, _ int64, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (m *mockNotificationRepo) ListUnreadSince(_ context.Context, _ int64, _ time.Time, _ int) ([]model.Notification, error) {
+	return nil, nil
+}
+
 // --- tests -----------------------------------------------------------------
 
 func TestMaintenancePurgesNotificationsPastRetention(t *testing.T) {

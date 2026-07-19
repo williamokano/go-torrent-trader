@@ -134,6 +134,77 @@ func (m *mockNotificationRepo) DeleteOld(_ context.Context, before time.Time) (i
 	return deleted, nil
 }
 
+func (m *mockNotificationRepo) CountUnreadSince(_ context.Context, userID int64, since time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, n := range m.notifs {
+		if n.UserID == userID && !n.Read && n.CreatedAt.After(since) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockNotificationRepo) ListUnreadSince(_ context.Context, userID int64, since time.Time, limit int) ([]model.Notification, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []model.Notification
+	for _, n := range m.notifs {
+		if n.UserID == userID && !n.Read && n.CreatedAt.After(since) {
+			out = append(out, *n)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// --- mock notification digest preference repo ---
+
+type mockNotifDigestPrefRepo struct {
+	mu    sync.Mutex
+	freqs map[int64]string
+}
+
+func newMockNotifDigestPrefRepo() *mockNotifDigestPrefRepo {
+	return &mockNotifDigestPrefRepo{freqs: make(map[int64]string)}
+}
+
+func (m *mockNotifDigestPrefRepo) GetFrequency(_ context.Context, userID int64) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if f, ok := m.freqs[userID]; ok {
+		return f, nil
+	}
+	return model.DigestOff, nil
+}
+
+func (m *mockNotifDigestPrefRepo) SetFrequency(_ context.Context, userID int64, frequency string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.freqs[userID] = frequency
+	return nil
+}
+
+func (m *mockNotifDigestPrefRepo) ListDue(_ context.Context, frequency string, sentBefore time.Time) ([]model.DigestRecipient, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []model.DigestRecipient
+	for uid, f := range m.freqs {
+		if f == frequency {
+			out = append(out, model.DigestRecipient{UserID: uid})
+		}
+	}
+	_ = sentBefore
+	return out, nil
+}
+
+func (m *mockNotifDigestPrefRepo) MarkSent(_ context.Context, _ int64, _ time.Time) error {
+	return nil
+}
+
 // --- mock notification preference repo ---
 
 type mockNotifPrefRepo struct {
@@ -266,15 +337,21 @@ func splitKey(k string) []string {
 // --- tests ---
 
 func newTestNotifService() (*service.NotificationService, *mockNotificationRepo, *mockNotifPrefRepo, *mockTopicSubRepo, *[][]byte) {
+	svc, notifRepo, prefRepo, _, subRepo, wsPayloads := newTestNotifServiceWithDigest()
+	return svc, notifRepo, prefRepo, subRepo, wsPayloads
+}
+
+func newTestNotifServiceWithDigest() (*service.NotificationService, *mockNotificationRepo, *mockNotifPrefRepo, *mockNotifDigestPrefRepo, *mockTopicSubRepo, *[][]byte) {
 	notifRepo := newMockNotificationRepo()
 	prefRepo := newMockNotifPrefRepo()
+	digestRepo := newMockNotifDigestPrefRepo()
 	subRepo := newMockTopicSubRepo()
 	var wsPayloads [][]byte
 	sendToUser := func(_ int64, payload []byte) {
 		wsPayloads = append(wsPayloads, payload)
 	}
-	svc := service.NewNotificationService(notifRepo, prefRepo, subRepo, nil, nil, sendToUser)
-	return svc, notifRepo, prefRepo, subRepo, &wsPayloads
+	svc := service.NewNotificationService(notifRepo, prefRepo, digestRepo, subRepo, nil, nil, sendToUser)
+	return svc, notifRepo, prefRepo, digestRepo, subRepo, &wsPayloads
 }
 
 func TestNotificationService_Create(t *testing.T) {
@@ -472,6 +549,58 @@ func TestNotificationService_Preferences(t *testing.T) {
 	// Invalid type
 	if err := svc.SetPreference(ctx, 1, "invalid_type", true); err == nil {
 		t.Error("expected error for invalid notification type")
+	}
+}
+
+func TestNotificationService_DigestFrequency(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _, _, _ := newTestNotifServiceWithDigest()
+
+	// Default is off.
+	freq, err := svc.GetDigestFrequency(ctx, 1)
+	if err != nil {
+		t.Fatalf("get digest frequency error: %v", err)
+	}
+	if freq != model.DigestOff {
+		t.Errorf("expected default %q, got %q", model.DigestOff, freq)
+	}
+
+	// Set to weekly.
+	if err := svc.SetDigestFrequency(ctx, 1, model.DigestWeekly); err != nil {
+		t.Fatalf("set digest frequency error: %v", err)
+	}
+	freq, err = svc.GetDigestFrequency(ctx, 1)
+	if err != nil {
+		t.Fatalf("get digest frequency error: %v", err)
+	}
+	if freq != model.DigestWeekly {
+		t.Errorf("expected %q, got %q", model.DigestWeekly, freq)
+	}
+
+	// Invalid frequency is rejected.
+	if err := svc.SetDigestFrequency(ctx, 1, "hourly"); err == nil {
+		t.Error("expected error for invalid digest frequency")
+	}
+}
+
+func TestNotificationService_DigestFrequency_NoRepoConfigured(t *testing.T) {
+	ctx := context.Background()
+	// digestPrefs is nil here (unlike newTestNotifService, which wires a mock):
+	// reads must default to off, writes must fail cleanly rather than panic.
+	svc := service.NewNotificationService(
+		newMockNotificationRepo(), newMockNotifPrefRepo(), nil, newMockTopicSubRepo(), nil, nil, nil,
+	)
+
+	freq, err := svc.GetDigestFrequency(ctx, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if freq != model.DigestOff {
+		t.Errorf("expected %q, got %q", model.DigestOff, freq)
+	}
+
+	if err := svc.SetDigestFrequency(ctx, 1, model.DigestDaily); err == nil {
+		t.Error("expected error setting digest frequency without a configured repo")
 	}
 }
 

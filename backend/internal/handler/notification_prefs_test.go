@@ -282,6 +282,151 @@ func TestUpdatePreferencesSurfacesStoreFailure(t *testing.T) {
 	}
 }
 
+// --- digest preference --------------------------------------------------------
+
+func TestGetDigestPreferenceRequiresAuth(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	w := httptest.NewRecorder()
+	h.HandleGetDigestPreference(w, httptest.NewRequest(http.MethodGet, "/api/v1/notifications/digest-preference", nil))
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestGetDigestPreferenceDefaultsToOff(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := authed(httptest.NewRequest(http.MethodGet, "/api/v1/notifications/digest-preference", nil), 7, 1)
+	w := httptest.NewRecorder()
+	h.HandleGetDigestPreference(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := decodeBody(t, w)["frequency"]; got != model.DigestOff {
+		t.Errorf("frequency = %v, want %q", got, model.DigestOff)
+	}
+}
+
+func TestGetDigestPreferenceReturnsStoredValue(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+		digest: &notifDigestPrefStub{frequency: model.DigestWeekly},
+	}))
+
+	req := authed(httptest.NewRequest(http.MethodGet, "/api/v1/notifications/digest-preference", nil), 7, 1)
+	w := httptest.NewRecorder()
+	h.HandleGetDigestPreference(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := decodeBody(t, w)["frequency"]; got != model.DigestWeekly {
+		t.Errorf("frequency = %v, want %q", got, model.DigestWeekly)
+	}
+}
+
+func TestGetDigestPreferenceSurfacesStoreFailure(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+		digest: &notifDigestPrefStub{getErr: errors.New("db down")},
+	}))
+
+	req := authed(httptest.NewRequest(http.MethodGet, "/api/v1/notifications/digest-preference", nil), 7, 1)
+	w := httptest.NewRecorder()
+	h.HandleGetDigestPreference(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestUpdateDigestPreferenceRequiresAuth(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/digest-preference",
+		strings.NewReader(`{"frequency":"daily"}`))
+	w := httptest.NewRecorder()
+	h.HandleUpdateDigestPreference(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestUpdateDigestPreferenceValidatesBody(t *testing.T) {
+	cases := []struct{ name, body string }{
+		{"missing frequency", `{}`},
+		{"empty frequency", `{"frequency":""}`},
+		{"unknown frequency", `{"frequency":"hourly"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			digest := &notifDigestPrefStub{}
+			h := NewNotificationHandler(newNotifService(&notifDeps{
+				store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+				digest: digest,
+			}))
+
+			req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/notifications/digest-preference",
+				strings.NewReader(tc.body)), 7, 1)
+			w := httptest.NewRecorder()
+			h.HandleUpdateDigestPreference(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", w.Code)
+			}
+			if len(digest.set) != 0 {
+				t.Errorf("a preference was written anyway: %v", digest.set)
+			}
+		})
+	}
+}
+
+func TestUpdateDigestPreferenceStoresTheChoice(t *testing.T) {
+	digest := &notifDigestPrefStub{}
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+		digest: digest,
+	}))
+
+	req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/notifications/digest-preference",
+		strings.NewReader(`{"frequency":"daily"}`)), 7, 1)
+	w := httptest.NewRecorder()
+	h.HandleUpdateDigestPreference(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body: %s", w.Code, w.Body.String())
+	}
+	if digest.set[7] != model.DigestDaily {
+		t.Errorf("stored frequency = %v, want %q for user 7", digest.set, model.DigestDaily)
+	}
+}
+
+func TestUpdateDigestPreferenceSurfacesStoreFailure(t *testing.T) {
+	h := NewNotificationHandler(newNotifService(&notifDeps{
+		store: &notifStoreStub{}, prefs: &notifPrefStub{}, subs: &topicSubStub{},
+		digest: &notifDigestPrefStub{setErr: errors.New("db down")},
+	}))
+
+	req := authed(httptest.NewRequest(http.MethodPut, "/api/v1/notifications/digest-preference",
+		strings.NewReader(`{"frequency":"daily"}`)), 7, 1)
+	w := httptest.NewRecorder()
+	h.HandleUpdateDigestPreference(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
 // --- topic subscriptions ----------------------------------------------------
 
 func TestSubscribeRequiresAuth(t *testing.T) {

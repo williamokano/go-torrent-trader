@@ -42,6 +42,32 @@ type NotificationPreference struct {
 	Enabled          bool
 }
 
+// Digest frequency constants.
+const (
+	DigestOff    = "off"
+	DigestDaily  = "daily"
+	DigestWeekly = "weekly"
+)
+
+// AllDigestFrequencies lists every valid digest frequency for preference validation.
+var AllDigestFrequencies = []string{DigestOff, DigestDaily, DigestWeekly}
+
+// NotificationDigestPreference stores a user's email digest cadence and the
+// cursor (LastDigestSentAt) used to compute "unread since last digest".
+type NotificationDigestPreference struct {
+	UserID           int64
+	Frequency        string
+	LastDigestSentAt *time.Time
+}
+
+// DigestRecipient is a user due for a digest run, with the fields needed to
+// build and send their digest email.
+type DigestRecipient struct {
+	UserID           int64
+	Email            string
+	LastDigestSentAt *time.Time
+}
+
 // TopicSubscription represents a user's subscription to a forum topic.
 type TopicSubscription struct {
 	UserID    int64

@@ -84,6 +84,19 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register invite distribution: %w", err)
 	}
 
+	// Evaluate the notification email digest daily, offset an hour past
+	// promotion/invite distribution so it doesn't contend with them. The
+	// engine gates each recipient independently on their own daily/weekly
+	// cadence (see NotificationDigestService.Run), so one fixed daily
+	// schedule covers both frequencies.
+	digestTask, err := NewDigestTask()
+	if err != nil {
+		return fmt.Errorf("create notification digest task: %w", err)
+	}
+	if _, err := scheduler.Register("0 6 * * *", digestTask); err != nil {
+		return fmt.Errorf("register notification digest: %w", err)
+	}
+
 	return nil
 }
 

@@ -40,6 +40,12 @@ func (m *mockNotifStore) CountUnread(_ context.Context, _ int64) (int, error) { 
 func (m *mockNotifStore) DeleteOld(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
+func (m *mockNotifStore) CountUnreadSince(_ context.Context, _ int64, _ time.Time) (int, error) {
+	return 0, nil
+}
+func (m *mockNotifStore) ListUnreadSince(_ context.Context, _ int64, _ time.Time, _ int) ([]model.Notification, error) {
+	return nil, nil
+}
 
 // forType returns the notifications created for a given recipient.
 func (m *mockNotifStore) forUser(userID int64) []model.Notification {
@@ -162,7 +168,8 @@ func newNotifHarness(t *testing.T, subscribers []int64, usernames map[string]int
 
 	// topics and forums are nil: Subscribe then skips its existence check, which
 	// keeps these tests about event->notification mapping rather than topic lookup.
-	svc := service.NewNotificationService(h.store, h.prefs, h.subs, nil, nil, sendToUser)
+	// digestPrefs is nil: these tests are about event->notification mapping, not digests.
+	svc := service.NewNotificationService(h.store, h.prefs, nil, h.subs, nil, nil, sendToUser)
 
 	// postRepo is unused by the listener; pass nil rather than a hollow mock.
 	RegisterNotificationListeners(h.bus, svc, h.users, nil, h.subs)

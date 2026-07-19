@@ -17,6 +17,16 @@ interface Preference {
   enabled: boolean;
 }
 
+type DigestFrequency = "off" | "daily" | "weekly";
+
+const DIGEST_FREQUENCIES: DigestFrequency[] = ["off", "daily", "weekly"];
+
+const DIGEST_LABELS: Record<DigestFrequency, string> = {
+  off: "Off",
+  daily: "Daily",
+  weekly: "Weekly",
+};
+
 const PER_PAGE = 25;
 
 const TYPE_LABELS: Record<string, string> = {
@@ -60,6 +70,8 @@ export function NotificationsPage() {
   // Preferences state
   const [preferences, setPreferences] = useState<Preference[]>([]);
   const [prefsLoading, setPrefsLoading] = useState(false);
+  const [digestFrequency, setDigestFrequency] =
+    useState<DigestFrequency>("off");
 
   const totalPages = Math.ceil(total / PER_PAGE);
 
@@ -110,11 +122,26 @@ export function NotificationsPage() {
     }
   }, [toast]);
 
+  const fetchDigestFrequency = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/notifications/digest-preference`,
+        { headers: authHeaders() },
+      );
+      if (!res.ok) throw new Error("Failed to fetch digest preference");
+      const body = await res.json();
+      setDigestFrequency((body.frequency as DigestFrequency) ?? "off");
+    } catch {
+      toast.error("Failed to load digest preference");
+    }
+  }, [toast]);
+
   useEffect(() => {
     if (tab === "preferences") {
       fetchPreferences();
+      fetchDigestFrequency();
     }
-  }, [tab, fetchPreferences]);
+  }, [tab, fetchPreferences, fetchDigestFrequency]);
 
   async function handleMarkRead(id: number) {
     try {
@@ -180,6 +207,28 @@ export function NotificationsPage() {
     }
   }
 
+  async function handleDigestFrequencyChange(frequency: DigestFrequency) {
+    const previous = digestFrequency;
+    setDigestFrequency(frequency);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/notifications/digest-preference`,
+        {
+          method: "PUT",
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ frequency }),
+        },
+      );
+      if (!res.ok) throw new Error();
+    } catch {
+      setDigestFrequency(previous);
+      toast.error("Failed to update digest preference");
+    }
+  }
+
   return (
     <div className="notifs-page">
       <div className="notifs-page__header">
@@ -223,25 +272,60 @@ export function NotificationsPage() {
           {prefsLoading ? (
             <p className="notifs-page__empty">Loading preferences...</p>
           ) : (
-            <div className="notifs-prefs__list">
-              {preferences.map((p) => (
-                <label key={p.notification_type} className="notifs-prefs__item">
-                  <input
-                    type="checkbox"
-                    checked={p.enabled}
-                    onChange={(e) =>
-                      handleTogglePreference(
-                        p.notification_type,
-                        e.target.checked,
-                      )
-                    }
-                  />
-                  <span className="notifs-prefs__label">
-                    {TYPE_LABELS[p.notification_type] ?? p.notification_type}
-                  </span>
+            <>
+              <div className="notifs-prefs__digest">
+                <label
+                  className="notifs-prefs__digest-label"
+                  htmlFor="digest-frequency"
+                >
+                  Email digest
                 </label>
-              ))}
-            </div>
+                <select
+                  id="digest-frequency"
+                  className="notifs-prefs__digest-select"
+                  value={digestFrequency}
+                  onChange={(e) =>
+                    handleDigestFrequencyChange(
+                      e.target.value as DigestFrequency,
+                    )
+                  }
+                >
+                  {DIGEST_FREQUENCIES.map((freq) => (
+                    <option key={freq} value={freq}>
+                      {DIGEST_LABELS[freq]}
+                    </option>
+                  ))}
+                </select>
+                <p className="notifs-prefs__digest-hint">
+                  Get an email summarizing your unread notifications since your
+                  last digest — sent at most once a day (daily) or once a week
+                  (weekly), and only when there's something new.
+                </p>
+              </div>
+              <div className="notifs-prefs__divider" />
+              <div className="notifs-prefs__list">
+                {preferences.map((p) => (
+                  <label
+                    key={p.notification_type}
+                    className="notifs-prefs__item"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={p.enabled}
+                      onChange={(e) =>
+                        handleTogglePreference(
+                          p.notification_type,
+                          e.target.checked,
+                        )
+                      }
+                    />
+                    <span className="notifs-prefs__label">
+                      {TYPE_LABELS[p.notification_type] ?? p.notification_type}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
           )}
         </div>
       ) : loading ? (

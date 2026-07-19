@@ -51,6 +51,37 @@ func (m *notifStoreStub) CountUnread(_ context.Context, _ int64) (int, error) {
 	return m.unread, m.unreadErr
 }
 func (m *notifStoreStub) DeleteOld(_ context.Context, _ time.Time) (int64, error) { return 0, nil }
+func (m *notifStoreStub) CountUnreadSince(_ context.Context, _ int64, _ time.Time) (int, error) {
+	return 0, nil
+}
+func (m *notifStoreStub) ListUnreadSince(_ context.Context, _ int64, _ time.Time, _ int) ([]model.Notification, error) {
+	return nil, nil
+}
+
+type notifDigestPrefStub struct {
+	frequency string
+	getErr    error
+	setErr    error
+	set       map[int64]string // userID -> frequency
+}
+
+func (m *notifDigestPrefStub) GetFrequency(_ context.Context, _ int64) (string, error) {
+	if m.frequency == "" {
+		return model.DigestOff, m.getErr
+	}
+	return m.frequency, m.getErr
+}
+func (m *notifDigestPrefStub) SetFrequency(_ context.Context, userID int64, frequency string) error {
+	if m.set == nil {
+		m.set = map[int64]string{}
+	}
+	m.set[userID] = frequency
+	return m.setErr
+}
+func (m *notifDigestPrefStub) ListDue(_ context.Context, _ string, _ time.Time) ([]model.DigestRecipient, error) {
+	return nil, nil
+}
+func (m *notifDigestPrefStub) MarkSent(_ context.Context, _ int64, _ time.Time) error { return nil }
 
 type notifPrefStub struct {
 	all    []model.NotificationPreference
@@ -151,6 +182,7 @@ func (m *forumLookupStub) CountTopicsByForum(_ context.Context, _ int64) (int64,
 type notifDeps struct {
 	store  *notifStoreStub
 	prefs  *notifPrefStub
+	digest *notifDigestPrefStub
 	subs   *topicSubStub
 	topics *topicLookupStub
 	forums *forumLookupStub
@@ -168,7 +200,11 @@ func newNotifService(d *notifDeps) *service.NotificationService {
 	if d.forums != nil {
 		forums = d.forums
 	}
-	return service.NewNotificationService(d.store, d.prefs, d.subs, topics, forums, nil)
+	var digest repository.NotificationDigestPreferenceRepository
+	if d.digest != nil {
+		digest = d.digest
+	}
+	return service.NewNotificationService(d.store, d.prefs, digest, d.subs, topics, forums, nil)
 }
 
 func authed(r *http.Request, userID int64, level int) *http.Request {
