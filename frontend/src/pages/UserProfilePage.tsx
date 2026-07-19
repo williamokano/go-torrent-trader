@@ -336,7 +336,7 @@ export function UserProfilePage() {
             )}
             {!isOwnProfile && currentUser?.isStaff && (
               <Link
-                to={`/admin/users?q=${encodeURIComponent(profile.username)}`}
+                to={`/admin/users/${profile.id}`}
                 className="profile-info__settings-link"
               >
                 Manage User
