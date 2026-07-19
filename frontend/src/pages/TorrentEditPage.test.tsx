@@ -53,6 +53,8 @@ const FAKE_TORRENT = {
   times_completed: 318,
   comments_count: 12,
   file_count: 3,
+  metadata: {},
+  metadata_schema: [],
   created_at: "2026-03-05T14:30:00Z",
   updated_at: "2026-03-05T14:30:00Z",
 };

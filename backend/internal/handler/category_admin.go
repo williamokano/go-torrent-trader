@@ -11,6 +11,15 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
+// schemaResponse coalesces an empty JSONB schema to "[]" so the response never
+// emits a bare null (json.RawMessage marshals an empty value as null).
+func schemaResponse(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("[]")
+	}
+	return raw
+}
+
 // CategoryAdminHandler handles admin category HTTP endpoints.
 type CategoryAdminHandler struct {
 	categories *service.CategoryService
@@ -32,14 +41,15 @@ func (h *CategoryAdminHandler) HandleListCategories(w http.ResponseWriter, r *ht
 	items := make([]map[string]interface{}, len(cats))
 	for i, c := range cats {
 		items[i] = map[string]interface{}{
-			"id":         c.ID,
-			"name":       c.Name,
-			"slug":       c.Slug,
-			"parent_id":  c.ParentID,
-			"image_url":  c.ImageURL,
-			"sort_order": c.SortOrder,
-			"created_at": c.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			"updated_at": c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			"id":              c.ID,
+			"name":            c.Name,
+			"slug":            c.Slug,
+			"parent_id":       c.ParentID,
+			"image_url":       c.ImageURL,
+			"sort_order":      c.SortOrder,
+			"metadata_schema": schemaResponse(c.MetadataSchema),
+			"created_at":      c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"updated_at":      c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 	}
 
@@ -68,14 +78,15 @@ func (h *CategoryAdminHandler) HandleCreateCategory(w http.ResponseWriter, r *ht
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"category": map[string]interface{}{
-			"id":         cat.ID,
-			"name":       cat.Name,
-			"slug":       cat.Slug,
-			"parent_id":  cat.ParentID,
-			"image_url":  cat.ImageURL,
-			"sort_order": cat.SortOrder,
-			"created_at": cat.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			"updated_at": cat.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			"id":              cat.ID,
+			"name":            cat.Name,
+			"slug":            cat.Slug,
+			"parent_id":       cat.ParentID,
+			"image_url":       cat.ImageURL,
+			"sort_order":      cat.SortOrder,
+			"metadata_schema": schemaResponse(cat.MetadataSchema),
+			"created_at":      cat.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"updated_at":      cat.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		},
 	})
 }
@@ -110,14 +121,15 @@ func (h *CategoryAdminHandler) HandleUpdateCategory(w http.ResponseWriter, r *ht
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"category": map[string]interface{}{
-			"id":         cat.ID,
-			"name":       cat.Name,
-			"slug":       cat.Slug,
-			"parent_id":  cat.ParentID,
-			"image_url":  cat.ImageURL,
-			"sort_order": cat.SortOrder,
-			"created_at": cat.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			"updated_at": cat.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			"id":              cat.ID,
+			"name":            cat.Name,
+			"slug":            cat.Slug,
+			"parent_id":       cat.ParentID,
+			"image_url":       cat.ImageURL,
+			"sort_order":      cat.SortOrder,
+			"metadata_schema": schemaResponse(cat.MetadataSchema),
+			"created_at":      cat.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"updated_at":      cat.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		},
 	})
 }

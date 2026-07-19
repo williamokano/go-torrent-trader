@@ -16,6 +16,11 @@ import { NfoViewer } from "@/components/NfoViewer";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { getConfig } from "@/config";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import {
+  formatMetadataValue,
+  type MetadataField,
+  type MetadataValues,
+} from "@/utils/metadata";
 import "./torrent-detail.css";
 
 function healthClass(seeders: number): string {
@@ -447,6 +452,32 @@ export function TorrentDetailPage() {
           </span>
         </div>
       </div>
+
+      {(() => {
+        const raw = torrent as unknown as {
+          metadata?: MetadataValues;
+          metadata_schema?: MetadataField[];
+        };
+        const values = raw.metadata ?? {};
+        const rows = (raw.metadata_schema ?? [])
+          .map((field) => ({
+            field,
+            display: formatMetadataValue(field, values[field.key]),
+          }))
+          .filter((r) => r.display !== "");
+        return rows.length > 0 ? (
+          <div className="torrent-detail__info">
+            {rows.map(({ field, display }) => (
+              <div key={field.key} className="torrent-detail__info-row">
+                <span className="torrent-detail__info-label">
+                  {field.label}
+                </span>
+                <span className="torrent-detail__info-value">{display}</span>
+              </div>
+            ))}
+          </div>
+        ) : null;
+      })()}
 
       {torrent.description && (
         <div className="torrent-detail__description">

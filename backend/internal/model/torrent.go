@@ -34,6 +34,7 @@ type Torrent struct {
 	Silver           bool
 	FileCount        int
 	Files            *json.RawMessage // JSONB array of TorrentFile, nullable
+	Metadata         json.RawMessage  // JSONB object of category-schema field values (defaults to {})
 	UploaderName     string           // Resolved via JOIN; "Anonymous" when anonymous=true
 	UploaderWarned   bool             // Resolved via JOIN; false when anonymous=true
 	CreatedAt        time.Time

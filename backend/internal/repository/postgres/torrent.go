@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,10 +11,21 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
+// emptyMetadata is the JSONB default written when a torrent has no metadata
+// values, so the NOT NULL metadata column never receives a NULL param.
+var emptyMetadata = json.RawMessage("{}")
+
+func metadataOrDefault(m json.RawMessage) json.RawMessage {
+	if len(m) == 0 {
+		return emptyMetadata
+	}
+	return m
+}
+
 const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo, t.category_id,
 	c.name AS category_name, c.image_url AS category_image_url,
 	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
-	t.visible, t.banned, t.free, t.silver, t.file_count, t.files,
+	t.visible, t.banned, t.free, t.silver, t.file_count, t.files, t.metadata,
 	CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END AS uploader_name,
 	CASE WHEN t.anonymous THEN false ELSE COALESCE(u.warned, false) END AS uploader_warned,
 	t.created_at, t.updated_at`
@@ -40,7 +52,7 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 		&t.CategoryID, &t.CategoryName, &t.CategoryImageURL,
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
-		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.UploaderName,
+		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.Metadata, &t.UploaderName,
 		&t.UploaderWarned, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
@@ -215,10 +227,10 @@ func (r *TorrentRepo) Create(ctx context.Context, torrent *model.Torrent) error 
 	query := `INSERT INTO torrents (
 		name, info_hash, size, description, nfo, category_id, uploader_id,
 		anonymous, seeders, leechers, times_completed, comments_count,
-		visible, banned, free, silver, file_count, files
+		visible, banned, free, silver, file_count, files, metadata
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-		$11, $12, $13, $14, $15, $16, $17, $18
+		$11, $12, $13, $14, $15, $16, $17, $18, $19
 	) RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -226,7 +238,7 @@ func (r *TorrentRepo) Create(ctx context.Context, torrent *model.Torrent) error 
 		torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 		torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
-		torrent.Files,
+		torrent.Files, metadataOrDefault(torrent.Metadata),
 	).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt)
 }
 
@@ -236,8 +248,8 @@ func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error 
 		category_id = $6, uploader_id = $7, anonymous = $8, seeders = $9,
 		leechers = $10, times_completed = $11, comments_count = $12,
 		visible = $13, banned = $14, free = $15, silver = $16,
-		file_count = $17, files = $18, updated_at = NOW()
-	WHERE id = $19
+		file_count = $17, files = $18, metadata = $19, updated_at = NOW()
+	WHERE id = $20
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -245,7 +257,7 @@ func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error 
 		torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 		torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver,
-		torrent.FileCount, torrent.Files, torrent.ID,
+		torrent.FileCount, torrent.Files, metadataOrDefault(torrent.Metadata), torrent.ID,
 	).Scan(&torrent.UpdatedAt)
 }
 

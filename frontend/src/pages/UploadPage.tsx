@@ -3,10 +3,17 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
 import { Input, Select, Textarea, Checkbox } from "@/components/form";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MetadataFields } from "@/components/MetadataFields";
 import { useToast } from "@/components/toast";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { buildCategoryOptions } from "@/utils/categories";
+import {
+  fetchCategorySchema,
+  cleanMetadataValues,
+  type MetadataField,
+  type MetadataValues,
+} from "@/utils/metadata";
 import "./upload.css";
 
 export function UploadPage() {
@@ -47,6 +54,25 @@ export function UploadPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [schema, setSchema] = useState<MetadataField[]>([]);
+  const [metadata, setMetadata] = useState<MetadataValues>({});
+
+  useEffect(() => {
+    if (!categoryId) {
+      setSchema([]);
+      setMetadata({});
+      return;
+    }
+    let cancelled = false;
+    fetchCategorySchema(categoryId).then((fields) => {
+      if (cancelled) return;
+      setSchema(fields);
+      setMetadata({}); // reset values when the category (and its fields) change
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [categoryId]);
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith(".torrent")) {
@@ -115,6 +141,12 @@ export function UploadPage() {
         formData.append("description", description.trim());
       if (nfo.trim()) formData.append("nfo", nfo.trim());
       if (anonymous) formData.append("anonymous", "true");
+      if (schema.length > 0) {
+        formData.append(
+          "metadata",
+          JSON.stringify(cleanMetadataValues(schema, metadata)),
+        );
+      }
 
       const response = await fetch(`${getConfig().API_URL}/api/v1/torrents`, {
         method: "POST",
@@ -208,6 +240,12 @@ export function UploadPage() {
             options={categoryOptions}
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
+          />
+
+          <MetadataFields
+            schema={schema}
+            values={metadata}
+            onChange={setMetadata}
           />
 
           <Input
