@@ -217,6 +217,30 @@ describe("UserProfilePage", () => {
     });
   });
 
+  test("Manage User links directly to the admin user detail page for staff", async () => {
+    mockUser.isStaff = true;
+    try {
+      renderProfilePage();
+      await waitFor(() => {
+        expect(screen.getByText("Manage User")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Manage User")).toHaveAttribute(
+        "href",
+        "/admin/users/7",
+      );
+    } finally {
+      mockUser.isStaff = false;
+    }
+  });
+
+  test("does not show Manage User link for non-staff users", async () => {
+    renderProfilePage();
+    await waitFor(() => {
+      expect(screen.getByText("jdoe")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Manage User")).not.toBeInTheDocument();
+  });
+
   test("passes authorization header to fetch", async () => {
     renderProfilePage();
     await waitFor(() => {
