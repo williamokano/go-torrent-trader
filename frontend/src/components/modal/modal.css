@@ -52,6 +52,16 @@
   color: var(--color-text-primary);
 }
 
+.modal-close[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.modal-close[aria-disabled="true"]:hover {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}
+
 .modal-body {
   margin-bottom: var(--space-lg);
   color: var(--color-text-secondary);

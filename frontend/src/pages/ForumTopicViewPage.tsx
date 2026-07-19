@@ -907,6 +907,7 @@ export function ForumTopicViewPage() {
         onClose={closeLockConfirm}
         title={topic.locked ? "Unlock Topic" : "Lock Topic"}
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="modal-body">
           <p style={{ margin: "0 0 0.75rem" }}>
@@ -946,6 +947,7 @@ export function ForumTopicViewPage() {
         onClose={closePinConfirm}
         title={topic.pinned ? "Unpin Topic" : "Pin Topic"}
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="modal-body">
           <p style={{ margin: "0 0 0.75rem" }}>
@@ -985,6 +987,7 @@ export function ForumTopicViewPage() {
         onClose={closeRenameModal}
         title="Rename Topic"
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="modal-body">
           <input
@@ -1031,6 +1034,7 @@ export function ForumTopicViewPage() {
         onClose={closeMoveModal}
         title="Move Topic"
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="modal-body">
           <select
@@ -1089,6 +1093,7 @@ export function ForumTopicViewPage() {
         onClose={closeDeleteConfirm}
         title="Delete Topic"
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="modal-body">
           <p style={{ margin: "0 0 0.75rem", color: "var(--color-danger)" }}>

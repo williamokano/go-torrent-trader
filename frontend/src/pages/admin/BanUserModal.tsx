@@ -52,6 +52,7 @@ function BanUserModalContent({
       onClose={onCancel}
       title={`Ban ${username}`}
       closeOnEscape={false}
+      closeOnDismissClick={false}
     >
       <div className="modal-body">
         <Textarea

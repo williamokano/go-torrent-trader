@@ -64,6 +64,134 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("calls onClose when the close button is clicked", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen={true} onClose={onClose} title="Close button test">
+        <p>Content</p>
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByLabelText("Close modal"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose on overlay click when closeOnDismissClick is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal
+        isOpen={true}
+        onClose={onClose}
+        title="Overlay opt-out test"
+        closeOnDismissClick={false}
+      >
+        <p>Overlay opt-out content</p>
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByRole("dialog"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("does not call onClose on close button click when closeOnDismissClick is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal
+        isOpen={true}
+        onClose={onClose}
+        title="Close button opt-out test"
+        closeOnDismissClick={false}
+      >
+        <p>Content</p>
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByLabelText("Close modal"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("marks the close button aria-disabled when closeOnDismissClick is false", () => {
+    render(
+      <Modal
+        isOpen={true}
+        onClose={() => {}}
+        title="Aria-disabled test"
+        closeOnDismissClick={false}
+      >
+        <p>Content</p>
+      </Modal>,
+    );
+
+    expect(screen.getByLabelText("Close modal")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("does not mark the close button aria-disabled by default", () => {
+    render(
+      <Modal isOpen={true} onClose={() => {}} title="Aria-enabled test">
+        <p>Content</p>
+      </Modal>,
+    );
+
+    expect(screen.getByLabelText("Close modal")).toHaveAttribute(
+      "aria-disabled",
+      "false",
+    );
+  });
+
+  it("still does not call onClose on content click when closeOnDismissClick is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal
+        isOpen={true}
+        onClose={onClose}
+        title="Content click opt-out test"
+        closeOnDismissClick={false}
+      >
+        <p>Click me</p>
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByText("Click me"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("still calls onClose on Escape when only closeOnDismissClick is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal
+        isOpen={true}
+        onClose={onClose}
+        title="Independent flags test"
+        closeOnDismissClick={false}
+      >
+        <p>Content</p>
+      </Modal>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("still calls onClose on overlay click when only closeOnEscape is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal
+        isOpen={true}
+        onClose={onClose}
+        title="Independent flags test 2"
+        closeOnEscape={false}
+      >
+        <p>Content</p>
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByRole("dialog"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("does not call onClose when content is clicked", () => {
     const onClose = vi.fn();
     render(

@@ -1425,6 +1425,7 @@ export function AdminUserDetailPage() {
         onClose={() => setShowPasswordModal(false)}
         title={`Reset Password for ${user.username}`}
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="admin-user-detail__modal-form">
           <p style={{ color: "var(--color-text-muted)", margin: 0 }}>

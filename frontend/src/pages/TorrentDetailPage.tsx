@@ -504,6 +504,7 @@ export function TorrentDetailPage() {
         onClose={() => setShowDeleteModal(false)}
         title="Delete Torrent"
         closeOnEscape={false}
+        closeOnDismissClick={false}
       >
         <div className="torrent-detail__delete-modal">
           <p className="torrent-detail__delete-warning">
