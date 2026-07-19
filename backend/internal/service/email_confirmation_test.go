@@ -147,6 +147,41 @@ func TestRegister_WithEmailConfirm_RequiresConfirmation(t *testing.T) {
 	}
 }
 
+// TestRegister_WithEmailConfirm_DoesNotSetActivatedAt is part of the
+// regression coverage for BE-8.19: a registration that still needs email
+// confirmation must NOT be marked activated yet — that's the exact "created,
+// possibly never confirmed, then abandoned" state the cleanup worker's
+// expired-registration purge is supposed to reclaim. If Register stamped
+// ActivatedAt here, an account that never confirms would incorrectly survive
+// cleanup forever.
+func TestRegister_WithEmailConfirm_DoesNotSetActivatedAt(t *testing.T) {
+	svc, repo, _, _ := newAuthServiceWithEmailConfirm()
+
+	// First user (admin) bypasses confirmation entirely.
+	_, _ = svc.Register(context.Background(), RegisterRequest{
+		Username: "admin",
+		Email:    "admin@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	_, err := svc.Register(context.Background(), RegisterRequest{
+		Username: "pendinguser",
+		Email:    "pending@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user, err := repo.GetByUsername(context.Background(), "pendinguser")
+	if err != nil {
+		t.Fatalf("GetByUsername: %v", err)
+	}
+	if user.ActivatedAt != nil {
+		t.Errorf("ActivatedAt = %v, want nil for a registration still awaiting confirmation", *user.ActivatedAt)
+	}
+}
+
 func TestRegister_WithoutEmailConfirm_PreservesExistingBehavior(t *testing.T) {
 	repo := newMockUserRepo()
 	sessions := newTestSessionStore()
@@ -209,6 +244,11 @@ func TestConfirmEmail_Success(t *testing.T) {
 	updatedUser, _ := repo.GetByUsername(context.Background(), "newuser")
 	if !updatedUser.Enabled {
 		t.Error("user should be enabled after confirmation")
+	}
+	// BE-8.19: confirming email is activation for this flow — it must not be
+	// left to a login that might never come before the account is banned.
+	if updatedUser.ActivatedAt == nil {
+		t.Error("ActivatedAt should be set once email confirmation succeeds")
 	}
 }
 

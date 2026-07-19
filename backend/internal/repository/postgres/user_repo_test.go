@@ -407,6 +407,77 @@ func TestUserRepoUpdateLastAccess(t *testing.T) {
 	}
 }
 
+// TestUserRepoActivatedAtRoundTrips covers the repo-layer plumbing added for
+// BE-8.19: Create persists a caller-supplied ActivatedAt, GetByID scans it
+// back, and a later full-row Update (e.g. an admin ban, which reads the user
+// then writes enabled=false) carries the existing value forward rather than
+// dropping it back to NULL.
+func TestUserRepoActivatedAtRoundTrips(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewUserRepo(db)
+
+	t.Run("nil at create means never activated", func(t *testing.T) {
+		u := newUser(t, db)
+		if u.ActivatedAt != nil {
+			t.Fatalf("fixture user should start with ActivatedAt=nil, got %v", *u.ActivatedAt)
+		}
+
+		got, err := repo.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if got.ActivatedAt != nil {
+			t.Errorf("ActivatedAt = %v, want nil", *got.ActivatedAt)
+		}
+	})
+
+	t.Run("Create persists a supplied ActivatedAt and Update does not clobber it", func(t *testing.T) {
+		name := uniq("user")
+		activatedAt := time.Now().Add(-time.Hour).Truncate(time.Second)
+		u := &model.User{
+			Username:       name,
+			Email:          name + "@example.test",
+			PasswordHash:   "hash",
+			PasswordScheme: "argon2id",
+			GroupID:        anyGroupID(t, db),
+			Enabled:        true,
+			ActivatedAt:    &activatedAt,
+		}
+		if err := repo.Create(ctx, u); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		got, err := repo.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID after Create: %v", err)
+		}
+		if got.ActivatedAt == nil || !got.ActivatedAt.Equal(activatedAt) {
+			t.Fatalf("ActivatedAt after Create = %v, want %v", got.ActivatedAt, activatedAt)
+		}
+
+		// Simulate an admin ban: read-modify-write the whole row, changing only
+		// Enabled. ActivatedAt must survive since it was carried in `got`.
+		got.Enabled = false
+		if err := repo.Update(ctx, got); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+
+		afterBan, err := repo.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID after Update: %v", err)
+		}
+		if afterBan.ActivatedAt == nil || !afterBan.ActivatedAt.Equal(activatedAt) {
+			t.Errorf("ActivatedAt after ban Update = %v, want unchanged %v", afterBan.ActivatedAt, activatedAt)
+		}
+		if afterBan.Enabled {
+			t.Error("Enabled should be false after the simulated ban")
+		}
+	})
+}
+
 func TestUserRepoCountAndList(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
