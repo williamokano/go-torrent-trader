@@ -658,6 +658,8 @@ func handleForumError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "insufficient permissions: cannot moderate topics by higher-ranked users")
 	case errors.Is(err, service.ErrPostEditDenied):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "not authorized to edit this post")
+	case errors.Is(err, service.ErrPostEditConflict):
+		ErrorResponse(w, http.StatusConflict, "edit_conflict", "This post was edited by someone else while you were editing it. Please reload and try again.")
 	case errors.Is(err, service.ErrPostDeleteDenied):
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "not authorized to delete this post")
 	case errors.Is(err, service.ErrCannotDeleteFirstPost):

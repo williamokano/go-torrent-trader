@@ -108,17 +108,39 @@ func (r *ForumPostRepo) Create(ctx context.Context, post *model.ForumPost) error
 	).Scan(&post.ID, &post.CreatedAt)
 }
 
-func (r *ForumPostRepo) Update(ctx context.Context, post *model.ForumPost) error {
+// Update conditionally applies an edit: the WHERE clause requires the row's
+// body to still equal oldBody, the exact text the caller's diff was computed
+// against (BE-9.25). If a concurrent edit already changed the body, the
+// UPDATE matches zero rows and this returns repository.ErrEditConflict
+// instead of silently landing a diff that no longer applies.
+//
+// This is safe without an explicit SELECT ... FOR UPDATE: under Postgres's
+// default READ COMMITTED isolation (what WithTx uses), a second UPDATE
+// blocked on the same row re-evaluates its WHERE clause against the
+// just-committed row once the first transaction's lock is released, so a
+// losing writer's conditional UPDATE reliably affects zero rows rather than
+// racing past the row lock and overwriting the winner.
+func (r *ForumPostRepo) Update(ctx context.Context, post *model.ForumPost, oldBody string) error {
 	mentioned, err := MarshalMentionedUsernames(post.MentionedUsernames)
 	if err != nil {
 		return fmt.Errorf("marshal mentioned usernames: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx,
-		"UPDATE forum_posts SET body = $1, mentioned_usernames = $2, edited_at = NOW(), edited_by = $3 WHERE id = $4",
-		post.Body, mentioned, post.EditedBy, post.ID,
+	res, err := r.db.ExecContext(ctx,
+		"UPDATE forum_posts SET body = $1, mentioned_usernames = $2, edited_at = NOW(), edited_by = $3 WHERE id = $4 AND body = $5",
+		post.Body, mentioned, post.EditedBy, post.ID, oldBody,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return repository.ErrEditConflict
+	}
+	return nil
 }
 
 func (r *ForumPostRepo) Delete(ctx context.Context, id int64) error {

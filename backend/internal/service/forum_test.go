@@ -219,14 +219,21 @@ type mockForumPostRepo struct {
 	searchResults []model.ForumSearchResult
 	searchTotal   int64
 	searchErr     error
+	updateErr     error
 }
 
+// GetByID returns a copy of the stored post, matching real Postgres
+// semantics where every read scans a fresh value: EditPost mutates the
+// *model.ForumPost it gets back from GetByID in place before writing it, and
+// aliasing that mutation onto postByID's own entry would make Update's
+// conflict check below compare a value against itself.
 func (m *mockForumPostRepo) GetByID(_ context.Context, id int64) (*model.ForumPost, error) {
 	if m.getErr != nil {
 		return nil, m.getErr
 	}
 	if p, ok := m.postByID[id]; ok {
-		return p, nil
+		cp := *p
+		return &cp, nil
 	}
 	return nil, sql.ErrNoRows
 }
@@ -238,7 +245,25 @@ func (m *mockForumPostRepo) Create(_ context.Context, post *model.ForumPost) err
 	post.CreatedAt = time.Now()
 	return nil
 }
-func (m *mockForumPostRepo) Update(_ context.Context, post *model.ForumPost) error {
+
+// Update simulates the real repository's conditional UPDATE (BE-9.25): if
+// the post is known to this mock and its stored body disagrees with oldBody,
+// the write is rejected with repository.ErrEditConflict just like a
+// concurrent edit would against real Postgres, letting tests simulate the
+// race without needing a real DB. On success, the mutated post is written
+// back into postByID so a subsequent GetByID (EditPost re-fetches after a
+// successful write) observes it — mirroring a committed row.
+func (m *mockForumPostRepo) Update(_ context.Context, post *model.ForumPost, oldBody string) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	if current, ok := m.postByID[post.ID]; ok {
+		if current.Body != oldBody {
+			return repository.ErrEditConflict
+		}
+		stored := *post
+		m.postByID[post.ID] = &stored
+	}
 	m.updated = post
 	return nil
 }
@@ -1981,6 +2006,42 @@ func TestForumService_EditPost_UnchangedBodySkipsUpdate(t *testing.T) {
 	}
 	if postRepo.createdEdit != nil {
 		t.Error("expected no CreateEdit call, but edit was created")
+	}
+}
+
+// BE-9.25: when the repository's conditional Update reports that the body
+// changed underneath this call (repository.ErrEditConflict — what a real
+// concurrent edit landing first produces), EditPost must surface a clear,
+// distinguishable conflict rather than a generic error. The real race,
+// exercised against Postgres with two actually-concurrent EditPost calls, is
+// in internal/repository/postgres/forum_edit_concurrency_test.go; this
+// covers the sentinel-translation logic in isolation.
+func TestForumService_EditPost_ConflictingWriteReturnsErrPostEditConflict(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "original body"},
+		},
+		// Simulates another edit having already landed between this call's
+		// read and its write: the mock's conditional Update rejects any
+		// oldBody that disagrees with the (unchanged, since nothing else in
+		// this test mutates it) stored body — here forced unconditionally so
+		// the test doesn't depend on the mock's body-comparison details.
+		updateErr: repository.ErrEditConflict,
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+		nil, nil,
+	)
+
+	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "a diff computed against a now-stale read", "")
+	if !errors.Is(err, ErrPostEditConflict) {
+		t.Fatalf("err = %v, want ErrPostEditConflict", err)
+	}
+	if post != nil {
+		t.Errorf("post = %+v, want nil on conflict", post)
 	}
 }
 

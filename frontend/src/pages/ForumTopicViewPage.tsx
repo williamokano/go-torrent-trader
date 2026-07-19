@@ -308,6 +308,22 @@ export function ForumTopicViewPage() {
         },
       );
 
+      if (res.status === 409) {
+        // Someone else's edit landed first (BE-9.25). Deliberately not
+        // calling fetchTopic() here: it flips the page-level `loading` flag,
+        // which the render gates on (see the `if (loading) return ...`
+        // early-return below) — that would unmount the editor and this very
+        // message while the background refresh is in flight. The message
+        // itself already tells the user what to do; the user's in-progress
+        // draft is left untouched either way.
+        const data = await res.json().catch(() => null);
+        setEditError(
+          data?.error?.message ??
+            "This post was edited by someone else while you were editing it. Please reload and try again.",
+        );
+        return;
+      }
+
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error?.message ?? "Failed to save edit");

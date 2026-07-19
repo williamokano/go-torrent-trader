@@ -1395,7 +1395,7 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Origin:** Follow-up to BE-9.7, which stores a full `old_body` snapshot per edit — requested to avoid unbounded storage growth from repeated small edits to the same post. Deferred until after BE-8.21/FE-5.18 (mention backfill + PM mention linking).
 
-#### BE-9.25: Optimistic Concurrency Control on Forum Post Edits [S]
+#### BE-9.25: Optimistic Concurrency Control on Forum Post Edits [S] [DONE]
 **As a** developer
 **I want** `EditPost` to detect when a post's body changed underneath a stale read
 **So that** two overlapping edits to the same post can't produce a diff chain that no longer matches the post's actual history

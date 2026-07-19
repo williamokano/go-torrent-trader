@@ -30,8 +30,10 @@ func (m *mockHandlerForumPostRepo) Create(_ context.Context, post *model.ForumPo
 	post.CreatedAt = time.Now()
 	return nil
 }
-func (m *mockHandlerForumPostRepo) Update(_ context.Context, _ *model.ForumPost) error { return nil }
-func (m *mockHandlerForumPostRepo) Delete(_ context.Context, _ int64) error            { return nil }
+func (m *mockHandlerForumPostRepo) Update(_ context.Context, _ *model.ForumPost, _ string) error {
+	return nil
+}
+func (m *mockHandlerForumPostRepo) Delete(_ context.Context, _ int64) error { return nil }
 func (m *mockHandlerForumPostRepo) CountByUser(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
