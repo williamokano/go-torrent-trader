@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, test, expect, vi } from "vitest";
@@ -395,6 +401,71 @@ describe("ForumTopicViewPage", () => {
       expect(screen.getByText("Updated body")).toBeInTheDocument();
     });
     expect(screen.queryByText("Save")).not.toBeInTheDocument();
+  });
+
+  test("shows a reason input only when staff edits someone else's post, and sends it in the PUT body", async () => {
+    const usr = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    // Post 2 belongs to bob (user_id 2) — staff (id 99) editing it should
+    // see the optional reason field.
+    const editButtons = screen.getAllByText("Edit");
+    await usr.click(editButtons[1]);
+    const reasonInput = screen.getByPlaceholderText(
+      "Reason (optional, staff-only — shown in edit history)",
+    );
+    await usr.type(reasonInput, "cleaned up formatting");
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          post: { ...FAKE_RESPONSE.posts[1], body: "Reply body" },
+        }),
+    });
+    await usr.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/forums/posts/2",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            body: "Reply body",
+            reason: "cleaned up formatting",
+          }),
+        }),
+      );
+    });
+  });
+
+  test("hides the reason input when editing your own post, even as staff", async () => {
+    const usr = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      user: { id: 1, username: "alice", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    // Post 1 belongs to alice (user_id 1) — the editor is also 1, so no
+    // reason field even though she's an admin.
+    const editButtons = screen.getAllByText("Edit");
+    await usr.click(editButtons[0]);
+    expect(
+      screen.queryByPlaceholderText(
+        "Reason (optional, staff-only — shown in edit history)",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   test("delete post button opens confirm modal", async () => {
@@ -823,5 +894,130 @@ describe("ForumTopicViewPage", () => {
       expect(screen.getByText("Test Topic")).toBeInTheDocument();
     });
     expect(screen.getByText("History")).toBeInTheDocument();
+  });
+
+  test("clicking History fetches and renders reconstructed before/after bodies and staff-only reason", async () => {
+    const usr = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    const editedResponse = {
+      ...FAKE_RESPONSE,
+      posts: [
+        FAKE_RESPONSE.posts[0],
+        {
+          ...FAKE_RESPONSE.posts[1],
+          edited_at: "2025-06-01T10:00:00Z",
+          edited_by: 99,
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(editedResponse),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    // BE-9.23: the backend reconstructs old_body/new_body from stored diffs
+    // before responding, so the viewer's contract is unchanged — it still
+    // just renders whatever old_body/new_body/reason it's given.
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          edits: [
+            {
+              id: 1,
+              post_id: 2,
+              edited_by: 99,
+              old_body: "Reply body",
+              new_body: "Reply body (edited)",
+              created_at: "2025-06-01T10:00:00Z",
+              username: "admin",
+              reason: "cleaned up formatting",
+            },
+          ],
+        }),
+    });
+
+    await usr.click(screen.getByText("History"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/forums/posts/2/edits",
+        expect.anything(),
+      );
+    });
+    const modal = screen.getByTestId("modal");
+    await waitFor(() => {
+      expect(within(modal).getByText("Reply body")).toBeInTheDocument();
+    });
+    expect(within(modal).getByText("Reply body (edited)")).toBeInTheDocument();
+    expect(
+      within(modal).getByText(/cleaned up formatting/),
+    ).toBeInTheDocument();
+  });
+
+  test("shows an unavailable placeholder instead of blank before/after when reconstruction failed", async () => {
+    const usr = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      user: { id: 99, username: "admin", isAdmin: true, isStaff: false },
+      isAuthenticated: true,
+    });
+    const editedResponse = {
+      ...FAKE_RESPONSE,
+      posts: [
+        FAKE_RESPONSE.posts[0],
+        {
+          ...FAKE_RESPONSE.posts[1],
+          edited_at: "2025-06-01T10:00:00Z",
+          edited_by: 99,
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(editedResponse),
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Test Topic")).toBeInTheDocument();
+    });
+
+    // BE-9.23: a stored diff that failed to apply (corrupt row, or a race)
+    // comes back flagged rather than with fabricated or blank content.
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          edits: [
+            {
+              id: 1,
+              post_id: 2,
+              edited_by: 99,
+              old_body: "",
+              new_body: "",
+              created_at: "2025-06-01T10:00:00Z",
+              username: "admin",
+              reconstruction_failed: true,
+            },
+          ],
+        }),
+    });
+
+    await usr.click(screen.getByText("History"));
+
+    const modal = screen.getByTestId("modal");
+    await waitFor(() => {
+      expect(
+        within(modal).getByText("History unavailable for this edit."),
+      ).toBeInTheDocument();
+    });
+    expect(within(modal).queryByText("Before:")).not.toBeInTheDocument();
+    expect(within(modal).queryByText("After:")).not.toBeInTheDocument();
   });
 });

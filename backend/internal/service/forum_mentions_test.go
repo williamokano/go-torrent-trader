@@ -71,7 +71,7 @@ func TestEditPost_ReResolvesMentionedUsernamesOnEdit(t *testing.T) {
 	posts := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{200: existing}}
 	svc := NewForumService(nil, nil, forums, topics, posts, forumUsersWithMentionTarget(), nil, nil)
 
-	updated, err := svc.EditPost(context.Background(), 200, 1, model.Permissions{}, "edited to mention @carol")
+	updated, err := svc.EditPost(context.Background(), 200, 1, model.Permissions{}, "edited to mention @carol", "")
 	if err != nil {
 		t.Fatalf("EditPost: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestEditPost_ResolveFailureRecordsNoEditHistory(t *testing.T) {
 	}
 	svc := NewForumService(nil, nil, forums, topics, posts, users, nil, nil)
 
-	_, err := svc.EditPost(context.Background(), 200, 1, model.Permissions{}, "edited to mention @carol")
+	_, err := svc.EditPost(context.Background(), 200, 1, model.Permissions{}, "edited to mention @carol", "")
 	if err == nil {
 		t.Fatal("expected an error when mention resolution fails")
 	}
@@ -127,7 +127,7 @@ func TestEditPost_DoesNotPublishMentionNotification(t *testing.T) {
 	})
 	svc := NewForumService(nil, nil, forums, topics, posts, forumUsersWithMentionTarget(), nil, bus)
 
-	if _, err := svc.EditPost(context.Background(), 200, 1, model.Permissions{}, "edited to mention @carol"); err != nil {
+	if _, err := svc.EditPost(context.Background(), 200, 1, model.Permissions{}, "edited to mention @carol", ""); err != nil {
 		t.Fatalf("EditPost: %v", err)
 	}
 	if fired {

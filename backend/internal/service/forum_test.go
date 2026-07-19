@@ -670,7 +670,7 @@ func TestForumService_EditPost_AuthorSuccess(t *testing.T) {
 		postRepo,
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
 		nil, nil)
-	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -699,7 +699,7 @@ func TestForumService_EditPost_StaffSuccess(t *testing.T) {
 		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
 		postRepo, nil, nil, nil)
 	// Staff user (different from post author) can edit
-	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit")
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -715,7 +715,7 @@ func TestForumService_EditPost_Unauthorized(t *testing.T) {
 		},
 	}
 	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
-	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 5}, "hacked")
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 5}, "hacked", "")
 	if !errors.Is(err, ErrPostEditDenied) {
 		t.Errorf("expected ErrPostEditDenied, got %v", err)
 	}
@@ -723,7 +723,7 @@ func TestForumService_EditPost_Unauthorized(t *testing.T) {
 
 func TestForumService_EditPost_EmptyBody(t *testing.T) {
 	svc := NewForumService(nil, nil, nil, nil, nil, nil, nil, nil)
-	_, err := svc.EditPost(context.Background(), 10, 1, model.Permissions{}, "   ")
+	_, err := svc.EditPost(context.Background(), 10, 1, model.Permissions{}, "   ", "")
 	if !errors.Is(err, ErrInvalidPost) {
 		t.Errorf("expected ErrInvalidPost, got %v", err)
 	}
@@ -732,7 +732,7 @@ func TestForumService_EditPost_EmptyBody(t *testing.T) {
 func TestForumService_EditPost_NotFound(t *testing.T) {
 	postRepo := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{}}
 	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
-	_, err := svc.EditPost(context.Background(), 999, 1, model.Permissions{Level: 5}, "body")
+	_, err := svc.EditPost(context.Background(), 999, 1, model.Permissions{Level: 5}, "body", "")
 	if !errors.Is(err, ErrPostNotFound) {
 		t.Errorf("expected ErrPostNotFound, got %v", err)
 	}
@@ -750,7 +750,7 @@ func TestForumService_EditPost_ForumAccessDenied(t *testing.T) {
 		postRepo,
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
 		nil, nil)
-	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "body")
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "body", "")
 	if !errors.Is(err, ErrForumAccessDenied) {
 		t.Errorf("expected ErrForumAccessDenied, got %v", err)
 	}
@@ -849,7 +849,7 @@ func TestForumService_EditPost_LockedTopic_NonStaffDenied(t *testing.T) {
 		postRepo,
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
 		nil, nil)
-	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body", "")
 	if !errors.Is(err, ErrTopicLocked) {
 		t.Errorf("expected ErrTopicLocked, got %v", err)
 	}
@@ -865,7 +865,7 @@ func TestForumService_EditPost_LockedTopic_StaffAllowed(t *testing.T) {
 		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
 		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1, Locked: true}}},
 		postRepo, nil, nil, nil)
-	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit")
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit", "")
 	if err != nil {
 		t.Fatalf("expected staff to edit in locked topic, got: %v", err)
 	}
@@ -883,7 +883,7 @@ func TestForumService_EditPost_CanForumFalse_NonStaffDenied(t *testing.T) {
 		postRepo,
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: false}},
 		nil, nil)
-	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body", "")
 	if !errors.Is(err, ErrForumAccessDenied) {
 		t.Errorf("expected ErrForumAccessDenied for can_forum=false, got %v", err)
 	}
@@ -900,7 +900,7 @@ func TestForumService_EditPost_CanForumFalse_StaffAllowed(t *testing.T) {
 		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
 		postRepo, nil, nil, nil, // no user repo needed — staff bypasses can_forum check
 	)
-	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true}, "admin edit")
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true}, "admin edit", "")
 	if err != nil {
 		t.Fatalf("expected staff to bypass can_forum, got: %v", err)
 	}
@@ -1662,7 +1662,7 @@ func TestForumService_RestorePost_NotFound(t *testing.T) {
 
 func TestForumService_ListPostEdits_StaffSuccess(t *testing.T) {
 	edits := []model.ForumPostEdit{
-		{ID: 1, PostID: 10, EditedBy: int64Ptr(5), OldBody: "v1", NewBody: "v2", CreatedAt: time.Now(), Username: "alice"},
+		{ID: 1, PostID: 10, EditedBy: int64Ptr(5), OldBody: "v1", NewBody: "v2", IsSnapshot: true, CreatedAt: time.Now(), Username: "alice"},
 	}
 	postRepo := &mockForumPostRepo{
 		postByID: map[int64]*model.ForumPost{
@@ -1709,21 +1709,250 @@ func TestForumService_EditPost_CreatesEditHistory(t *testing.T) {
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
 		nil, nil,
 	)
-	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body")
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if postRepo.createdEdit == nil {
 		t.Fatal("expected CreateEdit to be called")
 	}
-	if postRepo.createdEdit.OldBody != "old body" {
-		t.Errorf("expected old body 'old body', got %q", postRepo.createdEdit.OldBody)
+	// BE-9.23: a diff against the previous version is stored, not a full
+	// old_body/new_body snapshot.
+	if postRepo.createdEdit.Diff == "" {
+		t.Fatal("expected a non-empty diff to be stored")
 	}
-	if postRepo.createdEdit.NewBody != "new body" {
-		t.Errorf("expected new body 'new body', got %q", postRepo.createdEdit.NewBody)
+	if postRepo.createdEdit.OldBody != "" || postRepo.createdEdit.NewBody != "" {
+		t.Errorf("expected no full-body snapshot, got old=%q new=%q", postRepo.createdEdit.OldBody, postRepo.createdEdit.NewBody)
+	}
+	reconstructed, err := applyReverseDiff(postRepo.createdEdit.Diff, "new body")
+	if err != nil {
+		t.Fatalf("applying stored diff: %v", err)
+	}
+	if reconstructed != "old body" {
+		t.Errorf("diff reconstructs %q, want %q", reconstructed, "old body")
 	}
 	if postRepo.createdEdit.EditedBy == nil || *postRepo.createdEdit.EditedBy != 5 {
 		t.Errorf("expected edited_by=5, got %v", postRepo.createdEdit.EditedBy)
+	}
+	if postRepo.createdEdit.Reason != nil {
+		t.Errorf("expected no reason when none was given, got %v", *postRepo.createdEdit.Reason)
+	}
+}
+
+// The real editor (staff acting on behalf of someone else) must be recorded
+// on the edit, not the post's original author — EditedBy already carries
+// this (it's set from the caller's userID, not post.UserID), this just
+// pins that behavior down explicitly for BE-9.23's "real editor" criterion.
+func TestForumService_EditPost_RecordsRealEditorNotPostAuthor(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil, nil, nil,
+	)
+	// Staff user 99 edits on behalf of post author 5.
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.createdEdit.EditedBy == nil || *postRepo.createdEdit.EditedBy != 99 {
+		t.Errorf("expected edited_by=99 (the real editor), got %v", postRepo.createdEdit.EditedBy)
+	}
+}
+
+func TestForumService_EditPost_StaffOnBehalfReasonStored(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil, nil, nil,
+	)
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsModerator: true}, "staff edit", "  removed slur  ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.createdEdit.Reason == nil {
+		t.Fatal("expected a reason to be stored")
+	}
+	if *postRepo.createdEdit.Reason != "removed slur" {
+		t.Errorf("expected trimmed reason %q, got %q", "removed slur", *postRepo.createdEdit.Reason)
+	}
+}
+
+func TestForumService_EditPost_BlankReasonNotStored(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+		nil, nil,
+	)
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body", "   ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.createdEdit.Reason != nil {
+		t.Errorf("expected blank reason to be dropped, got %v", *postRepo.createdEdit.Reason)
+	}
+}
+
+// A reason is only ever meaningful for the scenario the acceptance criteria
+// describes — staff editing on someone else's post. Accepting it at face
+// value from every editor would let a self-edit carry a fabricated "reason"
+// that staff would later see rendered as if authoritative.
+func TestForumService_EditPost_SelfEditReasonNotStored(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "old body", Username: "alice", GroupName: "User"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo,
+		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
+		nil, nil,
+	)
+	// The author (5) editing their own post supplies a reason anyway.
+	_, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "new body", "self-serving justification")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.createdEdit.Reason != nil {
+		t.Errorf("expected a self-edit's reason to be dropped, got %v", *postRepo.createdEdit.Reason)
+	}
+}
+
+func TestForumService_EditPost_StaffEditingOwnPostReasonNotStored(t *testing.T) {
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 99, Body: "old body", Username: "admin", GroupName: "Admin"},
+		},
+	}
+	svc := NewForumService(nil, nil,
+		&mockForumRepo{forumByID: map[int64]*model.Forum{1: {ID: 1, MinGroupLevel: 0}}},
+		&mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{1: {ID: 1, ForumID: 1}}},
+		postRepo, nil, nil, nil,
+	)
+	// Staff (99) editing their OWN post — not "on behalf of someone else" —
+	// so a supplied reason still shouldn't be stored.
+	_, err := svc.EditPost(context.Background(), 10, 99, model.Permissions{Level: 200, IsAdmin: true}, "new body", "editing my own post")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postRepo.createdEdit.Reason != nil {
+		t.Errorf("expected staff self-edit reason to be dropped, got %v", *postRepo.createdEdit.Reason)
+	}
+}
+
+// ListPostEdits must reconstruct OldBody/NewBody by walking diff-based edits
+// backward from the post's current body — this is the core of BE-9.23.
+func TestForumService_ListPostEdits_ReconstructsFromDiffChain(t *testing.T) {
+	// Simulate three sequential edits to the same post: v1 -> v2 -> v3 -> v4
+	// (v4 is the post's current body). Each stored diff reverses one step.
+	diffV3toV2 := computeReverseDiff("v3 body", "v2 body")
+	diffV4toV3 := computeReverseDiff("v4 body (current)", "v3 body")
+	// v1 is a legacy full-snapshot row (written before BE-9.23) to also
+	// exercise the mixed legacy/diff walk in one chain.
+	edits := []model.ForumPostEdit{
+		// Newest first, matching ListEdits' ORDER BY created_at DESC.
+		{ID: 3, PostID: 10, EditedBy: int64Ptr(5), Diff: diffV4toV3, CreatedAt: time.Now()},
+		{ID: 2, PostID: 10, EditedBy: int64Ptr(5), Diff: diffV3toV2, CreatedAt: time.Now()},
+		{ID: 1, PostID: 10, EditedBy: int64Ptr(5), OldBody: "v1 body", NewBody: "v2 body", IsSnapshot: true, CreatedAt: time.Now()},
+	}
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "v4 body (current)"},
+		},
+		edits: edits,
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
+
+	result, err := svc.ListPostEdits(context.Background(), 10, model.Permissions{Level: 200, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 3 {
+		t.Fatalf("expected 3 edits, got %d", len(result))
+	}
+
+	// Edit 3 (most recent): new = current post body, old = v3.
+	if result[0].NewBody != "v4 body (current)" {
+		t.Errorf("edit 3 NewBody = %q, want %q", result[0].NewBody, "v4 body (current)")
+	}
+	if result[0].OldBody != "v3 body" {
+		t.Errorf("edit 3 OldBody = %q, want %q", result[0].OldBody, "v3 body")
+	}
+	// Edit 2: new = v3 (chained from edit 3's old), old = v2.
+	if result[1].NewBody != "v3 body" {
+		t.Errorf("edit 2 NewBody = %q, want %q", result[1].NewBody, "v3 body")
+	}
+	if result[1].OldBody != "v2 body" {
+		t.Errorf("edit 2 OldBody = %q, want %q", result[1].OldBody, "v2 body")
+	}
+	// Edit 1: legacy row, passed through as-is.
+	if result[2].NewBody != "v2 body" || result[2].OldBody != "v1 body" {
+		t.Errorf("edit 1 (legacy) = old:%q new:%q, want old:%q new:%q", result[2].OldBody, result[2].NewBody, "v1 body", "v2 body")
+	}
+}
+
+// A stored diff that no longer applies cleanly (corrupt row, or two edits
+// racing against the same post) must not fail the whole request: it should
+// degrade gracefully, marking only the broken edit and everything older
+// than it (the chain's anchor is lost from that point back) as
+// ReconstructionFailed, while edits newer than the break still reconstruct
+// normally. This is what keeps one bad row from taking down the entire
+// staff-facing history view for a post.
+func TestForumService_ListPostEdits_DegradesGracefullyOnBrokenDiff(t *testing.T) {
+	goodDiff := computeReverseDiff("v3 body (current)", "v2 body")
+	edits := []model.ForumPostEdit{
+		// Newest first. This one reconstructs fine.
+		{ID: 2, PostID: 10, EditedBy: int64Ptr(5), Diff: goodDiff, CreatedAt: time.Now()},
+		// This one's diff doesn't match anything reachable from "v2 body" —
+		// simulates corruption or a lost-update race.
+		{ID: 1, PostID: 10, EditedBy: int64Ptr(5), Diff: "not a valid patch", CreatedAt: time.Now()},
+	}
+	postRepo := &mockForumPostRepo{
+		postByID: map[int64]*model.ForumPost{
+			10: {ID: 10, TopicID: 1, UserID: 5, Body: "v3 body (current)"},
+		},
+		edits: edits,
+	}
+	svc := NewForumService(nil, nil, nil, nil, postRepo, nil, nil, nil)
+
+	result, err := svc.ListPostEdits(context.Background(), 10, model.Permissions{Level: 200, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("expected the request to succeed despite one broken edit, got: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected both edits to still be returned, got %d", len(result))
+	}
+
+	// Edit 2 (newest): reconstructs fine, unaffected by the older break.
+	if result[0].ReconstructionFailed {
+		t.Error("edit 2 should have reconstructed cleanly")
+	}
+	if result[0].OldBody != "v2 body" || result[0].NewBody != "v3 body (current)" {
+		t.Errorf("edit 2 = old:%q new:%q, want old:%q new:%q", result[0].OldBody, result[0].NewBody, "v2 body", "v3 body (current)")
+	}
+
+	// Edit 1 (the broken one): flagged, not silently fabricated, not a
+	// request-wide failure.
+	if !result[1].ReconstructionFailed {
+		t.Error("edit 1 should be flagged as ReconstructionFailed")
 	}
 }
 
@@ -1740,7 +1969,7 @@ func TestForumService_EditPost_UnchangedBodySkipsUpdate(t *testing.T) {
 		&mockForumUserRepo{user: &model.User{ID: 5, CanForum: true}},
 		nil, nil,
 	)
-	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "same body")
+	post, err := svc.EditPost(context.Background(), 10, 5, model.Permissions{Level: 5}, "same body", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

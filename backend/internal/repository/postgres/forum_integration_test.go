@@ -367,8 +367,11 @@ func TestListEditsSurvivesDeletedEditor(t *testing.T) {
 	edit := &model.ForumPostEdit{
 		PostID:   postID,
 		EditedBy: &editorID,
-		OldBody:  "original",
-		NewBody:  "edited",
+		// BE-9.23: new rows store a diff, not a full old_body/new_body
+		// snapshot. The content doesn't matter for this test — it only
+		// exercises that the row (and its diff) survives the editor being
+		// deleted — so an opaque placeholder is fine.
+		Diff: "@@ -1,8 +1,6 @@\n orig\n-inal\n+ed\n",
 	}
 	if err := repo.CreateEdit(ctx, edit); err != nil {
 		t.Fatalf("CreateEdit: %v", err)
@@ -388,5 +391,87 @@ func TestListEditsSurvivesDeletedEditor(t *testing.T) {
 	}
 	if edits[0].EditedBy != nil {
 		t.Errorf("EditedBy = %v, want NULL after the editor was deleted", *edits[0].EditedBy)
+	}
+}
+
+// BE-9.23: forum_post_edits stores a diff instead of a full old_body
+// snapshot. This exercises the real migration 062 schema — the diff/reason
+// columns round-trip through CreateEdit/ListEdits, and old_body/new_body
+// stay NULL for new rows (asserted directly against the DB, since the
+// model's OldBody/NewBody are reconstructed by the service layer, not read
+// back verbatim by the repository).
+func TestCreateEditStoresDiffNotFullSnapshot(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	authorID := seedUser(t, db, "hank")
+	staffID := seedUser(t, db, "modstaff")
+	forumID := seedForum(t, db)
+	topicID := seedTopic(t, db, forumID, authorID)
+	postID := seedPost(t, db, topicID, authorID, "original body", time.Now())
+
+	repo := NewForumPostRepo(db)
+	reason := "cleaned up formatting on behalf of the author"
+	edit := &model.ForumPostEdit{
+		PostID:   postID,
+		EditedBy: &staffID,
+		Diff:     "@@ -1,8 +1,10 @@\n original\n+ (edited)\n  body\n",
+		Reason:   &reason,
+	}
+	if err := repo.CreateEdit(ctx, edit); err != nil {
+		t.Fatalf("CreateEdit: %v", err)
+	}
+
+	var dbDiff, dbReason sql.NullString
+	var dbOldBody, dbNewBody sql.NullString
+	err := db.QueryRow(`SELECT diff, reason, old_body, new_body FROM forum_post_edits WHERE id = $1`, edit.ID).
+		Scan(&dbDiff, &dbReason, &dbOldBody, &dbNewBody)
+	if err != nil {
+		t.Fatalf("querying raw row: %v", err)
+	}
+	if !dbDiff.Valid || dbDiff.String == "" {
+		t.Error("expected diff to be stored")
+	}
+	if dbOldBody.Valid || dbNewBody.Valid {
+		t.Errorf("expected old_body/new_body to stay NULL for a diff-based row, got old=%v new=%v", dbOldBody, dbNewBody)
+	}
+	if !dbReason.Valid || dbReason.String != reason {
+		t.Errorf("reason = %v, want %q", dbReason, reason)
+	}
+
+	edits, err := repo.ListEdits(ctx, postID)
+	if err != nil {
+		t.Fatalf("ListEdits: %v", err)
+	}
+	if len(edits) != 1 {
+		t.Fatalf("len(edits) = %d, want 1", len(edits))
+	}
+	if edits[0].Diff != edit.Diff {
+		t.Errorf("Diff = %q, want %q", edits[0].Diff, edit.Diff)
+	}
+	if edits[0].Reason == nil || *edits[0].Reason != reason {
+		t.Errorf("Reason = %v, want %q", edits[0].Reason, reason)
+	}
+}
+
+// The diff-or-snapshot CHECK constraint added in migration 062 is the
+// invariant the whole dual-format read path depends on: every row must be
+// either diff-based or a legacy full-snapshot, never neither.
+func TestForumPostEditsRejectsRowWithNeitherDiffNorSnapshot(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+
+	authorID := seedUser(t, db, "ivy")
+	forumID := seedForum(t, db)
+	topicID := seedTopic(t, db, forumID, authorID)
+	postID := seedPost(t, db, topicID, authorID, "body", time.Now())
+
+	_, err := db.Exec(
+		`INSERT INTO forum_post_edits (post_id, edited_by) VALUES ($1, $2)`,
+		postID, authorID,
+	)
+	if err == nil {
+		t.Fatal("expected the diff-or-snapshot CHECK constraint to reject a row with neither")
 	}
 }

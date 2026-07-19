@@ -902,11 +902,47 @@ func TestEditPostRecordsHistoryAndUpdatesBody(t *testing.T) {
 		t.Fatalf("recorded %d edits, want 1 — edit history must be kept", len(d.posts.editsSave))
 	}
 	edit := d.posts.editsSave[0]
-	if edit.OldBody != "old text" || edit.NewBody != "new text" {
-		t.Errorf("edit = %+v, want old/new bodies recorded", edit)
+	// BE-9.23: a diff against the previous version is stored, not a full
+	// old_body/new_body snapshot (the diff algorithm's round-trip
+	// correctness is covered in the service package's own tests).
+	if edit.Diff == "" {
+		t.Errorf("edit = %+v, want a non-empty diff recorded", edit)
+	}
+	if edit.OldBody != "" || edit.NewBody != "" {
+		t.Errorf("edit = %+v, want no full-body snapshot stored", edit)
 	}
 	if len(d.posts.updated) != 1 || d.posts.updated[0].Body != "new text" {
 		t.Errorf("updated = %+v, want the post body replaced", d.posts.updated)
+	}
+}
+
+// When staff edits on behalf of another user, an optional reason travels
+// through to the stored edit record (BE-9.23). It's staff-only visible —
+// enforced by ListPostEdits already being staff-gated, not by this endpoint.
+func TestEditPostByStaffStoresOptionalReason(t *testing.T) {
+	d := newForumDeps()
+	d.topics.topics[100] = &model.ForumTopic{ID: 100, ForumID: 1, UserID: 7}
+	d.posts.posts[500] = &model.ForumPost{ID: 500, TopicID: 100, UserID: 7, Body: "old text"}
+	h := d.handler()
+
+	req := withForumAuth(httptest.NewRequest(http.MethodPut, "/api/v1/forums/posts/500",
+		strings.NewReader(`{"body":"new text","reason":"cleaned up formatting"}`)), 1, staffPerms())
+	req = withURLParam(req, "id", "500")
+	w := httptest.NewRecorder()
+	h.HandleEditPost(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if len(d.posts.editsSave) != 1 {
+		t.Fatalf("recorded %d edits, want 1", len(d.posts.editsSave))
+	}
+	edit := d.posts.editsSave[0]
+	if edit.Reason == nil || *edit.Reason != "cleaned up formatting" {
+		t.Errorf("Reason = %v, want %q", edit.Reason, "cleaned up formatting")
+	}
+	if edit.EditedBy == nil || *edit.EditedBy != 1 {
+		t.Errorf("EditedBy = %v, want the staff member's ID (1), not the post author's", edit.EditedBy)
 	}
 }
 
@@ -1137,7 +1173,7 @@ func TestListPostEditsForbiddenForNonStaff(t *testing.T) {
 func TestListPostEditsReturnsHistoryToStaff(t *testing.T) {
 	d := newForumDeps()
 	d.posts.posts[500] = &model.ForumPost{ID: 500, TopicID: 100, UserID: 7}
-	d.posts.edits = []model.ForumPostEdit{{ID: 1, PostID: 500, OldBody: "old", NewBody: "new"}}
+	d.posts.edits = []model.ForumPostEdit{{ID: 1, PostID: 500, OldBody: "old", NewBody: "new", IsSnapshot: true}}
 	h := d.handler()
 
 	req := withForumAuth(httptest.NewRequest(http.MethodGet, "/api/v1/forums/posts/500/edits", nil), 1, staffPerms())
