@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -21,7 +22,10 @@ func NewActivityLogHandler(logs *service.ActivityLogService) *ActivityLogHandler
 
 // HandleList handles GET /api/v1/activity-logs.
 func (h *ActivityLogHandler) HandleList(w http.ResponseWriter, r *http.Request) {
-	opts := repository.ListActivityLogsOptions{}
+	// Staff-only entries (backups, cheat flags, ban patterns, moderation
+	// actions) and raw event metadata are restricted to staff viewers.
+	isStaff := middleware.PermissionsFromContext(r.Context()).IsStaff()
+	opts := repository.ListActivityLogsOptions{IncludeStaffOnly: isStaff}
 
 	if eventType := r.URL.Query().Get("event_type"); eventType != "" {
 		opts.EventType = &eventType
@@ -52,7 +56,7 @@ func (h *ActivityLogHandler) HandleList(w http.ResponseWriter, r *http.Request) 
 			"message":    l.Message,
 			"created_at": l.CreatedAt,
 		}
-		if l.Metadata != nil {
+		if isStaff && l.Metadata != nil {
 			var raw json.RawMessage
 			if err := json.Unmarshal([]byte(*l.Metadata), &raw); err == nil {
 				items[i]["metadata"] = raw

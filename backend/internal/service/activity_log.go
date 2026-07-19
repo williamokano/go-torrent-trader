@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -23,8 +24,14 @@ func (s *ActivityLogService) Create(ctx context.Context, log *model.ActivityLog)
 	return s.logs.Create(ctx, log)
 }
 
-// List returns a paginated list of activity logs.
+// List returns a paginated list of activity logs. Entries for staff-only
+// event types (backups, cheat flags, ban patterns, moderation actions, ...)
+// are excluded unless opts.IncludeStaffOnly is set — callers must only set it
+// for staff viewers.
 func (s *ActivityLogService) List(ctx context.Context, opts repository.ListActivityLogsOptions) ([]model.ActivityLog, int64, error) {
+	if !opts.IncludeStaffOnly {
+		opts.ExcludeEventTypes = append(opts.ExcludeEventTypes, event.StaffOnlyTypeStrings()...)
+	}
 	if opts.Page <= 0 {
 		opts.Page = 1
 	}
