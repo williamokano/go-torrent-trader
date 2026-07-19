@@ -1,14 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/api";
 import { Input, Select, Textarea, Checkbox } from "@/components/form";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MetadataFields } from "@/components/MetadataFields";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/features/auth";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import type { Torrent } from "@/types/torrent";
 import { buildCategoryOptions } from "@/utils/categories";
+import {
+  fetchCategorySchema,
+  cleanMetadataValues,
+  type MetadataField,
+  type MetadataValues,
+} from "@/utils/metadata";
 import "./torrent-edit.css";
 
 export function TorrentEditPage() {
@@ -34,6 +41,11 @@ export function TorrentEditPage() {
   const [free, setFree] = useState(false);
   const [silver, setSilver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [schema, setSchema] = useState<MetadataField[]>([]);
+  const [metadata, setMetadata] = useState<MetadataValues>({});
+  // The torrent's original category; its schema/values are hydrated on load, so
+  // the category-change effect must not clobber them on the first render.
+  const originalCategoryRef = useRef<string | null>(null);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -104,11 +116,23 @@ export function TorrentEditPage() {
       setDescription(t.description ?? "");
       setNfo(((t as Record<string, unknown>).nfo as string) ?? "");
       setCategoryId(String(t.category_id ?? ""));
+      originalCategoryRef.current = String(t.category_id ?? "");
       setAnonymous(t.anonymous ?? false);
       const raw = t as Record<string, unknown>;
       setBanned((raw.banned as boolean) ?? false);
       setFree((raw.free as boolean) ?? false);
       setSilver((raw.silver as boolean) ?? false);
+
+      // Hydrate metadata values + effective schema from the detail response.
+      setMetadata((raw.metadata as MetadataValues) ?? {});
+      const loadedSchema = raw.metadata_schema as MetadataField[] | undefined;
+      if (loadedSchema) {
+        setSchema(loadedSchema);
+      } else if (t.category_id) {
+        fetchCategorySchema(t.category_id).then((fields) => {
+          if (!cancelled) setSchema(fields);
+        });
+      }
       setLoading(false);
     }
 
@@ -117,6 +141,21 @@ export function TorrentEditPage() {
       cancelled = true;
     };
   }, [id]);
+
+  // When the user picks a different category, load its schema and clear values.
+  // The original category is skipped — it was hydrated during the initial load.
+  useEffect(() => {
+    if (categoryId === "" || categoryId === originalCategoryRef.current) return;
+    let cancelled = false;
+    fetchCategorySchema(categoryId).then((fields) => {
+      if (cancelled) return;
+      setSchema(fields);
+      setMetadata({});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [categoryId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -151,6 +190,10 @@ export function TorrentEditPage() {
         body.banned = banned;
         body.free = free;
         body.silver = silver;
+      }
+
+      if (schema.length > 0) {
+        body.metadata = cleanMetadataValues(schema, metadata);
       }
 
       const response = await fetch(
@@ -239,6 +282,12 @@ export function TorrentEditPage() {
             options={categoryOptions}
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
+          />
+
+          <MetadataFields
+            schema={schema}
+            values={metadata}
+            onChange={setMetadata}
           />
 
           <Checkbox

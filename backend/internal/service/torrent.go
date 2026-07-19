@@ -15,6 +15,7 @@ import (
 	"github.com/zeebo/bencode"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
+	"github.com/williamokano/go-torrent-trader/backend/internal/metadata"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/storage"
@@ -65,6 +66,8 @@ type UploadTorrentRequest struct {
 	Nfo         string
 	CategoryID  int64
 	Anonymous   bool
+	// Metadata holds category-schema field values submitted with the upload.
+	Metadata map[string]any
 }
 
 // EditTorrentRequest holds the input for editing a torrent.
@@ -74,6 +77,9 @@ type EditTorrentRequest struct {
 	Nfo         *string `json:"nfo"`
 	CategoryID  *int64  `json:"category_id"`
 	Anonymous   *bool   `json:"anonymous"`
+	// Metadata, when non-nil, replaces the whole metadata object; nil leaves the
+	// stored values untouched. Validated against the effective category schema.
+	Metadata *json.RawMessage `json:"metadata"`
 	// Staff-only fields (admin group_id=1)
 	Banned *bool `json:"banned"`
 	Free   *bool `json:"free"`
@@ -92,12 +98,20 @@ type TorrentService struct {
 	db               *sql.DB
 	torrents         repository.TorrentRepository
 	users            repository.UserRepository
+	categories       repository.CategoryRepository
 	storage          storage.FileStorage
 	announceURL      string
 	torrentComment   string
 	torrentCreatedBy string
 	eventBus         event.Bus
 	reseedRequests   repository.ReseedRequestRepository
+}
+
+// SetCategoryRepo injects the category repository used to resolve per-category
+// metadata schemas for upload/edit validation. Wired in production bootstrap;
+// left unset in tests that don't exercise metadata (schema then resolves empty).
+func (s *TorrentService) SetCategoryRepo(repo repository.CategoryRepository) {
+	s.categories = repo
 }
 
 // NewTorrentService creates a new TorrentService.
@@ -203,6 +217,12 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		name = parsed.Name
 	}
 
+	// Validate submitted metadata against the category's effective schema.
+	metaJSON, err := s.validateMetadata(ctx, req.CategoryID, req.Metadata)
+	if err != nil {
+		return nil, err
+	}
+
 	// Serialize file list to JSON for storage
 	var filesJSON *json.RawMessage
 	if len(parsed.Files) > 0 {
@@ -222,6 +242,7 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		Visible:    true,
 		FileCount:  parsed.FileCount,
 		Files:      filesJSON,
+		Metadata:   metaJSON,
 	}
 	if req.Description != "" {
 		torrent.Description = &req.Description
@@ -236,10 +257,10 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 			createQuery := `INSERT INTO torrents (
 				name, info_hash, size, description, nfo, category_id, uploader_id,
 				anonymous, seeders, leechers, times_completed, comments_count,
-				visible, banned, free, silver, file_count, files
+				visible, banned, free, silver, file_count, files, metadata
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				$11, $12, $13, $14, $15, $16, $17, $18
+				$11, $12, $13, $14, $15, $16, $17, $18, $19
 			) RETURNING id, created_at, updated_at`
 
 			if err := tx.QueryRowContext(ctx, createQuery,
@@ -247,7 +268,7 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 				torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 				torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 				torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
-				torrent.Files,
+				torrent.Files, torrent.Metadata,
 			).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt); err != nil {
 				errMsg := err.Error()
 				if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
@@ -289,6 +310,40 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 	})
 
 	return torrent, nil
+}
+
+// validateMetadata resolves the category's effective metadata schema, validates
+// the submitted values against it, and returns a canonical JSONB object to
+// persist (always at least "{}"). Unknown keys / constraint violations surface
+// as metadata.ErrInvalidValues, which the handler maps to a 422.
+func (s *TorrentService) validateMetadata(ctx context.Context, categoryID int64, values map[string]any) (json.RawMessage, error) {
+	var schema []metadata.FieldDef
+	if s.categories != nil {
+		resolved, err := ResolveCategorySchema(ctx, s.categories, categoryID)
+		if err != nil {
+			// A missing category can't carry metadata; fall through with an empty
+			// schema so ValidateValues rejects any submitted values and the
+			// downstream insert/update surfaces the real FK error.
+			if !errors.Is(err, ErrCategoryNotFound) {
+				return nil, err
+			}
+		} else {
+			schema = resolved
+		}
+	}
+
+	canonical, err := metadata.ValidateValues(schema, values)
+	if err != nil {
+		return nil, err
+	}
+	if len(canonical) == 0 {
+		return json.RawMessage("{}"), nil
+	}
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("marshal metadata: %w", err)
+	}
+	return data, nil
 }
 
 // GetByID returns a torrent by its ID.
@@ -401,6 +456,23 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 	}
 	if req.Silver != nil {
 		torrent.Silver = *req.Silver
+	}
+
+	// Metadata, when provided, replaces the whole object and is validated against
+	// the effective schema of the (possibly newly assigned) category. Omitting it
+	// leaves the stored values untouched.
+	if req.Metadata != nil {
+		var values map[string]any
+		if len(*req.Metadata) > 0 {
+			if err := json.Unmarshal(*req.Metadata, &values); err != nil {
+				return nil, fmt.Errorf("%w: invalid metadata JSON", ErrInvalidTorrent)
+			}
+		}
+		metaJSON, err := s.validateMetadata(ctx, torrent.CategoryID, values)
+		if err != nil {
+			return nil, err
+		}
+		torrent.Metadata = metaJSON
 	}
 
 	if err := s.torrents.Update(ctx, torrent); err != nil {

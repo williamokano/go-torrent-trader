@@ -7,6 +7,8 @@ import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { MetadataSchemaEditor } from "@/components/MetadataSchemaEditor";
+import type { MetadataField } from "@/utils/metadata";
 import "./admin-ui.css";
 import "./admin-categories.css";
 
@@ -17,6 +19,7 @@ interface Category {
   parent_id: number | null;
   image_url: string | null;
   sort_order: number;
+  metadata_schema?: MetadataField[];
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +47,7 @@ export function AdminCategoriesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<CategoryFormData>(emptyForm);
+  const [schema, setSchema] = useState<MetadataField[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<Category | null>(
@@ -76,6 +80,7 @@ export function AdminCategoriesPage() {
   const openCreateModal = () => {
     setEditingId(null);
     setForm(emptyForm);
+    setSchema([]);
     setModalOpen(true);
   };
 
@@ -88,6 +93,7 @@ export function AdminCategoriesPage() {
       image_url: cat.image_url ?? "",
       sort_order: String(cat.sort_order),
     });
+    setSchema(cat.metadata_schema ?? []);
     setModalOpen(true);
   };
 
@@ -95,6 +101,7 @@ export function AdminCategoriesPage() {
     setModalOpen(false);
     setEditingId(null);
     setForm(emptyForm);
+    setSchema([]);
   };
 
   const handleSave = async () => {
@@ -106,6 +113,7 @@ export function AdminCategoriesPage() {
       parent_id: form.parent_id ? Number(form.parent_id) : null,
       image_url: form.image_url.trim() || null,
       sort_order: Number(form.sort_order) || 0,
+      metadata_schema: schema,
     };
 
     try {
@@ -313,6 +321,7 @@ export function AdminCategoriesPage() {
             value={form.sort_order}
             onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
           />
+          <MetadataSchemaEditor value={schema} onChange={setSchema} />
           <div className="admin-categories__modal-actions">
             <button className="admin-btn admin-btn--ghost" onClick={closeModal}>
               Cancel

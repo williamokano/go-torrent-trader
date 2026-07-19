@@ -80,6 +80,20 @@ function createTorrentFile(name = "test.torrent") {
   });
 }
 
+// Selecting a category triggers a metadata-schema fetch. This helper answers
+// that request with an empty schema and delegates the upload POST to makeUpload.
+function mockFetchWithUpload(makeUpload: () => Response | Promise<Response>) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input).includes("metadata-schema")) {
+      return new Response(JSON.stringify({ fields: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return makeUpload();
+  });
+}
+
 describe("UploadPage", () => {
   test("renders all form fields", () => {
     renderUploadPage();
@@ -176,11 +190,12 @@ describe("UploadPage", () => {
   });
 
   test("submits form data and navigates on success", async () => {
-    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ torrent: { id: 42 } }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
+    const mockFetch = mockFetchWithUpload(
+      () =>
+        new Response(JSON.stringify({ torrent: { id: 42 } }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
 
     renderUploadPage();
@@ -202,11 +217,15 @@ describe("UploadPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
+    let uploadCall: [unknown, RequestInit | undefined] | undefined;
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      uploadCall = mockFetch.mock.calls.find((c) =>
+        String(c[0]).endsWith("/api/v1/torrents"),
+      ) as [unknown, RequestInit | undefined] | undefined;
+      expect(uploadCall).toBeTruthy();
     });
 
-    const [url, options] = mockFetch.mock.calls[0];
+    const [url, options] = uploadCall!;
     expect(url).toBe("http://localhost:8080/api/v1/torrents");
     expect(options?.method).toBe("POST");
     expect((options?.headers as Record<string, string>)["Authorization"]).toBe(
@@ -220,11 +239,12 @@ describe("UploadPage", () => {
   });
 
   test("shows error toast on API failure", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ error: { message: "Duplicate torrent" } }),
-        { status: 409, headers: { "Content-Type": "application/json" } },
-      ),
+    mockFetchWithUpload(
+      () =>
+        new Response(
+          JSON.stringify({ error: { message: "Duplicate torrent" } }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
     );
 
     renderUploadPage();
@@ -252,11 +272,10 @@ describe("UploadPage", () => {
 
   test("shows loading state while submitting", async () => {
     let resolveUpload: (value: Response) => void;
-    vi.spyOn(globalThis, "fetch").mockReturnValueOnce(
-      new Promise<Response>((resolve) => {
-        resolveUpload = resolve;
-      }),
-    );
+    const uploadPromise = new Promise<Response>((resolve) => {
+      resolveUpload = resolve;
+    });
+    mockFetchWithUpload(() => uploadPromise);
 
     renderUploadPage();
 
@@ -295,11 +314,12 @@ describe("UploadPage", () => {
   });
 
   test("navigates to /browse when response has no torrent id", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({}), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
+    mockFetchWithUpload(
+      () =>
+        new Response(JSON.stringify({}), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
 
     renderUploadPage();

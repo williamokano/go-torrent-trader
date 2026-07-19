@@ -3,11 +3,23 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
+
+// emptySchema is the JSONB default written when a category has no metadata
+// fields, so the NOT NULL metadata_schema column never receives a NULL param.
+var emptySchema = json.RawMessage("[]")
+
+func schemaOrDefault(s json.RawMessage) json.RawMessage {
+	if len(s) == 0 {
+		return emptySchema
+	}
+	return s
+}
 
 // CategoryRepo implements repository.CategoryRepository using PostgreSQL.
 type CategoryRepo struct {
@@ -20,12 +32,12 @@ func NewCategoryRepo(db *sql.DB) repository.CategoryRepository {
 }
 
 func (r *CategoryRepo) GetByID(ctx context.Context, id int64) (*model.Category, error) {
-	query := `SELECT id, name, slug, parent_id, image_url, sort_order, created_at, updated_at
+	query := `SELECT id, name, slug, parent_id, image_url, sort_order, metadata_schema, created_at, updated_at
 		FROM categories WHERE id = $1`
 
 	var c model.Category
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.SortOrder, &c.MetadataSchema, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get category by id: %w", err)
@@ -34,7 +46,7 @@ func (r *CategoryRepo) GetByID(ctx context.Context, id int64) (*model.Category, 
 }
 
 func (r *CategoryRepo) List(ctx context.Context) ([]model.Category, error) {
-	query := `SELECT id, name, slug, parent_id, image_url, sort_order, created_at, updated_at
+	query := `SELECT id, name, slug, parent_id, image_url, sort_order, metadata_schema, created_at, updated_at
 		FROM categories ORDER BY sort_order, name`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -47,7 +59,7 @@ func (r *CategoryRepo) List(ctx context.Context) ([]model.Category, error) {
 	for rows.Next() {
 		var c model.Category
 		if err := rows.Scan(
-			&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
+			&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.SortOrder, &c.MetadataSchema, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
@@ -61,11 +73,11 @@ func (r *CategoryRepo) List(ctx context.Context) ([]model.Category, error) {
 }
 
 func (r *CategoryRepo) Create(ctx context.Context, cat *model.Category) error {
-	query := `INSERT INTO categories (name, slug, parent_id, image_url, sort_order)
-		VALUES ($1, $2, $3, $4, $5)
+	query := `INSERT INTO categories (name, slug, parent_id, image_url, sort_order, metadata_schema)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at, updated_at`
 
-	err := r.db.QueryRowContext(ctx, query, cat.Name, cat.Slug, cat.ParentID, cat.ImageURL, cat.SortOrder).
+	err := r.db.QueryRowContext(ctx, query, cat.Name, cat.Slug, cat.ParentID, cat.ImageURL, cat.SortOrder, schemaOrDefault(cat.MetadataSchema)).
 		Scan(&cat.ID, &cat.CreatedAt, &cat.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create category: %w", err)
@@ -74,11 +86,11 @@ func (r *CategoryRepo) Create(ctx context.Context, cat *model.Category) error {
 }
 
 func (r *CategoryRepo) Update(ctx context.Context, cat *model.Category) error {
-	query := `UPDATE categories SET name = $1, slug = $2, parent_id = $3, image_url = $4, sort_order = $5, updated_at = NOW()
-		WHERE id = $6
+	query := `UPDATE categories SET name = $1, slug = $2, parent_id = $3, image_url = $4, sort_order = $5, metadata_schema = $6, updated_at = NOW()
+		WHERE id = $7
 		RETURNING updated_at`
 
-	err := r.db.QueryRowContext(ctx, query, cat.Name, cat.Slug, cat.ParentID, cat.ImageURL, cat.SortOrder, cat.ID).
+	err := r.db.QueryRowContext(ctx, query, cat.Name, cat.Slug, cat.ParentID, cat.ImageURL, cat.SortOrder, schemaOrDefault(cat.MetadataSchema), cat.ID).
 		Scan(&cat.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("update category: %w", err)

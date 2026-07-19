@@ -225,6 +225,8 @@ func run() int {
 
 	categoryRepo := postgres.NewCategoryRepo(db)
 	categoryService := service.NewCategoryService(categoryRepo)
+	// Torrent uploads/edits validate metadata against per-category schemas.
+	torrentService.SetCategoryRepo(categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
 	dashboardRepo := postgres.NewDashboardRepo(db)
 

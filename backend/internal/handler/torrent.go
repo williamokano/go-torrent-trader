@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/metadata"
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -78,12 +79,22 @@ func (h *TorrentHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 
 	anonymous, _ := strconv.ParseBool(r.FormValue("anonymous"))
 
+	// Optional category-schema metadata, submitted as a JSON object string.
+	var meta map[string]any
+	if raw := r.FormValue("metadata"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+			ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid metadata JSON")
+			return
+		}
+	}
+
 	req := service.UploadTorrentRequest{
 		Name:        r.FormValue("name"),
 		Description: r.FormValue("description"),
 		Nfo:         r.FormValue("nfo"),
 		CategoryID:  categoryID,
 		Anonymous:   anonymous,
+		Metadata:    meta,
 	}
 
 	torrent, err := h.torrentSvc.Upload(r.Context(), fileData, req, userID)
@@ -173,9 +184,16 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 
 	tResp := torrentResponse(torrent)
 
-	// Build category breadcrumb chain
+	// Build category breadcrumb chain and attach the effective metadata schema so
+	// the detail page can render field labels without a second request.
 	if h.categoryRepo != nil {
 		tResp["category_path"] = h.buildCategoryPath(r.Context(), torrent.CategoryID)
+		if fields, err := service.ResolveCategorySchema(r.Context(), h.categoryRepo, torrent.CategoryID); err == nil {
+			if fields == nil {
+				fields = []metadata.FieldDef{}
+			}
+			tResp["metadata_schema"] = fields
+		}
 	}
 
 	resp := map[string]interface{}{
@@ -342,6 +360,8 @@ func (h *TorrentHandler) HandleGetReseedCount(w http.ResponseWriter, r *http.Req
 
 func handleTorrentError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, metadata.ErrInvalidValues):
+		ErrorResponse(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
 	case errors.Is(err, service.ErrInvalidTorrent):
 		ErrorResponse(w, http.StatusBadRequest, "invalid_torrent", err.Error())
 	case errors.Is(err, service.ErrDuplicateTorrent):
@@ -403,6 +423,11 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 	}
 	if t.Files != nil && len(*t.Files) > 0 {
 		resp["files"] = json.RawMessage(*t.Files)
+	}
+	if len(t.Metadata) > 0 {
+		resp["metadata"] = json.RawMessage(t.Metadata)
+	} else {
+		resp["metadata"] = json.RawMessage("{}")
 	}
 	return resp
 }

@@ -646,31 +646,55 @@
 - **DONE (2026-07-15):** the `@` typeahead now lives in `MarkdownEditor` — an `@` after a word boundary opens a debounced (250ms) `GET /api/v1/users?search=&per_page=8` lookup whose trigger detection mirrors the backend `mentionRegex`, so the inserted token has the exact shape the backend recognises. Keyboard-navigable (arrows / Enter / Tab / Escape) with combobox ARIA, closes on blur and in preview. Every compose surface (comments, forum new-topic + reply, PMs, torrent edit, upload, admin news) gets the typeahead at once. Covered by new tests in `MarkdownEditor.test.tsx`.
 - **Notification-coverage caveat:** an inserted `@mention` only produces a `forum_mention` *notification* on forum new-topic and reply — those are the only writes that fire `ForumPostCreated`, the sole event whose listener runs `mentionRegex`. On torrent comments, forum post edits, torrent descriptions, upload and news the typeahead is currently an insertion/spelling aid only. Extending notifications is tracked as **BE-5.10** (PMs are deliberately excluded — notifying a non-participant would leak a private message).
 
-#### BE-3.13: Rich Torrent Metadata [M] [RESEARCH]
+#### BE-3.13: Rich Torrent Metadata [M] [DONE — category-driven JSONB metadata schema]
 **As an** uploader
 **I want** to add detailed metadata to my uploads
-**So that** torrents are well-categorized and searchable by specific attributes
+**So that** torrents are well-categorized by category-specific attributes
 
-**Research + Implementation:**
-- Study the original TorrentTrader 3.x upload form for reference fields
-- Common metadata fields to support:
-  - Year of release
-  - Video codec (H.264, H.265/HEVC, AV1, etc.)
-  - Audio codec (AAC, FLAC, DTS, AC3, etc.)
-  - Resolution/quality (4K/2160p, 1080p, 720p, SD)
-  - Source (Blu-ray, WEB-DL, HDTV, DVD, etc.)
-  - Language (with multi-language support)
-  - Subtitles (embedded, SRT, none)
-  - Runtime (for movies/TV)
-  - Genre tags
-- Decide on storage approach: dedicated columns vs JSONB metadata field vs separate metadata table
-- Consider auto-detection: parse torrent name for quality/codec patterns (e.g., "Movie.2024.1080p.BluRay.x265.DTS" → year=2024, resolution=1080p, source=BluRay, codec=x265, audio=DTS)
-- Category-specific fields: Movies need different metadata than Music or Software
-- Update upload form (FE) with dynamic fields based on selected category
-- Update browse/search to filter by metadata fields
-- Migration: ensure metadata schema is compatible with MT-1.2 torrent migration
+**Chosen approach (shipped):** data-driven, not hardcoded fields. An admin defines the
+extra fields **on a category**; those definitions drive the upload/edit UI and are validated
+server-side. Values persist as JSONB, avoiding a column-per-attribute.
 
-> **Note:** This is a research task. Start by documenting what fields the original TorrentTrader supports, then design the schema and UI. Low priority — current basic upload (name, category, description) works for MVP.
+- `categories.metadata_schema JSONB` — the category's own field definitions (array). Migration `065`.
+- `torrents.metadata JSONB` — the submitted field values (object). Migration `065`.
+- **Field types:** `text` (max length / regex), `number` (min/max/integer), `select`,
+  `multiselect` (options + max items), `boolean`. See `backend/internal/metadata`.
+- **Inheritance:** a category's *effective* schema = its ancestors' fields merged with its own
+  (child overrides parent by key, ancestor order preserved). Define shared fields (codec, quality)
+  on a parent "Video" category; Movies/TV inherit and add `year` / `season`+`episode`.
+- **Resolve endpoint:** `GET /api/v1/categories/{id}/metadata-schema` returns the effective fields
+  so external clients and the upload/edit UI render dynamically. The torrent detail response also
+  embeds the effective schema alongside the stored values.
+- **Validation** on upload + edit rejects unknown keys, enforces required/type/constraints, and
+  stores a canonical object. Editing a torrent's category validates provided metadata against the
+  new category; changing category without resending metadata leaves stored values untouched.
+- **Frontend:** admin `MetadataSchemaEditor` (define fields per category), shared `MetadataFields`
+  (dynamic upload/edit inputs), and a read-only "Details" section on the torrent detail page.
+
+**Deliberately out of scope (spun out below):** external/API auto-detection of metadata, and
+browse/search filtering by metadata fields.
+
+> **MT-1.2 note:** the JSONB `metadata` column is migration-compatible — the torrent migration can
+> map legacy attributes into a category's schema without schema changes.
+
+#### BE-3.13a: Filter Browse/Search by Metadata Fields [M] [TODO]
+**As a** user
+**I want** to filter torrents by category metadata (e.g. `year=2024`, `codec=x265`)
+**So that** I can find content by specific attributes
+
+- Extend `GET /torrents` and `/torrents/search` with metadata predicates (JSONB `@>` containment
+  and/or range queries), indexed via a GIN index on `torrents.metadata`.
+- Frontend: surface filter controls for the selected category's fields on the browse page.
+- Follow-up to **BE-3.13**, which shipped define + validate + display only.
+
+#### BE-3.13b: Auto-Detect Metadata from Torrent Name [S] [TODO]
+**As an** uploader
+**I want** metadata pre-filled by parsing the torrent name
+**So that** I don't type year/resolution/codec by hand
+
+- Parse patterns like `Movie.2024.1080p.BluRay.x265.DTS` → year/resolution/source/codec/audio and
+  pre-populate the matching category schema fields (user can still edit before submit).
+- Purely additive to **BE-3.13**; the manual fields remain the source of truth.
 
 #### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user

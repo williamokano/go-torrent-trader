@@ -86,6 +86,9 @@ func NewRouter(deps *Deps) chi.Router {
 		if deps != nil && deps.DB != nil {
 			r.Get("/categories", HandleCategories(deps.DB))
 		}
+		if deps != nil && deps.CategoryService != nil {
+			r.Get("/categories/{id}/metadata-schema", HandleCategoryMetadataSchema(deps.CategoryService))
+		}
 
 		// RSS feed (public, authenticated via passkey query param)
 		if deps != nil && deps.TorrentService != nil && deps.UserRepo != nil && deps.RSSConfig != nil {

@@ -1,0 +1,40 @@
+.schema-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.schema-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.schema-editor__empty {
+  font-size: 0.85rem;
+  color: var(--text-muted, #777);
+  margin: 0;
+}
+
+.schema-editor__row {
+  border: 1px solid var(--border-color, #d0d0d0);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.schema-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.schema-editor__row-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
