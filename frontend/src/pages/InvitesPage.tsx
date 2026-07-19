@@ -75,6 +75,14 @@ export function InvitesPage() {
     fetchInvites();
   }, [fetchInvites]);
 
+  // Refresh the cached user on mount so a staff-side edit to the invite
+  // count (or any other admin-editable field) is reflected here without
+  // requiring a re-login. AuthContext only re-fetches /auth/me on bootstrap
+  // or when a caller explicitly asks it to — mirrors UserSettingsPage.
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
+
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   const handleGenerateInvite = async () => {

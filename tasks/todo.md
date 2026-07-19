@@ -154,7 +154,7 @@ The remaining gap is almost entirely `internal/handler` (~1,600 uncovered statem
 
 ## Known Bugs / Tech Debt
 
-- FE-BUG-1: Invites page doesn't reflect updated count after admin edit (auth context caches)
+- FE-BUG-1 [DONE]: Invites page doesn't reflect updated count after admin edit (auth context caches) — see `docs/IMPLEMENTATION_TASKS.md`
 - BE-8.19 [BUG]: cleanup worker step 4 hard-deletes *banned* users (bare `enabled = false AND created_at < 7d` filter matches them), cascading their data away — found 2026-07-17 during BE-8.17 audit-retention review
 - BE-STATS-1: Footer stats polling — half-addressed by the Redis `StatsCache`; still no WebSocket/SSE push (BE-9.4)
 - BE-STATS-3: Removed — no legacy data to backfill (see BE-9.5)

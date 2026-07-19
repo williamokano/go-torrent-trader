@@ -11,6 +11,8 @@ vi.mock("@/config", () => ({
   getConfig: () => ({ API_URL: "http://localhost:8080", SITE_NAME: "Test" }),
 }));
 
+const mockRefreshUser = vi.fn();
+
 vi.mock("@/features/auth", () => ({
   useAuth: () => ({
     user: {
@@ -19,6 +21,7 @@ vi.mock("@/features/auth", () => ({
       invites: 3,
     },
     isAuthenticated: true,
+    refreshUser: mockRefreshUser,
   }),
 }));
 
@@ -47,6 +50,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRefreshUser.mockResolvedValue(undefined);
   mockFetch.mockResolvedValue({
     ok: true,
     json: () =>
@@ -184,5 +188,10 @@ describe("InvitesPage", () => {
         }),
       );
     });
+  });
+
+  test("calls refreshUser on mount so a staff-side invite-count edit shows without re-login", () => {
+    renderInvitesPage();
+    expect(mockRefreshUser).toHaveBeenCalled();
   });
 });
