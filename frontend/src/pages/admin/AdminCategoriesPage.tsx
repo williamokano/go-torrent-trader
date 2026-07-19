@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast";
 import { Input } from "@/components/form";
 import { Select } from "@/components/form";
 import { Modal } from "@/components/modal/Modal";
+import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import "./admin-ui.css";
 import "./admin-categories.css";
@@ -45,6 +46,10 @@ export function AdminCategoriesPage() {
   const [form, setForm] = useState<CategoryFormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
 
   const fetchCategories = useCallback(async () => {
     const token = getAccessToken();
@@ -134,29 +139,33 @@ export function AdminCategoriesPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async () => {
+    if (!deletingCategory) return;
     setDeleteError(null);
-    if (!window.confirm("Are you sure you want to delete this category?")) {
-      return;
-    }
+    setDeleting(true);
 
     const token = getAccessToken();
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/categories/${id}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/categories/${deletingCategory.id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
 
-    if (res.ok || res.status === 204) {
-      toast.success("Category deleted");
-      fetchCategories();
-    } else {
-      const data = await res.json().catch(() => null);
-      const msg = data?.error?.message ?? "Failed to delete category";
-      setDeleteError(msg);
-      toast.error(msg);
+      if (res.ok || res.status === 204) {
+        toast.success("Category deleted");
+        fetchCategories();
+      } else {
+        const data = await res.json().catch(() => null);
+        const msg = data?.error?.message ?? "Failed to delete category";
+        setDeleteError(msg);
+        toast.error(msg);
+      }
+    } finally {
+      setDeleting(false);
+      setDeletingCategory(null);
     }
   };
 
@@ -239,7 +248,10 @@ export function AdminCategoriesPage() {
                       </button>{" "}
                       <button
                         className="admin-btn admin-btn--danger admin-btn--sm"
-                        onClick={() => handleDelete(cat.id)}
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeletingCategory(cat);
+                        }}
                       >
                         Delete
                       </button>
@@ -256,6 +268,7 @@ export function AdminCategoriesPage() {
         isOpen={modalOpen}
         onClose={closeModal}
         title={editingId ? "Edit Category" : "Add Category"}
+        closeOnEscape={false}
       >
         <div className="admin-categories__modal-form">
           <Input
@@ -313,6 +326,17 @@ export function AdminCategoriesPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={deletingCategory !== null}
+        title="Delete Category"
+        message={`Delete the "${deletingCategory?.name}" category? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeletingCategory(null)}
+      />
     </div>
   );
 }

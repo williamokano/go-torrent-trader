@@ -37,6 +37,7 @@ export function AdminTorrentsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchTorrents = useCallback(async () => {
     setLoading(true);
@@ -91,21 +92,26 @@ export function AdminTorrentsPage() {
 
   const handleDelete = async () => {
     if (!deletingId) return;
+    setDeleting(true);
     const token = getAccessToken();
-    const res = await fetch(
-      `${getConfig().API_URL}/api/v1/admin/torrents/${deletingId}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-    if (res.ok) {
-      toast.success("Torrent deleted");
-      fetchTorrents();
-    } else {
-      toast.error("Failed to delete torrent");
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/torrents/${deletingId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (res.ok) {
+        toast.success("Torrent deleted");
+        fetchTorrents();
+      } else {
+        toast.error("Failed to delete torrent");
+      }
+    } finally {
+      setDeleting(false);
+      setDeletingId(null);
     }
-    setDeletingId(null);
   };
 
   const totalPages = Math.ceil(total / PER_PAGE);
@@ -216,6 +222,7 @@ export function AdminTorrentsPage() {
         message="Are you sure you want to permanently delete this torrent and its files? This cannot be undone."
         confirmLabel="Delete"
         danger
+        loading={deleting}
         onConfirm={handleDelete}
         onCancel={() => setDeletingId(null)}
       />

@@ -225,4 +225,27 @@ describe("BanUserModal", () => {
       screen.getByText(/will block all future registrations from \*@evil\.com/),
     ).toBeInTheDocument();
   });
+
+  test("does not close on Escape, preserving an in-progress ban reason", () => {
+    const onCancel = vi.fn();
+    render(
+      <BanUserModal
+        isOpen={true}
+        username="testuser"
+        onConfirm={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Why is this user being banned?",
+    );
+    fireEvent.change(textarea, { target: { value: "In-progress reason" } });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText("Ban testuser")).toBeInTheDocument();
+    expect(textarea).toHaveValue("In-progress reason");
+  });
 });

@@ -47,7 +47,12 @@ function BanUserModalContent({
   };
 
   return (
-    <Modal isOpen={true} onClose={onCancel} title={`Ban ${username}`}>
+    <Modal
+      isOpen={true}
+      onClose={onCancel}
+      title={`Ban ${username}`}
+      closeOnEscape={false}
+    >
       <div className="modal-body">
         <Textarea
           label="Reason (required)"

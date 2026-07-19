@@ -535,6 +535,31 @@ export function ForumTopicViewPage() {
     }
   };
 
+  // These modals share `modReason` — always clear it on close (Cancel, X,
+  // or overlay click) so a reason typed for one moderation action never
+  // resurfaces pre-filled the next time a (possibly unrelated) moderation
+  // modal is opened.
+  const closeLockConfirm = () => {
+    setShowLockConfirm(false);
+    setModReason("");
+  };
+  const closePinConfirm = () => {
+    setShowPinConfirm(false);
+    setModReason("");
+  };
+  const closeRenameModal = () => {
+    setShowRenameModal(false);
+    setModReason("");
+  };
+  const closeMoveModal = () => {
+    setShowMoveModal(false);
+    setModReason("");
+  };
+  const closeDeleteConfirm = () => {
+    setShowDeleteConfirm(false);
+    setModReason("");
+  };
+
   if (loading) return <div className="topic-view-page">Loading topic...</div>;
   if (error) return <div className="topic-view-page">Error: {error}</div>;
   if (!topic) return <div className="topic-view-page">Topic not found.</div>;
@@ -879,8 +904,9 @@ export function ForumTopicViewPage() {
       {/* Lock/Unlock Confirm */}
       <Modal
         isOpen={showLockConfirm}
-        onClose={() => setShowLockConfirm(false)}
+        onClose={closeLockConfirm}
         title={topic.locked ? "Unlock Topic" : "Lock Topic"}
+        closeOnEscape={false}
       >
         <div className="modal-body">
           <p style={{ margin: "0 0 0.75rem" }}>
@@ -900,7 +926,7 @@ export function ForumTopicViewPage() {
         <div className="modal-footer">
           <button
             className="modal-btn modal-btn--secondary"
-            onClick={() => setShowLockConfirm(false)}
+            onClick={closeLockConfirm}
           >
             Cancel
           </button>
@@ -917,8 +943,9 @@ export function ForumTopicViewPage() {
       {/* Pin/Unpin Confirm */}
       <Modal
         isOpen={showPinConfirm}
-        onClose={() => setShowPinConfirm(false)}
+        onClose={closePinConfirm}
         title={topic.pinned ? "Unpin Topic" : "Pin Topic"}
+        closeOnEscape={false}
       >
         <div className="modal-body">
           <p style={{ margin: "0 0 0.75rem" }}>
@@ -938,7 +965,7 @@ export function ForumTopicViewPage() {
         <div className="modal-footer">
           <button
             className="modal-btn modal-btn--secondary"
-            onClick={() => setShowPinConfirm(false)}
+            onClick={closePinConfirm}
           >
             Cancel
           </button>
@@ -955,8 +982,9 @@ export function ForumTopicViewPage() {
       {/* Rename Modal */}
       <Modal
         isOpen={showRenameModal}
-        onClose={() => setShowRenameModal(false)}
+        onClose={closeRenameModal}
         title="Rename Topic"
+        closeOnEscape={false}
       >
         <div className="modal-body">
           <input
@@ -983,7 +1011,7 @@ export function ForumTopicViewPage() {
         <div className="modal-footer">
           <button
             className="modal-btn modal-btn--secondary"
-            onClick={() => setShowRenameModal(false)}
+            onClick={closeRenameModal}
           >
             Cancel
           </button>
@@ -1000,8 +1028,9 @@ export function ForumTopicViewPage() {
       {/* Move Modal */}
       <Modal
         isOpen={showMoveModal}
-        onClose={() => setShowMoveModal(false)}
+        onClose={closeMoveModal}
         title="Move Topic"
+        closeOnEscape={false}
       >
         <div className="modal-body">
           <select
@@ -1036,7 +1065,7 @@ export function ForumTopicViewPage() {
         <div className="modal-footer">
           <button
             className="modal-btn modal-btn--secondary"
-            onClick={() => setShowMoveModal(false)}
+            onClick={closeMoveModal}
           >
             Cancel
           </button>
@@ -1057,8 +1086,9 @@ export function ForumTopicViewPage() {
       {/* Delete Confirm */}
       <Modal
         isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
+        onClose={closeDeleteConfirm}
         title="Delete Topic"
+        closeOnEscape={false}
       >
         <div className="modal-body">
           <p style={{ margin: "0 0 0.75rem", color: "var(--color-danger)" }}>
@@ -1077,7 +1107,7 @@ export function ForumTopicViewPage() {
         <div className="modal-footer">
           <button
             className="modal-btn modal-btn--secondary"
-            onClick={() => setShowDeleteConfirm(false)}
+            onClick={closeDeleteConfirm}
           >
             Cancel
           </button>

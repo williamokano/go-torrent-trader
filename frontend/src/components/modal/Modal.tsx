@@ -7,13 +7,27 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
+  /**
+   * Whether pressing Escape closes the modal. Defaults to true.
+   * Set to false for modals with free-text/multi-field inputs the user may
+   * be actively composing (edit/create forms), so a stray Escape press
+   * doesn't silently discard in-progress input. Confirmation modals and
+   * static-content modals should keep the default.
+   */
+  closeOnEscape?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  closeOnEscape = true,
+}: ModalProps) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !closeOnEscape) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -23,7 +37,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, closeOnEscape]);
 
   useEffect(() => {
     if (!isOpen) return;
