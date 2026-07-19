@@ -30,6 +30,7 @@ type Deps struct {
 	SiteSettingsService       *service.SiteSettingsService
 	BanService                *service.BanService
 	MessageService            *service.MessageService
+	SavedMessageService       *service.SavedMessageService
 	ChatService               *service.ChatService
 	WarningService            *service.WarningService
 	NewsService               *service.NewsService
@@ -278,6 +279,28 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/unread-count", messages.HandleUnreadCount)
 					r.Get("/{id}", messages.HandleGetMessage)
 					r.Delete("/{id}", messages.HandleDeleteMessage)
+
+					// Drafts & templates (BE-7.2). Static "/drafts" and
+					// "/templates" segments always win over the "/{id}"
+					// wildcard above regardless of registration order, so
+					// nesting these here is safe.
+					if deps.SavedMessageService != nil {
+						saved := NewSavedMessageHandler(deps.SavedMessageService)
+						r.Route("/drafts", func(r chi.Router) {
+							r.Post("/", saved.HandleSaveDraft)
+							r.Get("/", saved.HandleListDrafts)
+							r.Get("/{id}", saved.HandleGetDraft)
+							r.Put("/{id}", saved.HandleUpdateDraft)
+							r.Delete("/{id}", saved.HandleDeleteDraft)
+						})
+						r.Route("/templates", func(r chi.Router) {
+							r.Post("/", saved.HandleSaveTemplate)
+							r.Get("/", saved.HandleListTemplates)
+							r.Get("/{id}", saved.HandleGetTemplate)
+							r.Put("/{id}", saved.HandleUpdateTemplate)
+							r.Delete("/{id}", saved.HandleDeleteTemplate)
+						})
+					}
 				})
 			}
 

@@ -355,3 +355,491 @@ describe("MessagesPage", () => {
     });
   });
 });
+
+describe("MessagesPage drafts & templates (BE-7.2)", () => {
+  const FAKE_DRAFT = {
+    id: 1,
+    kind: "draft",
+    receiver_id: 2,
+    receiver_username: "alice",
+    subject: "unfinished thought",
+    body: "still writing this...",
+    created_at: "2026-03-08T10:00:00Z",
+    updated_at: "2026-03-08T10:05:00Z",
+  };
+
+  const FAKE_TEMPLATE = {
+    id: 5,
+    kind: "template",
+    subject: "Welcome",
+    body: "Thanks for joining!",
+    created_at: "2026-03-08T09:00:00Z",
+    updated_at: "2026-03-08T09:00:00Z",
+  };
+
+  function baseFetchMock(url: string, init?: RequestInit) {
+    const method = init?.method ?? "GET";
+
+    if (url.includes("/unread-count")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ unread_count: 0 }),
+      });
+    }
+    if (url.includes("/inbox")) {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            messages: FAKE_INBOX,
+            total: 2,
+            page: 1,
+            per_page: 25,
+          }),
+      });
+    }
+    if (/\/api\/v1\/messages\/drafts\/1$/.test(url) && method === "GET") {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ draft: FAKE_DRAFT }),
+      });
+    }
+    if (/\/api\/v1\/messages\/templates\/5$/.test(url) && method === "GET") {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ template: FAKE_TEMPLATE }),
+      });
+    }
+    if (url.includes("/api/v1/messages/drafts") && method === "GET") {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            drafts: [FAKE_DRAFT],
+            total: 1,
+            page: 1,
+            per_page: 25,
+          }),
+      });
+    }
+    if (url.includes("/api/v1/messages/templates") && method === "GET") {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            templates: [FAKE_TEMPLATE],
+            total: 1,
+            page: 1,
+            per_page: 25,
+          }),
+      });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+  }
+
+  beforeEach(() => {
+    mockFetch.mockImplementation(baseFetchMock);
+  });
+
+  test("renders Drafts and Templates tabs", () => {
+    renderMessagesPage();
+    expect(screen.getByText("Drafts")).toBeInTheDocument();
+    expect(screen.getByText("Templates")).toBeInTheDocument();
+  });
+
+  test("lists saved drafts with recipient and subject", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+
+    await user.click(screen.getByText("Drafts"));
+    await waitFor(() => {
+      expect(screen.getByText("unfinished thought")).toBeInTheDocument();
+    });
+    expect(screen.getByText("alice")).toBeInTheDocument();
+  });
+
+  test("shows empty state when there are no drafts", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/unread-count")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ unread_count: 0 }),
+        });
+      }
+      if (url.includes("/api/v1/messages/drafts") && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ drafts: [], total: 0, page: 1, per_page: 25 }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    const user = userEvent.setup();
+    renderMessagesPage();
+
+    await user.click(screen.getByText("Drafts"));
+    await waitFor(() => {
+      expect(screen.getByText("No saved drafts.")).toBeInTheDocument();
+    });
+  });
+
+  test("lists saved templates", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+
+    await user.click(screen.getByText("Templates"));
+    await waitFor(() => {
+      expect(screen.getByText("Welcome")).toBeInTheDocument();
+    });
+  });
+
+  test("loading a draft populates the compose form and switches tabs", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+
+    await user.click(screen.getByText("Drafts"));
+    await waitFor(() => {
+      expect(screen.getByText("unfinished thought")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("unfinished thought"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("To")).toHaveValue("alice");
+    });
+    expect(screen.getByLabelText("Subject")).toHaveValue("unfinished thought");
+    expect(screen.getByText("Update Draft")).toBeInTheDocument();
+  });
+
+  test("using a template populates the compose form without a recipient", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+
+    await user.click(screen.getByText("Templates"));
+    await waitFor(() => {
+      expect(screen.getByText("Welcome")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Welcome"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Subject")).toHaveValue("Welcome");
+    });
+    expect(screen.getByLabelText("To")).toHaveValue("");
+    expect(screen.getByText("Update Template")).toBeInTheDocument();
+  });
+
+  test("deleting a draft calls the drafts delete endpoint", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+
+    await user.click(screen.getByText("Drafts"));
+    await waitFor(() => {
+      expect(screen.getByText("unfinished thought")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Delete"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/messages/drafts/1"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
+  test("Save Draft is rejected client-side when the compose form is entirely empty", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Compose"));
+    await user.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Nothing to save yet — write something first."),
+      ).toBeInTheDocument();
+    });
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/messages/drafts"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  test("Save Draft creates a draft from the compose form", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.includes("/unread-count")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ unread_count: 0 }),
+        });
+      }
+      if (url.includes("/inbox")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              messages: FAKE_INBOX,
+              total: 2,
+              page: 1,
+              per_page: 25,
+            }),
+        });
+      }
+      if (url.endsWith("/api/v1/messages/drafts") && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ draft: { ...FAKE_DRAFT, id: 9 } }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Compose"));
+    await user.type(screen.getByLabelText("Subject"), "Draft subject");
+    await user.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Draft saved.")).toBeInTheDocument();
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/messages/drafts"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  test("Save as Template is disabled until the body has content", async () => {
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Compose"));
+    expect(screen.getByText("Save as Template")).toBeDisabled();
+  });
+
+  test("changing the recipient after replying drops the reply's parent_id from a saved draft", async () => {
+    let capturedBody: string | undefined;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.includes("/unread-count")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ unread_count: 0 }),
+        });
+      }
+      if (url.includes("/inbox")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              messages: FAKE_INBOX,
+              total: 2,
+              page: 1,
+              per_page: 25,
+            }),
+        });
+      }
+      if (/\/api\/v1\/messages\/1$/.test(url) && method === "GET") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ message: FAKE_INBOX[0] }),
+        });
+      }
+      if (url.includes("/api/v1/users?search=")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ users: [{ id: 9, username: "carol" }] }),
+        });
+      }
+      if (url.endsWith("/api/v1/messages/drafts") && method === "POST") {
+        capturedBody = init?.body as string;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ draft: { id: 1 } }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Hello there"));
+    await waitFor(() => {
+      expect(screen.getByText("Reply")).toBeInTheDocument();
+    });
+    await user.click(screen.getByText("Reply"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("To")).toHaveValue("alice");
+    });
+
+    // Change the recipient away from alice, the original reply target — the
+    // parent_id from that reply must not silently carry over to whoever
+    // ends up selected instead.
+    await user.clear(screen.getByLabelText("To"));
+    await user.type(screen.getByLabelText("To"), "carol");
+    await waitFor(() => {
+      expect(screen.getByText("carol")).toBeInTheDocument();
+    });
+    await user.click(screen.getByText("carol"));
+
+    await user.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => {
+      expect(capturedBody).toBeDefined();
+    });
+    const parsed = JSON.parse(capturedBody as string);
+    expect(parsed.parent_id).toBeUndefined();
+    expect(parsed.receiver_id).toBe(9);
+  });
+
+  test("sending a message that was loaded from a draft deletes that draft", async () => {
+    const deleteUrls: string[] = [];
+    const SAVED_DRAFT = {
+      id: 1,
+      kind: "draft",
+      receiver_id: 2,
+      receiver_username: "alice",
+      subject: "Hi",
+      body: "Body text",
+      created_at: "2026-03-08T10:00:00Z",
+      updated_at: "2026-03-08T10:00:00Z",
+    };
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.includes("/unread-count")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ unread_count: 0 }),
+        });
+      }
+      if (url.includes("/inbox")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              messages: FAKE_INBOX,
+              total: 2,
+              page: 1,
+              per_page: 25,
+            }),
+        });
+      }
+      if (/\/api\/v1\/messages\/drafts\/1$/.test(url) && method === "GET") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ draft: SAVED_DRAFT }),
+        });
+      }
+      if (url.includes("/api/v1/messages/drafts") && method === "GET") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              drafts: [SAVED_DRAFT],
+              total: 1,
+              page: 1,
+              per_page: 25,
+            }),
+        });
+      }
+      if (url.endsWith("/api/v1/messages") && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ message: { id: 99 } }),
+        });
+      }
+      if (/\/api\/v1\/messages\/drafts\/1$/.test(url) && method === "DELETE") {
+        deleteUrls.push(url);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Drafts"));
+    await waitFor(() => {
+      expect(screen.getByText("Hi")).toBeInTheDocument();
+    });
+    await user.click(screen.getByText("Hi"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Subject")).toHaveValue("Hi");
+    });
+
+    await user.click(screen.getByText("Send Message"));
+
+    await waitFor(() => {
+      expect(deleteUrls).toEqual([
+        expect.stringContaining("/api/v1/messages/drafts/1"),
+      ]);
+    });
+  });
+
+  test("Save Draft surfaces an error instead of crashing on a malformed response", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.includes("/unread-count")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ unread_count: 0 }),
+        });
+      }
+      if (url.includes("/inbox")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              messages: FAKE_INBOX,
+              total: 2,
+              page: 1,
+              per_page: 25,
+            }),
+        });
+      }
+      if (url.endsWith("/api/v1/messages/drafts") && method === "POST") {
+        // ok:true but no `draft` key — a malformed/unexpected success body.
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    const user = userEvent.setup();
+    renderMessagesPage();
+    await waitFor(() => {
+      expect(screen.getByText("Hello there")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Compose"));
+    await user.type(screen.getByLabelText("Subject"), "Draft subject");
+    await user.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to save draft")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Draft saved.")).not.toBeInTheDocument();
+  });
+});

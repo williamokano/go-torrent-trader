@@ -995,7 +995,7 @@ The link carries the item's **page** (computed from its position: forum `topic.P
 - Delete: soft delete per side (sender/receiver independent)
 - Unread count in navigation/header
 
-#### BE-7.2: Drafts & Templates [S]
+#### BE-7.2: Drafts & Templates [S] [DONE — saved_messages table with a kind discriminator (draft/template), /messages/drafts + /messages/templates REST endpoints, compose-form Save Draft/Save as Template/list/load/delete UI]
 **As a** user
 **I want** to save message drafts and templates
 **So that** I can compose messages later or reuse common messages
@@ -1005,6 +1005,8 @@ The link carries the item's **page** (computed from its position: forum `topic.P
 - Save template: stores reusable message pattern
 - Load template into compose form
 - List/delete drafts and templates
+
+> **Known follow-up (not blocking, Devil's Advocate finding, rated High by the reviewer):** `Update` has no optimistic-concurrency check — two tabs/devices saving the same draft is last-write-wins with no conflict signal. Deliberately not fixed here: a real fix needs a version/`updated_at` token round-tripped through the PUT request, a new 409 response, and frontend handling for it — a scope increase for an `[S]` story, not a quick win. Judged acceptable to ship without it because the blast radius is narrow (a user's own draft/template, never shared or cross-user) and "last write wins" is the standard, expected behavior for exactly this kind of autosave resource in comparable products (Gmail, Outlook, Notion). If multi-tab draft editing becomes a real complaint, revisit with a `updated_at`-based conditional update (`SavedMessageRepo.Update` already carries `AND user_id = $N` in its WHERE clause — extending it to `AND updated_at = $N+1` and mapping the resulting `sql.ErrNoRows` to a 409 is the whole change).
 
 #### BE-7.3: PM Notifications [S] [DONE — handled by notification system BE-5.6-5.9, pm_received type + WS push + unread badge]
 
