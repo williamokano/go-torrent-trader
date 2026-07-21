@@ -715,6 +715,21 @@ option (adapting to the admin's spelling). Purely additive: it fills empty field
 can still edit, and the manual fields remain the source of truth. **No backend change** — it's a UI
 convenience over the existing upload endpoint, which still validates on submit.
 
+#### BE-3.13c: Category Edit as a Page + Metadata Fields Table [S] [DONE — admin category editor moved to a page]
+**As an** admin
+**I want** to edit a category on a dedicated page with its custom fields shown as a table
+**So that** the (now larger) category form isn't cramped inside a modal
+
+**Chosen approach (shipped):** a **frontend-only** refactor. Now that a category carries a metadata
+schema (BE-3.13), the create/edit form outgrew a modal. Add/Edit Category now navigate to a
+dedicated page (`/admin/categories/new`, `/admin/categories/:id/edit` → `AdminCategoryEditPage`);
+the list page keeps only the table + delete. Custom fields render as a **table**
+(`MetadataFieldsTable`: Label · Key · Type · Required · Details); **Add Field** opens a modal
+(`MetadataFieldModal`) that saves each field as a row, and each row's **Edit** reopens the modal
+pre-filled. The old inline `MetadataSchemaEditor` is retired. There's no single-category admin GET,
+so the edit page reuses the existing list endpoint for both the category and its parent options.
+**No backend change** — same `POST`/`PUT /api/v1/admin/categories` payload, still validated server-side.
+
 #### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user
 **I want** to see who uploaded each torrent in the browse/list views

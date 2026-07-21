@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { AdminCategoriesPage } from "@/pages/admin/AdminCategoriesPage";
 import { ToastProvider } from "@/components/toast";
 
@@ -59,11 +59,23 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+// Renders the list page alongside stand-in edit routes so navigation from the
+// list (Add / Edit) can be asserted by which sentinel page shows.
 function renderPage() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/admin/categories"]}>
       <ToastProvider>
-        <AdminCategoriesPage />
+        <Routes>
+          <Route path="/admin/categories" element={<AdminCategoriesPage />} />
+          <Route
+            path="/admin/categories/new"
+            element={<div>NEW CATEGORY PAGE</div>}
+          />
+          <Route
+            path="/admin/categories/:id/edit"
+            element={<div>EDIT CATEGORY PAGE</div>}
+          />
+        </Routes>
       </ToastProvider>
     </MemoryRouter>,
   );
@@ -108,7 +120,7 @@ describe("AdminCategoriesPage", () => {
     });
   });
 
-  test("opens create modal when Add Category is clicked", async () => {
+  test("navigates to the new-category page when Add Category is clicked", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
       json: async () => ({ categories: FAKE_CATEGORIES }),
@@ -122,12 +134,10 @@ describe("AdminCategoriesPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add Category" }));
 
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
+    expect(screen.getByText("NEW CATEGORY PAGE")).toBeInTheDocument();
   });
 
-  test("does not close the category form on Escape, preserving in-progress input", async () => {
+  test("navigates to the edit page when Edit is clicked", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
       json: async () => ({ categories: FAKE_CATEGORIES }),
@@ -139,106 +149,9 @@ describe("AdminCategoriesPage", () => {
       expect(screen.getAllByText("Movies").length).toBeGreaterThanOrEqual(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Add Category" }));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
 
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-
-    const nameInput = screen.getByLabelText("Name");
-    fireEvent.change(nameInput, { target: { value: "Draft category name" } });
-
-    fireEvent.keyDown(document, { key: "Escape" });
-
-    // The edit/create form is a real-data-entry modal, so it opts out of
-    // Escape-to-close — a stray Escape press must not discard the draft.
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(nameInput).toHaveValue("Draft category name");
-  });
-
-  test("opens edit modal when Edit is clicked", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ categories: FAKE_CATEGORIES }),
-    } as Response);
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getAllByText("Movies").length).toBeGreaterThanOrEqual(1);
-    });
-
-    const editButtons = screen.getAllByText("Edit");
-    fireEvent.click(editButtons[0]);
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-    expect(screen.getByText("Edit Category")).toBeInTheDocument();
-  });
-
-  test("creates a category successfully", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-    // Initial fetch
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ categories: [] }),
-    } as Response);
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("No categories found.")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Add Category" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-
-    // Fill in the form
-    const nameInput = screen.getByLabelText("Name");
-    fireEvent.change(nameInput, { target: { value: "New Category" } });
-
-    // POST success
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        category: {
-          id: 10,
-          name: "New Category",
-          slug: "new-category",
-          parent_id: null,
-          sort_order: 0,
-        },
-      }),
-    } as Response);
-
-    // Re-fetch categories
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        categories: [
-          {
-            id: 10,
-            name: "New Category",
-            slug: "new-category",
-            parent_id: null,
-            sort_order: 0,
-            created_at: "2024-01-01T00:00:00Z",
-            updated_at: "2024-01-01T00:00:00Z",
-          },
-        ],
-      }),
-    } as Response);
-
-    fireEvent.click(screen.getByText("Save"));
-
-    await waitFor(() => {
-      expect(screen.getByText("New Category")).toBeInTheDocument();
-    });
+    expect(screen.getByText("EDIT CATEGORY PAGE")).toBeInTheDocument();
   });
 
   test("shows error when delete fails due to torrents", async () => {
@@ -261,7 +174,6 @@ describe("AdminCategoriesPage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Delete the "Movies"/)).toBeInTheDocument();
 
-    // DELETE fails with conflict
     fetchSpy.mockResolvedValueOnce({
       ok: false,
       status: 409,

@@ -7,7 +7,8 @@
   margin-bottom: var(--space-md);
 }
 
-.admin-categories__modal-form {
+.admin-categories__modal-form,
+.admin-categories__form {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
@@ -22,7 +23,8 @@
   border-radius: var(--radius-md);
 }
 
-.admin-categories__modal-actions {
+.admin-categories__modal-actions,
+.admin-categories__form-actions {
   display: flex;
   gap: var(--space-sm);
   justify-content: flex-end;

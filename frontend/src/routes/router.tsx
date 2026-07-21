@@ -23,6 +23,7 @@ import { AdminSettingsPage } from "@/pages/admin/AdminSettingsPage";
 import { AdminBansPage } from "@/pages/admin/AdminBansPage";
 import { AdminWarningsPage } from "@/pages/admin/AdminWarningsPage";
 import { AdminCategoriesPage } from "@/pages/admin/AdminCategoriesPage";
+import { AdminCategoryEditPage } from "@/pages/admin/AdminCategoryEditPage";
 import { RSSBuilderPage } from "@/pages/RSSBuilderPage";
 import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
@@ -182,6 +183,8 @@ export const router = createBrowserRouter([
           { path: "reports", element: <AdminReportsPage /> },
           { path: "torrents", element: <AdminTorrentsPage /> },
           { path: "categories", element: <AdminCategoriesPage /> },
+          { path: "categories/new", element: <AdminCategoryEditPage /> },
+          { path: "categories/:id/edit", element: <AdminCategoryEditPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
           { path: "promotion", element: <AdminPromotionPage /> },
           {

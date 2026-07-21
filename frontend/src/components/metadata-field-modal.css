@@ -1,0 +1,30 @@
+.field-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: min(28rem, 80vw);
+}
+
+.field-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.field-modal__error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--danger-fg, #b42318);
+  background: var(--danger-bg, #fef3f2);
+  border: 1px solid var(--danger-border, #fda29b);
+}
+
+.field-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
