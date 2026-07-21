@@ -1,0 +1,17 @@
+.fields-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fields-table__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fields-table__empty {
+  font-size: 0.85rem;
+  color: var(--text-muted, #777);
+  margin: 0;
+}

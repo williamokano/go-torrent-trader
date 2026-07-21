@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
-import { Input } from "@/components/form";
-import { Select } from "@/components/form";
-import { Modal } from "@/components/modal/Modal";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { CategoryIcon } from "@/components/CategoryIcon";
-import { MetadataSchemaEditor } from "@/components/MetadataSchemaEditor";
 import type { MetadataField } from "@/utils/metadata";
 import "./admin-ui.css";
 import "./admin-categories.css";
@@ -24,31 +21,11 @@ interface Category {
   updated_at: string;
 }
 
-interface CategoryFormData {
-  name: string;
-  slug: string;
-  parent_id: string;
-  image_url: string;
-  sort_order: string;
-}
-
-const emptyForm: CategoryFormData = {
-  name: "",
-  slug: "",
-  parent_id: "",
-  image_url: "",
-  sort_order: "0",
-};
-
 export function AdminCategoriesPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<CategoryFormData>(emptyForm);
-  const [schema, setSchema] = useState<MetadataField[]>([]);
-  const [saving, setSaving] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<Category | null>(
     null,
@@ -76,76 +53,6 @@ export function AdminCategoriesPage() {
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
-
-  const openCreateModal = () => {
-    setEditingId(null);
-    setForm(emptyForm);
-    setSchema([]);
-    setModalOpen(true);
-  };
-
-  const openEditModal = (cat: Category) => {
-    setEditingId(cat.id);
-    setForm({
-      name: cat.name,
-      slug: cat.slug,
-      parent_id: cat.parent_id != null ? String(cat.parent_id) : "",
-      image_url: cat.image_url ?? "",
-      sort_order: String(cat.sort_order),
-    });
-    setSchema(cat.metadata_schema ?? []);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setEditingId(null);
-    setForm(emptyForm);
-    setSchema([]);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    const token = getAccessToken();
-    const payload = {
-      name: form.name,
-      slug: form.slug,
-      parent_id: form.parent_id ? Number(form.parent_id) : null,
-      image_url: form.image_url.trim() || null,
-      sort_order: Number(form.sort_order) || 0,
-      metadata_schema: schema,
-    };
-
-    try {
-      const url = editingId
-        ? `${getConfig().API_URL}/api/v1/admin/categories/${editingId}`
-        : `${getConfig().API_URL}/api/v1/admin/categories`;
-
-      const res = await fetch(url, {
-        method: editingId ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        toast.success(
-          editingId
-            ? "Category updated successfully"
-            : "Category created successfully",
-        );
-        closeModal();
-        fetchCategories();
-      } else {
-        const data = await res.json();
-        toast.error(data?.error?.message ?? "Failed to save category");
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleDelete = async () => {
     if (!deletingCategory) return;
@@ -177,13 +84,6 @@ export function AdminCategoriesPage() {
     }
   };
 
-  const parentOptions = categories
-    .filter((c) => c.parent_id == null)
-    .map((c) => ({
-      value: String(c.id),
-      label: c.name,
-    }));
-
   const getCategoryName = (id: number | null): string => {
     if (id == null) return "-";
     const cat = categories.find((c) => c.id === id);
@@ -204,7 +104,7 @@ export function AdminCategoriesPage() {
         <div className="admin-page-header__actions">
           <button
             className="admin-btn admin-btn--primary"
-            onClick={openCreateModal}
+            onClick={() => navigate("/admin/categories/new")}
           >
             Add Category
           </button>
@@ -250,7 +150,9 @@ export function AdminCategoriesPage() {
                     <td className="admin-table__actions">
                       <button
                         className="admin-btn admin-btn--ghost admin-btn--sm"
-                        onClick={() => openEditModal(cat)}
+                        onClick={() =>
+                          navigate(`/admin/categories/${cat.id}/edit`)
+                        }
                       >
                         Edit
                       </button>{" "}
@@ -271,71 +173,6 @@ export function AdminCategoriesPage() {
           </div>
         </div>
       )}
-
-      <Modal
-        isOpen={modalOpen}
-        onClose={closeModal}
-        title={editingId ? "Edit Category" : "Add Category"}
-        closeOnEscape={false}
-        closeOnDismissClick={false}
-      >
-        <div className="admin-categories__modal-form">
-          <Input
-            label="Name"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <Input
-            label="Slug"
-            value={form.slug}
-            placeholder="Auto-generated from name if empty"
-            onChange={(e) => setForm({ ...form, slug: e.target.value })}
-          />
-          <Select
-            label="Parent Category"
-            options={[
-              { value: "", label: "None (top-level)" },
-              ...parentOptions,
-            ]}
-            value={form.parent_id}
-            onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
-          />
-          <Input
-            label="Image URL"
-            value={form.image_url}
-            placeholder="https://example.com/icon.png"
-            onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-          />
-          {form.image_url.trim() && (
-            <div className="admin-categories__image-preview">
-              <CategoryIcon
-                name={form.name || "?"}
-                imageUrl={form.image_url.trim()}
-                size="lg"
-              />
-            </div>
-          )}
-          <Input
-            label="Sort Order"
-            type="number"
-            value={form.sort_order}
-            onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
-          />
-          <MetadataSchemaEditor value={schema} onChange={setSchema} />
-          <div className="admin-categories__modal-actions">
-            <button className="admin-btn admin-btn--ghost" onClick={closeModal}>
-              Cancel
-            </button>
-            <button
-              className="admin-btn admin-btn--primary"
-              onClick={handleSave}
-              disabled={saving || !form.name.trim()}
-            >
-              {saving ? "Saving..." : "Save"}
-            </button>
-          </div>
-        </div>
-      </Modal>
 
       <ConfirmModal
         isOpen={deletingCategory !== null}
