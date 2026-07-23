@@ -389,6 +389,8 @@ func handleTorrentError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusConflict, "duplicate_reseed_request", err.Error())
 	case errors.Is(err, service.ErrNotPending):
 		ErrorResponse(w, http.StatusConflict, "not_pending", "torrent is not pending moderation")
+	case errors.Is(err, service.ErrEmptyMessage):
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "message body cannot be empty")
 	case errors.Is(err, service.ErrModerationUnavailable):
 		ErrorResponse(w, http.StatusServiceUnavailable, "moderation_unavailable", "moderation is unavailable")
 	default:

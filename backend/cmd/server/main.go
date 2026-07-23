@@ -169,9 +169,10 @@ func run() int {
 
 	// Torrent submission moderation (BE-8.22): the same TorrentRepo implements the
 	// moderation write/queue interface; site settings drive the master switch and
-	// pending-visibility toggle.
+	// pending-visibility toggle; the message repo backs the review thread.
 	torrentService.SetModerationRepo(torrentRepo)
 	torrentService.SetSiteSettings(siteSettingsService)
+	torrentService.SetModerationMessageRepo(postgres.NewTorrentModerationMessageRepo(db))
 
 	cheatFlagRepo := postgres.NewCheatFlagRepo(db)
 	cheatDetectionService := service.NewCheatDetectionService(cheatFlagRepo, siteSettingsService, eventBus)

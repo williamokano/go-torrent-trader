@@ -132,3 +132,85 @@
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
+
+.torrent-moderation-panel__thread {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.torrent-moderation-panel__thread-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  margin: 0 0 var(--space-sm);
+  color: var(--color-text-primary);
+}
+
+.torrent-moderation-panel__messages {
+  list-style: none;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.torrent-moderation-panel__message {
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.torrent-moderation-panel__message-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: 2px;
+}
+
+.torrent-moderation-panel__message-time {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.torrent-moderation-panel__message-body {
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.torrent-moderation-panel__composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.torrent-moderation-panel__textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.torrent-moderation-panel__send {
+  align-self: flex-end;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-lg);
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.torrent-moderation-panel__send:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

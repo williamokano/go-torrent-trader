@@ -85,6 +85,18 @@ describe("mention notification rendering", () => {
     const n = notif("forum_mention", { topic_id: 42, topic_title: "T" });
     expect(notificationLink(n)).toBe("/forums/topics/42");
   });
+
+  test("moderation_message links to the torrent and reads sensibly", () => {
+    const n = notif("moderation_message", {
+      actor_username: "carol",
+      torrent_id: 12,
+      torrent_name: "Big Buck Bunny",
+    });
+    expect(notificationLink(n)).toBe("/torrent/12");
+    expect(notificationMessage(n)).toBe(
+      'carol posted in the moderation review of "Big Buck Bunny"',
+    );
+  });
 });
 
 describe("notification group rendering (BE-9.14)", () => {

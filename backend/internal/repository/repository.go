@@ -86,6 +86,14 @@ type TorrentModerationRepository interface {
 	ListModerationQueue(ctx context.Context, opts ModerationQueueOptions) ([]model.Torrent, int64, error)
 }
 
+// TorrentModerationMessageRepository defines persistence for the per-torrent
+// moderation discussion thread (BE-8.22b).
+type TorrentModerationMessageRepository interface {
+	Create(ctx context.Context, msg *model.TorrentModerationMessage) error
+	ListByTorrent(ctx context.Context, torrentID int64) ([]model.TorrentModerationMessage, error)
+	CountByTorrent(ctx context.Context, torrentID int64) (int, error)
+}
+
 // PeerRepository defines persistence operations for peers.
 type PeerRepository interface {
 	GetByTorrentAndUser(ctx context.Context, torrentID, userID int64) (*model.Peer, error)

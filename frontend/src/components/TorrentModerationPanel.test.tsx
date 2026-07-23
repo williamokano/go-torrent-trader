@@ -46,6 +46,11 @@ describe("TorrentModerationPanel", () => {
     vi.restoreAllMocks();
     mockToast.success.mockClear();
     mockToast.error.mockClear();
+    // Default: the on-mount message-thread fetch returns an empty thread.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ messages: [] }),
+    } as Response);
   });
 
   it("shows staff actions on a pending torrent and approves", async () => {
@@ -88,6 +93,40 @@ describe("TorrentModerationPanel", () => {
     renderPanel({ status: "rejected" }, { isStaff: true });
     expect(screen.getByText("Rejected")).toBeInTheDocument();
     expect(screen.getByText(/was rejected/i)).toBeInTheDocument();
+  });
+
+  it("renders the thread and sends a message", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        messages: [
+          {
+            id: 1,
+            author_id: 5,
+            author_username: "alice",
+            body: "audio is out of sync",
+            created_at: "2026-07-01T00:00:00Z",
+          },
+        ],
+      }),
+    } as Response);
+
+    renderPanel({ status: "pending" }, { isStaff: false, canApprove: false });
+
+    await waitFor(() =>
+      expect(screen.getByText("audio is out of sync")).toBeInTheDocument(),
+    );
+
+    await user.type(screen.getByRole("textbox"), "re-encoding now");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/torrents/7/moderation/messages",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 });
 

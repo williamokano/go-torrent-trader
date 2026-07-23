@@ -158,6 +158,38 @@ func RegisterNotificationListeners(
 		return nil
 	})
 
+	// Moderation message posted: notify the uploader + assigned moderator, minus
+	// whoever wrote it (NotificationService.Create skips self-notification).
+	bus.Subscribe(event.TorrentModerationMsg, func(_ context.Context, evt event.Event) error {
+		e := evt.(*event.TorrentModerationMessagePostedEvent)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		recipients := []int64{e.UploaderID}
+		if e.AssignedModeratorID != nil {
+			recipients = append(recipients, *e.AssignedModeratorID)
+		}
+
+		data := marshalData(map[string]interface{}{
+			"torrent_id":     e.TorrentID,
+			"torrent_name":   e.TorrentName,
+			"actor_id":       e.Actor.ID,
+			"actor_username": e.Actor.Username,
+		})
+
+		notified := make(map[int64]bool)
+		for _, uid := range recipients {
+			if uid == 0 || notified[uid] {
+				continue
+			}
+			notified[uid] = true
+			if _, err := notifSvc.Create(ctx, uid, e.Actor.ID, model.NotifModerationMessage, data); err != nil {
+				slog.Error("notification: failed to create moderation_message", "error", err)
+			}
+		}
+		return nil
+	})
+
 	// PM received: notify the receiver
 	bus.Subscribe(event.MessageSent, func(_ context.Context, evt event.Event) error {
 		e := evt.(*event.MessageSentEvent)

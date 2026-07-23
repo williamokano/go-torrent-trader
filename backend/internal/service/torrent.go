@@ -33,6 +33,8 @@ var (
 	// ErrNotPending is returned when approve/reject targets a torrent that is not
 	// awaiting moderation.
 	ErrNotPending = errors.New("torrent is not pending moderation")
+	// ErrEmptyMessage is returned when a moderation message body is blank.
+	ErrEmptyMessage = errors.New("message body cannot be empty")
 )
 
 // torrentMeta represents the top-level structure of a .torrent file.
@@ -101,18 +103,19 @@ type TorrentServiceConfig struct {
 }
 
 type TorrentService struct {
-	db               *sql.DB
-	torrents         repository.TorrentRepository
-	users            repository.UserRepository
-	categories       repository.CategoryRepository
-	storage          storage.FileStorage
-	announceURL      string
-	torrentComment   string
-	torrentCreatedBy string
-	eventBus         event.Bus
-	reseedRequests   repository.ReseedRequestRepository
-	moderation       repository.TorrentModerationRepository
-	siteSettings     *SiteSettingsService
+	db                 *sql.DB
+	torrents           repository.TorrentRepository
+	users              repository.UserRepository
+	categories         repository.CategoryRepository
+	storage            storage.FileStorage
+	announceURL        string
+	torrentComment     string
+	torrentCreatedBy   string
+	eventBus           event.Bus
+	reseedRequests     repository.ReseedRequestRepository
+	moderation         repository.TorrentModerationRepository
+	moderationMessages repository.TorrentModerationMessageRepository
+	siteSettings       *SiteSettingsService
 }
 
 // SetCategoryRepo injects the category repository used to resolve per-category
@@ -134,6 +137,11 @@ func (s *TorrentService) SetModerationRepo(repo repository.TorrentModerationRepo
 // by default and pending torrents stay hidden from non-author/non-staff viewers.
 func (s *TorrentService) SetSiteSettings(settings *SiteSettingsService) {
 	s.siteSettings = settings
+}
+
+// SetModerationMessageRepo injects the moderation-thread repository (BE-8.22b).
+func (s *TorrentService) SetModerationMessageRepo(repo repository.TorrentModerationMessageRepository) {
+	s.moderationMessages = repo
 }
 
 // NewTorrentService creates a new TorrentService.
@@ -757,6 +765,68 @@ func (s *TorrentService) RejectTorrent(ctx context.Context, torrentID, userID in
 // class (BE-8.22c) extends this to self-approval of one's own upload.
 func (s *TorrentService) canApprove(_ *model.Torrent, _ int64, perms model.Permissions) bool {
 	return perms.IsStaff()
+}
+
+// canAccessModerationThread reports whether a user may read/post in a torrent's
+// moderation thread: staff or the uploader.
+func (s *TorrentService) canAccessModerationThread(torrent *model.Torrent, userID int64, perms model.Permissions) bool {
+	return perms.IsStaff() || torrent.UploaderID == userID
+}
+
+// ListModerationMessages returns a torrent's moderation thread. Only staff and the
+// uploader may read it.
+func (s *TorrentService) ListModerationMessages(ctx context.Context, torrentID, userID int64, perms model.Permissions) ([]model.TorrentModerationMessage, error) {
+	if s.moderationMessages == nil {
+		return nil, ErrModerationUnavailable
+	}
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if !s.canAccessModerationThread(torrent, userID, perms) {
+		return nil, ErrForbidden
+	}
+	return s.moderationMessages.ListByTorrent(ctx, torrentID)
+}
+
+// PostModerationMessage adds a message to a torrent's moderation thread (staff or
+// uploader), then publishes an event so the uploader + assigned moderator are
+// notified (the actor is skipped).
+func (s *TorrentService) PostModerationMessage(ctx context.Context, torrentID, userID int64, perms model.Permissions, body string) (*model.TorrentModerationMessage, error) {
+	if s.moderationMessages == nil {
+		return nil, ErrModerationUnavailable
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil, ErrEmptyMessage
+	}
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if !s.canAccessModerationThread(torrent, userID, perms) {
+		return nil, ErrForbidden
+	}
+
+	msg := &model.TorrentModerationMessage{
+		TorrentID: torrentID,
+		AuthorID:  userID,
+		Body:      body,
+	}
+	if err := s.moderationMessages.Create(ctx, msg); err != nil {
+		return nil, fmt.Errorf("create moderation message: %w", err)
+	}
+	msg.AuthorUsername = s.actorFromUserID(ctx, userID).Username
+
+	s.eventBus.Publish(ctx, &event.TorrentModerationMessagePostedEvent{
+		Base:                event.NewBase(event.TorrentModerationMsg, s.actorFromUserID(ctx, userID)),
+		TorrentID:           torrent.ID,
+		TorrentName:         torrent.Name,
+		UploaderID:          torrent.UploaderID,
+		AssignedModeratorID: torrent.AssignedModeratorID,
+	})
+
+	return msg, nil
 }
 
 // rewriteAnnounce decodes the torrent, sets the announce URL, and re-encodes.

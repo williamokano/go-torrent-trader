@@ -532,7 +532,53 @@ func (r *TorrentRepo) ListModerationQueue(ctx context.Context, opts repository.M
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterating moderation queue: %w", err)
 	}
+
+	if err := r.fillMessageCounts(ctx, torrents); err != nil {
+		return nil, 0, err
+	}
 	return torrents, total, nil
+}
+
+// fillMessageCounts populates MessageCount on each queued torrent with one
+// grouped query over the whole page, so the queue can show "N messages" without
+// a per-row round trip (BE-8.22b).
+func (r *TorrentRepo) fillMessageCounts(ctx context.Context, torrents []model.Torrent) error {
+	if len(torrents) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(torrents))
+	args := make([]any, len(torrents))
+	for i := range torrents {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = torrents[i].ID
+	}
+
+	query := fmt.Sprintf(`SELECT torrent_id, COUNT(*) FROM torrent_moderation_messages
+		WHERE torrent_id IN (%s) GROUP BY torrent_id`, strings.Join(placeholders, ", "))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("counting moderation messages: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	counts := make(map[int64]int, len(torrents))
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return fmt.Errorf("scanning moderation message count: %w", err)
+		}
+		counts[id] = n
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating moderation message counts: %w", err)
+	}
+
+	for i := range torrents {
+		torrents[i].MessageCount = counts[torrents[i].ID]
+	}
+	return nil
 }
 
 // ListMissingRequiredMetadata returns torrents in a category whose metadata is
