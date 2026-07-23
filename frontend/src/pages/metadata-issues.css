@@ -1,0 +1,19 @@
+.metadata-issues__error {
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-md);
+}
+
+.metadata-issues__scope {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.metadata-issues__badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  margin: 0 0.25rem 0.25rem 0;
+  border-radius: 999px;
+  background: var(--color-bg-secondary, #eef);
+  font-size: 0.8rem;
+}

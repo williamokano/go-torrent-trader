@@ -6,6 +6,7 @@ import { AdminRoute, AdminIndexRedirect } from "@/routes/AdminRoute";
 import { HomePage } from "@/pages/HomePage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { UploadPage } from "@/pages/UploadPage";
+import { MetadataIssuesPage } from "@/pages/MetadataIssuesPage";
 import { TorrentDetailPage } from "@/pages/TorrentDetailPage";
 import { TorrentEditPage } from "@/pages/TorrentEditPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -110,6 +111,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <UploadPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "metadata-issues",
+        element: (
+          <ProtectedRoute>
+            <MetadataIssuesPage />
           </ProtectedRoute>
         ),
       },

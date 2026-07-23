@@ -227,6 +227,8 @@ func run() int {
 	categoryService := service.NewCategoryService(categoryRepo)
 	// Torrent uploads/edits validate metadata against per-category schemas.
 	torrentService.SetCategoryRepo(categoryRepo)
+	// Reports torrents missing metadata their category now marks required.
+	metadataAuditService := service.NewMetadataAuditService(torrentRepo, categoryRepo)
 	memberService := service.NewMemberService(userRepo, groupRepo)
 	dashboardRepo := postgres.NewDashboardRepo(db)
 
@@ -288,6 +290,7 @@ func run() int {
 		InviteService:             inviteService,
 		AdminService:              adminService,
 		CategoryService:           categoryService,
+		MetadataAuditService:      metadataAuditService,
 		ActivityLogService:        activityLogService,
 		SiteSettingsService:       siteSettingsService,
 		BanService:                banService,

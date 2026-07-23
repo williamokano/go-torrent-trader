@@ -381,3 +381,67 @@ func (r *TorrentRepo) ListByUploader(ctx context.Context, uploaderID int64, limi
 	}
 	return torrents, nil
 }
+
+// ListMissingRequiredMetadata returns torrents in a category whose metadata is
+// missing at least one of requiredKeys — i.e. a field the category now marks
+// required has no stored value. When uploaderID is non-nil the result is scoped
+// to that uploader. Only the columns the metadata-issues report needs are
+// populated on the returned torrents.
+func (r *TorrentRepo) ListMissingRequiredMetadata(ctx context.Context, categoryID int64, requiredKeys []string, uploaderID *int64) ([]model.Torrent, error) {
+	if len(requiredKeys) == 0 {
+		return nil, nil
+	}
+
+	var (
+		args   []any
+		argIdx int
+	)
+	next := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+
+	conditions := []string{fmt.Sprintf("t.category_id = %s", next(categoryID))}
+
+	// A torrent satisfies the schema when it has every required key; select the
+	// ones missing at least one. jsonb_exists avoids the `?` operator so no
+	// driver mistakes it for a bind placeholder.
+	existsChecks := make([]string, len(requiredKeys))
+	for i, key := range requiredKeys {
+		existsChecks[i] = fmt.Sprintf("jsonb_exists(t.metadata, %s)", next(key))
+	}
+	conditions = append(conditions, fmt.Sprintf("NOT (%s)", strings.Join(existsChecks, " AND ")))
+
+	if uploaderID != nil {
+		conditions = append(conditions, fmt.Sprintf("t.uploader_id = %s", next(*uploaderID)))
+	}
+
+	query := fmt.Sprintf(`SELECT t.id, t.name, t.category_id, c.name, t.uploader_id, t.anonymous, t.metadata,
+			CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END
+		FROM torrents t
+		JOIN categories c ON t.category_id = c.id
+		LEFT JOIN users u ON t.uploader_id = u.id
+		WHERE %s
+		ORDER BY t.id`, strings.Join(conditions, " AND "))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing torrents missing required metadata: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var torrents []model.Torrent
+	for rows.Next() {
+		var t model.Torrent
+		if err := rows.Scan(&t.ID, &t.Name, &t.CategoryID, &t.CategoryName,
+			&t.UploaderID, &t.Anonymous, &t.Metadata, &t.UploaderName); err != nil {
+			return nil, fmt.Errorf("scanning torrent: %w", err)
+		}
+		torrents = append(torrents, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating torrents: %w", err)
+	}
+	return torrents, nil
+}

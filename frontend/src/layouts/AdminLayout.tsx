@@ -39,6 +39,11 @@ export function AdminLayout() {
           </NavLink>
         )}
         {isAdmin && (
+          <NavLink to="/metadata-issues" className={navLinkClass}>
+            Metadata Issues
+          </NavLink>
+        )}
+        {isAdmin && (
           <NavLink to="/admin/groups" className={navLinkClass}>
             Groups
           </NavLink>

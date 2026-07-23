@@ -26,6 +26,7 @@ type Deps struct {
 	InviteService             *service.InviteService
 	AdminService              *service.AdminService
 	CategoryService           *service.CategoryService
+	MetadataAuditService      *service.MetadataAuditService
 	ActivityLogService        *service.ActivityLogService
 	SiteSettingsService       *service.SiteSettingsService
 	BanService                *service.BanService
@@ -203,6 +204,11 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/torrents", func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/", torrents.HandleList)
+					// Static path registered before "/{id}" so chi routes it here.
+					if deps.MetadataAuditService != nil {
+						audit := NewMetadataAuditHandler(deps.MetadataAuditService)
+						r.Get("/metadata-issues", audit.HandleMetadataIssues)
+					}
 					r.Get("/{id}", torrents.HandleGetByID)
 					r.Put("/{id}", torrents.HandleEdit)
 					r.Delete("/{id}", torrents.HandleDelete)
