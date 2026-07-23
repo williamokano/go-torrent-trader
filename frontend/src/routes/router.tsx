@@ -17,6 +17,7 @@ import { UserProfilePage } from "@/pages/UserProfilePage";
 import { UserSettingsPage } from "@/pages/UserSettingsPage";
 import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
+import { AdminModerationPage } from "@/pages/admin/AdminModerationPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { AdminPromotionPage } from "@/pages/admin/AdminPromotionPage";
 import { AdminInviteDistributionPage } from "@/pages/admin/AdminInviteDistributionPage";
@@ -190,6 +191,7 @@ export const router = createBrowserRouter([
           { path: "users", element: <AdminUsersPage /> },
           { path: "users/:id", element: <AdminUserDetailPage /> },
           { path: "reports", element: <AdminReportsPage /> },
+          { path: "moderation", element: <AdminModerationPage /> },
           { path: "torrents", element: <AdminTorrentsPage /> },
           { path: "categories", element: <AdminCategoriesPage /> },
           { path: "categories/new", element: <AdminCategoryEditPage /> },

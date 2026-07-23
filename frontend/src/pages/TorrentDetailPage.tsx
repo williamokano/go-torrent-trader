@@ -14,6 +14,11 @@ import { formatBytes, formatNumber, timeAgo } from "@/utils/format";
 import type { Torrent } from "@/types/torrent";
 import { NfoViewer } from "@/components/NfoViewer";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
+import {
+  TorrentModerationPanel,
+  ApprovedByLine,
+} from "@/components/TorrentModerationPanel";
+import type { TorrentModeration } from "@/types/moderation";
 import { getConfig } from "@/config";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import {
@@ -53,6 +58,7 @@ export function TorrentDetailPage() {
   const [reseedRequested, setReseedRequested] = useState(false);
   const [reseedLoading, setReseedLoading] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +102,7 @@ export function TorrentDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, refreshKey]);
 
   useEffect(() => {
     if (!torrent || !id) return;
@@ -182,6 +188,12 @@ export function TorrentDetailPage() {
         },
       );
 
+      if (response.status === 403) {
+        toast.error(
+          "This torrent is awaiting moderation and can't be downloaded yet.",
+        );
+        return;
+      }
       if (!response.ok) {
         throw new Error("Download failed");
       }
@@ -288,6 +300,16 @@ export function TorrentDetailPage() {
   const seeders = torrent.seeders ?? 0;
   const leechers = torrent.leechers ?? 0;
 
+  const moderation = (torrent as unknown as { moderation?: TorrentModeration })
+    .moderation;
+  const modStatus = moderation?.status ?? "approved";
+  const isApproved = modStatus === "approved";
+  const isOwner = !!user && torrent.uploader_id === user.id;
+  const isStaff = !!user?.isStaff;
+  // PR-8.22c extends approval to self-approving Uploaders on their own upload.
+  const canApprove = isStaff;
+  const canSeeModeration = isStaff || isOwner;
+
   return (
     <div className="torrent-detail">
       <div className="torrent-detail__header">
@@ -331,6 +353,23 @@ export function TorrentDetailPage() {
           })()}
         </span>
       </div>
+
+      {!isApproved && canSeeModeration && moderation && (
+        <TorrentModerationPanel
+          torrentId={torrent.id!}
+          moderation={moderation}
+          isStaff={isStaff}
+          canApprove={canApprove}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {!isApproved && !canSeeModeration && (
+        <div className="torrent-detail__pending-banner">
+          This torrent is awaiting moderation and can't be downloaded until a
+          staff member approves it.
+        </div>
+      )}
 
       <div className="torrent-detail__stats">
         <div className="torrent-detail__stat">
@@ -451,6 +490,7 @@ export function TorrentDetailPage() {
             )}
           </span>
         </div>
+        <ApprovedByLine moderation={moderation} />
       </div>
 
       {(() => {

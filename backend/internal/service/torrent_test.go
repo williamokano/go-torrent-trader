@@ -540,7 +540,7 @@ func TestTorrentService_DownloadTorrent(t *testing.T) {
 		t.Fatalf("upload failed: %v", err)
 	}
 
-	result, filename, err := svc.DownloadTorrent(context.Background(), uploaded.ID, 1)
+	result, filename, err := svc.DownloadTorrent(context.Background(), uploaded.ID, 1, model.Permissions{})
 	if err != nil {
 		t.Fatalf("download failed: %v", err)
 	}
@@ -585,7 +585,7 @@ func TestTorrentService_DownloadTorrent_NotFound(t *testing.T) {
 	store := newMemStorage()
 	svc := NewTorrentService(nil, repo, userRepo, store, TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, event.NewInMemoryBus(), nil)
 
-	_, _, err := svc.DownloadTorrent(context.Background(), 999, 1)
+	_, _, err := svc.DownloadTorrent(context.Background(), 999, 1, model.Permissions{})
 	if !errors.Is(err, ErrTorrentNotFound) {
 		t.Errorf("expected ErrTorrentNotFound, got %v", err)
 	}

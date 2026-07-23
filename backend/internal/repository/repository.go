@@ -53,6 +53,39 @@ type TorrentRepository interface {
 	IncrementTimesCompleted(ctx context.Context, id int64) error
 }
 
+// ModerationAssignedFilter scopes a moderation-queue listing by claim state.
+type ModerationAssignedFilter string
+
+const (
+	// ModAssignedAll returns every torrent in the requested status.
+	ModAssignedAll ModerationAssignedFilter = "all"
+	// ModAssignedMine returns only torrents claimed by ModeratorID.
+	ModAssignedMine ModerationAssignedFilter = "mine"
+	// ModAssignedUnassigned returns only torrents with no assigned moderator.
+	ModAssignedUnassigned ModerationAssignedFilter = "unassigned"
+)
+
+// ModerationQueueOptions filters and paginates the staff moderation queue.
+type ModerationQueueOptions struct {
+	Status      string                   // moderation status to list; defaults to "pending"
+	Assigned    ModerationAssignedFilter // all (default), mine, or unassigned
+	ModeratorID int64                    // required when Assigned == mine
+	Page        int
+	PerPage     int
+}
+
+// TorrentModerationRepository defines the write and queue operations for torrent
+// submission moderation (BE-8.22). It is kept separate from TorrentRepository so
+// the many read-only torrent consumers (and their mocks) don't have to implement
+// moderation methods they never use — mirroring GroupWriteRepository.
+type TorrentModerationRepository interface {
+	ClaimModeration(ctx context.Context, torrentID, moderatorID int64) error
+	UnclaimModeration(ctx context.Context, torrentID int64) error
+	ApproveTorrent(ctx context.Context, torrentID, approverID int64) error
+	RejectTorrent(ctx context.Context, torrentID int64) error
+	ListModerationQueue(ctx context.Context, opts ModerationQueueOptions) ([]model.Torrent, int64, error)
+}
+
 // PeerRepository defines persistence operations for peers.
 type PeerRepository interface {
 	GetByTorrentAndUser(ctx context.Context, torrentID, userID int64) (*model.Peer, error)

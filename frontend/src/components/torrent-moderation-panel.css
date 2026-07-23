@@ -1,0 +1,134 @@
+.torrent-moderation-panel {
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.torrent-moderation-panel--pending {
+  border-left-color: var(--color-warning);
+}
+
+.torrent-moderation-panel--rejected {
+  border-left-color: var(--color-error);
+}
+
+.torrent-moderation-panel--approved {
+  border-left-color: var(--color-success);
+}
+
+.torrent-moderation-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.torrent-moderation-panel__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.torrent-moderation-panel__badge {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.torrent-moderation-panel--pending .torrent-moderation-panel__badge {
+  color: var(--color-warning);
+}
+
+.torrent-moderation-panel--rejected .torrent-moderation-panel__badge {
+  color: var(--color-error);
+}
+
+.torrent-moderation-panel__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-base);
+  margin-bottom: var(--space-sm);
+}
+
+.torrent-moderation-panel__label {
+  color: var(--color-text-muted);
+  min-width: 90px;
+}
+
+.torrent-moderation-panel__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-text-primary);
+}
+
+.torrent-moderation-panel__muted {
+  color: var(--color-text-muted);
+}
+
+.torrent-moderation-panel__link-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: 0;
+}
+
+.torrent-moderation-panel__link-btn:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.torrent-moderation-panel__link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.torrent-moderation-panel__actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.torrent-moderation-panel__approve,
+.torrent-moderation-panel__reject {
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+}
+
+.torrent-moderation-panel__approve {
+  background: var(--color-success);
+}
+
+.torrent-moderation-panel__reject {
+  background: var(--color-error);
+}
+
+.torrent-moderation-panel__approve:disabled,
+.torrent-moderation-panel__reject:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.torrent-moderation-panel__note {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}

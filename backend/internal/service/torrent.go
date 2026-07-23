@@ -27,6 +27,12 @@ var (
 	ErrInvalidTorrent         = errors.New("invalid torrent file")
 	ErrForbidden              = errors.New("forbidden")
 	ErrDuplicateReseedRequest = errors.New("you have already requested a reseed for this torrent")
+	// ErrModerationUnavailable is returned when a moderation action is attempted
+	// but the moderation repository was never wired (e.g. in a minimal test setup).
+	ErrModerationUnavailable = errors.New("moderation is unavailable")
+	// ErrNotPending is returned when approve/reject targets a torrent that is not
+	// awaiting moderation.
+	ErrNotPending = errors.New("torrent is not pending moderation")
 )
 
 // torrentMeta represents the top-level structure of a .torrent file.
@@ -105,6 +111,8 @@ type TorrentService struct {
 	torrentCreatedBy string
 	eventBus         event.Bus
 	reseedRequests   repository.ReseedRequestRepository
+	moderation       repository.TorrentModerationRepository
+	siteSettings     *SiteSettingsService
 }
 
 // SetCategoryRepo injects the category repository used to resolve per-category
@@ -112,6 +120,20 @@ type TorrentService struct {
 // left unset in tests that don't exercise metadata (schema then resolves empty).
 func (s *TorrentService) SetCategoryRepo(repo repository.CategoryRepository) {
 	s.categories = repo
+}
+
+// SetModerationRepo injects the moderation write/queue repository (BE-8.22).
+// Wired in production bootstrap; left unset in tests that don't exercise
+// moderation (moderation actions then return ErrModerationUnavailable).
+func (s *TorrentService) SetModerationRepo(repo repository.TorrentModerationRepository) {
+	s.moderation = repo
+}
+
+// SetSiteSettings injects the site-settings service used to read the moderation
+// config (master switch + public-visibility toggle). When unset, uploads moderate
+// by default and pending torrents stay hidden from non-author/non-staff viewers.
+func (s *TorrentService) SetSiteSettings(settings *SiteSettingsService) {
+	s.siteSettings = settings
 }
 
 // NewTorrentService creates a new TorrentService.
@@ -232,17 +254,26 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		}
 	}
 
+	// Moderation gate (BE-8.22): new uploads are pending until approved. When the
+	// moderation master switch is off, they auto-approve (no human approver
+	// recorded) to preserve the legacy publish-on-upload behavior.
+	moderationStatus := model.ModerationPending
+	if s.siteSettings != nil && !s.siteSettings.GetBool(ctx, SettingModerationEnabled, true) {
+		moderationStatus = model.ModerationApproved
+	}
+
 	torrent := &model.Torrent{
-		Name:       name,
-		InfoHash:   parsed.InfoHash,
-		Size:       parsed.Size,
-		CategoryID: req.CategoryID,
-		UploaderID: uploaderID,
-		Anonymous:  req.Anonymous,
-		Visible:    true,
-		FileCount:  parsed.FileCount,
-		Files:      filesJSON,
-		Metadata:   metaJSON,
+		Name:             name,
+		InfoHash:         parsed.InfoHash,
+		Size:             parsed.Size,
+		CategoryID:       req.CategoryID,
+		UploaderID:       uploaderID,
+		Anonymous:        req.Anonymous,
+		Visible:          true,
+		ModerationStatus: moderationStatus,
+		FileCount:        parsed.FileCount,
+		Files:            filesJSON,
+		Metadata:         metaJSON,
 	}
 	if req.Description != "" {
 		torrent.Description = &req.Description
@@ -257,10 +288,11 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 			createQuery := `INSERT INTO torrents (
 				name, info_hash, size, description, nfo, category_id, uploader_id,
 				anonymous, seeders, leechers, times_completed, comments_count,
-				visible, banned, free, silver, file_count, files, metadata
+				visible, banned, free, silver, file_count, files, metadata,
+				moderation_status
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				$11, $12, $13, $14, $15, $16, $17, $18, $19
+				$11, $12, $13, $14, $15, $16, $17, $18, $19, $20
 			) RETURNING id, created_at, updated_at`
 
 			if err := tx.QueryRowContext(ctx, createQuery,
@@ -268,7 +300,7 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 				torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 				torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 				torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
-				torrent.Files, torrent.Metadata,
+				torrent.Files, torrent.Metadata, torrent.ModerationStatus,
 			).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt); err != nil {
 				errMsg := err.Error()
 				if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "duplicate") {
@@ -355,6 +387,41 @@ func (s *TorrentService) GetByID(ctx context.Context, id int64) (*model.Torrent,
 	return torrent, nil
 }
 
+// GetByIDForViewer returns a torrent only if the viewer is allowed to see it. A
+// non-approved torrent is visible to its uploader and to staff always; to everyone
+// else only a pending one, and only when the public-visibility setting is on. When
+// hidden, it returns ErrTorrentNotFound so a non-viewer can't even confirm the
+// torrent exists.
+func (s *TorrentService) GetByIDForViewer(ctx context.Context, id, userID int64, perms model.Permissions) (*model.Torrent, error) {
+	torrent, err := s.torrents.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if !s.canViewTorrent(ctx, torrent, userID, perms) {
+		return nil, ErrTorrentNotFound
+	}
+	return torrent, nil
+}
+
+// canViewTorrent centralizes the pending-torrent visibility rule shared by the
+// detail and download paths.
+func (s *TorrentService) canViewTorrent(ctx context.Context, torrent *model.Torrent, userID int64, perms model.Permissions) bool {
+	if !torrent.ModerationRestricted() {
+		return true
+	}
+	if torrent.UploaderID == userID || perms.IsStaff() {
+		return true
+	}
+	// A rejected torrent is never publicly viewable; a pending one is only when the
+	// site opts into public visibility of the moderation pipeline.
+	if torrent.ModerationStatus == model.ModerationPending &&
+		s.siteSettings != nil &&
+		s.siteSettings.GetBool(ctx, SettingModerationPublicVisibility, false) {
+		return true
+	}
+	return false
+}
+
 // List returns a paginated list of torrents.
 func (s *TorrentService) List(ctx context.Context, opts repository.ListTorrentsOptions) ([]model.Torrent, int64, error) {
 	if opts.Page <= 0 {
@@ -370,10 +437,16 @@ func (s *TorrentService) List(ctx context.Context, opts repository.ListTorrentsO
 }
 
 // DownloadTorrent retrieves the .torrent file and rewrites the announce URL with the user's passkey.
-func (s *TorrentService) DownloadTorrent(ctx context.Context, torrentID, userID int64) ([]byte, string, error) {
+// A pending/rejected torrent may only be downloaded by its uploader or by staff —
+// nobody else can obtain the file (and thus can't seed it) until it is approved.
+func (s *TorrentService) DownloadTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions) ([]byte, string, error) {
 	torrent, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
 		return nil, "", ErrTorrentNotFound
+	}
+
+	if torrent.ModerationRestricted() && torrent.UploaderID != userID && !perms.IsStaff() {
+		return nil, "", ErrForbidden
 	}
 
 	// Get user's passkey
@@ -570,6 +643,120 @@ func (s *TorrentService) GetReseedCount(ctx context.Context, torrentID int64) (i
 		return 0, fmt.Errorf("count reseed requests: %w", err)
 	}
 	return count, nil
+}
+
+// ListModerationQueue returns torrents awaiting (or in the requested) moderation
+// state. Caller must be staff (enforced at the route).
+func (s *TorrentService) ListModerationQueue(ctx context.Context, opts repository.ModerationQueueOptions) ([]model.Torrent, int64, error) {
+	if s.moderation == nil {
+		return nil, 0, ErrModerationUnavailable
+	}
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	if opts.PerPage <= 0 {
+		opts.PerPage = 25
+	}
+	if opts.PerPage > 100 {
+		opts.PerPage = 100
+	}
+	return s.moderation.ListModerationQueue(ctx, opts)
+}
+
+// ClaimModeration assigns the torrent to moderatorID. Staff can steal an existing
+// claim (a stale moderator shouldn't block review). Only pending torrents can be
+// claimed.
+func (s *TorrentService) ClaimModeration(ctx context.Context, torrentID, moderatorID int64) (*model.Torrent, error) {
+	if s.moderation == nil {
+		return nil, ErrModerationUnavailable
+	}
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if torrent.ModerationStatus != model.ModerationPending {
+		return nil, ErrNotPending
+	}
+	if err := s.moderation.ClaimModeration(ctx, torrentID, moderatorID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrTorrentNotFound
+		}
+		return nil, fmt.Errorf("claim moderation: %w", err)
+	}
+	return s.torrents.GetByID(ctx, torrentID)
+}
+
+// UnclaimModeration clears the torrent's assigned moderator.
+func (s *TorrentService) UnclaimModeration(ctx context.Context, torrentID int64) (*model.Torrent, error) {
+	if s.moderation == nil {
+		return nil, ErrModerationUnavailable
+	}
+	if _, err := s.torrents.GetByID(ctx, torrentID); err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if err := s.moderation.UnclaimModeration(ctx, torrentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrTorrentNotFound
+		}
+		return nil, fmt.Errorf("unclaim moderation: %w", err)
+	}
+	return s.torrents.GetByID(ctx, torrentID)
+}
+
+// ApproveTorrent marks a pending torrent approved, recording the approver. Allowed
+// for staff; the Uploader class extends this to self-approval of their own uploads
+// (see canApprove).
+func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions) (*model.Torrent, error) {
+	if s.moderation == nil {
+		return nil, ErrModerationUnavailable
+	}
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if !s.canApprove(torrent, userID, perms) {
+		return nil, ErrForbidden
+	}
+	if torrent.ModerationStatus == model.ModerationApproved {
+		return nil, ErrNotPending
+	}
+	if err := s.moderation.ApproveTorrent(ctx, torrentID, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrTorrentNotFound
+		}
+		return nil, fmt.Errorf("approve torrent: %w", err)
+	}
+	return s.torrents.GetByID(ctx, torrentID)
+}
+
+// RejectTorrent marks a pending torrent rejected. Staff only.
+func (s *TorrentService) RejectTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions) (*model.Torrent, error) {
+	if s.moderation == nil {
+		return nil, ErrModerationUnavailable
+	}
+	if !perms.IsStaff() {
+		return nil, ErrForbidden
+	}
+	torrent, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, ErrTorrentNotFound
+	}
+	if torrent.ModerationStatus != model.ModerationPending {
+		return nil, ErrNotPending
+	}
+	if err := s.moderation.RejectTorrent(ctx, torrentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrTorrentNotFound
+		}
+		return nil, fmt.Errorf("reject torrent: %w", err)
+	}
+	return s.torrents.GetByID(ctx, torrentID)
+}
+
+// canApprove decides who may approve a torrent. Staff always may; the Uploader
+// class (BE-8.22c) extends this to self-approval of one's own upload.
+func (s *TorrentService) canApprove(_ *model.Torrent, _ int64, perms model.Permissions) bool {
+	return perms.IsStaff()
 }
 
 // rewriteAnnounce decodes the torrent, sets the announce URL, and re-encodes.

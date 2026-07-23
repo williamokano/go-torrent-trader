@@ -185,7 +185,12 @@ func (h *TorrentHandler) HandleGetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	torrent, err := h.torrentSvc.GetByID(r.Context(), id)
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	// Viewer-gated: a pending/rejected torrent is a 404 for anyone but its uploader
+	// and staff (unless the site opts into public visibility of pending items).
+	torrent, err := h.torrentSvc.GetByIDForViewer(r.Context(), id, userID, perms)
 	if err != nil {
 		handleTorrentError(w, err)
 		return
@@ -229,6 +234,7 @@ func (h *TorrentHandler) HandleDownload(w http.ResponseWriter, r *http.Request) 
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
 		return
 	}
+	perms := middleware.PermissionsFromContext(r.Context())
 
 	// Check download restriction.
 	if h.userRepo != nil {
@@ -244,7 +250,7 @@ func (h *TorrentHandler) HandleDownload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	data, filename, err := h.torrentSvc.DownloadTorrent(r.Context(), id, userID)
+	data, filename, err := h.torrentSvc.DownloadTorrent(r.Context(), id, userID, perms)
 	if err != nil {
 		handleTorrentError(w, err)
 		return
@@ -381,6 +387,10 @@ func handleTorrentError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have permission to perform this action")
 	case errors.Is(err, service.ErrDuplicateReseedRequest):
 		ErrorResponse(w, http.StatusConflict, "duplicate_reseed_request", err.Error())
+	case errors.Is(err, service.ErrNotPending):
+		ErrorResponse(w, http.StatusConflict, "not_pending", "torrent is not pending moderation")
+	case errors.Is(err, service.ErrModerationUnavailable):
+		ErrorResponse(w, http.StatusServiceUnavailable, "moderation_unavailable", "moderation is unavailable")
 	default:
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
 	}
@@ -438,7 +448,32 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 	} else {
 		resp["metadata"] = json.RawMessage("{}")
 	}
+	resp["moderation"] = moderationResponse(t)
 	return resp
+}
+
+// moderationResponse builds the moderation sub-object attached to every torrent
+// response: always the status, plus assignee/approver details when present. The
+// assigned moderator is queue state, so it's only surfaced while the torrent is
+// still restricted (pending/rejected) — an approved torrent exposes only its
+// public "approved by" credit, not who happened to claim the review.
+func moderationResponse(t *model.Torrent) map[string]interface{} {
+	m := map[string]interface{}{
+		"status":        t.ModerationStatus,
+		"message_count": t.MessageCount,
+	}
+	if t.AssignedModeratorID != nil && t.ModerationRestricted() {
+		m["assigned_moderator_id"] = *t.AssignedModeratorID
+		m["assigned_moderator_name"] = t.AssignedModeratorName
+	}
+	if t.ApprovedBy != nil {
+		m["approved_by_id"] = *t.ApprovedBy
+		m["approved_by_name"] = t.ApprovedByName
+	}
+	if t.ApprovedAt != nil {
+		m["approved_at"] = *t.ApprovedAt
+	}
+	return m
 }
 
 // metadataFilterPrefix marks browse/search query params that filter by a

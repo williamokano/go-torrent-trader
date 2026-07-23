@@ -2559,6 +2559,26 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - **Explicitly out of scope, confirmed correct as-is, no change made:** forum topic titles never resolve mentions (`CreateTopic` only extracts from the first post's body) and the PM subject field has no autocomplete (plain `<input>`, never wired to `MarkdownEditor`) — both were already the desired behavior.
 - Tests: repository (`mentioned_usernames_repo_test.go` gains a messages round-trip + malformed-JSON-degrades case, mirroring the existing comment/forum ones), service (mention resolution + the no-notification regression guard), handler (`stubUserRepo.GetByUsernames` was a hardcoded no-op that would have silently no-op'd any mention test built on it — fixed to filter by username like the other mock user repos — plus a positive content-assertion test, not just key presence), frontend (`MessagesPage.test.tsx` mention-link-renders / unresolved-stays-plain, mirroring `CommentsSection.test.tsx`), and three `backend/cmd/backfill-mentions` integration tests via the same testcontainers pattern (resolves across all three tables while leaving `updated_at`/`edited_at` untouched; `--dry-run` writes nothing; schema check passes post-migration).
 
+#### BE-8.22: Torrent Submission Moderation [L]
+**As a** tracker operator
+**I want** uploaded torrents to be reviewed and approved before they go public
+**So that** low-quality, mislabeled, or malicious uploads never reach members, and trusted uploaders can self-approve
+
+Ships in three staged PRs (a/b/c), each backend+frontend complete.
+
+##### BE-8.22a: Status, gating, queue, claim, approve [DONE]
+- Migration 067 adds `moderation_status` (`pending`/`approved`/`rejected`, default pending, CHECK), `assigned_moderator_id`, `approved_by`, `approved_at` to `torrents` (+ indexes); **existing rows backfilled to `approved`**. Migration 068 seeds `moderation_enabled=true` and `moderation_public_visibility=false`.
+- New uploads are `pending` unless `moderation_enabled=false` (then auto-approved, no human approver). Enforcement at every gate: the public list filter adds `moderation_status='approved'` (browse/home/today/needseed/completed/RSS/search + `ListByUploader`); `GetByIDForViewer` 404s a pending/rejected torrent for non-uploader/non-staff (unless `moderation_public_visibility` reveals *pending* — never rejected); `DownloadTorrent` 403s the `.torrent` for non-uploader/non-staff; and the **tracker announce** rejects an unapproved torrent for anyone but the uploader/staff (`ErrTorrentNotApproved`) — even a hand-crafted announce can't seed it.
+- `TorrentModerationRepository` (separate interface, mirrors `GroupWriteRepository` so the many read-only torrent mocks are untouched): `ClaimModeration` (staff can steal a stale claim), `UnclaimModeration`, `ApproveTorrent` (records approver + timestamp), `RejectTorrent`, `ListModerationQueue` (status + all/mine/unassigned filters, FIFO). Approve authorization lives in the service (staff in this PR; extended to self-approving Uploaders in 8.22c) so `POST /api/v1/torrents/{id}/moderation/approve` needs no route move later; claim/unclaim/reject/queue sit under `/api/v1/admin/moderation/*` (`RequireStaff`).
+- Frontend: a Moderation panel on the torrent detail page (status, assigned moderator, Claim/Approve/Reject for staff, "Approved by X" when approved, pending banner + download-gate messaging); `/admin/moderation` queue page with All/Unassigned/Mine filters + Claim, linked from a staff-visible nav item; two toggles on the Site Settings page.
+- Tests: repo (claim/approve/reject/unclaim, queue filters + pagination, public-list exclusion), service (upload default, viewer gate incl. public-visibility + rejected-stays-hidden, download gate, approve/claim/reject authz, unavailable), tracker (pending announce: uploader/staff pass, others rejected), handler (approve staff/non-staff/unauth, claim, reject, queue), frontend (queue page, moderation panel, approved-by line). Coverage ≥ floor.
+
+##### BE-8.22b: Moderation message thread + notifications [PLANNED]
+Per-torrent `torrent_moderation_messages` thread (staff + author), message count in the queue and panel, and a `moderation_message` notification to the assigned moderator + author (never self-notified).
+
+##### BE-8.22c: Uploader self-approval role [PLANNED]
+Seeded exclusive "Uploader" group with a `can_self_approve` capability; approve authorization widens so an Uploader approves their own upload (recorded as their own name).
+
 #### BE-9.24: Restrict Sensitive Activity Log Entries to Staff [S] [BUG] [DONE]
 **As a** tracker operator
 **I want** operationally sensitive activity log entries (backups, cheat flags, ban patterns, moderation actions) hidden from regular members

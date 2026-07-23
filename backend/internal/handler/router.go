@@ -221,6 +221,11 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Post("/{id}/reseed", torrents.HandleRequestReseed)
 					r.Get("/{id}/reseed", torrents.HandleGetReseedCount)
 
+					// Moderation approve (BE-8.22). Not staff-gated at the route:
+					// the service authorizes staff and self-approving Uploaders.
+					moderation := NewModerationHandler(deps.TorrentService)
+					r.Post("/{id}/moderation/approve", moderation.HandleApprove)
+
 					// Comment and rating endpoints
 					if deps.CommentService != nil {
 						comments := NewCommentHandler(deps.CommentService)
@@ -543,6 +548,15 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Delete("/chat/users/{id}/messages", chatAdmin.HandleDeleteUserMessages)
 						r.Post("/chat/users/{id}/mute", chatAdmin.HandleMuteUser)
 						r.Delete("/chat/users/{id}/mute", chatAdmin.HandleUnmuteUser)
+					}
+
+					// Torrent submission moderation queue + actions (BE-8.22).
+					if deps.TorrentService != nil {
+						moderation := NewModerationHandler(deps.TorrentService)
+						r.Get("/moderation/torrents", moderation.HandleQueue)
+						r.Post("/moderation/torrents/{id}/claim", moderation.HandleClaim)
+						r.Post("/moderation/torrents/{id}/unclaim", moderation.HandleUnclaim)
+						r.Post("/moderation/torrents/{id}/reject", moderation.HandleReject)
 					}
 				})
 			})
