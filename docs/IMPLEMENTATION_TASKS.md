@@ -773,6 +773,30 @@ not a series of per-row PUTs.
 
 Completes the reorder follow-up noted under BE-3.13d.
 
+#### BE-3.13f: Metadata Issues Report [M] [DONE — torrents missing required fields, per-user and site-wide]
+**As a** user (my uploads) / admin (all uploads)
+**I want** to see which torrents are missing a metadata field their category now requires
+**So that** I can fix data left stale when a required field was added after upload
+
+**Context:** metadata fields live on the category, and adding one never rewrites existing torrents.
+A field made *required* after torrents exist leaves those rows silently non-compliant — they're only
+forced to fill it on their next edit. This report surfaces them so they can be fixed proactively.
+
+**Chosen approach (shipped):** BE+FE.
+- **Backend:** `GET /api/v1/torrents/metadata-issues?scope=mine|all`. Non-admins are always scoped to
+  their own uploads; `scope=all` is admin-only (403 otherwise). A new `MetadataAuditService` resolves
+  each category's *effective* schema (so inherited required fields count), and for the categories that
+  actually have required fields queries torrents missing them via a `jsonb_exists`-based repo method
+  (`TorrentRepo.ListMissingRequiredMetadata`). Implemented behind a narrow one-method interface, so it
+  didn't ripple across the torrent-repository mocks.
+- **Frontend:** `MetadataIssuesPage` at `/metadata-issues` — a table of Torrent · Category ·
+  (Uploader, for the admin all-view) · Missing fields · **Fix** (link to the torrent's edit page).
+  Admins get an All-uploaders / Only-mine toggle; regular users see only their own. Linked from the
+  Torrents menu (all users) and the admin sidebar.
+
+Follow-up to the metadata schema work (BE-3.13); addresses the "no backfill/audit for newly-required
+fields" gap.
+
 #### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user
 **I want** to see who uploaded each torrent in the browse/list views

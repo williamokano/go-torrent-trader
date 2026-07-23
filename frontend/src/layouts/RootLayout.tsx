@@ -193,6 +193,13 @@ export function RootLayout() {
             >
               RSS
             </NavLink>
+            <NavLink
+              to="/metadata-issues"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Metadata Issues
+            </NavLink>
           </Dropdown>
 
           <NavLink
