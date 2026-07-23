@@ -654,3 +654,13 @@
     min-width: unset;
   }
 }
+
+.torrent-detail__pending-banner {
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
+  font-size: var(--text-sm);
+}

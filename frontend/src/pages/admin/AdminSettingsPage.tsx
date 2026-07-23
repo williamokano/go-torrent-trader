@@ -32,6 +32,29 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       { value: "open", label: "Open Registration" },
     ],
   },
+  // Torrent submission moderation
+  {
+    key: "moderation_enabled",
+    label: "Torrent Moderation Enabled",
+    description:
+      "Master toggle for torrent submission moderation. When enabled, new uploads stay pending — hidden and undownloadable to everyone but the uploader and staff — until a staff member (or a self-approving Uploader) approves them. When disabled, uploads publish immediately.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "moderation_public_visibility",
+    label: "Show Pending Torrents Publicly",
+    description:
+      "When enabled, a pending torrent's detail page is visible to everyone (marked as awaiting moderation) instead of returning 404 to non-staff. Pending torrents are never downloadable by non-uploader/non-staff regardless of this setting, and never appear in public listings.",
+    type: "select",
+    options: [
+      { value: "false", label: "Hidden (default)" },
+      { value: "true", label: "Visible" },
+    ],
+  },
   // Ratio warnings
   {
     key: "ratio_warning_threshold",

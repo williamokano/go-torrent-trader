@@ -83,7 +83,10 @@ func newTorrent(t *testing.T, db *sql.DB, uploaderID int64) *model.Torrent {
 		CategoryID: newCategoryID(t, db),
 		UploaderID: uploaderID,
 		Visible:    true,
-		FileCount:  1,
+		// Fixtures represent normal, live torrents; moderation tests that need a
+		// pending/rejected one set ModerationStatus explicitly.
+		ModerationStatus: model.ModerationApproved,
+		FileCount:        1,
 	}
 	if err := NewTorrentRepo(db).Create(context.Background(), tor); err != nil {
 		t.Fatalf("creating torrent: %v", err)

@@ -11,6 +11,23 @@ type TorrentFile struct {
 	Size int64  `json:"size"`
 }
 
+// Torrent moderation status values (BE-8.22). A newly uploaded torrent is
+// ModerationPending until a staff member (or a self-approving Uploader on their
+// own upload) approves it; only then is it public and downloadable.
+const (
+	ModerationPending  = "pending"
+	ModerationApproved = "approved"
+	ModerationRejected = "rejected"
+)
+
+// ModerationRestricted reports whether the torrent's moderation status subjects it
+// to access control (hidden from public lists, undownloadable/unannounceable by
+// non-uploader/non-staff). Only explicitly pending or rejected torrents are
+// restricted; an approved status — or, defensively, an unset one — is public.
+func (t *Torrent) ModerationRestricted() bool {
+	return t.ModerationStatus == ModerationPending || t.ModerationStatus == ModerationRejected
+}
+
 // Torrent represents a torrent file registered in the tracker.
 type Torrent struct {
 	ID               int64
@@ -37,6 +54,16 @@ type Torrent struct {
 	Metadata         json.RawMessage  // JSONB object of category-schema field values (defaults to {})
 	UploaderName     string           // Resolved via JOIN; "Anonymous" when anonymous=true
 	UploaderWarned   bool             // Resolved via JOIN; false when anonymous=true
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// Moderation (BE-8.22). ModerationStatus is one of the Moderation* constants.
+	ModerationStatus      string
+	AssignedModeratorID   *int64 // staff member who claimed the review; nil when unassigned
+	AssignedModeratorName string // Resolved via JOIN; empty when unassigned
+	ApprovedBy            *int64 // who approved it; nil while pending/rejected
+	ApprovedByName        string // Resolved via JOIN; empty until approved
+	ApprovedAt            *time.Time
+	// MessageCount is 0 until BE-8.22b, which populates it from the
+	// moderation-queue query; earlier code paths always leave it 0.
+	MessageCount int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }

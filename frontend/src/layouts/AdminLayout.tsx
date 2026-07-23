@@ -18,6 +18,9 @@ export function AdminLayout() {
             Dashboard
           </NavLink>
         )}
+        <NavLink to="/admin/moderation" className={navLinkClass}>
+          Moderation
+        </NavLink>
         {isAdmin && (
           <NavLink to="/admin/users" className={navLinkClass}>
             Users

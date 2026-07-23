@@ -167,6 +167,12 @@ func run() int {
 	authService.SetInviteService(inviteService)
 	trackerService.SetSiteSettings(siteSettingsService)
 
+	// Torrent submission moderation (BE-8.22): the same TorrentRepo implements the
+	// moderation write/queue interface; site settings drive the master switch and
+	// pending-visibility toggle.
+	torrentService.SetModerationRepo(torrentRepo)
+	torrentService.SetSiteSettings(siteSettingsService)
+
 	cheatFlagRepo := postgres.NewCheatFlagRepo(db)
 	cheatDetectionService := service.NewCheatDetectionService(cheatFlagRepo, siteSettingsService, eventBus)
 	trackerService.SetCheatDetection(cheatDetectionService)

@@ -28,7 +28,18 @@ const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo,
 	t.visible, t.banned, t.free, t.silver, t.file_count, t.files, t.metadata,
 	CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END AS uploader_name,
 	CASE WHEN t.anonymous THEN false ELSE COALESCE(u.warned, false) END AS uploader_warned,
+	t.moderation_status, t.assigned_moderator_id, COALESCE(am.username, '') AS assigned_moderator_name,
+	t.approved_by, COALESCE(ap.username, '') AS approved_by_name, t.approved_at,
 	t.created_at, t.updated_at`
+
+// torrentJoins is the FROM/JOIN tail shared by every query that selects
+// torrentColumns. It resolves the category, the uploader (u), the assigned
+// moderator (am), and the approver (ap).
+const torrentJoins = `FROM torrents t
+	JOIN categories c ON t.category_id = c.id
+	LEFT JOIN users u ON t.uploader_id = u.id
+	LEFT JOIN users am ON t.assigned_moderator_id = am.id
+	LEFT JOIN users ap ON t.approved_by = ap.id`
 
 // TorrentRepo implements repository.TorrentRepository using PostgreSQL.
 type TorrentRepo struct {
@@ -53,7 +64,10 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
 		&t.Free, &t.Silver, &t.FileCount, &t.Files, &t.Metadata, &t.UploaderName,
-		&t.UploaderWarned, &t.CreatedAt, &t.UpdatedAt,
+		&t.UploaderWarned,
+		&t.ModerationStatus, &t.AssignedModeratorID, &t.AssignedModeratorName,
+		&t.ApprovedBy, &t.ApprovedByName, &t.ApprovedAt,
+		&t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -62,12 +76,12 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 }
 
 func (r *TorrentRepo) GetByID(ctx context.Context, id int64) (*model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id WHERE t.id = $1", torrentColumns)
+	query := fmt.Sprintf("SELECT %s %s WHERE t.id = $1", torrentColumns, torrentJoins)
 	return scanTorrent(r.db.QueryRowContext(ctx, query, id))
 }
 
 func (r *TorrentRepo) GetByInfoHash(ctx context.Context, infoHash []byte) (*model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id WHERE t.info_hash = $1", torrentColumns)
+	query := fmt.Sprintf("SELECT %s %s WHERE t.info_hash = $1", torrentColumns, torrentJoins)
 	return scanTorrent(r.db.QueryRowContext(ctx, query, infoHash))
 }
 
@@ -91,9 +105,13 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		return fmt.Sprintf("$%d", argIdx)
 	}
 
-	// Default: only show visible, non-banned torrents (skip for admin context).
+	// Default: only show visible, non-banned, approved torrents (skip for admin
+	// context). The approved-only filter keeps pending/rejected submissions out of
+	// every public listing (BE-8.22).
 	if !opts.IncludeHidden {
-		conditions = append(conditions, "t.visible = true", "t.banned = false")
+		conditions = append(conditions,
+			"t.visible = true", "t.banned = false",
+			"t.moderation_status = 'approved'")
 	}
 
 	if opts.CategoryID != nil {
@@ -228,8 +246,8 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 	offset := (page - 1) * perPage
 
 	selectQuery := fmt.Sprintf(
-		"SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id %s ORDER BY %s LIMIT %s OFFSET %s",
-		torrentColumns, where, orderClause, nextArg(), nextArg(),
+		"SELECT %s %s %s ORDER BY %s LIMIT %s OFFSET %s",
+		torrentColumns, torrentJoins, where, orderClause, nextArg(), nextArg(),
 	)
 	args = append(args, perPage, offset)
 
@@ -262,10 +280,11 @@ func (r *TorrentRepo) Create(ctx context.Context, torrent *model.Torrent) error 
 	query := `INSERT INTO torrents (
 		name, info_hash, size, description, nfo, category_id, uploader_id,
 		anonymous, seeders, leechers, times_completed, comments_count,
-		visible, banned, free, silver, file_count, files, metadata
+		visible, banned, free, silver, file_count, files, metadata,
+		moderation_status, approved_by, approved_at
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-		$11, $12, $13, $14, $15, $16, $17, $18, $19
+		$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
 	) RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -274,7 +293,18 @@ func (r *TorrentRepo) Create(ctx context.Context, torrent *model.Torrent) error 
 		torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.FileCount,
 		torrent.Files, metadataOrDefault(torrent.Metadata),
+		moderationStatusOrDefault(torrent.ModerationStatus), torrent.ApprovedBy, torrent.ApprovedAt,
 	).Scan(&torrent.ID, &torrent.CreatedAt, &torrent.UpdatedAt)
+}
+
+// moderationStatusOrDefault guards the NOT NULL moderation_status column so a
+// zero-value model.Torrent (e.g. from a test that doesn't set it) still inserts a
+// valid status instead of an empty string that would violate the CHECK constraint.
+func moderationStatusOrDefault(s string) string {
+	if s == "" {
+		return model.ModerationPending
+	}
+	return s
 }
 
 func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error {
@@ -361,7 +391,7 @@ func (r *TorrentRepo) IncrementLeechers(ctx context.Context, id int64, delta int
 }
 
 func (r *TorrentRepo) ListByUploader(ctx context.Context, uploaderID int64, limit int) ([]model.Torrent, error) {
-	query := fmt.Sprintf("SELECT %s FROM torrents t JOIN categories c ON t.category_id = c.id LEFT JOIN users u ON t.uploader_id = u.id WHERE t.uploader_id = $1 AND t.visible = true AND t.banned = false ORDER BY t.created_at DESC LIMIT $2", torrentColumns)
+	query := fmt.Sprintf("SELECT %s %s WHERE t.uploader_id = $1 AND t.visible = true AND t.banned = false AND t.moderation_status = 'approved' ORDER BY t.created_at DESC LIMIT $2", torrentColumns, torrentJoins)
 	rows, err := r.db.QueryContext(ctx, query, uploaderID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("listing torrents by uploader: %w", err)
@@ -380,6 +410,129 @@ func (r *TorrentRepo) ListByUploader(ctx context.Context, uploaderID int64, limi
 		return nil, fmt.Errorf("iterating torrents: %w", err)
 	}
 	return torrents, nil
+}
+
+// ClaimModeration assigns (or reassigns) the torrent's moderator. Staff can steal a
+// claim from a moderator who is taking too long, so this unconditionally overwrites.
+func (r *TorrentRepo) ClaimModeration(ctx context.Context, torrentID, moderatorID int64) error {
+	return r.execAffectingTorrent(ctx,
+		`UPDATE torrents SET assigned_moderator_id = $1, updated_at = NOW() WHERE id = $2`,
+		moderatorID, torrentID)
+}
+
+// UnclaimModeration clears the torrent's assigned moderator.
+func (r *TorrentRepo) UnclaimModeration(ctx context.Context, torrentID int64) error {
+	return r.execAffectingTorrent(ctx,
+		`UPDATE torrents SET assigned_moderator_id = NULL, updated_at = NOW() WHERE id = $1`,
+		torrentID)
+}
+
+// ApproveTorrent marks the torrent approved and records who approved it (their name
+// surfaces via the ap join in torrentColumns). The assigned moderator is cleared —
+// it's queue state that no longer applies once the item leaves the queue.
+func (r *TorrentRepo) ApproveTorrent(ctx context.Context, torrentID, approverID int64) error {
+	return r.execAffectingTorrent(ctx,
+		`UPDATE torrents SET moderation_status = 'approved', approved_by = $1, approved_at = NOW(), assigned_moderator_id = NULL, updated_at = NOW() WHERE id = $2`,
+		approverID, torrentID)
+}
+
+// RejectTorrent marks the torrent rejected, clearing any prior approval.
+func (r *TorrentRepo) RejectTorrent(ctx context.Context, torrentID int64) error {
+	return r.execAffectingTorrent(ctx,
+		`UPDATE torrents SET moderation_status = 'rejected', approved_by = NULL, approved_at = NULL, updated_at = NOW() WHERE id = $1`,
+		torrentID)
+}
+
+// execAffectingTorrent runs a single-row-affecting UPDATE, returning sql.ErrNoRows
+// when the torrent id doesn't exist so the service maps it to a 404.
+func (r *TorrentRepo) execAffectingTorrent(ctx context.Context, query string, args ...any) error {
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update torrent moderation: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ListModerationQueue returns torrents in the requested moderation status, oldest
+// first (FIFO), optionally scoped to a moderator's own claims or to unassigned
+// items. Total is the count matching the same filters.
+func (r *TorrentRepo) ListModerationQueue(ctx context.Context, opts repository.ModerationQueueOptions) (_ []model.Torrent, _ int64, err error) {
+	status := opts.Status
+	if status == "" {
+		status = model.ModerationPending
+	}
+
+	var (
+		conditions = []string{"t.moderation_status = $1"}
+		args       = []any{status}
+		argIdx     = 1
+	)
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+
+	switch opts.Assigned {
+	case repository.ModAssignedUnassigned:
+		conditions = append(conditions, "t.assigned_moderator_id IS NULL")
+	case repository.ModAssignedMine:
+		conditions = append(conditions, "t.assigned_moderator_id = "+nextArg(opts.ModeratorID))
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+
+	var total int64
+	if err = r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM torrents t "+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("counting moderation queue: %w", err)
+	}
+
+	page := opts.Page
+	if page < 1 {
+		page = 1
+	}
+	perPage := opts.PerPage
+	if perPage < 1 {
+		perPage = 25
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+	offset := (page - 1) * perPage
+
+	query := fmt.Sprintf("SELECT %s %s %s ORDER BY t.created_at ASC LIMIT %s OFFSET %s",
+		torrentColumns, torrentJoins, where, nextArg(perPage), nextArg(offset))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("querying moderation queue: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("closing moderation queue rows: %w", cerr)
+		}
+	}()
+
+	var torrents []model.Torrent
+	for rows.Next() {
+		t, err := scanTorrent(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scanning torrent: %w", err)
+		}
+		torrents = append(torrents, *t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterating moderation queue: %w", err)
+	}
+	return torrents, total, nil
 }
 
 // ListMissingRequiredMetadata returns torrents in a category whose metadata is

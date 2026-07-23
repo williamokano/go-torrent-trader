@@ -19,12 +19,13 @@ import (
 )
 
 var (
-	ErrInvalidPasskey    = errors.New("invalid passkey")
-	ErrTorrentBanned     = errors.New("torrent is banned")
-	ErrUserDisabled      = errors.New("user account is disabled")
-	ErrDownloadSuspended = errors.New("download privilege suspended")
-	ErrTooManyPeers      = errors.New("too many peers on this torrent")
-	ErrTooManyConns      = errors.New("too many connections")
+	ErrInvalidPasskey     = errors.New("invalid passkey")
+	ErrTorrentBanned      = errors.New("torrent is banned")
+	ErrTorrentNotApproved = errors.New("torrent is awaiting approval")
+	ErrUserDisabled       = errors.New("user account is disabled")
+	ErrDownloadSuspended  = errors.New("download privilege suspended")
+	ErrTooManyPeers       = errors.New("too many peers on this torrent")
+	ErrTooManyConns       = errors.New("too many connections")
 )
 
 // WaitTimeError is returned when a user must wait before downloading a new torrent.
@@ -145,6 +146,22 @@ func (s *TrackerService) SetCheatDetection(cd *CheatDetectionService) {
 	s.cheatDetection = cd
 }
 
+// canAnnounceUnapproved reports whether user may announce a not-yet-approved
+// torrent: only its uploader or a staff member (admin/moderator).
+func (s *TrackerService) canAnnounceUnapproved(ctx context.Context, torrent *model.Torrent, user *model.User) bool {
+	if torrent.UploaderID == user.ID {
+		return true
+	}
+	if s.groups == nil {
+		return false
+	}
+	g, err := s.groups.GetByID(ctx, user.GroupID)
+	if err != nil {
+		return false
+	}
+	return g.IsAdmin || g.IsModerator
+}
+
 // Announce processes an announce request and returns the response.
 func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*AnnounceResponse, error) {
 	// Validate passkey and get user.
@@ -168,6 +185,13 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	}
 	if torrent.Banned {
 		return nil, ErrTorrentBanned
+	}
+
+	// Moderation gate (BE-8.22): a torrent awaiting approval can only be announced
+	// (seeded/leeched) by its uploader or by staff. This backstops the .torrent
+	// download gate — even a hand-crafted announce can't seed an unapproved torrent.
+	if torrent.ModerationRestricted() && !s.canAnnounceUnapproved(ctx, torrent, user) {
+		return nil, ErrTorrentNotApproved
 	}
 
 	// Look up existing peer by the exact peer_id for delta calculation.
@@ -303,6 +327,13 @@ func (s *TrackerService) Scrape(ctx context.Context, infoHashes [][]byte) (map[s
 				continue
 			}
 			return nil, err
+		}
+
+		// A torrent awaiting moderation (or rejected) must not leak swarm stats
+		// on the public scrape endpoint — omit it like an unknown hash so its
+		// existence stays hidden (BE-8.22).
+		if torrent.ModerationRestricted() {
+			continue
 		}
 
 		result[string(ih)] = ScrapeEntry{

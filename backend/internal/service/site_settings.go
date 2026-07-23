@@ -73,6 +73,14 @@ const (
 	// Bonus point economy settings keys.
 	SettingBonusEnabled                 = "bonus_enabled"
 	SettingBonusPointsPerSeedingTorrent = "bonus_points_per_seeding_torrent"
+
+	// Torrent submission moderation settings keys (BE-8.22).
+	// SettingModerationEnabled is the master switch; when false, uploads
+	// auto-approve (legacy behavior). SettingModerationPublicVisibility controls
+	// whether a non-author/non-staff may view a pending torrent's detail page — it
+	// never unlocks download.
+	SettingModerationEnabled          = "moderation_enabled"
+	SettingModerationPublicVisibility = "moderation_public_visibility"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -111,6 +119,10 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 		if value != RegistrationModeOpen && value != RegistrationModeInviteOnly {
 			return fmt.Errorf("%w: registration mode must be %q or %q",
 				ErrInvalidSetting, RegistrationModeOpen, RegistrationModeInviteOnly)
+		}
+	case SettingModerationEnabled, SettingModerationPublicVisibility:
+		if value != "true" && value != "false" {
+			return fmt.Errorf("%w: %s must be %q or %q", ErrInvalidSetting, key, "true", "false")
 		}
 	}
 

@@ -178,6 +178,8 @@ func mapAnnounceError(err error) string {
 		return "torrent not found"
 	case errors.Is(err, service.ErrTorrentBanned):
 		return "torrent is banned"
+	case errors.Is(err, service.ErrTorrentNotApproved):
+		return "torrent is awaiting approval"
 	case errors.Is(err, service.ErrUserDisabled):
 		return "account is disabled"
 	case errors.Is(err, service.ErrTooManyPeers):
