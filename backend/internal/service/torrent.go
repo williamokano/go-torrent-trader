@@ -762,9 +762,14 @@ func (s *TorrentService) RejectTorrent(ctx context.Context, torrentID, userID in
 }
 
 // canApprove decides who may approve a torrent. Staff always may; the Uploader
-// class (BE-8.22c) extends this to self-approval of one's own upload.
-func (s *TorrentService) canApprove(_ *model.Torrent, _ int64, perms model.Permissions) bool {
-	return perms.IsStaff()
+// class (BE-8.22c) may approve their own upload — with their own name recorded as
+// the approver — which is the whole point of the class: a human self-review that
+// is still logged, rather than publishing on upload.
+func (s *TorrentService) canApprove(torrent *model.Torrent, userID int64, perms model.Permissions) bool {
+	if perms.IsStaff() {
+		return true
+	}
+	return perms.CanSelfApprove && torrent.UploaderID == userID
 }
 
 // canAccessModerationThread reports whether a user may read/post in a torrent's

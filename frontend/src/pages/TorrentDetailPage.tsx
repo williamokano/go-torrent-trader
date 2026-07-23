@@ -306,8 +306,9 @@ export function TorrentDetailPage() {
   const isApproved = modStatus === "approved";
   const isOwner = !!user && torrent.uploader_id === user.id;
   const isStaff = !!user?.isStaff;
-  // PR-8.22c extends approval to self-approving Uploaders on their own upload.
-  const canApprove = isStaff;
+  // Staff always; the Uploader class may approve their own upload (BE-8.22c).
+  const canApprove =
+    isStaff || (!!user?.permissions?.can_self_approve && isOwner);
   const canSeeModeration = isStaff || isOwner;
 
   return (

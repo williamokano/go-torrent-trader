@@ -14,6 +14,8 @@ type Permissions struct {
 	IsAdmin     bool   `json:"is_admin"`
 	IsModerator bool   `json:"is_moderator"`
 	IsImmune    bool   `json:"is_immune"`
+	// CanSelfApprove marks the Uploader class (BE-8.22c): may approve own uploads.
+	CanSelfApprove bool `json:"can_self_approve"`
 }
 
 // IsStaff returns true if the user is an admin or moderator.
@@ -24,16 +26,17 @@ func (p Permissions) IsStaff() bool {
 // PermissionsFromGroup builds a Permissions struct from a Group.
 func PermissionsFromGroup(g *Group) Permissions {
 	return Permissions{
-		GroupID:     g.ID,
-		GroupName:   g.Name,
-		Level:       g.Level,
-		CanUpload:   g.CanUpload,
-		CanDownload: g.CanDownload,
-		CanInvite:   g.CanInvite,
-		CanComment:  g.CanComment,
-		CanForum:    g.CanForum,
-		IsAdmin:     g.IsAdmin,
-		IsModerator: g.IsModerator,
-		IsImmune:    g.IsImmune,
+		GroupID:        g.ID,
+		GroupName:      g.Name,
+		Level:          g.Level,
+		CanUpload:      g.CanUpload,
+		CanDownload:    g.CanDownload,
+		CanInvite:      g.CanInvite,
+		CanComment:     g.CanComment,
+		CanForum:       g.CanForum,
+		IsAdmin:        g.IsAdmin,
+		IsModerator:    g.IsModerator,
+		IsImmune:       g.IsImmune,
+		CanSelfApprove: g.CanSelfApprove,
 	}
 }

@@ -67,6 +67,31 @@ func TestPermissionsFromGroup(t *testing.T) {
 	}
 }
 
+func TestPermissionsFromGroup_Uploader(t *testing.T) {
+	group := &model.Group{
+		ID:             7,
+		Name:           "Uploader",
+		Level:          50,
+		CanUpload:      true,
+		CanDownload:    true,
+		CanSelfApprove: true,
+	}
+
+	perms := model.PermissionsFromGroup(group)
+
+	if !perms.CanSelfApprove {
+		t.Error("Uploader should carry CanSelfApprove")
+	}
+	if perms.IsStaff() {
+		t.Error("Uploader is not staff")
+	}
+
+	// A default group never gains self-approval by accident.
+	if model.PermissionsFromGroup(&model.Group{Name: "User"}).CanSelfApprove {
+		t.Error("a plain group must not have CanSelfApprove")
+	}
+}
+
 func TestPermissionsFromGroup_Validating(t *testing.T) {
 	group := &model.Group{
 		ID:          6,

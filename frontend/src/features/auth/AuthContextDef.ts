@@ -12,6 +12,7 @@ export interface UserPermissions {
   is_admin: boolean;
   is_moderator: boolean;
   is_immune: boolean;
+  can_self_approve?: boolean;
 }
 
 export interface User {
