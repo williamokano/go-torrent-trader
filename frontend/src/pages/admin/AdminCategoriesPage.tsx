@@ -6,6 +6,13 @@ import { useToast } from "@/components/toast";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { buildCategoryTree, type CategoryTreeNode } from "@/utils/categoryTree";
+import {
+  computeReorder,
+  dropZoneFromOffset,
+  isInvalidDrop,
+  type DropZone,
+  type ReorderItem,
+} from "@/utils/categoryReorder";
 import type { MetadataField } from "@/utils/metadata";
 import "./admin-ui.css";
 import "./admin-categories.css";
@@ -40,6 +47,12 @@ export function AdminCategoriesPage() {
   const [deleting, setDeleting] = useState(false);
   // Collapsed node ids; empty means the whole tree is expanded by default.
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  // Drag-and-drop reorder state.
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    id: number;
+    zone: DropZone;
+  } | null>(null);
 
   const fetchCategories = useCallback(async () => {
     const token = getAccessToken();
@@ -90,6 +103,93 @@ export function AdminCategoriesPage() {
     });
   };
 
+  // Persist a reorder: apply optimistically, then send the batch; on failure,
+  // surface the error and refetch to fall back to the server's truth.
+  const applyReorder = useCallback(
+    async (items: ReorderItem[]) => {
+      setCategories((prev) => {
+        const byId = new Map(items.map((it) => [it.id, it]));
+        return prev.map((c) => {
+          const it = byId.get(c.id);
+          return it
+            ? { ...c, parent_id: it.parent_id, sort_order: it.sort_order }
+            : c;
+        });
+      });
+
+      const token = getAccessToken();
+      try {
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/categories/reorder`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ items }),
+          },
+        );
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          toast.error(data?.error?.message ?? "Failed to reorder categories");
+          fetchCategories();
+        }
+      } catch {
+        toast.error("Failed to reorder categories");
+        fetchCategories();
+      }
+    },
+    [toast, fetchCategories],
+  );
+
+  const handleDragStart = (e: React.DragEvent, id: number) => {
+    setDraggedId(id);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(id));
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: number) => {
+    if (draggedId == null) return;
+    e.preventDefault();
+    if (isInvalidDrop(categories, draggedId, id)) {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+      setDropTarget(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const zone = dropZoneFromOffset(e.clientY - rect.top, rect.height);
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    setDropTarget({ id, zone });
+  };
+
+  const handleDrop = (e: React.DragEvent, id: number) => {
+    e.preventDefault();
+    const zone = dropTarget?.id === id ? dropTarget.zone : "inside";
+    const dragged = draggedId;
+    setDraggedId(null);
+    setDropTarget(null);
+    if (dragged == null) return;
+    const items = computeReorder(categories, dragged, id, zone);
+    if (items) applyReorder(items);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedId(null);
+    setDropTarget(null);
+  };
+
+  const rowClass = (id: number): string => {
+    const classes: string[] = [];
+    if (draggedId === id) classes.push("cat-tree__row--dragging");
+    if (dropTarget?.id === id) {
+      classes.push(`cat-tree__row--drop-${dropTarget.zone}`);
+    }
+    return classes.join(" ");
+  };
+
   const handleDelete = async () => {
     if (!deletingCategory) return;
     setDeleteError(null);
@@ -128,7 +228,8 @@ export function AdminCategoriesPage() {
         <div>
           <h1 className="admin-page-header__title">Categories</h1>
           <p className="admin-page-header__desc">
-            Organize torrents into a browsable category hierarchy.
+            Organize torrents into a browsable category hierarchy. Drag a row to
+            reorder it, or drop it onto another category to nest it.
           </p>
         </div>
         <div className="admin-page-header__actions">
@@ -160,12 +261,27 @@ export function AdminCategoriesPage() {
               </thead>
               <tbody>
                 {rows.map(({ category, depth, hasChildren }) => (
-                  <tr key={category.id}>
+                  <tr
+                    key={category.id}
+                    className={rowClass(category.id)}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, category.id)}
+                    onDragOver={(e) => handleDragOver(e, category.id)}
+                    onDrop={(e) => handleDrop(e, category.id)}
+                    onDragEnd={handleDragEnd}
+                  >
                     <td>
                       <div
                         className="cat-tree__cell"
                         style={{ paddingLeft: `${depth * 1.5}rem` }}
                       >
+                        <span
+                          className="cat-tree__grip"
+                          aria-hidden="true"
+                          title="Drag to reorder"
+                        >
+                          ⠿
+                        </span>
                         {hasChildren ? (
                           <button
                             type="button"

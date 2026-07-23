@@ -309,6 +309,15 @@ type BanRepository interface {
 }
 
 // CategoryRepository defines persistence operations for categories.
+// CategoryPlacement is a category's position in the hierarchy — its parent and
+// sort order — used by the batch Reorder operation to move and renumber
+// categories atomically.
+type CategoryPlacement struct {
+	ID        int64
+	ParentID  *int64
+	SortOrder int
+}
+
 type CategoryRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.Category, error)
 	List(ctx context.Context) ([]model.Category, error)
@@ -316,6 +325,8 @@ type CategoryRepository interface {
 	Update(ctx context.Context, cat *model.Category) error
 	Delete(ctx context.Context, id int64) error
 	CountTorrentsByCategory(ctx context.Context, categoryID int64) (int64, error)
+	// Reorder applies new parent/sort-order placements in a single transaction.
+	Reorder(ctx context.Context, placements []CategoryPlacement) error
 }
 
 // MessageRepository defines persistence operations for private messages.

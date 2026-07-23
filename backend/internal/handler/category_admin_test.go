@@ -13,6 +13,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
 )
@@ -90,6 +91,22 @@ func (m *mockCategoryRepo) CountTorrentsByCategory(_ context.Context, categoryID
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.torrentCounts[categoryID], nil
+}
+
+func (m *mockCategoryRepo) Reorder(_ context.Context, placements []repository.CategoryPlacement) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	byID := make(map[int64]*model.Category, len(m.categories))
+	for _, c := range m.categories {
+		byID[c.ID] = c
+	}
+	for _, p := range placements {
+		if c, ok := byID[p.ID]; ok {
+			c.ParentID = p.ParentID
+			c.SortOrder = p.SortOrder
+		}
+	}
+	return nil
 }
 
 func setupCategoryAdminRouter() (http.Handler, service.SessionStore, *mockCategoryRepo) {
@@ -313,5 +330,87 @@ func TestHandleDeleteCategory_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func seedReorderCategories(catRepo *mockCategoryRepo) {
+	catRepo.mu.Lock()
+	catRepo.categories = []*model.Category{
+		{ID: 1, Name: "A", Slug: "a", SortOrder: 0},
+		{ID: 2, Name: "B", Slug: "b", SortOrder: 1},
+		{ID: 3, Name: "C", Slug: "c", SortOrder: 2},
+	}
+	catRepo.nextID = 4
+	catRepo.mu.Unlock()
+}
+
+func TestHandleReorderCategories_AsAdmin(t *testing.T) {
+	router, sessions, catRepo := setupCategoryAdminRouter()
+	seedReorderCategories(catRepo)
+
+	adminToken := createSessionWithGroup(sessions, 3200, 1)
+	body, _ := json.Marshal(map[string]any{
+		"items": []map[string]any{
+			{"id": 1, "parent_id": nil, "sort_order": 1},
+			{"id": 2, "parent_id": nil, "sort_order": 0},
+			{"id": 3, "parent_id": 1, "sort_order": 0}, // C under A
+		},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/categories/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	catRepo.mu.Lock()
+	defer catRepo.mu.Unlock()
+	for _, c := range catRepo.categories {
+		if c.ID == 3 && (c.ParentID == nil || *c.ParentID != 1) {
+			t.Errorf("C parent = %v, want 1", c.ParentID)
+		}
+		if c.ID == 1 && c.SortOrder != 1 {
+			t.Errorf("A sort_order = %d, want 1", c.SortOrder)
+		}
+	}
+}
+
+func TestHandleReorderCategories_RejectsCycle(t *testing.T) {
+	router, sessions, catRepo := setupCategoryAdminRouter()
+	seedReorderCategories(catRepo)
+
+	adminToken := createSessionWithGroup(sessions, 3201, 1)
+	body, _ := json.Marshal(map[string]any{
+		"items": []map[string]any{
+			{"id": 1, "parent_id": 2, "sort_order": 0},
+			{"id": 2, "parent_id": 1, "sort_order": 0},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/categories/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for a cycle, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleReorderCategories_NonAdmin(t *testing.T) {
+	router, sessions, _ := setupCategoryAdminRouter()
+
+	userToken := createSessionWithGroup(sessions, 3202, 5)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/categories/reorder", bytes.NewReader([]byte(`{"items":[]}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rec.Code)
 	}
 }

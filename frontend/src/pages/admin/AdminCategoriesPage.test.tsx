@@ -280,4 +280,55 @@ describe("AdminCategoriesPage", () => {
 
     expect(screen.getByText("NEW parent=1")).toBeInTheDocument();
   });
+
+  test("dragging a category onto another sends a reorder request", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((_url, init) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET") {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ categories: FAKE_CATEGORIES }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 204,
+          json: async () => ({}),
+        } as Response);
+      });
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("TV")).toBeInTheDocument();
+    });
+
+    const tvRow = screen.getByText("TV").closest("tr")!;
+    const moviesRow = screen.getByText("Movies").closest("tr")!;
+
+    // In jsdom getBoundingClientRect is 0-sized, so the drop resolves to the
+    // "inside" zone — dropping TV onto Movies nests it under Movies.
+    fireEvent.dragStart(tvRow);
+    fireEvent.dragOver(moviesRow);
+    fireEvent.drop(moviesRow);
+
+    await waitFor(() => {
+      const put = fetchSpy.mock.calls.find(
+        ([u, i]) =>
+          String(u).endsWith("/admin/categories/reorder") &&
+          (i?.method ?? "").toUpperCase() === "PUT",
+      );
+      expect(put).toBeTruthy();
+    });
+
+    const put = fetchSpy.mock.calls.find(
+      ([u, i]) =>
+        String(u).endsWith("/admin/categories/reorder") &&
+        (i?.method ?? "").toUpperCase() === "PUT",
+    )!;
+    const body = JSON.parse((put[1] as RequestInit).body as string);
+    const tvItem = body.items.find((it: { id: number }) => it.id === 2);
+    expect(tvItem.parent_id).toBe(1); // TV nested under Movies
+  });
 });

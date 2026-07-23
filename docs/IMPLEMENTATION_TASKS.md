@@ -752,6 +752,27 @@ so the edit page reuses the existing list endpoint for both the category and its
 endpoint already supported arbitrary depth and full-chain inheritance. Reorder (drag / up-down) is a
 deliberate follow-up.
 
+#### BE-3.13e: Drag-and-Drop Category Reorder [M] [DONE — atomic batch reorder endpoint + tree DnD]
+**As an** admin
+**I want** to drag categories to reorder and re-nest them in the tree
+**So that** I can arrange the hierarchy visually instead of editing sort_order / parent by hand
+
+**Chosen approach (shipped):** a proper BE+FE feature — reordering the whole tree should be atomic,
+not a series of per-row PUTs.
+- **Backend:** new `PUT /api/v1/admin/categories/reorder` accepting `{items:[{id, parent_id,
+  sort_order}]}`. The service validates the resulting hierarchy (no category is its own ancestor,
+  no cycle, every referenced parent is in the request) and the repo applies all placements in a
+  single transaction (`CategoryRepo.Reorder` via `CategoryPlacement`), so an invalid parent rolls
+  the whole batch back. Invalid input → 400 `invalid_category`.
+- **Frontend:** native HTML5 drag-and-drop on the tree rows (no new dependency). A pure
+  `utils/categoryReorder.ts` (`computeReorder` / `dropZoneFromOffset` / `isInvalidDrop`) does the
+  placement math — top/bottom bands reorder as a sibling before/after the target, the middle band
+  nests inside it — and emits gap-free placements for the whole forest. Drops onto the dragged
+  node's own subtree are blocked (cycle-safe on the client too). The move is applied optimistically
+  and reverts (refetch + toast) if the request fails.
+
+Completes the reorder follow-up noted under BE-3.13d.
+
 #### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user
 **I want** to see who uploaded each torrent in the browse/list views

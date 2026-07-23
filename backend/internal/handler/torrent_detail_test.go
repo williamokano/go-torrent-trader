@@ -64,6 +64,9 @@ func (s *stubCategoryRepo) Delete(_ context.Context, _ int64) error           { 
 func (s *stubCategoryRepo) CountTorrentsByCategory(_ context.Context, _ int64) (int64, error) {
 	return 0, nil
 }
+func (s *stubCategoryRepo) Reorder(_ context.Context, _ []repository.CategoryPlacement) error {
+	return nil
+}
 
 type stubReseedRepo struct {
 	exists   bool

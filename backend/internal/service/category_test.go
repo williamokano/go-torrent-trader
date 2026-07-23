@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 // mockCategoryRepo is an in-memory category repository for service tests.
@@ -17,6 +18,7 @@ type mockCategoryRepo struct {
 	nextID        int64
 	torrentCounts map[int64]int64
 	deleteErr     error
+	reorderErr    error
 }
 
 func newMockCategoryRepo() *mockCategoryRepo {
@@ -89,6 +91,25 @@ func (m *mockCategoryRepo) CountTorrentsByCategory(_ context.Context, categoryID
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.torrentCounts[categoryID], nil
+}
+
+func (m *mockCategoryRepo) Reorder(_ context.Context, placements []repository.CategoryPlacement) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.reorderErr != nil {
+		return m.reorderErr
+	}
+	byID := make(map[int64]*model.Category, len(m.categories))
+	for _, c := range m.categories {
+		byID[c.ID] = c
+	}
+	for _, p := range placements {
+		if c, ok := byID[p.ID]; ok {
+			c.ParentID = p.ParentID
+			c.SortOrder = p.SortOrder
+		}
+	}
+	return nil
 }
 
 func TestCategoryService_List(t *testing.T) {
@@ -307,4 +328,88 @@ func TestCategoryServiceDeleteRaceMapsToNotFound(t *testing.T) {
 	if !errors.Is(err, ErrCategoryNotFound) {
 		t.Errorf("Delete race error = %v, want ErrCategoryNotFound so the handler answers 404", err)
 	}
+}
+
+func TestCategoryService_Reorder(t *testing.T) {
+	ctx := context.Background()
+
+	seed := func() (*CategoryService, *mockCategoryRepo) {
+		repo := newMockCategoryRepo()
+		repo.categories = []*model.Category{
+			{ID: 1, Name: "A"},
+			{ID: 2, Name: "B"},
+			{ID: 3, Name: "C"},
+		}
+		return NewCategoryService(repo), repo
+	}
+
+	find := func(repo *mockCategoryRepo, id int64) *model.Category {
+		for _, c := range repo.categories {
+			if c.ID == id {
+				return c
+			}
+		}
+		return nil
+	}
+
+	t.Run("applies new parents and sort order", func(t *testing.T) {
+		svc, repo := seed()
+		err := svc.Reorder(ctx, []ReorderItem{
+			{ID: 1, ParentID: nil, SortOrder: 1},
+			{ID: 2, ParentID: nil, SortOrder: 0},
+			{ID: 3, ParentID: int64Ptr(1), SortOrder: 0}, // C becomes child of A
+		})
+		if err != nil {
+			t.Fatalf("Reorder: %v", err)
+		}
+		if c := find(repo, 3); c.ParentID == nil || *c.ParentID != 1 {
+			t.Errorf("C parent = %v, want 1", c.ParentID)
+		}
+		if c := find(repo, 1); c.SortOrder != 1 {
+			t.Errorf("A sort_order = %d, want 1", c.SortOrder)
+		}
+	})
+
+	t.Run("rejects a category as its own parent", func(t *testing.T) {
+		svc, _ := seed()
+		err := svc.Reorder(ctx, []ReorderItem{{ID: 1, ParentID: int64Ptr(1)}})
+		if !errors.Is(err, ErrInvalidCategory) {
+			t.Errorf("err = %v, want ErrInvalidCategory", err)
+		}
+	})
+
+	t.Run("rejects a cycle", func(t *testing.T) {
+		svc, _ := seed()
+		err := svc.Reorder(ctx, []ReorderItem{
+			{ID: 1, ParentID: int64Ptr(2)},
+			{ID: 2, ParentID: int64Ptr(1)},
+		})
+		if !errors.Is(err, ErrInvalidCategory) {
+			t.Errorf("err = %v, want ErrInvalidCategory", err)
+		}
+	})
+
+	t.Run("rejects a parent not in the request", func(t *testing.T) {
+		svc, _ := seed()
+		err := svc.Reorder(ctx, []ReorderItem{{ID: 1, ParentID: int64Ptr(99)}})
+		if !errors.Is(err, ErrInvalidCategory) {
+			t.Errorf("err = %v, want ErrInvalidCategory", err)
+		}
+	})
+
+	t.Run("propagates a repository failure", func(t *testing.T) {
+		svc, repo := seed()
+		repo.reorderErr = errors.New("db down")
+		err := svc.Reorder(ctx, []ReorderItem{{ID: 1, ParentID: nil}})
+		if err == nil || errors.Is(err, ErrInvalidCategory) {
+			t.Errorf("err = %v, want the wrapped repository error", err)
+		}
+	})
+
+	t.Run("empty request is a no-op", func(t *testing.T) {
+		svc, _ := seed()
+		if err := svc.Reorder(ctx, nil); err != nil {
+			t.Errorf("Reorder(nil) = %v, want nil", err)
+		}
+	})
 }

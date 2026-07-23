@@ -158,3 +158,26 @@ func (h *CategoryAdminHandler) HandleDeleteCategory(w http.ResponseWriter, r *ht
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// HandleReorderCategories handles PUT /api/v1/admin/categories/reorder — a batch
+// update of category parent/sort-order placements, applied atomically.
+func (h *CategoryAdminHandler) HandleReorderCategories(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Items []service.ReorderItem `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if err := h.categories.Reorder(r.Context(), req.Items); err != nil {
+		if errors.Is(err, service.ErrInvalidCategory) {
+			ErrorResponse(w, http.StatusBadRequest, "invalid_category", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to reorder categories")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
