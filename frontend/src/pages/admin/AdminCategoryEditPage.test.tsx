@@ -4,6 +4,7 @@ import {
   screen,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
@@ -44,12 +45,33 @@ const FAKE_CATEGORIES = [
     created_at: "2024-01-01T00:00:00Z",
     updated_at: "2024-01-01T00:00:00Z",
   },
+  {
+    id: 3,
+    name: "4K",
+    slug: "4k",
+    parent_id: 1, // child of Movies
+    image_url: null,
+    sort_order: 1,
+    metadata_schema: [{ key: "hdr", label: "HDR", type: "boolean" }],
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+  },
 ];
 
-// Resolves GETs with the category list; records POST/PUT for assertions.
+// Resolves the category list and the per-category metadata-schema endpoint
+// (used for inherited fields); records POST/PUT for assertions.
 function mockFetch() {
-  return vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+  return vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
+    const u = String(url);
+    if (method === "GET" && u.includes("metadata-schema")) {
+      const m = u.match(/categories\/(\d+)\/metadata-schema/);
+      const cat = FAKE_CATEGORIES.find((c) => String(c.id) === m?.[1]);
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ fields: cat?.metadata_schema ?? [] }),
+      } as Response);
+    }
     if (method === "GET") {
       return Promise.resolve({
         ok: true,
@@ -191,5 +213,51 @@ describe("AdminCategoryEditPage", () => {
       expect(screen.getByLabelText("Name")).toBeInTheDocument();
     });
     expect(screen.queryByText("Category not found.")).not.toBeInTheDocument();
+  });
+
+  test("shows read-only inherited fields when editing a sub-category", async () => {
+    mockFetch();
+    renderAt("/admin/categories/3/edit"); // 4K, child of Movies
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue("4K");
+    });
+    // Inherited from Movies (parent): the "Year" field, read-only.
+    const inherited = await screen.findByTestId("inherited-fields");
+    expect(within(inherited).getByText("Year")).toBeInTheDocument();
+    // The sub-category's own editable field is separate.
+    expect(screen.getByTestId("field-row")).toHaveTextContent("HDR");
+  });
+
+  test("parent dropdown excludes the category itself and its descendants", async () => {
+    mockFetch();
+    renderAt("/admin/categories/1/edit"); // Movies has child 4K
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue("Movies");
+    });
+    const select = screen.getByLabelText("Parent Category");
+    // TV (an unrelated top-level) is selectable...
+    expect(
+      within(select).getByRole("option", { name: "TV" }),
+    ).toBeInTheDocument();
+    // ...but not Movies itself, nor its descendant 4K (would create a cycle).
+    expect(
+      within(select).queryByRole("option", { name: "Movies" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(select).queryByRole("option", { name: "4K" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("?parent= preselects the parent and shows its inherited fields on create", async () => {
+    mockFetch();
+    renderAt("/admin/categories/new?parent=1"); // create under Movies
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Parent Category")).toHaveValue("1");
+    });
+    const inherited = await screen.findByTestId("inherited-fields");
+    expect(within(inherited).getByText("Year")).toBeInTheDocument();
   });
 });

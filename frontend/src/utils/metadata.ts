@@ -247,3 +247,43 @@ export function formatMetadataValue(
   }
   return String(value);
 }
+
+/** Human-readable label per field type, for admin field tables. */
+export const METADATA_TYPE_LABELS: Record<MetadataFieldType, string> = {
+  text: "Text",
+  number: "Number",
+  select: "Select",
+  multiselect: "Multi-select",
+  boolean: "Checkbox",
+};
+
+/** One-line summary of a field's type-specific constraints, for admin tables. */
+export function metadataFieldDetails(field: MetadataField): string {
+  switch (field.type) {
+    case "select":
+    case "multiselect": {
+      const opts = (field.options ?? []).join(", ");
+      const max =
+        field.type === "multiselect" && field.max_items != null
+          ? ` (max ${field.max_items})`
+          : "";
+      return opts ? `${opts}${max}` : "—";
+    }
+    case "number": {
+      const parts: string[] = [];
+      if (field.min != null) parts.push(`min ${field.min}`);
+      if (field.max != null) parts.push(`max ${field.max}`);
+      if (field.integer) parts.push("whole");
+      return parts.length > 0 ? parts.join(", ") : "—";
+    }
+    case "text": {
+      const parts: string[] = [];
+      if (field.max_length != null)
+        parts.push(`max length ${field.max_length}`);
+      if (field.pattern) parts.push(`pattern ${field.pattern}`);
+      return parts.length > 0 ? parts.join(", ") : "—";
+    }
+    default:
+      return "—";
+  }
+}

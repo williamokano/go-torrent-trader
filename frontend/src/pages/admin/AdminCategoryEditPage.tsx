@@ -1,12 +1,23 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { Input, Select } from "@/components/form";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { MetadataFieldsTable } from "@/components/MetadataFieldsTable";
-import type { MetadataField } from "@/utils/metadata";
+import { InheritedMetadataFields } from "@/components/InheritedMetadataFields";
+import { fetchCategorySchema, type MetadataField } from "@/utils/metadata";
+import {
+  buildCategoryTree,
+  collectSubtreeIds,
+  flattenCategoryTree,
+} from "@/utils/categoryTree";
 import "./admin-ui.css";
 import "./admin-categories.css";
 
@@ -36,6 +47,12 @@ const emptyForm: CategoryFormData = {
   sort_order: "0",
 };
 
+// Non-breaking spaces indent a nested option so the parent dropdown reads as a
+// hierarchy.
+function indentLabel(name: string, depth: number): string {
+  return "   ".repeat(depth) + name;
+}
+
 /**
  * Full-page create/edit form for a category. Replaces the former modal so the
  * category form and its metadata-fields table have room to breathe. There's no
@@ -45,6 +62,7 @@ const emptyForm: CategoryFormData = {
 export function AdminCategoryEditPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
   const isEdit = id != null;
   const categoryId = id ? Number(id) : null;
@@ -53,9 +71,8 @@ export function AdminCategoryEditPage() {
   const [notFound, setNotFound] = useState(false);
   const [form, setForm] = useState<CategoryFormData>(emptyForm);
   const [schema, setSchema] = useState<MetadataField[]>([]);
-  const [parentOptions, setParentOptions] = useState<
-    { value: string; label: string }[]
-  >([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [inheritedFields, setInheritedFields] = useState<MetadataField[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -76,13 +93,7 @@ export function AdminCategoryEditPage() {
         const data = await res.json();
         const cats: Category[] = data.categories ?? [];
         if (cancelled) return;
-
-        // Top-level categories are the eligible parents (excluding self).
-        setParentOptions(
-          cats
-            .filter((c) => c.parent_id == null && c.id !== categoryId)
-            .map((c) => ({ value: String(c.id), label: c.name })),
-        );
+        setCategories(cats);
 
         if (isEdit) {
           const cat = cats.find((c) => c.id === categoryId);
@@ -98,6 +109,12 @@ export function AdminCategoryEditPage() {
             sort_order: String(cat.sort_order),
           });
           setSchema(cat.metadata_schema ?? []);
+        } else {
+          // "Add subcategory" from the tree links here with ?parent=<id>.
+          const parentParam = searchParams.get("parent");
+          if (parentParam && cats.some((c) => String(c.id) === parentParam)) {
+            setForm((f) => ({ ...f, parent_id: parentParam }));
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -106,7 +123,36 @@ export function AdminCategoryEditPage() {
     return () => {
       cancelled = true;
     };
-  }, [categoryId, isEdit]);
+  }, [categoryId, isEdit, searchParams]);
+
+  // Parent options: every category shown as an indented hierarchy, minus this
+  // category and its descendants (which would create a cycle).
+  const parentOptions = useMemo(() => {
+    const excluded =
+      categoryId != null
+        ? collectSubtreeIds(categories, categoryId)
+        : new Set<number>();
+    return flattenCategoryTree(buildCategoryTree(categories))
+      .filter(({ category }) => !excluded.has(category.id))
+      .map(({ category, depth }) => ({
+        value: String(category.id),
+        label: indentLabel(category.name, depth),
+      }));
+  }, [categories, categoryId]);
+
+  // Fields inherited from the selected parent (its effective schema already
+  // merges every ancestor level, so this reflects the full chain).
+  useEffect(() => {
+    const parentId = form.parent_id;
+    let cancelled = false;
+    (async () => {
+      const fields = parentId ? await fetchCategorySchema(parentId) : [];
+      if (!cancelled) setInheritedFields(fields);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.parent_id]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -227,6 +273,7 @@ export function AdminCategoryEditPage() {
             onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
           />
 
+          <InheritedMetadataFields fields={inheritedFields} />
           <MetadataFieldsTable value={schema} onChange={setSchema} />
 
           <div className="admin-categories__form-actions">

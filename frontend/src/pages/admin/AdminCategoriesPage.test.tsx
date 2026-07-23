@@ -7,9 +7,16 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useSearchParams } from "react-router-dom";
 import { AdminCategoriesPage } from "@/pages/admin/AdminCategoriesPage";
 import { ToastProvider } from "@/components/toast";
+
+// Sentinel for the create route that echoes the ?parent= query param, so the
+// "Add sub" navigation can be asserted.
+function NewSentinel() {
+  const [params] = useSearchParams();
+  return <div>NEW parent={params.get("parent") ?? "none"}</div>;
+}
 
 vi.mock("@/features/auth/token", async () => {
   const actual = await vi.importActual<typeof import("@/features/auth/token")>(
@@ -67,10 +74,7 @@ function renderPage() {
       <ToastProvider>
         <Routes>
           <Route path="/admin/categories" element={<AdminCategoriesPage />} />
-          <Route
-            path="/admin/categories/new"
-            element={<div>NEW CATEGORY PAGE</div>}
-          />
+          <Route path="/admin/categories/new" element={<NewSentinel />} />
           <Route
             path="/admin/categories/:id/edit"
             element={<div>EDIT CATEGORY PAGE</div>}
@@ -134,7 +138,7 @@ describe("AdminCategoriesPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add Category" }));
 
-    expect(screen.getByText("NEW CATEGORY PAGE")).toBeInTheDocument();
+    expect(screen.getByText("NEW parent=none")).toBeInTheDocument();
   });
 
   test("navigates to the edit page when Edit is clicked", async () => {
@@ -222,5 +226,58 @@ describe("AdminCategoriesPage", () => {
       expect.stringContaining("/admin/categories/1"),
       expect.anything(),
     );
+  });
+
+  test("renders children nested under their parent", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ categories: FAKE_CATEGORIES }),
+    } as Response);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("HD")).toBeInTheDocument();
+    });
+    // The parent (Movies) has a collapse toggle; a leaf (TV) does not.
+    expect(
+      screen.getByRole("button", { name: "Collapse" }),
+    ).toBeInTheDocument();
+  });
+
+  test("collapsing a parent hides its children", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ categories: FAKE_CATEGORIES }),
+    } as Response);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("HD")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+
+    expect(screen.queryByText("HD")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+  });
+
+  test("Add sub navigates to create with the parent preset", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ categories: FAKE_CATEGORIES }),
+    } as Response);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("HD")).toBeInTheDocument();
+    });
+
+    // First row is Movies (id 1); its "Add sub" seeds ?parent=1.
+    fireEvent.click(screen.getAllByText("Add sub")[0]);
+
+    expect(screen.getByText("NEW parent=1")).toBeInTheDocument();
   });
 });

@@ -7,6 +7,33 @@
   margin-bottom: var(--space-md);
 }
 
+/* Hierarchical category tree rows */
+.cat-tree__cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs, 0.4rem);
+}
+
+.cat-tree__toggle {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary, #666);
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.cat-tree__toggle--leaf {
+  cursor: default;
+}
+
 .admin-categories__modal-form,
 .admin-categories__form {
   display: flex;
