@@ -46,6 +46,7 @@ export function notificationLink(n: Notification): string | null {
       if (d.torrent_id) return `/torrent/${d.torrent_id}`;
       break;
     case "moderation_message":
+    case "moderation_decision":
       if (d.torrent_id) return `/torrent/${d.torrent_id}`;
       break;
     case "pm_received":
@@ -71,6 +72,12 @@ export function notificationMessage(n: Notification): string {
       return `${actor} commented on "${d.torrent_name || "your torrent"}"`;
     case "moderation_message":
       return `${actor} posted in the moderation review of "${d.torrent_name || "a torrent"}"`;
+    case "moderation_decision": {
+      const name = (d.torrent_name as string) || "your torrent";
+      return d.decision === "rejected"
+        ? `Your torrent "${name}" was rejected`
+        : `Your torrent "${name}" was approved`;
+    }
     case "pm_received":
       return `${actor} sent you a private message`;
     case "system":

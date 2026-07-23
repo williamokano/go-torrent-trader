@@ -39,6 +39,7 @@ const TYPE_LABELS: Record<string, string> = {
   topic_reply: "Topic Reply",
   torrent_comment: "Torrent Comment",
   moderation_message: "Moderation Message",
+  moderation_decision: "Torrent Approved / Rejected",
   pm_received: "Private Message",
   system: "System",
 };

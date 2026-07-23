@@ -97,6 +97,27 @@ describe("mention notification rendering", () => {
       'carol posted in the moderation review of "Big Buck Bunny"',
     );
   });
+
+  test("moderation_decision reads approved / rejected and links to the torrent", () => {
+    const approved = notif("moderation_decision", {
+      torrent_id: 12,
+      torrent_name: "Big Buck Bunny",
+      decision: "approved",
+    });
+    expect(notificationLink(approved)).toBe("/torrent/12");
+    expect(notificationMessage(approved)).toBe(
+      'Your torrent "Big Buck Bunny" was approved',
+    );
+
+    const rejected = notif("moderation_decision", {
+      torrent_id: 12,
+      torrent_name: "Big Buck Bunny",
+      decision: "rejected",
+    });
+    expect(notificationMessage(rejected)).toBe(
+      'Your torrent "Big Buck Bunny" was rejected',
+    );
+  });
 });
 
 describe("notification group rendering (BE-9.14)", () => {
