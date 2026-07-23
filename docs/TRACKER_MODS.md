@@ -109,6 +109,10 @@ Here: a **listener** on the event bus that posts to a webhook. `ForumPostCreated
 and torrent-upload events already flow through the bus; this is a few hours of
 work given the architecture.
 
+**Designed out** into a full pluggable connector framework (chat / IRC / Discord /
+Telegram / webhook / SSE feed behind one interface) in
+`docs/NOTIFICATION_CONNECTORS.md` — backlog epic **BE-10**.
+
 ### Gamification: achievements / medals / user levels ⬜
 Badges for milestones (uploaded X, seeded Y torrents, N years). Big on the
 NexusPHP lineage. A table plus insertion points scattered through the source.
