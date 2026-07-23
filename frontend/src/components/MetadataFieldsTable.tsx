@@ -1,49 +1,15 @@
 import { useState } from "react";
 import { MetadataFieldModal } from "@/components/MetadataFieldModal";
-import type { MetadataField, MetadataFieldType } from "@/utils/metadata";
+import {
+  METADATA_TYPE_LABELS,
+  metadataFieldDetails,
+  type MetadataField,
+} from "@/utils/metadata";
 import "./metadata-fields-table.css";
 
 interface MetadataFieldsTableProps {
   value: MetadataField[];
   onChange: (fields: MetadataField[]) => void;
-}
-
-const TYPE_LABELS: Record<MetadataFieldType, string> = {
-  text: "Text",
-  number: "Number",
-  select: "Select",
-  multiselect: "Multi-select",
-  boolean: "Checkbox",
-};
-
-// fieldDetails summarizes a field's type-specific constraints for the table.
-function fieldDetails(f: MetadataField): string {
-  switch (f.type) {
-    case "select":
-    case "multiselect": {
-      const opts = (f.options ?? []).join(", ");
-      const max =
-        f.type === "multiselect" && f.max_items != null
-          ? ` (max ${f.max_items})`
-          : "";
-      return opts ? `${opts}${max}` : "—";
-    }
-    case "number": {
-      const parts: string[] = [];
-      if (f.min != null) parts.push(`min ${f.min}`);
-      if (f.max != null) parts.push(`max ${f.max}`);
-      if (f.integer) parts.push("whole");
-      return parts.length > 0 ? parts.join(", ") : "—";
-    }
-    case "text": {
-      const parts: string[] = [];
-      if (f.max_length != null) parts.push(`max length ${f.max_length}`);
-      if (f.pattern) parts.push(`pattern ${f.pattern}`);
-      return parts.length > 0 ? parts.join(", ") : "—";
-    }
-    default:
-      return "—";
-  }
 }
 
 /**
@@ -116,9 +82,9 @@ export function MetadataFieldsTable({
                 <tr key={i} data-testid="field-row">
                   <td className="admin-table__name">{f.label}</td>
                   <td className="admin-muted">{f.key}</td>
-                  <td>{TYPE_LABELS[f.type]}</td>
+                  <td>{METADATA_TYPE_LABELS[f.type]}</td>
                   <td>{f.required ? "Yes" : "—"}</td>
-                  <td className="admin-muted">{fieldDetails(f)}</td>
+                  <td className="admin-muted">{metadataFieldDetails(f)}</td>
                   <td className="admin-table__actions">
                     <button
                       type="button"

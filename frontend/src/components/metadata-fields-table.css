@@ -15,3 +15,8 @@
   color: var(--text-muted, #777);
   margin: 0;
 }
+
+.fields-table__hint {
+  font-size: 0.8rem;
+  color: var(--text-muted, #777);
+}

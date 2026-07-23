@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
 import { ConfirmModal } from "@/components/modal/ConfirmModal";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { buildCategoryTree, type CategoryTreeNode } from "@/utils/categoryTree";
 import type { MetadataField } from "@/utils/metadata";
 import "./admin-ui.css";
 import "./admin-categories.css";
@@ -21,6 +22,12 @@ interface Category {
   updated_at: string;
 }
 
+interface VisibleRow {
+  category: Category;
+  depth: number;
+  hasChildren: boolean;
+}
+
 export function AdminCategoriesPage() {
   const toast = useToast();
   const navigate = useNavigate();
@@ -31,6 +38,8 @@ export function AdminCategoriesPage() {
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  // Collapsed node ids; empty means the whole tree is expanded by default.
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
   const fetchCategories = useCallback(async () => {
     const token = getAccessToken();
@@ -53,6 +62,33 @@ export function AdminCategoriesPage() {
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
+
+  const tree = useMemo(() => buildCategoryTree(categories), [categories]);
+
+  // Flatten the tree into the rows currently visible, honoring collapsed nodes.
+  const rows = useMemo(() => {
+    const out: VisibleRow[] = [];
+    const walk = (nodes: CategoryTreeNode<Category>[]) => {
+      for (const node of nodes) {
+        const hasChildren = node.children.length > 0;
+        out.push({ category: node.category, depth: node.depth, hasChildren });
+        if (hasChildren && !collapsed.has(node.category.id)) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    return out;
+  }, [tree, collapsed]);
+
+  const toggle = (id: number) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const handleDelete = async () => {
     if (!deletingCategory) return;
@@ -84,12 +120,6 @@ export function AdminCategoriesPage() {
     }
   };
 
-  const getCategoryName = (id: number | null): string => {
-    if (id == null) return "-";
-    const cat = categories.find((c) => c.id === id);
-    return cat ? cat.name : String(id);
-  };
-
   if (loading) return <p>Loading...</p>;
 
   return (
@@ -98,7 +128,7 @@ export function AdminCategoriesPage() {
         <div>
           <h1 className="admin-page-header__title">Categories</h1>
           <p className="admin-page-header__desc">
-            Organize torrents into browsable categories.
+            Organize torrents into a browsable category hierarchy.
           </p>
         </div>
         <div className="admin-page-header__actions">
@@ -123,35 +153,60 @@ export function AdminCategoriesPage() {
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Image</th>
                   <th>Name</th>
                   <th>Slug</th>
-                  <th>Parent</th>
-                  <th>Sort Order</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {categories.map((cat) => (
-                  <tr key={cat.id}>
+                {rows.map(({ category, depth, hasChildren }) => (
+                  <tr key={category.id}>
                     <td>
-                      <CategoryIcon
-                        name={cat.name}
-                        imageUrl={cat.image_url}
-                        size="md"
-                      />
+                      <div
+                        className="cat-tree__cell"
+                        style={{ paddingLeft: `${depth * 1.5}rem` }}
+                      >
+                        {hasChildren ? (
+                          <button
+                            type="button"
+                            className="cat-tree__toggle"
+                            aria-label={
+                              collapsed.has(category.id) ? "Expand" : "Collapse"
+                            }
+                            aria-expanded={!collapsed.has(category.id)}
+                            onClick={() => toggle(category.id)}
+                          >
+                            {collapsed.has(category.id) ? "▸" : "▾"}
+                          </button>
+                        ) : (
+                          <span className="cat-tree__toggle cat-tree__toggle--leaf" />
+                        )}
+                        <CategoryIcon
+                          name={category.name}
+                          imageUrl={category.image_url}
+                          size="sm"
+                        />
+                        <span className="admin-table__name">
+                          {category.name}
+                        </span>
+                      </div>
                     </td>
-                    <td className="admin-table__name">{cat.name}</td>
-                    <td className="admin-muted">{cat.slug}</td>
-                    <td className="admin-muted">
-                      {getCategoryName(cat.parent_id)}
-                    </td>
-                    <td className="admin-num">{cat.sort_order}</td>
+                    <td className="admin-muted">{category.slug}</td>
                     <td className="admin-table__actions">
                       <button
                         className="admin-btn admin-btn--ghost admin-btn--sm"
                         onClick={() =>
-                          navigate(`/admin/categories/${cat.id}/edit`)
+                          navigate(
+                            `/admin/categories/new?parent=${category.id}`,
+                          )
+                        }
+                      >
+                        Add sub
+                      </button>{" "}
+                      <button
+                        className="admin-btn admin-btn--ghost admin-btn--sm"
+                        onClick={() =>
+                          navigate(`/admin/categories/${category.id}/edit`)
                         }
                       >
                         Edit
@@ -160,7 +215,7 @@ export function AdminCategoriesPage() {
                         className="admin-btn admin-btn--danger admin-btn--sm"
                         onClick={() => {
                           setDeleteError(null);
-                          setDeletingCategory(cat);
+                          setDeletingCategory(category);
                         }}
                       >
                         Delete

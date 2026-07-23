@@ -730,6 +730,28 @@ pre-filled. The old inline `MetadataSchemaEditor` is retired. There's no single-
 so the edit page reuses the existing list endpoint for both the category and its parent options.
 **No backend change** — same `POST`/`PUT /api/v1/admin/categories` payload, still validated server-side.
 
+#### BE-3.13d: Category Tree View + Inherited Metadata Display [S] [DONE — hierarchical admin list + read-only inherited fields]
+**As an** admin
+**I want** to see categories as a hierarchy and, when editing a sub-category, see the fields it inherits
+**So that** I can manage deep category trees and avoid redefining fields a parent already provides
+
+**Chosen approach (shipped):** a **frontend-only** feature over the existing endpoints.
+- **Tree list:** the admin categories page renders an inline, indented, expand/collapse tree
+  (`utils/categoryTree.ts` builds/flattens the forest; siblings ordered by sort_order then name;
+  orphans surface as roots; cycle-safe). Each row keeps Edit/Delete and gains **Add sub**
+  (→ `/admin/categories/new?parent=<id>`, which pre-selects the parent). Default fully expanded.
+- **Multi-level parents:** the edit page's Parent dropdown now offers *any* category (shown indented),
+  excluding the category itself and its descendants to prevent cycles — so hierarchies can go many
+  levels deep (the backend already had no depth restriction).
+- **Inherited metadata:** when a parent is selected, the edit page fetches that parent's *effective*
+  schema (`GET /categories/{id}/metadata-schema`, which already merges the whole ancestor chain) and
+  shows those fields in a read-only **Inherited Fields** table above the editable own-fields table,
+  with required fields marked. Updates live when the parent changes.
+
+**No backend change** — the category `parent_id`, the admin list, and the metadata-schema resolve
+endpoint already supported arbitrary depth and full-chain inheritance. Reorder (drag / up-down) is a
+deliberate follow-up.
+
 #### BE-3.14: Show Uploader in Torrent Browse List [S] [DONE]
 **As a** user
 **I want** to see who uploaded each torrent in the browse/list views
