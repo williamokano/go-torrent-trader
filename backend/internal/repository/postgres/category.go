@@ -115,6 +115,34 @@ func (r *CategoryRepo) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (r *CategoryRepo) Reorder(ctx context.Context, placements []repository.CategoryPlacement) (err error) {
+	if len(placements) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin reorder tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	const q = `UPDATE categories SET parent_id = $1, sort_order = $2, updated_at = NOW() WHERE id = $3`
+	for _, p := range placements {
+		if _, err = tx.ExecContext(ctx, q, p.ParentID, p.SortOrder, p.ID); err != nil {
+			return fmt.Errorf("reorder category %d: %w", p.ID, err)
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit reorder tx: %w", err)
+	}
+	return nil
+}
+
 func (r *CategoryRepo) CountTorrentsByCategory(ctx context.Context, categoryID int64) (int64, error) {
 	var count int64
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM torrents WHERE category_id = $1`, categoryID).

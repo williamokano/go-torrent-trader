@@ -34,6 +34,37 @@
   cursor: default;
 }
 
+.cat-tree__grip {
+  flex: none;
+  cursor: grab;
+  color: var(--color-text-secondary, #999);
+  font-size: 0.9rem;
+  line-height: 1;
+  user-select: none;
+}
+
+/* Drag-and-drop reorder feedback */
+tr[draggable="true"] {
+  cursor: grab;
+}
+
+.cat-tree__row--dragging {
+  opacity: 0.4;
+}
+
+.cat-tree__row--drop-inside > td {
+  box-shadow: inset 0 0 0 2px var(--color-accent, #3b82f6);
+  background: var(--color-bg-secondary, rgba(59, 130, 246, 0.08));
+}
+
+.cat-tree__row--drop-before > td {
+  box-shadow: inset 0 3px 0 0 var(--color-accent, #3b82f6);
+}
+
+.cat-tree__row--drop-after > td {
+  box-shadow: inset 0 -3px 0 0 var(--color-accent, #3b82f6);
+}
+
 .admin-categories__modal-form,
 .admin-categories__form {
   display: flex;

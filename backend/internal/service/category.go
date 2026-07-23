@@ -137,6 +137,64 @@ func (s *CategoryService) Update(ctx context.Context, id int64, req UpdateCatego
 	return cat, nil
 }
 
+// ReorderItem is one category's new placement (parent and sort order) in a
+// batch reorder request.
+type ReorderItem struct {
+	ID        int64  `json:"id"`
+	ParentID  *int64 `json:"parent_id"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// Reorder atomically updates the parent_id and sort_order of the given
+// categories. It rejects a request that would leave the hierarchy with a cycle
+// (a category becoming its own ancestor) or that references a parent not present
+// in the request, so a drag-and-drop reorder can't corrupt the tree.
+func (s *CategoryService) Reorder(ctx context.Context, items []ReorderItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	parentOf := make(map[int64]*int64, len(items))
+	for _, it := range items {
+		if _, dup := parentOf[it.ID]; dup {
+			return fmt.Errorf("%w: category %d appears twice in reorder", ErrInvalidCategory, it.ID)
+		}
+		parentOf[it.ID] = it.ParentID
+	}
+
+	// Walk each node's parent chain: every referenced parent must be in the set,
+	// and the chain must terminate at a root without revisiting a node.
+	for _, it := range items {
+		steps := 0
+		for cur := it.ParentID; cur != nil; {
+			if *cur == it.ID {
+				return fmt.Errorf("%w: category %d cannot be its own ancestor", ErrInvalidCategory, it.ID)
+			}
+			next, ok := parentOf[*cur]
+			if !ok {
+				return fmt.Errorf("%w: parent %d is not part of the reorder", ErrInvalidCategory, *cur)
+			}
+			cur = next
+			if steps++; steps > len(items) {
+				return fmt.Errorf("%w: category hierarchy contains a cycle", ErrInvalidCategory)
+			}
+		}
+	}
+
+	placements := make([]repository.CategoryPlacement, len(items))
+	for i, it := range items {
+		placements[i] = repository.CategoryPlacement{
+			ID:        it.ID,
+			ParentID:  it.ParentID,
+			SortOrder: it.SortOrder,
+		}
+	}
+	if err := s.categories.Reorder(ctx, placements); err != nil {
+		return fmt.Errorf("reorder categories: %w", err)
+	}
+	return nil
+}
+
 // canonicalizeSchema validates a category's submitted metadata schema and
 // returns a normalized JSONB array to persist. An empty/absent schema becomes
 // "[]". Malformed or invalid schemas surface as ErrInvalidCategory so the

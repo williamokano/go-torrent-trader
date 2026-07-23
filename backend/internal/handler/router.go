@@ -466,6 +466,8 @@ func NewRouter(deps *Deps) chi.Router {
 						catAdmin := NewCategoryAdminHandler(deps.CategoryService)
 						r.Get("/categories", catAdmin.HandleListCategories)
 						r.Post("/categories", catAdmin.HandleCreateCategory)
+						// Static "reorder" is registered before "{id}" so chi routes it here.
+						r.Put("/categories/reorder", catAdmin.HandleReorderCategories)
 						r.Put("/categories/{id}", catAdmin.HandleUpdateCategory)
 						r.Delete("/categories/{id}", catAdmin.HandleDeleteCategory)
 					}
