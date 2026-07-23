@@ -17,6 +17,9 @@ type Group struct {
 	IsAdmin     bool
 	IsModerator bool
 	IsImmune    bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// CanSelfApprove marks the Uploader class (BE-8.22c): members may approve
+	// their own torrent submissions.
+	CanSelfApprove bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }

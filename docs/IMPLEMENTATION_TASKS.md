@@ -2581,8 +2581,12 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 - Frontend: a Discussion thread (list + composer) inside the torrent detail Moderation panel; `moderation_message` wired into `notificationDisplay` (links to the torrent) and the notification-preferences label.
 - Tests: repo (message CRUD + count, queue `message_count` population), service (post/list authz for staff/uploader/stranger, empty body, event recipients), listener (notify uploader/moderator, skip actor, no-moderator case), handler (post/list authz), frontend (thread render + send, notification mapping). Coverage ≥ floor.
 
-##### BE-8.22c: Uploader self-approval role [PLANNED]
-Seeded exclusive "Uploader" group with a `can_self_approve` capability; approve authorization widens so an Uploader approves their own upload (recorded as their own name).
+##### BE-8.22c: Uploader self-approval role [DONE]
+- Migration 070 adds a `can_self_approve` capability flag to `groups` and seeds a dedicated **Uploader** group (level 50) carrying it. Staff "promote" a trusted member by assigning them this class via the existing user group dropdown — no new admin UI, and the flag is intentionally *not* a per-group toggle (the group `Create`/`Update` SQL leaves it untouched, so it can't be flipped or cleared by accident from the group editor).
+- `model.Group` / `model.Permissions` / `PermissionsFromGroup` carry `CanSelfApprove`; the group reads (`List`/`GetByID`) select it, so it flows into the session and `/auth/me` automatically.
+- `TorrentService.canApprove` widens: staff always, plus a `CanSelfApprove` member on their **own** pending upload — recorded with their own name as approver, delivering the "human self-review that's still logged" the class is for. The approve endpoint added in 8.22a needed no route change.
+- Frontend: `UserPermissions` gains `can_self_approve`; the torrent detail Approve button shows for a self-approving uploader on their own pending torrent.
+- Tests: model (PermissionsFromGroup carries the flag; plain groups never do), repo (the seeded Uploader group reads back with the flag; no other group has it), service (uploader self-approves own → recorded as self; can't approve others'; plain member can't self-approve). Coverage ≥ floor.
 
 #### BE-9.24: Restrict Sensitive Activity Log Entries to Staff [S] [BUG] [DONE]
 **As a** tracker operator
