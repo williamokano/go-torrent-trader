@@ -734,7 +734,21 @@ func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID i
 		}
 		return nil, fmt.Errorf("approve torrent: %w", err)
 	}
+	s.publishModerated(ctx, torrent, userID, model.ModerationApproved)
 	return s.torrents.GetByID(ctx, torrentID)
+}
+
+// publishModerated emits a TorrentModeratedEvent so the uploader is notified of an
+// approve/reject decision. The actor is the moderator; NotificationService.Create
+// skips self-notification, so an Uploader approving their own upload isn't pinged.
+func (s *TorrentService) publishModerated(ctx context.Context, torrent *model.Torrent, actorID int64, decision string) {
+	s.eventBus.Publish(ctx, &event.TorrentModeratedEvent{
+		Base:        event.NewBase(event.TorrentModerated, s.actorFromUserID(ctx, actorID)),
+		TorrentID:   torrent.ID,
+		TorrentName: torrent.Name,
+		UploaderID:  torrent.UploaderID,
+		Decision:    decision,
+	})
 }
 
 // RejectTorrent marks a pending torrent rejected. Staff only.
@@ -758,6 +772,7 @@ func (s *TorrentService) RejectTorrent(ctx context.Context, torrentID, userID in
 		}
 		return nil, fmt.Errorf("reject torrent: %w", err)
 	}
+	s.publishModerated(ctx, torrent, userID, model.ModerationRejected)
 	return s.torrents.GetByID(ctx, torrentID)
 }
 

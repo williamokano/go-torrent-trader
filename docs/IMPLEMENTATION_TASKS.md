@@ -2588,6 +2588,9 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 - Frontend: `UserPermissions` gains `can_self_approve`; the torrent detail Approve button shows for a self-approving uploader on their own pending torrent.
 - Tests: model (PermissionsFromGroup carries the flag; plain groups never do), repo (the seeded Uploader group reads back with the flag; no other group has it), service (uploader self-approves own → recorded as self; can't approve others'; plain member can't self-approve). Coverage ≥ floor.
 
+##### BE-8.22d: Notify the uploader on approve/reject [DONE]
+- Approve/reject were silent — the uploader had no signal their submission went live or got bounced. Both now publish a `TorrentModeratedEvent`; a listener creates a `moderation_decision` notification for the uploader ("Your torrent X was approved/rejected", links to the torrent). The actor is skipped by `NotificationService.Create`, so an Uploader self-approving their own upload isn't pinged. New `model.NotifModerationDecision` added to `AllNotificationTypes`; frontend `notificationDisplay` + preferences label wired. Tests: service (approve/reject publish), listener (uploader notified; self-approver skipped), frontend (message + link, approved/rejected).
+
 #### BE-9.24: Restrict Sensitive Activity Log Entries to Staff [S] [BUG] [DONE]
 **As a** tracker operator
 **I want** operationally sensitive activity log entries (backups, cheat flags, ban patterns, moderation actions) hidden from regular members

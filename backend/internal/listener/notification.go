@@ -190,6 +190,27 @@ func RegisterNotificationListeners(
 		return nil
 	})
 
+	// Torrent moderated (approved/rejected): notify the uploader of the outcome.
+	// The actor (moderator) is skipped by Create, so an Uploader self-approving
+	// their own upload isn't notified.
+	bus.Subscribe(event.TorrentModerated, func(_ context.Context, evt event.Event) error {
+		e := evt.(*event.TorrentModeratedEvent)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		data := marshalData(map[string]interface{}{
+			"torrent_id":     e.TorrentID,
+			"torrent_name":   e.TorrentName,
+			"decision":       e.Decision,
+			"actor_id":       e.Actor.ID,
+			"actor_username": e.Actor.Username,
+		})
+		if _, err := notifSvc.Create(ctx, e.UploaderID, e.Actor.ID, model.NotifModerationDecision, data); err != nil {
+			slog.Error("notification: failed to create moderation_decision", "error", err)
+		}
+		return nil
+	})
+
 	// PM received: notify the receiver
 	bus.Subscribe(event.MessageSent, func(_ context.Context, evt event.Event) error {
 		e := evt.(*event.MessageSentEvent)

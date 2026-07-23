@@ -66,6 +66,7 @@ const (
 	ForumTopicCreated       Type = "forum_topic_created"
 	TorrentCommented        Type = "torrent_commented"
 	TorrentModerationMsg    Type = "torrent_moderation_message"
+	TorrentModerated        Type = "torrent_moderated"
 	UserMentioned           Type = "user_mentioned"
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
@@ -227,6 +228,18 @@ type TorrentModerationMessagePostedEvent struct {
 	TorrentName         string `json:"torrent_name"`
 	UploaderID          int64  `json:"uploader_id"`
 	AssignedModeratorID *int64 `json:"assigned_moderator_id"`
+}
+
+// TorrentModeratedEvent fires when a torrent is approved or rejected, so the
+// uploader can be notified of the decision. The actor (the approver/rejecter) is
+// skipped by NotificationService.Create, so an Uploader self-approving their own
+// upload isn't notified.
+type TorrentModeratedEvent struct {
+	Base
+	TorrentID   int64  `json:"torrent_id"`
+	TorrentName string `json:"torrent_name"`
+	UploaderID  int64  `json:"uploader_id"`
+	Decision    string `json:"decision"` // "approved" | "rejected"
 }
 
 type InviteCreatedEvent struct {
