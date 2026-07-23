@@ -428,10 +428,11 @@ func (r *TorrentRepo) UnclaimModeration(ctx context.Context, torrentID int64) er
 }
 
 // ApproveTorrent marks the torrent approved and records who approved it (their name
-// surfaces via the ap join in torrentColumns).
+// surfaces via the ap join in torrentColumns). The assigned moderator is cleared —
+// it's queue state that no longer applies once the item leaves the queue.
 func (r *TorrentRepo) ApproveTorrent(ctx context.Context, torrentID, approverID int64) error {
 	return r.execAffectingTorrent(ctx,
-		`UPDATE torrents SET moderation_status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2`,
+		`UPDATE torrents SET moderation_status = 'approved', approved_by = $1, approved_at = NOW(), assigned_moderator_id = NULL, updated_at = NOW() WHERE id = $2`,
 		approverID, torrentID)
 }
 

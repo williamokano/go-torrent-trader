@@ -329,6 +329,13 @@ func (s *TrackerService) Scrape(ctx context.Context, infoHashes [][]byte) (map[s
 			return nil, err
 		}
 
+		// A torrent awaiting moderation (or rejected) must not leak swarm stats
+		// on the public scrape endpoint — omit it like an unknown hash so its
+		// existence stays hidden (BE-8.22).
+		if torrent.ModerationRestricted() {
+			continue
+		}
+
 		result[string(ih)] = ScrapeEntry{
 			Complete:   torrent.Seeders,
 			Incomplete: torrent.Leechers,

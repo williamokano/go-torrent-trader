@@ -61,7 +61,8 @@ type Torrent struct {
 	ApprovedBy            *int64 // who approved it; nil while pending/rejected
 	ApprovedByName        string // Resolved via JOIN; empty until approved
 	ApprovedAt            *time.Time
-	// MessageCount is populated only by the moderation-queue query (BE-8.22b).
+	// MessageCount is 0 until BE-8.22b, which populates it from the
+	// moderation-queue query; earlier code paths always leave it 0.
 	MessageCount int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

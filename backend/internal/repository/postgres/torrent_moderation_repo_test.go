@@ -65,8 +65,11 @@ func TestTorrentModeration_ClaimApproveRejectUnclaim(t *testing.T) {
 		}
 	})
 
-	t.Run("approve records the approver and timestamp", func(t *testing.T) {
+	t.Run("approve records the approver and clears the assignee", func(t *testing.T) {
 		tor := newPendingTorrent(t, db, uploader.ID)
+		if err := repo.ClaimModeration(ctx, tor.ID, moderator.ID); err != nil {
+			t.Fatalf("ClaimModeration: %v", err)
+		}
 		if err := repo.ApproveTorrent(ctx, tor.ID, approver.ID); err != nil {
 			t.Fatalf("ApproveTorrent: %v", err)
 		}
@@ -76,6 +79,9 @@ func TestTorrentModeration_ClaimApproveRejectUnclaim(t *testing.T) {
 		}
 		if got.ModerationStatus != model.ModerationApproved {
 			t.Errorf("status = %q, want approved", got.ModerationStatus)
+		}
+		if got.AssignedModeratorID != nil {
+			t.Errorf("assigned moderator = %v after approve, want nil (cleared)", got.AssignedModeratorID)
 		}
 		if got.ApprovedBy == nil || *got.ApprovedBy != approver.ID {
 			t.Fatalf("approved_by = %v, want %d", got.ApprovedBy, approver.ID)

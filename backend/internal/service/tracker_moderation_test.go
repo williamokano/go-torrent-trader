@@ -46,6 +46,31 @@ func TestAnnounce_PendingTorrent(t *testing.T) {
 		}
 	})
 
+	t.Run("scrape omits an unapproved torrent but includes an approved one", func(t *testing.T) {
+		svc, _, torrentRepo, _ := setupTracker()
+
+		// Default status is empty (not restricted) → included.
+		res, err := svc.Scrape(context.Background(), [][]byte{testInfoHash()})
+		if err != nil {
+			t.Fatalf("Scrape: %v", err)
+		}
+		if len(res) != 1 {
+			t.Fatalf("approved scrape = %d entries, want 1", len(res))
+		}
+
+		// Flip to pending → omitted like an unknown hash.
+		torrentRepo.mu.Lock()
+		torrentRepo.torrents[0].ModerationStatus = model.ModerationPending
+		torrentRepo.mu.Unlock()
+		res, err = svc.Scrape(context.Background(), [][]byte{testInfoHash()})
+		if err != nil {
+			t.Fatalf("Scrape: %v", err)
+		}
+		if len(res) != 0 {
+			t.Errorf("pending scrape = %d entries, want 0 (omitted)", len(res))
+		}
+	})
+
 	t.Run("allows staff", func(t *testing.T) {
 		svc, userRepo, torrentRepo, _ := setupTracker()
 		groupRepo := newTrackerMockGroupRepo()
