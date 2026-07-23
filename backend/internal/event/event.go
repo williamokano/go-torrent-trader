@@ -65,6 +65,7 @@ const (
 	ForumPostCreated        Type = "forum_post_created"
 	ForumTopicCreated       Type = "forum_topic_created"
 	TorrentCommented        Type = "torrent_commented"
+	TorrentModerationMsg    Type = "torrent_moderation_message"
 	UserMentioned           Type = "user_mentioned"
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
@@ -214,6 +215,18 @@ type ReseedRequestedEvent struct {
 	TorrentName   string `json:"torrent_name"`
 	UploaderID    int64  `json:"uploader_id"`
 	UploaderEmail string `json:"uploader_email"`
+}
+
+// TorrentModerationMessagePostedEvent fires when someone posts to a torrent's
+// moderation thread. Recipients (uploader + assigned moderator) are carried on
+// the event so the listener doesn't re-fetch the torrent; the actor is skipped
+// by NotificationService.Create.
+type TorrentModerationMessagePostedEvent struct {
+	Base
+	TorrentID           int64  `json:"torrent_id"`
+	TorrentName         string `json:"torrent_name"`
+	UploaderID          int64  `json:"uploader_id"`
+	AssignedModeratorID *int64 `json:"assigned_moderator_id"`
 }
 
 type InviteCreatedEvent struct {

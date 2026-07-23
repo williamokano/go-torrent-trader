@@ -38,6 +38,7 @@ const TYPE_LABELS: Record<string, string> = {
   forum_mention: "Mention", // legacy rows, superseded by "mention"
   topic_reply: "Topic Reply",
   torrent_comment: "Torrent Comment",
+  moderation_message: "Moderation Message",
   pm_received: "Private Message",
   system: "System",
 };

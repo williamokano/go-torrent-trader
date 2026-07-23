@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -95,6 +96,77 @@ func (h *ModerationHandler) HandleUnclaim(w http.ResponseWriter, r *http.Request
 	h.act(w, r, func(id, _ int64) (*model.Torrent, error) {
 		return h.torrentSvc.UnclaimModeration(r.Context(), id)
 	})
+}
+
+// HandleListMessages handles GET /api/v1/torrents/{id}/moderation/messages.
+// Readable by staff and the uploader (enforced in the service).
+func (h *ModerationHandler) HandleListMessages(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	msgs, err := h.torrentSvc.ListModerationMessages(r.Context(), id, userID, perms)
+	if err != nil {
+		handleTorrentError(w, err)
+		return
+	}
+
+	items := make([]map[string]interface{}, len(msgs))
+	for i := range msgs {
+		items[i] = moderationMessageResponse(&msgs[i])
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"messages": items})
+}
+
+// HandlePostMessage handles POST /api/v1/torrents/{id}/moderation/messages.
+func (h *ModerationHandler) HandlePostMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	perms := middleware.PermissionsFromContext(r.Context())
+
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid torrent ID")
+		return
+	}
+
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	msg, err := h.torrentSvc.PostModerationMessage(r.Context(), id, userID, perms, body.Body)
+	if err != nil {
+		handleTorrentError(w, err)
+		return
+	}
+	JSON(w, http.StatusCreated, map[string]interface{}{"message": moderationMessageResponse(msg)})
+}
+
+func moderationMessageResponse(m *model.TorrentModerationMessage) map[string]interface{} {
+	return map[string]interface{}{
+		"id":              m.ID,
+		"torrent_id":      m.TorrentID,
+		"author_id":       m.AuthorID,
+		"author_username": m.AuthorUsername,
+		"body":            m.Body,
+		"created_at":      m.CreatedAt,
+	}
 }
 
 // act is the shared shell for the single-torrent moderation actions: it extracts

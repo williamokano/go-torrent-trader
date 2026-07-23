@@ -2573,8 +2573,13 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 - Frontend: a Moderation panel on the torrent detail page (status, assigned moderator, Claim/Approve/Reject for staff, "Approved by X" when approved, pending banner + download-gate messaging); `/admin/moderation` queue page with All/Unassigned/Mine filters + Claim, linked from a staff-visible nav item; two toggles on the Site Settings page.
 - Tests: repo (claim/approve/reject/unclaim, queue filters + pagination, public-list exclusion), service (upload default, viewer gate incl. public-visibility + rejected-stays-hidden, download gate, approve/claim/reject authz, unavailable), tracker (pending announce: uploader/staff pass, others rejected), handler (approve staff/non-staff/unauth, claim, reject, queue), frontend (queue page, moderation panel, approved-by line). Coverage ≥ floor.
 
-##### BE-8.22b: Moderation message thread + notifications [PLANNED]
-Per-torrent `torrent_moderation_messages` thread (staff + author), message count in the queue and panel, and a `moderation_message` notification to the assigned moderator + author (never self-notified).
+##### BE-8.22b: Moderation message thread + notifications [DONE]
+- Migration 069 adds `torrent_moderation_messages` (torrent_id FK ON DELETE CASCADE, author_id, body, created_at; index on `(torrent_id, created_at)`).
+- `TorrentModerationMessageRepository` (Create / ListByTorrent / CountByTorrent); the moderation-queue query now populates `message_count` in one grouped query over the page (`fillMessageCounts`), so the queue and panel show "N messages" without a per-row round trip.
+- `TorrentService.ListModerationMessages` / `PostModerationMessage` — readable and postable by staff **and the uploader** only. Posting publishes `TorrentModerationMessagePostedEvent` carrying the uploader + assigned-moderator ids; a notification listener creates a `moderation_message` notification for each, minus the actor (never self-notified). New `model.NotifModerationMessage` added to `AllNotificationTypes` so it appears in preferences.
+- Endpoints `GET|POST /api/v1/torrents/{id}/moderation/messages` (auth; service authorizes).
+- Frontend: a Discussion thread (list + composer) inside the torrent detail Moderation panel; `moderation_message` wired into `notificationDisplay` (links to the torrent) and the notification-preferences label.
+- Tests: repo (message CRUD + count, queue `message_count` population), service (post/list authz for staff/uploader/stranger, empty body, event recipients), listener (notify uploader/moderator, skip actor, no-moderator case), handler (post/list authz), frontend (thread render + send, notification mapping). Coverage ≥ floor.
 
 ##### BE-8.22c: Uploader self-approval role [PLANNED]
 Seeded exclusive "Uploader" group with a `can_self_approve` capability; approve authorization widens so an Uploader approves their own upload (recorded as their own name).

@@ -13,6 +13,9 @@ const (
 	NotifTorrentComment = "torrent_comment"
 	NotifPMReceived     = "pm_received"
 	NotifSystem         = "system"
+	// NotifModerationMessage notifies the uploader + assigned moderator of a new
+	// message in a torrent's moderation thread (BE-8.22b).
+	NotifModerationMessage = "moderation_message"
 )
 
 // AllNotificationTypes lists all valid notification types for preference management.
@@ -23,6 +26,7 @@ var AllNotificationTypes = []string{
 	NotifTorrentComment,
 	NotifPMReceived,
 	NotifSystem,
+	NotifModerationMessage,
 }
 
 // Notification represents an in-app notification for a user.

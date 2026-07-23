@@ -221,10 +221,13 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Post("/{id}/reseed", torrents.HandleRequestReseed)
 					r.Get("/{id}/reseed", torrents.HandleGetReseedCount)
 
-					// Moderation approve (BE-8.22). Not staff-gated at the route:
-					// the service authorizes staff and self-approving Uploaders.
+					// Moderation approve + discussion thread (BE-8.22). Not
+					// staff-gated at the route: the service authorizes staff, the
+					// uploader, and self-approving Uploaders as appropriate.
 					moderation := NewModerationHandler(deps.TorrentService)
 					r.Post("/{id}/moderation/approve", moderation.HandleApprove)
+					r.Get("/{id}/moderation/messages", moderation.HandleListMessages)
+					r.Post("/{id}/moderation/messages", moderation.HandlePostMessage)
 
 					// Comment and rating endpoints
 					if deps.CommentService != nil {

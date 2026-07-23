@@ -45,6 +45,9 @@ export function notificationLink(n: Notification): string | null {
     case "torrent_comment":
       if (d.torrent_id) return `/torrent/${d.torrent_id}`;
       break;
+    case "moderation_message":
+      if (d.torrent_id) return `/torrent/${d.torrent_id}`;
+      break;
     case "pm_received":
       return "/messages";
   }
@@ -66,6 +69,8 @@ export function notificationMessage(n: Notification): string {
       return `${actor} posted in "${d.topic_title || "a topic"}" you follow`;
     case "torrent_comment":
       return `${actor} commented on "${d.torrent_name || "your torrent"}"`;
+    case "moderation_message":
+      return `${actor} posted in the moderation review of "${d.torrent_name || "a torrent"}"`;
     case "pm_received":
       return `${actor} sent you a private message`;
     case "system":
