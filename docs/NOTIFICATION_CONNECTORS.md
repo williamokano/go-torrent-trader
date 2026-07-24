@@ -156,6 +156,36 @@ double-post and collide on the nick. So each persistent instance needs
 Because the whole HA question only bites persistent connectors, it's contained to
 Phase 2 (IRC); Phase 1's connectors are stateless and multi-node-safe as-is.
 
+**Guarantees & limitations — this is single-owner coordination, NOT consensus.**
+Don't mistake the advisory lock for strict, always-exactly-one mutual exclusion:
+- **How it works:** each node holds a dedicated DB connection and calls
+  `pg_try_advisory_lock(connector_id)` (non-blocking; returns whether it won). A
+  session-level advisory lock is **auto-released when that DB session ends** — so a
+  crashed leader frees the lock and a standby acquires it on its next try. Liveness
+  rides the TCP session, so there's no lease TTL to tune.
+- **No fencing → a bounded split-brain window.** The lock release (DB side) and the
+  old leader noticing and stopping (app side) aren't atomic. A leader partitioned
+  from Postgres but still connected to IRC can keep posting briefly *after* a
+  standby takes over → a duplicate line or nick collision until it self-detects.
+  Advisory locks can't hand IRC a fencing token to reject the stale leader, so this
+  window can be shrunk but not eliminated.
+- **Detection latency:** a clean crash frees the lock immediately; a hard partition
+  only frees it once Postgres reaps the dead session (tune `tcp_keepalives_*` so
+  that's seconds, not minutes).
+- **Primary-only:** advisory locks aren't replicated and don't survive a Postgres
+  restart/failover — fine here, since the app is down then anyway.
+- **Why it's acceptable:** announce delivery is low-stakes and deduped, so a rare
+  duplicate or a short failover gap costs nothing. The mitigations are: the leader
+  **continuously re-checks it still holds the lock and stops the IRC client the
+  moment it can't confirm ownership**, plus the pipeline's dedup + at-least-once
+  (§6). If leadership ever guarded something dangerous (not announcements), this
+  would be insufficient — you'd need fencing tokens or a real consensus store
+  (etcd/Consul/Raft). For an announce bot, that's overkill.
+
+The Redis-lease variant is the same class of guarantee (arguably weaker: adds a
+TTL/clock dependency and the known Redlock fencing critique) — which is why the
+advisory lock is the lean.
+
 ### 4c. Registry (compile-time)
 
 ```go
