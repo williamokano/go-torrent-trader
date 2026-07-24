@@ -126,6 +126,36 @@ hands the line to the running client (or drops with a logged error if
 disconnected). This is the one connector that carries real operational weight;
 everything else is a stateless HTTP/in-process call.
 
+### 4d. Single-owner across nodes (leader election) — persistent connectors only
+
+A persistent IRC connection **must be a singleton across the deployment**. If the
+app runs as more than one process/replica, two nodes both connected to IRC would
+double-post and collide on the nick. So each persistent instance needs
+**exactly-one-owner** semantics with automatic failover:
+
+- **Single-process deployment (the common self-hosted case):** nothing to do — the
+  one process owns every persistent connector. This must stay the zero-config
+  default; leader election is only engaged when more than one node is detected.
+- **Multi-node deployment:** elect one owner per persistent instance via a
+  **lease** on infrastructure we already run — no new dependency:
+  - **Postgres advisory lock** (`pg_try_advisory_lock` keyed by connector id): the
+    node holding it runs the client; if that node crashes, its session ends and
+    the lock releases, so another node acquires it and reconnects. Simple and
+    crash-safe.
+  - **or Redis lease** (`SET owner NX PX <ttl>` renewed on a heartbeat; on expiry
+    another node takes over). We already use Redis for sessions.
+- On **takeover**, the new owner reconnects to IRC and resumes announcing. The
+  brief gap during failover is acceptable for an announce bot; combined with the
+  pipeline's at-least-once + dedup (§6), the window costs at most a short delay or
+  a harmless duplicate, never a lost-forever guarantee we promised.
+- **One-shot connectors need none of this** — webhook/Discord/Telegram/chat/SSE
+  are stateless, so any node can deliver. The only cross-node concern there is not
+  delivering the *same job* twice, which is job-ownership in the delivery queue
+  (§6), not connection ownership.
+
+Because the whole HA question only bites persistent connectors, it's contained to
+Phase 2 (IRC); Phase 1's connectors are stateless and multi-node-safe as-is.
+
 ### 4c. Registry (compile-time)
 
 ```go
@@ -139,6 +169,17 @@ Built-in kinds register at bootstrap — **compile-time modules, not hot-loaded*
 `Register`s itself; the dispatcher and config layer don't change.
 
 ## 5. Configuration & storage
+
+**Multiple instances, independently toggleable.** Every connector kind **except
+chat** can have **several independent instances**, each with its own config and
+its own `enabled` flag — e.g. two IRC connections to different networks, a Discord
+webhook per category, three generic webhooks. Chat is the one singleton: there is a
+single shoutbox, so it's effectively one built-in instance (still with an `enabled`
+flag). "Just decide to not notify" is simply `enabled=false` on an instance — the
+config is kept, delivery stops; deleting an instance removes it entirely. An
+optional **global kill-switch** site setting (`connectors_enabled`) mutes *all*
+external delivery at once (maintenance, incident) without touching per-instance
+config; the internal chat/SSE feeds can be exempted or included as configured.
 
 Table `notification_connectors`:
 
@@ -168,16 +209,52 @@ Table `notification_connectors`:
 "One or more" targets (e.g. IRC channels per category) live inside the instance
 config (`channels[].categories`) so a single connection can route by category.
 
-### 5.3 Secrets
+### 5.3 Secrets — what they are and how hard we need to protect them
 
-Config JSON holds secrets (webhook tokens, IRC/SASL passwords, bot tokens).
-Requirements (per `CLAUDE.md` security rules — no plaintext secrets, no secret
-logging):
-- **Encrypt secret fields at rest** with a key from env (envelope-encrypt the
-  marked fields, or the whole `config` blob), **or** store 1Password/`env:` refs
-  resolved at delivery time.
-- **Never** return secrets in API responses (write-only fields; show "•••• set").
-- **Never** log config; redact on the delivery log.
+**What "secret" means here.** Some connector configs contain credentials that are
+usable *verbatim* by anyone who has them:
+- a **Discord webhook URL** — itself a bearer token; whoever has it can post to that
+  channel;
+- a **Telegram bot token** — full control of the bot;
+- an **IRC NickServ/SASL password**;
+- a generic-**webhook `Authorization` header** or **HMAC signing secret**.
+
+Unlike user passwords (hashed one-way), these can't be hashed — the connector must
+send them at delivery time, so they must be stored *recoverably*. "Recoverable +
+sensitive" is the case where storage protection is worth thinking about.
+
+**Why I raised encryption — and whether you actually need it.** The only thing
+encryption-at-rest buys you is protection against someone who can **read the DB but
+not the app's environment**: a leaked/stolen backup, a SQL-injection that reads the
+table, a shared/hosted database, a support engineer with read access. If your DB
+and app share one trust boundary (same box, backups stay local and protected — the
+typical self-hosted tracker), then **plaintext-in-DB is a perfectly defensible
+choice**, and encryption is defense-in-depth you may not want the key-management
+hassle for. It is **not** a hard requirement. (Note: `CLAUDE.md`'s "no hardcoded
+secrets" rule is about secrets in *code/committed files*, not admin-entered runtime
+config — so it doesn't force this either way.)
+
+**The one non-negotiable baseline** (cheap, do it regardless):
+- **Never return secrets in API responses** — write-only fields; show "•••• set".
+- **Never log** config; redact secrets in the delivery log and errors.
+
+**Then pick a storage posture for your threat model** (this is an open question,
+§12 — your call):
+1. **Plaintext in DB** + the baseline above. Simplest; fine when DB and app share a
+   trust boundary and backups are protected.
+2. **Encrypt secret fields at rest** with an app key from env (envelope-encrypt the
+   marked fields). Protects DB dumps / backups / SQLi reads, at the cost of managing
+   one key. Recommended *if backups leave the box or the DB is shared/hosted*.
+3. **Store references, not values** (`env:DISCORD_MAIN`, a secrets-manager path)
+   resolved at delivery. Nothing sensitive in the DB at all; pushes config to
+   ops/env. Cleanest for regulated/shared environments.
+
+**Decision (for now): option 1 — plaintext in the DB**, plus the non-negotiable
+baseline (never logged, never returned by the API). The operator runs the DB and
+app inside one trust boundary with protected backups, so this is fine for now and
+avoids key-management overhead. Still **mark** secret fields in the `config` schema
+(a per-kind list of which keys are secret) so a later move to encryption (2) or
+references (3) is a localized change rather than a feature-wide migration.
 
 ## 6. Delivery pipeline
 
@@ -246,12 +323,15 @@ chat are the priority.
 
 - Announce **only** on `torrent.published` — never pending/rejected; **respect the
   anonymous flag** (never reveal the uploader when anonymous).
-- Secrets encrypted at rest, never logged, never returned by the API.
+- Secrets: **baseline non-negotiable** — never logged, never returned by the API
+  (write-only). Encryption-at-rest / reference-based storage is a threat-model
+  choice (§5.3), not a hard requirement.
 - Webhook **SSRF** guard (block internal/metadata targets).
 - Delivery **isolated** (recover), **retried** (backoff), **timed out**,
   **rate-limited/batched**, **deduped**.
 - Delivery **observability** (log table + admin view).
-- IRC connection health surfaced to admins (connected / reconnecting / failing).
+- Persistent connectors are **single-owner across nodes** (§4d); IRC connection
+  health surfaced to admins (connected / reconnecting / failing).
 
 ## 11. Phased backlog
 
@@ -277,9 +357,13 @@ framework up front:
 
 ## 12. Open questions
 
-- **Encryption vs references for secrets** — envelope-encrypt config fields with an
-  env key, or store `env:`/1Password references? (Leaning: encrypt-at-rest with an
-  env key so config is self-contained; revisit if a secrets manager lands.)
+- **Secret storage — DECIDED:** plaintext in the DB for now, with the baseline
+  redaction (never logged/returned) and secret fields *marked* so encryption or
+  references can be added later without a feature-wide migration (§5.3).
+- **Deployment topology / leader election** — single-process is the zero-config
+  default (no election). Multi-node needs a single-owner lease per persistent
+  connector (§4d): Postgres advisory lock vs Redis lease — pick when/if we run more
+  than one replica. (Leaning: Postgres advisory lock — crash-safe, no TTL tuning.)
 - **Batching semantics** — per-instance rate cap with coalescing ("+N more"), or
   hard drop past the cap? (Leaning: coalesce.)
 - **Delivery store retention** — how long to keep `connector_deliveries`; prune via

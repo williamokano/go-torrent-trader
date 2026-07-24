@@ -2599,13 +2599,13 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 **Design:** see `docs/NOTIFICATION_CONNECTORS.md` (formalizes the reaction-side plugin idea from `docs/EXTENSIBILITY.md` and the "IRC/Discord announce bot" from `docs/TRACKER_MODS.md`). A single canonical `TorrentPublished` event (emitted on approve + auto-approve upload — never leaks pending/anonymous) → a dispatcher builds an `Announcement` → fans out to enabled, filtered **connector** instances via an **async, isolated, retrying** delivery pipeline (worker). Connectors register at compile time (no hot-loading).
 
 **Phased (each phase is a BE+FE story; let the pattern earn each step):**
-- **BE-10.1 — seam + first two connectors:** `TorrentPublished` event, `Announcement`, `Connector` interface + registry, `notification_connectors` table + admin CRUD, delivery pipeline (isolation/retry/timeout/log). Built-ins: **Chat** (reuses `ChatService`) and **generic Webhook** (HMAC + SSRF guard). FE: admin Connectors page + test-send.
-- **BE-10.2 — IRC:** `PersistentConnector` + `ConnectorManager` lifecycle (reconnect, channels, category routing, rate-limit). FE: IRC config + connection status.
+- **BE-10.1 — seam + first two connectors:** `TorrentPublished` event, `Announcement`, `Connector` interface + registry, `notification_connectors` table + admin CRUD, delivery pipeline (isolation/retry/timeout/log). **Multiple instances per kind** (except chat, a singleton), each independently enable/disable + optional global kill-switch. Built-ins: **Chat** (reuses `ChatService`) and **generic Webhook** (HMAC + SSRF guard). FE: admin Connectors page + test-send.
+- **BE-10.2 — IRC:** `PersistentConnector` + `ConnectorManager` lifecycle (reconnect, channels, category routing, rate-limit) **+ single-owner leader election** across nodes (Postgres advisory lock / Redis lease; single-process = no election, the zero-config default). FE: IRC config + connection status.
 - **BE-10.3 — SSE live feed:** authenticated `GET /api/v1/announce-stream`, hub fan-out. FE: opt-in "live releases" view.
 - **BE-10.4 — Discord + Telegram:** thin specializations of the webhook/bot-POST path.
 - **BE-10.5 (future) — per-user relay:** per-user subscriptions/filters over the same `Announcement`/SSE machinery.
 
-**Security:** announce only published (non-anonymous-safe) torrents; secrets encrypted at rest + never logged/returned; webhook SSRF guard; delivery isolated/retried/timed-out/rate-limited/deduped + observable.
+**Security:** announce only published (non-anonymous-safe) torrents; connector secrets **plaintext in DB for now** (operator's single trust boundary) but *marked* so encryption/references can be added later, and **never logged or returned by the API**; webhook SSRF guard; delivery isolated/retried/timed-out/rate-limited/deduped + observable.
 
 #### BE-9.24: Restrict Sensitive Activity Log Entries to Staff [S] [BUG] [DONE]
 **As a** tracker operator
