@@ -73,6 +73,10 @@ const DELIVERIES_PER_PAGE = 25;
 const SECRET_FIELDS: Record<string, string[]> = {
   webhook: ["hmac_secret"],
   irc: ["sasl_pass", "nickserv_pass"],
+  // The Discord webhook URL is itself the credential — anyone holding it can
+  // post to the channel — so it is write-only like any other secret.
+  discord: ["webhook_url"],
+  telegram: ["bot_token"],
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -80,6 +84,8 @@ const KIND_LABELS: Record<string, string> = {
   webhook: "Webhook",
   irc: "IRC",
   sse: "Live Feed",
+  discord: "Discord",
+  telegram: "Telegram",
 };
 
 /** How often the IRC connection status is refreshed while the page is open. */
@@ -165,6 +171,8 @@ function defaultConfig(kind: string): Record<string, unknown> {
   switch (kind) {
     case "irc":
       return { port: 6697, tls: true, channels: [] };
+    case "telegram":
+      return { chat_ids: [] };
     default:
       return {};
   }
@@ -701,6 +709,55 @@ export function AdminConnectorsPage() {
     );
   }
 
+  /**
+   * Telegram chat ids. Kept as strings because group ids are negative and
+   * exceed a 32-bit int, and because "@channelusername" is also valid.
+   */
+  function renderChatIDsEditor() {
+    const chatIDs = (form.config.chat_ids as string[]) ?? [];
+
+    function writeChatIDs(next: string[]) {
+      setConfigField("chat_ids", next);
+    }
+
+    return (
+      <div className="admin-connectors__chats">
+        <span className="form-label">Chat IDs</span>
+        {chatIDs.map((chatID, index) => (
+          <div className="admin-connectors__chat-row" key={index}>
+            <Input
+              label={`Chat ${index + 1}`}
+              placeholder="-1001234567890 or @channelname"
+              value={chatID}
+              onChange={(e) =>
+                writeChatIDs(
+                  chatIDs.map((c, i) => (i === index ? e.target.value : c)),
+                )
+              }
+            />
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost admin-btn--sm"
+              aria-label={`Remove chat ${index + 1}`}
+              onClick={() =>
+                writeChatIDs(chatIDs.filter((_, i) => i !== index))
+              }
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="admin-btn admin-btn--ghost admin-btn--sm"
+          onClick={() => writeChatIDs([...chatIDs, ""])}
+        >
+          Add chat
+        </button>
+      </div>
+    );
+  }
+
   function renderKindFields() {
     switch (form.kind) {
       case "chat":
@@ -779,6 +836,44 @@ export function AdminConnectorsPage() {
             />
             {renderHeadersEditor()}
             {renderSecretField("hmac_secret", "HMAC signing secret")}
+          </>
+        );
+      case "discord":
+        return (
+          <>
+            {renderSecretField("webhook_url", "Discord webhook URL")}
+            <Input
+              label="Bot username (optional)"
+              value={(form.config.username as string) ?? ""}
+              onChange={(e) => setConfigField("username", e.target.value)}
+            />
+            <Input
+              label="Avatar URL (optional)"
+              type="url"
+              value={(form.config.avatar_url as string) ?? ""}
+              onChange={(e) => setConfigField("avatar_url", e.target.value)}
+            />
+            <Textarea
+              label="Embed description template"
+              rows={2}
+              placeholder="{{.Name}}"
+              value={(form.config.template as string) ?? ""}
+              onChange={(e) => setConfigField("template", e.target.value)}
+            />
+          </>
+        );
+      case "telegram":
+        return (
+          <>
+            {renderSecretField("bot_token", "Bot token")}
+            {renderChatIDsEditor()}
+            <Textarea
+              label="Message template (HTML)"
+              rows={3}
+              placeholder="<b>{{.Name}}</b>"
+              value={(form.config.template as string) ?? ""}
+              onChange={(e) => setConfigField("template", e.target.value)}
+            />
           </>
         );
       case "sse":

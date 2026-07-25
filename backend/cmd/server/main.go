@@ -17,10 +17,12 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/chat"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/discord"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/httpguard"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/irc"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/leader"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/telegram"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/webhook"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -291,6 +293,8 @@ func run() int {
 		10*time.Second)
 	connectorRegistry.Register(webhook.New(connectorHTTPClient))
 	connectorRegistry.Register(irc.New())
+	connectorRegistry.Register(discord.New(connectorHTTPClient))
+	connectorRegistry.Register(telegram.New(connectorHTTPClient))
 
 	announceHub := handler.NewAnnounceHub(sessionStore)
 	go announceHub.Run()

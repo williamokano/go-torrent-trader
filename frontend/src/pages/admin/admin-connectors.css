@@ -71,3 +71,17 @@
   gap: var(--space-xs);
   align-items: end;
 }
+
+.admin-connectors__chats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* A chat id and its remove button read as one row. */
+.admin-connectors__chat-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-xs);
+  align-items: end;
+}

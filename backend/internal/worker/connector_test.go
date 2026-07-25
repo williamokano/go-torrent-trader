@@ -989,3 +989,49 @@ func TestDrainNotReadyGivesUpOnAnOldDelivery(t *testing.T) {
 		t.Fatal("a dead-lettered row must not be scheduled again")
 	}
 }
+
+// --- permanent failures (BE-10.4) ---
+
+// A connector that knows the delivery can never succeed is believed at once.
+// For a fan-out connector every pointless retry means the destinations that did
+// work receive the same announcement again.
+func TestDrainDeadLettersAPermanentFailureImmediately(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: chat not found", connector.ErrPermanent)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.Status != model.DeliveryFailed {
+		t.Fatalf("status = %q, want failed on the first permanent failure", stored.Status)
+	}
+	if stored.NextAttemptAt != nil {
+		t.Fatal("a permanently failed delivery must not be scheduled again")
+	}
+	if stored.LastError == nil || !strings.Contains(*stored.LastError, "chat not found") {
+		t.Fatalf("last_error = %v, want the reason preserved", stored.LastError)
+	}
+	if len(h.enqueuer.calls) != 0 {
+		t.Fatal("nothing should be re-enqueued for a permanent failure")
+	}
+}
+
+// A permanent failure still gets redacted, since the reason can quote a
+// destination's response.
+func TestDrainRedactsAPermanentFailure(t *testing.T) {
+	h := newDrainHarness(t, `{"url":"https://example.test/hook","hmac_secret":"s3cr3tValue"}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: rejected token s3cr3tValue", connector.ErrPermanent)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.LastError == nil || strings.Contains(*stored.LastError, "s3cr3tValue") {
+		t.Fatalf("last_error leaked the secret: %v", stored.LastError)
+	}
+}

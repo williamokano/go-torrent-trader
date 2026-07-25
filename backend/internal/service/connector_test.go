@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/discord"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/telegram"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
@@ -780,4 +782,100 @@ func TestConnectorFailedMutationsPublishNothing(t *testing.T) {
 	if len(h.changes) != 0 {
 		t.Fatalf("a rejected create published %d events, want 0", len(h.changes))
 	}
+}
+
+// --- the real connectors (BE-10.4) ---
+
+// The write-only machinery is exercised generically above with a fake
+// connector. This closes the loop with the real ones: it is the composition
+// that matters — a connector declaring its secret fields correctly, and the
+// service honouring whatever it declares.
+func TestRealConnectorSecretsNeverAppearInViews(t *testing.T) {
+	registry := connector.NewRegistry()
+	registry.Register(discord.New(nil))
+	registry.Register(telegram.New(nil))
+
+	repo := newMockConnectorRepo()
+	deliveries := newMockDeliveryRepo()
+	bus := event.NewInMemoryBus()
+	svc := NewConnectorService(repo, deliveries, registry, bus, "https://tracker.test")
+
+	cases := []struct {
+		kind   string
+		config string
+		secret string
+		field  string
+	}{
+		{
+			kind:   "discord",
+			config: `{"webhook_url":"https://discord.com/api/webhooks/1/s3cr3tHookToken","username":"Tracker"}`,
+			secret: "s3cr3tHookToken",
+			field:  "webhook_url",
+		},
+		{
+			kind:   "telegram",
+			config: `{"bot_token":"123456:AAHsuperSecretBotToken","chat_ids":["-1001"]}`,
+			secret: "AAHsuperSecretBotToken",
+			field:  "bot_token",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			created, err := svc.Create(context.Background(), ConnectorInput{
+				Kind:    tc.kind,
+				Name:    tc.kind + " instance",
+				Enabled: true,
+				Config:  json.RawMessage(tc.config),
+				Filters: json.RawMessage(`{}`),
+			})
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+
+			fetched, err := svc.Get(context.Background(), created.ID)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			encoded, err := json.Marshal(fetched)
+			if err != nil {
+				t.Fatalf("marshal view: %v", err)
+			}
+			if strings.Contains(string(encoded), tc.secret) {
+				t.Fatalf("%s view contains the secret: %s", tc.kind, encoded)
+			}
+			if len(fetched.SecretsSet) != 1 || fetched.SecretsSet[0] != tc.field {
+				t.Fatalf("secrets_set = %v, want [%s]", fetched.SecretsSet, tc.field)
+			}
+
+			// And an edit that leaves the secret blank keeps the stored value.
+			if _, err := svc.Update(context.Background(), created.ID, ConnectorInput{
+				Name:    "renamed",
+				Config:  json.RawMessage(strippedConfig(t, tc.config, tc.field)),
+				Filters: json.RawMessage(`{}`),
+			}); err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			if !strings.Contains(string(repo.rows[created.ID].Config), tc.secret) {
+				t.Fatalf("stored config lost the secret on an edit that omitted it: %s",
+					repo.rows[created.ID].Config)
+			}
+		})
+	}
+}
+
+// strippedConfig removes one key, standing in for the form the browser submits:
+// it never received the secret, so it cannot send it back.
+func strippedConfig(t *testing.T, config, field string) string {
+	t.Helper()
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(config), &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	delete(parsed, field)
+	out, err := json.Marshal(parsed)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(out)
 }

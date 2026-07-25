@@ -1,10 +1,21 @@
 # External Notification Connectors — Design
 
-**Status:** Phases 1–3 implemented (BE-10.1 — the connector seam, Chat and
-Webhook connectors, delivery pipeline and admin CRUD; BE-10.2 — IRC, the
+**Status:** implemented, phases 1–4. BE-10.1 — the connector seam, Chat and
+Webhook connectors, the delivery pipeline and admin CRUD; BE-10.2 — IRC, the
 persistent-connector lifecycle and advisory-lock leader election; BE-10.3 — the
-authenticated SSE live feed). Phase 4 in progress; phase 5 (per-user relay)
-remains future work. Implementation plan: `docs/plans/BE-10.md`.
+authenticated SSE live feed; BE-10.4 — Discord and Telegram. Phase 5 (per-user
+relay) remains future work.
+
+Phase 4 is the evidence the seam works: two packages, two registration lines and
+one helper promoted into the shared package, with no change to the dispatcher,
+the repositories, the handlers or the schema. Both kinds inherited filters, the
+kill-switch, dedupe, retry, dead-lettering, rate-limit coalescing, test-send and
+the delivery log by existing.
+
+It also showed up one genuine gap, now closed: a connector could say "not ready"
+but not "this will never work", so a permanently-broken destination in a fan-out
+made every healthy one receive the same announcement on every retry.
+`connector.ErrPermanent` dead-letters such a delivery immediately. Implementation plan: `docs/plans/BE-10.md`.
 Where this document and the plan differ, the plan's §1 records the decision.
 
 **Relates to:** `docs/EXTENSIBILITY.md` (reaction-side plugins), `docs/TRACKER_MODS.md`

@@ -762,4 +762,205 @@ describe("AdminConnectorsPage", () => {
       vi.useRealTimers();
     }
   });
+  // --- Discord and Telegram (BE-10.4) ---
+
+  const discordConnector = {
+    ...webhookConnector,
+    id: 4,
+    kind: "discord",
+    name: "Announcements",
+    config: { username: "Tracker" },
+    secrets_set: ["webhook_url"],
+  };
+
+  const telegramConnector = {
+    ...webhookConnector,
+    id: 5,
+    kind: "telegram",
+    name: "Telegram",
+    config: { chat_ids: ["-1001234567890"] },
+    secrets_set: ["bot_token"],
+  };
+
+  // The Discord webhook URL is the credential, so it gets the same write-only
+  // treatment as an HMAC secret rather than being shown back as config.
+  test("the Discord form treats the webhook URL as a secret", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [discordConnector], kinds: ["discord"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    const secret = within(dialog).getByLabelText("Discord webhook URL");
+    expect(secret).toHaveAttribute("type", "password");
+    expect(secret).toHaveAttribute(
+      "placeholder",
+      "•••• set — leave blank to keep",
+    );
+
+    await user.type(
+      within(dialog).getByLabelText("Bot username (optional)"),
+      "!",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    const body = JSON.parse(lastRequest("PUT")!.init!.body!);
+    // Untouched, so it must not be resubmitted — the browser never had it.
+    expect("webhook_url" in body.config).toBe(false);
+    expect(body.config.username).toBe("Tracker!");
+  });
+
+  test("rotating the Discord webhook URL submits the new value", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [discordConnector], kinds: ["discord"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.type(
+      within(dialog).getByLabelText("Discord webhook URL"),
+      "https://discord.com/api/webhooks/1/rotated",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    expect(JSON.parse(lastRequest("PUT")!.init!.body!).config.webhook_url).toBe(
+      "https://discord.com/api/webhooks/1/rotated",
+    );
+  });
+
+  test("the Telegram form edits its chat id list", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [telegramConnector], kinds: ["telegram"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByLabelText("Bot token")).toHaveAttribute(
+      "type",
+      "password",
+    );
+    expect(within(dialog).getByLabelText("Chat 1")).toHaveValue(
+      "-1001234567890",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Add chat" }));
+    await user.type(within(dialog).getByLabelText("Chat 2"), "@releases");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    expect(JSON.parse(lastRequest("PUT")!.init!.body!).config.chat_ids).toEqual(
+      ["-1001234567890", "@releases"],
+    );
+  });
+
+  // Removing the only row cannot catch an index-keying mistake; removing the
+  // middle of three can.
+  test("removing the middle chat row keeps the right survivors", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      connectors: [
+        {
+          ...telegramConnector,
+          config: { chat_ids: ["-100first", "-100middle", "-100last"] },
+        },
+      ],
+      kinds: ["telegram"],
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Remove chat 2" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    expect(JSON.parse(lastRequest("PUT")!.init!.body!).config.chat_ids).toEqual(
+      ["-100first", "-100last"],
+    );
+  });
+
+  test("a Telegram chat row can be removed", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [telegramConnector], kinds: ["telegram"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Remove chat 1" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    expect(JSON.parse(lastRequest("PUT")!.init!.body!).config.chat_ids).toEqual(
+      [],
+    );
+  });
+
+  // Creating a Telegram instance must submit the array the backend requires,
+  // not leave it undefined.
+  test("creating a Telegram connector seeds an empty chat list", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [], kinds: ["telegram"] });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Add Connector" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    await user.type(within(dialog).getByLabelText("Name"), "Releases");
+    await user.click(within(dialog).getByRole("button", { name: "Add chat" }));
+    await user.type(within(dialog).getByLabelText("Chat 1"), "@releases");
+    await user.type(within(dialog).getByLabelText("Bot token"), "123:ABC");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("POST", "/admin/connectors")).toBeDefined();
+    });
+    const body = JSON.parse(
+      lastRequest("POST", "/admin/connectors")!.init!.body!,
+    );
+    expect(body.kind).toBe("telegram");
+    expect(body.config.chat_ids).toEqual(["@releases"]);
+    expect(body.config.bot_token).toBe("123:ABC");
+  });
+
+  // The kind picker is driven by the API, so the two new kinds appear without
+  // the page having to be told about them.
+  test("test-send works for the new kinds", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      connectors: [discordConnector],
+      kinds: ["discord", "telegram"],
+      testResponse: { status: "sent" },
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Test" }));
+
+    expect(
+      await screen.findByText("Test message sent to Announcements"),
+    ).toBeInTheDocument();
+    expect(lastRequest("POST", "/test")).toBeDefined();
+  });
 });
