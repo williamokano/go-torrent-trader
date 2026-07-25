@@ -1142,3 +1142,53 @@ describe("AdminConnectorsPage", () => {
     });
   });
 });
+
+describe("live feeds", () => {
+  test("the sse form edits the slug and seeds the default", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [], kinds: ["sse"] });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Add Connector" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    // A feed is unusable without a slug — it is the URL — so the form starts
+    // with the one the legacy route resolves to.
+    const slug = within(dialog).getByLabelText("Feed slug") as HTMLInputElement;
+    expect(slug.value).toBe("default");
+
+    await user.clear(slug);
+    await user.type(slug, "no-adult");
+    await user.type(within(dialog).getByLabelText("Name"), "Safe for work");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("POST", "/admin/connectors")).toBeDefined();
+    });
+    const body = JSON.parse(
+      lastRequest("POST", "/admin/connectors")!.init!.body!,
+    );
+    expect(body.config.slug).toBe("no-adult");
+  });
+
+  test("the sse form shows the feed's own URL as it is typed", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [], kinds: ["sse"] });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Add Connector" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const slug = within(dialog).getByLabelText("Feed slug");
+    await user.clear(slug);
+    await user.type(slug, "anime");
+
+    expect(
+      within(dialog).getByText("/api/v1/announce-stream/anime"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("/live?feed=anime")).toBeInTheDocument();
+  });
+});

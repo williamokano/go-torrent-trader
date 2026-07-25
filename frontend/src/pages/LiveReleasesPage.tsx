@@ -1,8 +1,47 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { getAccessToken } from "@/features/auth/token";
+import { getConfig } from "@/config";
 import { useAnnounceStream } from "@/lib/useAnnounceStream";
 import type { FeedItem, StreamState } from "@/lib/useAnnounceStream";
 import { formatBytes, timeAgo } from "@/utils/format";
 import "./live-releases.css";
+
+/** One subscribable feed, as the API lists it. */
+interface Feed {
+  slug: string;
+  name: string;
+}
+
+/** The feed the unslugged legacy stream URL resolves to, server-side. */
+const LEGACY_FEED = "default";
+
+/**
+ * Resolves which feed the page is actually watching.
+ *
+ * Everything on screen has to agree with the stream that is open. Showing one
+ * feed's name over another feed's announcements is worse than showing none —
+ * on a private tracker it would mean reading "safe for work" while the
+ * unfiltered feed streams in.
+ *
+ * So the picker and the subscription both come from here:
+ *   - the feed asked for in the URL, taken at its word until the list has
+ *     loaded, so a link opens the feed it names without first connecting to
+ *     another one;
+ *   - once the list is in, that feed only if it still exists;
+ *   - otherwise the one the legacy route resolves to, so a plain /live matches
+ *     what an old bookmark and an already-open tab get;
+ *   - otherwise the first feed, for an install that has no "default";
+ *   - and undefined for a plain /live with no list, which keeps the legacy
+ *     route working when the feed list cannot be fetched at all.
+ */
+function resolveFeed(feeds: Feed[], requested?: string) {
+  if (feeds.length === 0) return requested;
+  if (requested && feeds.some((feed) => feed.slug === requested)) {
+    return requested;
+  }
+  return feeds.find((feed) => feed.slug === LEGACY_FEED)?.slug ?? feeds[0].slug;
+}
 
 const STATE_LABELS: Record<StreamState, string> = {
   connecting: "connecting",
@@ -11,7 +50,45 @@ const STATE_LABELS: Record<StreamState, string> = {
 };
 
 export function LiveReleasesPage() {
-  const { announcements, state } = useAnnounceStream();
+  const [feeds, setFeeds] = useState<Feed[]>([]);
+  // The feed lives in the URL rather than in state, so a feed can be linked to
+  // and the back button moves between them.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get("feed") ?? undefined;
+  const selected = resolveFeed(feeds, requested);
+  // A feed named in the URL that no longer exists: the admin renamed or removed
+  // it. Falling back silently would leave the page reading as though nothing had
+  // happened while showing a different feed's releases.
+  const missing = Boolean(
+    requested && feeds.length > 0 && selected !== requested,
+  );
+
+  const { announcements, state } = useAnnounceStream(selected);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchFeeds() {
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/announce-feeds`,
+          token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setFeeds(data.feeds ?? []);
+      } catch {
+        // The picker is an extra: without it the page still watches the default
+        // feed, which is what it did before feeds existed.
+      }
+    }
+    fetchFeeds();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="live">
@@ -23,14 +100,48 @@ export function LiveReleasesPage() {
             kept between visits — this is a window on what is happening now.
           </p>
         </div>
-        <span
-          className={`live__status live__status--${state}`}
-          role="status"
-          aria-live="polite"
-        >
-          {STATE_LABELS[state]}
-        </span>
+        <div className="live__controls">
+          {feeds.length > 1 && (
+            <label className="live__feed">
+              <span className="live__feed-label">Feed</span>
+              <select
+                className="live__feed-select"
+                value={selected}
+                onChange={(e) =>
+                  // Functional form: the feed is the only query parameter today,
+                  // and replacing the whole string would silently drop the next
+                  // one added.
+                  setSearchParams((previous) => {
+                    previous.set("feed", e.target.value);
+                    return previous;
+                  })
+                }
+              >
+                {feeds.map((feed) => (
+                  <option key={feed.slug} value={feed.slug}>
+                    {feed.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <span
+            className={`live__status live__status--${state}`}
+            role="status"
+            aria-live="polite"
+          >
+            {STATE_LABELS[state]}
+          </span>
+        </div>
       </div>
+
+      {missing && (
+        <p className="live__missing" role="status">
+          That feed no longer exists — showing{" "}
+          {feeds.find((feed) => feed.slug === selected)?.name ?? selected}{" "}
+          instead.
+        </p>
+      )}
 
       {announcements.length === 0 ? (
         <p className="live__empty">Waiting for releases…</p>

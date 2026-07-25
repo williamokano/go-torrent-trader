@@ -298,6 +298,7 @@ func run() int {
 
 	announceHub := handler.NewAnnounceHub(sessionStore)
 	go announceHub.Run()
+	announceHub.WatchConfigChanges(eventBus)
 	connectorRegistry.Register(sse.New(announceHub.Broadcast))
 
 	connectorRepo := postgres.NewConnectorRepo(db)

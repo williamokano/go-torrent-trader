@@ -106,3 +106,27 @@
   color: var(--color-text-muted);
   font-style: italic;
 }
+
+/* Feed picker and status badge sit together at the top right. */
+.live__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.live__feed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.live__feed-label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+/* Shown when the feed named in the URL has been renamed or removed. */
+.live__missing {
+  color: var(--color-text-muted);
+  font-style: italic;
+}

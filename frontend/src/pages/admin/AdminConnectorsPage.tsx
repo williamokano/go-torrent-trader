@@ -185,6 +185,10 @@ function defaultConfig(kind: string): Record<string, unknown> {
       return { port: 6697, tls: true, channels: [] };
     case "telegram":
       return { chat_ids: [] };
+    case "sse":
+      // A feed is unusable without a slug — it is the URL — so the form starts
+      // with the one the legacy route resolves to.
+      return { slug: "default" };
     default:
       return {};
   }
@@ -938,15 +942,30 @@ export function AdminConnectorsPage() {
             {renderTemplateHelp()}
           </>
         );
-      case "sse":
-        // Deliberately config-less: who sees the feed is decided by
-        // authentication, and what appears in it by the filters below.
+      case "sse": {
+        // The slug is the only thing to configure: who may watch is decided by
+        // authentication, and what appears by the filters below.
+        const slug = ((form.config.slug as string) ?? "").trim();
         return (
-          <p className="admin-muted">
-            The live feed has nothing to configure. Use the filters below to
-            narrow what appears in it.
-          </p>
+          <>
+            <Input
+              label="Feed slug"
+              placeholder="no-adult"
+              value={(form.config.slug as string) ?? ""}
+              onChange={(e) => setConfigField("slug", e.target.value)}
+            />
+            <p className="admin-muted admin-connectors__filter-hint">
+              This is the feed&apos;s address:{" "}
+              <code>/api/v1/announce-stream/{slug || "…"}</code>, shown on the
+              live releases page as{" "}
+              <code>/live{slug ? `?feed=${slug}` : ""}</code>. Lowercase
+              letters, digits and dashes. Several feeds can exist, each with its
+              own filters — one carrying everything, another everything except a
+              category.
+            </p>
+          </>
         );
+      }
       default:
         // A kind the backend registered but this build has no editor for. Saying
         // so beats silently offering an empty form that creates a broken

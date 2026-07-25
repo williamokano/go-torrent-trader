@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -25,6 +27,8 @@ var (
 	ErrConnectorUnknownKind = errors.New("unknown connector kind")
 	// ErrConnectorSingleton means this kind already has its one allowed instance.
 	ErrConnectorSingleton = errors.New("this connector kind allows only one instance")
+	// ErrFeedSlugTaken means another live feed already answers on this URL.
+	ErrFeedSlugTaken = errors.New("another live feed already uses this slug")
 	// ErrConnectorKindImmutable guards against reinterpreting a stored config
 	// under a different connector.
 	ErrConnectorKindImmutable = errors.New("connector kind cannot be changed")
@@ -164,6 +168,10 @@ func (s *ConnectorService) Create(ctx context.Context, in ConnectorInput) (*Conn
 		return nil, err
 	}
 
+	if err := s.checkFeedSlugFree(ctx, in.Kind, cfg, 0); err != nil {
+		return nil, err
+	}
+
 	c := &model.NotificationConnector{
 		Kind:    in.Kind,
 		Name:    name,
@@ -172,6 +180,11 @@ func (s *ConnectorService) Create(ctx context.Context, in ConnectorInput) (*Conn
 		Filters: filters,
 	}
 	if err := s.repo.Create(ctx, c); err != nil {
+		// The check above lost a race with another writer: the index caught what
+		// it missed, and that is a conflict to report rather than a 500.
+		if errors.Is(err, repository.ErrUniqueViolation) && in.Kind == "sse" {
+			return nil, fmt.Errorf("%w: %s", ErrFeedSlugTaken, sse.SlugOf(cfg))
+		}
 		return nil, fmt.Errorf("create connector: %w", err)
 	}
 	s.announceConfigChange(ctx, c, false)
@@ -204,6 +217,10 @@ func (s *ConnectorService) Update(ctx context.Context, id int64, in ConnectorInp
 		return nil, err
 	}
 
+	if err := s.checkFeedSlugFree(ctx, existing.Kind, cfg, existing.ID); err != nil {
+		return nil, err
+	}
+
 	existing.Name = name
 	existing.Enabled = in.Enabled
 	existing.Config = cfg
@@ -213,11 +230,78 @@ func (s *ConnectorService) Update(ctx context.Context, id int64, in ConnectorInp
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrConnectorNotFound
 		}
+		if errors.Is(err, repository.ErrUniqueViolation) && existing.Kind == "sse" {
+			return nil, fmt.Errorf("%w: %s", ErrFeedSlugTaken, sse.SlugOf(cfg))
+		}
 		return nil, fmt.Errorf("update connector: %w", err)
 	}
 	s.announceConfigChange(ctx, existing, false)
 
 	return s.view(existing, nil), nil
+}
+
+// checkFeedSlugFree refuses a live feed whose slug another feed already answers
+// on. The unique index is the real guarantee — this exists so an admin gets a
+// readable 409 instead of a constraint violation, and it is skipped for every
+// other kind.
+//
+// exceptID is the instance being updated, which may of course keep its own slug.
+func (s *ConnectorService) checkFeedSlugFree(ctx context.Context, kind string, cfg json.RawMessage, exceptID int64) error {
+	if kind != "sse" {
+		return nil
+	}
+	slug := sse.SlugOf(cfg)
+
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list connectors: %w", err)
+	}
+	for _, row := range rows {
+		if row.Kind != "sse" || row.ID == exceptID {
+			continue
+		}
+		if sse.SlugOf(row.Config) == slug {
+			return fmt.Errorf("%w: %s", ErrFeedSlugTaken, slug)
+		}
+	}
+	return nil
+}
+
+// PublicFeeds lists the enabled live feeds a member may subscribe to.
+//
+// Deliberately its own narrow view rather than the admin connector list: that
+// one carries config and filters, which are none of a member's business, and it
+// is reachable only behind RequireAdmin for exactly that reason.
+func (s *ConnectorService) PublicFeeds(ctx context.Context) ([]FeedView, error) {
+	rows, err := s.repo.ListEnabled(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled connectors: %w", err)
+	}
+
+	feeds := make([]FeedView, 0, len(rows))
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if row.Kind != "sse" {
+			continue
+		}
+		// One slug is one feed as far as a subscriber is concerned. Two rows
+		// resolving to the same one should be impossible, but listing it twice
+		// would render two identical options and hide the misconfiguration.
+		slug := sse.SlugOf(row.Config)
+		if seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		feeds = append(feeds, FeedView{Slug: slug, Name: row.Name})
+	}
+	sort.Slice(feeds, func(i, j int) bool { return feeds[i].Slug < feeds[j].Slug })
+	return feeds, nil
+}
+
+// FeedView is one subscribable live feed: its URL and what to call it.
+type FeedView struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 // prepare merges secrets onto the stored config and validates the result. Every

@@ -251,8 +251,9 @@ webhook per category, three generic webhooks. Chat is included: several shoutbox
 instances post to the one shoutbox, but each carries its own template and filters,
 which is how a site words the Anime line differently from the Movies line. Two
 chat instances whose filters overlap really do post twice — the admin's call to
-make. SSE is the remaining singleton: one live feed, and a second instance would
-deliver the same announcement to the same subscribers twice.
+make. SSE is no longer a singleton either: feeds are told apart by slug and a
+watcher subscribes to exactly one, so a second instance adds a feed rather than a
+duplicate.
 
 "Just decide to not notify" is simply `enabled=false` on an instance — the
 config is kept, delivery stops; deleting an instance removes it entirely. An
@@ -279,7 +280,19 @@ Table `notification_connectors`:
 - **discord**: `{ webhook_url(secret), username?, avatar_url?, template }`.
 - **telegram**: `{ bot_token(secret), chat_ids:[...], template }`.
 - **webhook**: `{ url, method, headers:{...}, hmac_secret(secret)?, body_template? }` — the fully generic one.
-- **sse**: `{}` — the in-process live feed has no external config (auth is by session).
+- **sse**: `{ slug }` — the feed's URL segment. Several feeds can exist, each with
+  its own filters: one carrying everything, another everything except a category.
+
+  **A feed's filters are a presentation choice, not an access control.** Every
+  authenticated member may open any feed's stream, and every enabled feed's name
+  is listed to every member by `GET /api/v1/announce-feeds`. A feed filtered to
+  staff-only categories would still be listed and still be subscribable — it
+  narrows what a feed carries, it does not decide who may read it. Per-feed group
+  gating would be a separate change (see BE-10.8 below).
+
+  Renaming or deleting a feed disconnects every watcher, on purpose: the hub keys
+  watchers by slug, so a freed slug later taken by another feed would otherwise
+  silently rebind them to it. Browsers reconnect within seconds and re-resolve.
 
 ### 5.2 Filters / routing
 

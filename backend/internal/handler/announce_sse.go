@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,6 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -29,9 +34,10 @@ const (
 	sseMaxPerUser = 5
 )
 
-// sseClient is one connected browser.
+// sseClient is one connected browser watching one feed.
 type sseClient struct {
 	userID int64
+	feed   string
 	send   chan []byte
 	// closeOnce guards send: the hub closes it when reaping a client, and the
 	// handler closes it if the hub is not responding, so both paths have to be
@@ -52,20 +58,29 @@ func (c *sseClient) close() {
 type AnnounceHub struct {
 	sessionStore service.SessionStore
 
-	clients   map[*sseClient]struct{}
-	broadcast chan []byte
+	// clients is keyed by feed slug. A frame produced by one feed must never
+	// reach another's watchers: the whole point of several feeds is that each
+	// carries only what its own filters allow.
+	clients   map[string]map[*sseClient]struct{}
+	broadcast chan feedFrame
 	mu        sync.RWMutex
 
 	// heartbeat is a field so tests need not wait twenty-five seconds.
 	heartbeat time.Duration
 }
 
+// feedFrame is one rendered SSE frame together with the feed it belongs to.
+type feedFrame struct {
+	feed  string
+	frame []byte
+}
+
 // NewAnnounceHub creates an AnnounceHub.
 func NewAnnounceHub(sessionStore service.SessionStore) *AnnounceHub {
 	return &AnnounceHub{
 		sessionStore: sessionStore,
-		clients:      make(map[*sseClient]struct{}),
-		broadcast:    make(chan []byte, 256),
+		clients:      make(map[string]map[*sseClient]struct{}),
+		broadcast:    make(chan feedFrame, 256),
 		heartbeat:    sseHeartbeat,
 	}
 }
@@ -77,12 +92,12 @@ func NewAnnounceHub(sessionStore service.SessionStore) *AnnounceHub {
 // mutex-guarded map operations, and making the cap atomic meant doing the check
 // and the insert under one lock anyway. Only the fan-out needs a loop.
 func (h *AnnounceHub) Run() {
-	for frame := range h.broadcast {
+	for queued := range h.broadcast {
 		h.mu.RLock()
 		var slow []*sseClient
-		for client := range h.clients {
+		for client := range h.clients[queued.feed] {
 			select {
-			case client.send <- frame:
+			case client.send <- queued.frame:
 			default:
 				// Buffer full: this client is not keeping up. Collect it and drop
 				// it after the loop, rather than let it stall everyone else's
@@ -107,25 +122,38 @@ func (h *AnnounceHub) tryRegister(client *sseClient) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	// Counted across every feed, not per feed: the cap exists to bound fan-out,
+	// and five pinned tabs cost the same whichever feeds they watch.
 	var forUser int
-	for existing := range h.clients {
-		if existing.userID == client.userID {
-			forUser++
+	for _, feed := range h.clients {
+		for existing := range feed {
+			if existing.userID == client.userID {
+				forUser++
+			}
 		}
 	}
 	if forUser >= sseMaxPerUser {
 		return false
 	}
 
-	h.clients[client] = struct{}{}
+	if h.clients[client.feed] == nil {
+		h.clients[client.feed] = make(map[*sseClient]struct{})
+	}
+	h.clients[client.feed][client] = struct{}{}
 	return true
 }
 
 // remove reaps a client. Safe to call from either the hub or a handler.
 func (h *AnnounceHub) remove(client *sseClient) {
 	h.mu.Lock()
-	_, present := h.clients[client]
-	delete(h.clients, client)
+	feed := h.clients[client.feed]
+	_, present := feed[client]
+	delete(feed, client)
+	if len(feed) == 0 {
+		// Otherwise a feed that is renamed or deleted leaves an empty map behind
+		// for the life of the process.
+		delete(h.clients, client.feed)
+	}
 	h.mu.Unlock()
 
 	if present {
@@ -138,29 +166,99 @@ func (h *AnnounceHub) remove(client *sseClient) {
 // The id becomes the SSE event id, so each frame says which announcement it is.
 // The send is non-blocking: this runs on a worker goroutine holding one of ten
 // asynq slots, and a stalled hub must not be able to park it.
-func (h *AnnounceHub) Broadcast(id string, payload []byte) {
-	frame := sseFrame("announcement", id, payload)
+func (h *AnnounceHub) Broadcast(feed, id string, payload []byte) {
+	queued := feedFrame{feed: feed, frame: sseFrame("announcement", id, payload)}
 	select {
-	case h.broadcast <- frame:
+	case h.broadcast <- queued:
 	default:
-		slog.Warn("announce stream: broadcast dropped, hub buffer full")
+		slog.Warn("announce stream: broadcast dropped, hub buffer full", "feed", feed)
 	}
 }
 
-// clientCount reports how many clients are connected, for tests.
+// WatchConfigChanges disconnects every watcher whenever a live feed is created,
+// edited, toggled or deleted.
+//
+// A feed's slug is admin-mutable and the hub keys watchers by it, so without
+// this a rename frees a slug that another feed can later take — and every
+// browser still connected under the old name would start receiving the new
+// feed's announcements, with no reconnect and no signal. That is exactly the
+// cross-feed leak the rest of this design exists to prevent, arriving
+// sequentially instead of concurrently.
+//
+// Disconnecting is cheap: the browser reconnects within seconds, re-reads the
+// feed list, and resolves which feed it is actually watching. It also ends the
+// dead stream a renamed or deleted feed would otherwise leave open, heartbeating
+// and reporting "live" while carrying nothing forever.
+func (h *AnnounceHub) WatchConfigChanges(bus event.Bus) {
+	bus.Subscribe(event.ConnectorConfigChanged, func(_ context.Context, evt event.Event) error {
+		changed, ok := evt.(*event.ConnectorConfigChangedEvent)
+		if !ok || changed.Kind != "sse" {
+			return nil
+		}
+		if dropped := h.disconnectAll(); dropped > 0 {
+			slog.Info("announce stream: live feeds changed, disconnecting watchers to re-resolve",
+				"clients", dropped)
+		}
+		return nil
+	})
+}
+
+// disconnectAll closes every stream and reports how many were closed.
+func (h *AnnounceHub) disconnectAll() int {
+	h.mu.Lock()
+	clients := make([]*sseClient, 0, len(h.clients))
+	for _, feed := range h.clients {
+		for client := range feed {
+			clients = append(clients, client)
+		}
+	}
+	h.clients = make(map[string]map[*sseClient]struct{})
+	h.mu.Unlock()
+
+	// Closed outside the lock: close() is idempotent, and holding the write lock
+	// while waking every handler goroutine would stall registration.
+	for _, client := range clients {
+		client.close()
+	}
+	return len(clients)
+}
+
+// clientCount reports how many clients are connected across every feed, for
+// tests.
 func (h *AnnounceHub) clientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return len(h.clients)
+	var total int
+	for _, feed := range h.clients {
+		total += len(feed)
+	}
+	return total
 }
 
-// HandleStream serves GET /api/v1/announce-stream.
+// HandleStream serves GET /api/v1/announce-stream/{slug}, and the unslugged
+// legacy route as an alias for the default feed.
 //
 // Authentication is by query parameter because EventSource cannot set headers —
 // the same reason /ws/chat does it, and the token is validated against live
 // sessions on every connect, so logging out stops the feed at the next
 // reconnect.
+//
+// The feed is not checked against the configured instances. A slug nobody
+// publishes to is simply a stream that stays quiet, and refusing to open it
+// would mean holding a connector list in the hub and racing every admin edit
+// against every open connection.
 func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
+	feed := strings.TrimSpace(chi.URLParam(r, "slug"))
+	if feed == "" {
+		feed = sse.DefaultSlug
+	}
+	if err := sse.ValidateSlug(feed); err != nil {
+		// A malformed slug can never match a real feed, so this is a 404 rather
+		// than a stream that would never carry anything.
+		ErrorResponse(w, http.StatusNotFound, "not_found", "no such feed")
+		return
+	}
+
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "missing token")
@@ -180,7 +278,7 @@ func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &sseClient{userID: session.UserID, send: make(chan []byte, sseClientBuffer)}
+	client := &sseClient{userID: session.UserID, feed: feed, send: make(chan []byte, sseClientBuffer)}
 	if !h.tryRegister(client) {
 		ErrorResponse(w, http.StatusTooManyRequests, "too_many_streams",
 			fmt.Sprintf("at most %d live feeds per user", sseMaxPerUser))

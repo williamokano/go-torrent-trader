@@ -2,6 +2,58 @@
 
 The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
+## Session 2026-07-25 — Multiple live feeds with slugs (BE-10.7, IN PROGRESS)
+
+Branch `feat/multiple-live-feeds`. Operator ask: several live feeds, each with its
+own URL — "everything", "everything except 18+", "just anime" — built on the
+include/exclude filters BE-10.6 landed.
+
+### Review notes
+
+Four ways a watcher could end up on the wrong feed, all found by review, all fixed:
+
+1. The picker showed the alphabetically-first feed while a plain `/live` streamed
+   the legacy `default` one. A member could read "Safe for work" over the
+   unfiltered feed — and could not select the feed being *displayed*, because
+   choosing an already-selected option fires no change event. One resolver now
+   feeds both the picker and the subscription.
+2. Renaming a feed frees its slug; another feed taking it later would silently
+   rebind everyone still connected under the old name. Any live-feed change now
+   disconnects watchers, who reconnect and re-resolve.
+3. React runs effect cleanups after paint, so a frame from the feed just left
+   could land in the new feed's cleared list. The list is stamped with its feed.
+4. The unique index keyed on the raw slug while the code read a trimmed one with
+   a `"default"` fallback — `" news"` and `"news"`, and any number of slugless
+   rows, coexisted as separate rows resolving to one feed.
+
+Also: losing the check-then-insert race returned a 500 rather than the 409 the
+check would have given; and rollback left the `slug` key behind, which the
+pre-075 binary rejects on every save.
+
+Worth remembering: **a feed's filters are not an access control.** Any member can
+open any feed and sees every enabled feed's name. Filed as BE-10.8.
+
+
+- [x] **SSE stops being a singleton.** Migration 075 drops the singleton index and
+      replaces it with a unique index on the feed slug, so two feeds cannot share a
+      URL even under a concurrent write.
+- [x] **Each instance carries a `slug`**, validated at save time (lowercase, digits,
+      dashes) and rejected as a duplicate by the service with a 409 before the index
+      has to catch it.
+- [x] **`GET /api/v1/announce-stream/{slug}`.** The unslugged route stays as an alias
+      for the feed named `default`, so a page open across the deploy reconnects
+      instead of 404-ing forever.
+- [x] **The hub keys clients by feed** rather than holding one global set. The
+      per-user stream cap stays global — it exists to bound fan-out, and five tabs
+      is five tabs whichever feed they watch.
+- [x] **`GET /api/v1/announce-feeds`** lists slug + name for enabled feeds, so the
+      page can offer a picker. Deliberately its own narrow view rather than the
+      admin connector list, which carries config members have no business reading.
+- [x] **FE:** feed picker on the live releases page, selection in the URL
+      (`/live?feed=anime`) so a feed can be linked.
+- [x] Tests: slug validation and uniqueness, per-feed fan-out isolation, the legacy
+      alias, the cap across feeds, and the page's picker.
+
 ## Session 2026-07-25 — Connector admin usability (BE-10.6)
 
 Branch `feat/connector-admin-usability`. Four operator-reported fixes from using the
