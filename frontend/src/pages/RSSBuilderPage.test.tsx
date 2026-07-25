@@ -105,11 +105,13 @@ describe("RSSBuilderPage", () => {
       const select = screen.getByLabelText("Category") as HTMLSelectElement;
       const options = Array.from(select.options).map((o) => o.text);
       // Children are nested under their parent and indented, matching the
-      // Upload/Browse pages rather than a flat, unordered list.
+      // Upload/Browse pages rather than a flat, unordered list. The indent is
+      // non-breaking spaces: an <option> collapses ordinary ones, and a
+      // punctuation prefix gets read out by screen readers.
       expect(options).toEqual([
         "All categories",
         "Movies",
-        "— Movies / Action",
+        "\u00a0\u00a0Movies / Action",
         "TV",
         "Music",
       ]);

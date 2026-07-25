@@ -2,6 +2,56 @@
 
 The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
 
+## Session 2026-07-25 — Connector admin usability (BE-10.6)
+
+Branch `feat/connector-admin-usability`. Four operator-reported fixes from using the
+connectors page for real. Backlog entry: BE-10.6 in `docs/IMPLEMENTATION_TASKS.md`.
+
+- [x] **Category pickers render the tree.** `buildCategoryOptions` rebuilt on
+      `buildCategoryTree`: ordering is parent → `sort_order` → name *explicitly*
+      rather than by trusting the caller's array order, and every label carries the
+      full ancestor path (`— Movies / Dub`) because in a multi-select the parent row
+      is often scrolled out of sight. Both connector selects now use it.
+- [x] **Fixed a bug this uncovered in every picker on the site.** The old builder
+      walked roots → direct children only, so a **third-level category was silently
+      dropped** from upload, edit, browse and RSS as well.
+- [x] **Category filters gained include/exclude**, and a listed category now covers
+      its whole subtree. Without the subtree part the feature would only have looked
+      like it worked: an announcement carries the leaf category, so excluding "Adult"
+      while a torrent sits in "Adult / 4K" would let it straight through.
+- [x] Ancestor chain resolved once per event (`service.CategoryAncestorIDs`,
+      cycle-guarded) onto `Announcement.CategoryPath`. **Fails closed**: if it cannot
+      be resolved, category-filtered instances are skipped and logged while
+      unfiltered ones still deliver.
+- [x] **Chat is no longer a singleton** — migration 074 narrows the partial unique
+      index to `sse` alone. 071 untouched.
+- [x] **Template help derived from the backend**, examples rendered from `Sample()`
+      rather than written down, with a reflection guard test.
+
+### Review notes
+
+- **Both review agents found the same Critical, and they were right.** The first cut
+  of `CategoryAncestorIDs` returned a *truncated chain with a nil error* for any
+  failure past the first hop, so a connection blip read as "this category has no
+  parents" and the fail-closed guard never fired — the exact leak it exists to
+  prevent. Only `sql.ErrNoRows` is tolerated now. The mock repository was returning a
+  bare `errors.New("not found")`, which is what let the hole hide; it now returns what
+  the real repository returns.
+- Two more corrections from the same review: the guard withheld from *every*
+  category-filtered instance, though an include filter on the leaf fallback can only
+  under-match (so only exclude mode is held back now); and a withheld instance got no
+  delivery row at all, so the announcement simply vanished — it is written as a failed
+  row with the reason now.
+- IRC per-channel routing was still leaf-only while the UI had started advertising
+  subtree matching in an identical-looking select. Now shares `CategoryChain()`.
+- My own test caught a real bug in `CategoryAncestorIDs`: the parent id was appended
+  before the row was read, so a *dangling* parent id ended up in the chain. Appending
+  only after a successful read fixed it.
+- The reflection guard was mutation-checked — adding an undocumented field to
+  `RenderContext` does fail the build.
+- Worth remembering: the *include* direction changed behaviour too. Listing "Movies"
+  now matches "Movies / Action", which it previously did not. Called out in the PR.
+
 ## Session 2026-07-17 — BE-8.20 / FE-5.17: username profile route + resolved @mentions
 
 Branch `feat/username-profile-and-mention-links` (worktree `username-route-and-mentions`).

@@ -51,6 +51,8 @@ type insertCall struct {
 	instanceID int64
 	eventKey   string
 	payload    json.RawMessage
+	status     string
+	lastError  *string
 }
 
 type mockDeliveryRepo struct {
@@ -75,7 +77,10 @@ func (r *mockDeliveryRepo) InsertPending(_ context.Context, d *model.ConnectorDe
 		return false, nil
 	}
 	r.seen[key] = true
-	r.inserts = append(r.inserts, insertCall{instanceID: d.InstanceID, eventKey: d.EventKey, payload: d.Payload})
+	r.inserts = append(r.inserts, insertCall{
+		instanceID: d.InstanceID, eventKey: d.EventKey, payload: d.Payload,
+		status: d.Status, lastError: d.LastError,
+	})
 	return true, nil
 }
 
@@ -142,6 +147,13 @@ type dispatchHarness struct {
 	deliveries *mockDeliveryRepo
 	enqueuer   *recordingEnqueuer
 	settings   *mockSettingsRepo
+	// categoryPaths overrides the ancestor chain a category resolves to;
+	// categoryPathErr makes resolution fail outright.
+	categoryPaths   map[int64][]int64
+	categoryPathErr error
+	// categoryPathCalls counts resolver invocations, so a test can assert the
+	// approve path does no category work when nothing filters on category.
+	categoryPathCalls int
 }
 
 func newDispatchHarness(t *testing.T, rows []model.NotificationConnector) *dispatchHarness {
@@ -155,7 +167,34 @@ func newDispatchHarness(t *testing.T, rows []model.NotificationConnector) *dispa
 		settings:   &mockSettingsRepo{values: map[string]string{}},
 	}
 	RegisterConnectorDispatcher(h.bus, h.connectors, h.deliveries,
-		service.NewSiteSettingsService(h.settings, h.bus), h.enqueuer, "https://tracker.test")
+		service.NewSiteSettingsService(h.settings, h.bus), h.enqueuer, "https://tracker.test",
+		func(_ context.Context, categoryID int64) ([]int64, error) {
+			h.categoryPathCalls++
+			if h.categoryPathErr != nil {
+				return nil, h.categoryPathErr
+			}
+			if path, ok := h.categoryPaths[categoryID]; ok {
+				return path, nil
+			}
+			return []int64{categoryID}, nil
+		})
+	return h
+}
+
+// newDispatchHarnessWithoutResolver wires the dispatcher the way a bad refactor
+// of main.go would: no category resolver at all.
+func newDispatchHarnessWithoutResolver(t *testing.T, rows []model.NotificationConnector) *dispatchHarness {
+	t.Helper()
+
+	h := &dispatchHarness{
+		bus:        event.NewInMemoryBus(),
+		connectors: &mockConnectorRepo{rows: rows},
+		deliveries: newMockDeliveryRepo(),
+		enqueuer:   &recordingEnqueuer{},
+		settings:   &mockSettingsRepo{values: map[string]string{}},
+	}
+	RegisterConnectorDispatcher(h.bus, h.connectors, h.deliveries,
+		service.NewSiteSettingsService(h.settings, h.bus), h.enqueuer, "https://tracker.test", nil)
 	return h
 }
 
@@ -373,5 +412,153 @@ func TestAnnouncementURLHandlesTrailingSlashAndEmptyBase(t *testing.T) {
 	}
 	if got := AnnouncementFromPublished(e, "").URL; got != "" {
 		t.Fatalf("url = %q, want empty when no base URL is configured", got)
+	}
+}
+
+func TestDispatchPutsTheCategoryPathOnThePayload(t *testing.T) {
+	h := newDispatchHarness(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true},
+	})
+	h.categoryPaths = map[int64][]int64{3: {1, 2, 3}}
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	rows := h.deliveries.inserts
+	if len(rows) != 1 {
+		t.Fatalf("got %d delivery rows, want 1", len(rows))
+	}
+	var a connector.Announcement
+	if err := json.Unmarshal(rows[0].payload, &a); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(a.CategoryPath) != 3 || a.CategoryPath[0] != 1 || a.CategoryPath[2] != 3 {
+		t.Fatalf("category path = %v, want [1 2 3]", a.CategoryPath)
+	}
+}
+
+func TestDispatchDeliversToAnInstanceFilteredOnAParentCategory(t *testing.T) {
+	// The torrent is in category 3, whose parent is 1. An instance including
+	// category 1 must receive it — that is what makes a subtree filter work.
+	h := newDispatchHarness(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true, Filters: json.RawMessage(`{"category_ids":[1]}`)},
+	})
+	h.categoryPaths = map[int64][]int64{3: {1, 3}}
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	if got := len(h.deliveries.inserts); got != 1 {
+		t.Fatalf("got %d delivery rows, want 1 for the parent-category filter", got)
+	}
+}
+
+func TestDispatchExcludesASubcategoryOfAnExcludedParent(t *testing.T) {
+	h := newDispatchHarness(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true,
+			Filters: json.RawMessage(`{"category_ids":[1],"category_mode":"exclude"}`)},
+	})
+	h.categoryPaths = map[int64][]int64{3: {1, 3}}
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	if got := len(h.deliveries.inserts); got != 0 {
+		t.Fatalf("got %d delivery rows, want none: the parent category is excluded", got)
+	}
+}
+
+func TestDispatchWithholdsFromAnExcludeFilterWhenThePathIsUnknown(t *testing.T) {
+	// Failing open here would leak a torrent into the very feed configured to
+	// keep its category out. The withheld instance still gets a row — a failed
+	// one, carrying the reason — because an announcement that silently never
+	// happened is the one thing the delivery log must not hide.
+	h := newDispatchHarness(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true,
+			Filters: json.RawMessage(`{"category_ids":[1],"category_mode":"exclude"}`)},
+		{ID: 2, Kind: "webhook", Enabled: true},
+	})
+	h.categoryPathErr = errors.New("database is down")
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	byInstance := map[int64]insertCall{}
+	for _, row := range h.deliveries.inserts {
+		byInstance[row.instanceID] = row
+	}
+	withheld, recorded := byInstance[1]
+	if !recorded {
+		t.Fatal("the withheld instance must still get a delivery row, or nothing shows in the log")
+	}
+	if withheld.status != model.DeliveryFailed {
+		t.Fatalf("withheld row status = %q, want %q", withheld.status, model.DeliveryFailed)
+	}
+	if withheld.lastError == nil || *withheld.lastError == "" {
+		t.Fatal("the withheld row must carry a reason an admin can read")
+	}
+	if delivered, ok := byInstance[2]; !ok || delivered.status != model.DeliveryPending {
+		t.Fatal("the unfiltered instance must still be delivered to normally")
+	}
+	if len(h.enqueuer.calls) != 1 || h.enqueuer.calls[0] != 2 {
+		t.Fatalf("enqueued drains %v, want only instance 2: a withheld row has nothing to drain",
+			h.enqueuer.calls)
+	}
+}
+
+func TestDispatchStillDeliversToAnIncludeFilterWhenThePathIsUnknown(t *testing.T) {
+	// An include filter on the leaf fallback can only ever under-match, never
+	// over-deliver, so withholding would lose announcements for no safety gain.
+	h := newDispatchHarness(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true, Filters: json.RawMessage(`{"category_ids":[3]}`)},
+	})
+	h.categoryPathErr = errors.New("database is down")
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	rows := h.deliveries.inserts
+	if len(rows) != 1 || rows[0].status != model.DeliveryPending {
+		t.Fatalf("include-filtered instance must still be delivered to, got %+v", rows)
+	}
+}
+
+func TestDispatchResolvesTheCategoryPathOncePerEvent(t *testing.T) {
+	// Once, not once per instance — this runs inside the approve request.
+	h := newDispatchHarness(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true},
+		{ID: 2, Kind: "webhook", Enabled: true, Filters: json.RawMessage(`{"min_size":1}`)},
+		{ID: 3, Kind: "irc", Enabled: true},
+	})
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	if h.categoryPathCalls != 1 {
+		t.Fatalf("resolved the category path %d times, want 1", h.categoryPathCalls)
+	}
+	if len(h.deliveries.inserts) != 3 {
+		t.Fatalf("got %d delivery rows, want 3", len(h.deliveries.inserts))
+	}
+}
+
+func TestDispatchResolvesNothingWhenNoInstanceIsEnabled(t *testing.T) {
+	// A site with connectors switched off pays nothing for the feature.
+	h := newDispatchHarness(t, nil)
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	if h.categoryPathCalls != 0 {
+		t.Fatalf("resolved the category path %d times with no instances, want 0", h.categoryPathCalls)
+	}
+}
+
+func TestDispatchWithholdsWhenNoResolverIsWired(t *testing.T) {
+	// A nil resolver reported as "path known" would downgrade every exclude
+	// filter to leaf-only matching, permanently and silently.
+	h := newDispatchHarnessWithoutResolver(t, []model.NotificationConnector{
+		{ID: 1, Kind: "chat", Enabled: true,
+			Filters: json.RawMessage(`{"category_ids":[1],"category_mode":"exclude"}`)},
+	})
+
+	h.bus.Publish(context.Background(), publishedEvent())
+
+	rows := h.deliveries.inserts
+	if len(rows) != 1 || rows[0].status != model.DeliveryFailed {
+		t.Fatalf("expected one withheld row with no resolver wired, got %+v", rows)
 	}
 }

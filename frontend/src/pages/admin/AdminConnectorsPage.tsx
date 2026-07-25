@@ -11,6 +11,7 @@ import {
   Textarea,
 } from "@/components/form";
 import { Pagination } from "@/components/Pagination";
+import { buildCategoryOptions } from "@/utils/categories";
 import { timeAgo } from "@/utils/format";
 import "./admin-ui.css";
 import "./admin-connectors.css";
@@ -51,6 +52,8 @@ interface Connector {
 interface Filters {
   event_types?: string[];
   category_ids?: number[];
+  /** "include" (default) delivers only these categories; "exclude" delivers everything else. */
+  category_mode?: "include" | "exclude";
   min_size?: number;
   freeleech_only?: boolean;
   exclude_anonymous?: boolean;
@@ -59,6 +62,15 @@ interface Filters {
 interface Category {
   id: number;
   name: string;
+  parent_id: number | null;
+  sort_order: number;
+}
+
+/** One field an admin's message template may reference, described by the API. */
+interface TemplateField {
+  token: string;
+  description: string;
+  example: string;
 }
 
 /** One IRC target channel, optionally narrowed to some categories. */
@@ -232,6 +244,7 @@ export function AdminConnectorsPage() {
   const deliveriesRequestRef = useRef(0);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [statuses, setStatuses] = useState<Record<string, ManagerStatus>>({});
+  const [templateFields, setTemplateFields] = useState<TemplateField[]>([]);
 
   const fetchConnectors = useCallback(
     async (showLoading = true) => {
@@ -252,6 +265,7 @@ export function AdminConnectorsPage() {
         const data = await res.json();
         setConnectors(data.connectors ?? []);
         setKinds(data.kinds ?? []);
+        setTemplateFields(data.template_fields ?? []);
       } catch {
         toast.error("Failed to load connectors");
       } finally {
@@ -663,10 +677,7 @@ export function AdminConnectorsPage() {
               label="Categories (empty = all)"
               multiple
               size={Math.min(4, Math.max(2, categories.length))}
-              options={categories.map((category) => ({
-                value: String(category.id),
-                label: category.name,
-              }))}
+              options={buildCategoryOptions(categories)}
               value={(channel.categories ?? []).map(String)}
               onChange={(e) =>
                 writeChannels(
@@ -758,17 +769,65 @@ export function AdminConnectorsPage() {
     );
   }
 
+  /**
+   * The list of things a template may interpolate, with what each one renders
+   * to. The fields come from the API rather than from a copy here: they are
+   * defined by the backend's render context, and a stale local list would keep
+   * promising a field that no longer exists.
+   */
+  function renderTemplateHelp() {
+    if (templateFields.length === 0) return null;
+    return (
+      <details className="admin-connectors__template-help">
+        <summary>Available fields</summary>
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Meaning</th>
+              <th>Renders as</th>
+            </tr>
+          </thead>
+          <tbody>
+            {templateFields.map((field) => (
+              <tr key={field.token}>
+                <td>
+                  <code>{field.token}</code>
+                </td>
+                <td>{field.description}</td>
+                <td className="admin-muted">{field.example}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="admin-muted">
+          Leave the template empty to use the built-in line. When the rate limit
+          collapses a burst into one summary, that summary uses its own wording
+          and ignores this template.
+        </p>
+      </details>
+    );
+  }
+
   function renderKindFields() {
     switch (form.kind) {
       case "chat":
         return (
-          <Textarea
-            label="Message template"
-            rows={2}
-            placeholder="New torrent: {{.Name}} [{{.Category}}, {{.SizeHuman}}] {{.URL}}"
-            value={(form.config.template as string) ?? ""}
-            onChange={(e) => setConfigField("template", e.target.value)}
-          />
+          <>
+            <p className="admin-muted admin-connectors__filter-hint">
+              Several shoutbox instances are allowed, each with its own wording.
+              They all post to the same shoutbox, so give them non-overlapping
+              category filters unless you want a torrent announced twice.
+            </p>
+            <Textarea
+              label="Message template"
+              rows={2}
+              placeholder="New torrent: {{.Name}} [{{.Category}}, {{.SizeHuman}}] {{.URL}}"
+              value={(form.config.template as string) ?? ""}
+              onChange={(e) => setConfigField("template", e.target.value)}
+            />
+            {renderTemplateHelp()}
+          </>
         );
       case "irc":
         return (
@@ -813,6 +872,7 @@ export function AdminConnectorsPage() {
               value={(form.config.template as string) ?? ""}
               onChange={(e) => setConfigField("template", e.target.value)}
             />
+            {renderTemplateHelp()}
           </>
         );
       case "webhook":
@@ -860,6 +920,7 @@ export function AdminConnectorsPage() {
               value={(form.config.template as string) ?? ""}
               onChange={(e) => setConfigField("template", e.target.value)}
             />
+            {renderTemplateHelp()}
           </>
         );
       case "telegram":
@@ -874,6 +935,7 @@ export function AdminConnectorsPage() {
               value={(form.config.template as string) ?? ""}
               onChange={(e) => setConfigField("template", e.target.value)}
             />
+            {renderTemplateHelp()}
           </>
         );
       case "sse":
@@ -1159,13 +1221,28 @@ export function AdminConnectorsPage() {
             Filters
           </h3>
           <Select
-            label="Categories (leave empty for all)"
+            label="Category filter mode"
+            options={[
+              { value: "include", label: "Only the categories selected below" },
+              { value: "exclude", label: "Everything except those selected" },
+            ]}
+            value={form.filters.category_mode ?? "include"}
+            onChange={(e) =>
+              setFilterField(
+                "category_mode",
+                e.target.value as "include" | "exclude",
+              )
+            }
+          />
+          <Select
+            label={
+              form.filters.category_mode === "exclude"
+                ? "Categories to exclude (leave empty to exclude none)"
+                : "Categories to include (leave empty for all)"
+            }
             multiple
             size={Math.min(6, Math.max(3, categories.length))}
-            options={categories.map((category) => ({
-              value: String(category.id),
-              label: category.name,
-            }))}
+            options={buildCategoryOptions(categories)}
             value={(form.filters.category_ids ?? []).map(String)}
             onChange={(e) =>
               setFilterField(
@@ -1176,6 +1253,9 @@ export function AdminConnectorsPage() {
               )
             }
           />
+          <p className="admin-muted admin-connectors__filter-hint">
+            Selecting a parent category covers everything under it.
+          </p>
           <ByteSizeInput
             label="Minimum size"
             value={form.filters.min_size ?? 0}

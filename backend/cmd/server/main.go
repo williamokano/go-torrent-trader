@@ -306,7 +306,10 @@ func run() int {
 		connectorRegistry, eventBus, cfg.Site.BaseURL)
 	connectorEnqueuer := worker.NewAsynqConnectorEnqueuer(asynqClient)
 	listener.RegisterConnectorDispatcher(eventBus, connectorRepo, connectorDeliveryRepo,
-		siteSettingsService, connectorEnqueuer, cfg.Site.BaseURL)
+		siteSettingsService, connectorEnqueuer, cfg.Site.BaseURL,
+		func(ctx context.Context, categoryID int64) ([]int64, error) {
+			return service.CategoryAncestorIDs(ctx, categoryRepo, categoryID)
+		})
 
 	// Persistent connectors (IRC) hold a connection that exactly one node may
 	// own; a Postgres advisory lock decides which. A single-process deployment

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/metadata"
@@ -259,6 +261,51 @@ func ResolveCategorySchema(ctx context.Context, repo repository.CategoryReposito
 		leafFirst[i], leafFirst[j] = leafFirst[j], leafFirst[i]
 	}
 	return metadata.Merge(leafFirst), nil
+}
+
+// CategoryAncestorIDs returns the category's id chain, root first and ending
+// with categoryID itself.
+//
+// Connector category filters are tested against this rather than against the
+// leaf id alone, so that listing a parent covers everything under it. Walks the
+// same way ResolveCategorySchema does, and is cycle-guarded for the same reason:
+// a malformed parent chain must not spin.
+func CategoryAncestorIDs(ctx context.Context, repo repository.CategoryRepository, categoryID int64) ([]int64, error) {
+	var leafFirst []int64
+	seen := make(map[int64]bool)
+
+	curID := categoryID
+	for !seen[curID] { // loop stops if a malformed parent chain revisits a category
+		seen[curID] = true
+
+		cat, err := repo.GetByID(ctx, curID)
+		if err != nil {
+			// Only a genuinely absent row may be shrugged off, and only after
+			// the leaf. Treating every failure as "missing ancestor" would hand
+			// back a truncated chain with a nil error, and the caller would
+			// filter against it as if it were the whole story — which is exactly
+			// how a connection blip could leak an excluded category.
+			// categories.parent_id is a foreign key, so the tolerant branch is
+			// for a torn restore, not for normal operation.
+			if len(leafFirst) == 0 || !errors.Is(err, sql.ErrNoRows) {
+				return nil, err
+			}
+			slog.Warn("category ancestor row is missing; chain truncated",
+				"category_id", curID, "leaf_category_id", categoryID)
+			break
+		}
+		// Appended only once the row is known to exist, so a dangling parent id
+		// never becomes part of the chain.
+		leafFirst = append(leafFirst, cat.ID)
+
+		if cat.ParentID == nil {
+			break
+		}
+		curID = *cat.ParentID
+	}
+
+	slices.Reverse(leafFirst)
+	return leafFirst, nil
 }
 
 // Delete deletes a category, but only if no torrents reference it.

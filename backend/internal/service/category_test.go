@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -19,6 +20,9 @@ type mockCategoryRepo struct {
 	torrentCounts map[int64]int64
 	deleteErr     error
 	reorderErr    error
+	// getErrByID injects a lookup failure for one id, so a test can tell an
+	// absent row apart from a database that is having a bad day.
+	getErrByID map[int64]error
 }
 
 func newMockCategoryRepo() *mockCategoryRepo {
@@ -31,12 +35,17 @@ func newMockCategoryRepo() *mockCategoryRepo {
 func (m *mockCategoryRepo) GetByID(_ context.Context, id int64) (*model.Category, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err, injected := m.getErrByID[id]; injected {
+		return nil, err
+	}
 	for _, c := range m.categories {
 		if c.ID == id {
 			return c, nil
 		}
 	}
-	return nil, errors.New("not found")
+	// Matches what the postgres repository returns for an absent row, which is
+	// the distinction CategoryAncestorIDs is required to make.
+	return nil, fmt.Errorf("get category by id: %w", sql.ErrNoRows)
 }
 
 func (m *mockCategoryRepo) List(_ context.Context) ([]model.Category, error) {
@@ -412,4 +421,128 @@ func TestCategoryService_Reorder(t *testing.T) {
 			t.Errorf("Reorder(nil) = %v, want nil", err)
 		}
 	})
+}
+
+func TestCategoryAncestorIDsReturnsRootFirst(t *testing.T) {
+	repo := newMockCategoryRepo()
+	ctx := context.Background()
+	root := &model.Category{Name: "Video"}
+	if err := repo.Create(ctx, root); err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	mid := &model.Category{Name: "Movies", ParentID: &root.ID}
+	if err := repo.Create(ctx, mid); err != nil {
+		t.Fatalf("create mid: %v", err)
+	}
+	leaf := &model.Category{Name: "4K", ParentID: &mid.ID}
+	if err := repo.Create(ctx, leaf); err != nil {
+		t.Fatalf("create leaf: %v", err)
+	}
+
+	got, err := CategoryAncestorIDs(ctx, repo, leaf.ID)
+	if err != nil {
+		t.Fatalf("CategoryAncestorIDs: %v", err)
+	}
+	want := []int64{root.ID, mid.ID, leaf.ID}
+	if len(got) != len(want) {
+		t.Fatalf("chain = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("chain = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestCategoryAncestorIDsForARootIsJustItself(t *testing.T) {
+	repo := newMockCategoryRepo()
+	ctx := context.Background()
+	root := &model.Category{Name: "Video"}
+	if err := repo.Create(ctx, root); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := CategoryAncestorIDs(ctx, repo, root.ID)
+	if err != nil {
+		t.Fatalf("CategoryAncestorIDs: %v", err)
+	}
+	if len(got) != 1 || got[0] != root.ID {
+		t.Fatalf("chain = %v, want [%d]", got, root.ID)
+	}
+}
+
+func TestCategoryAncestorIDsPropagatesALookupFailure(t *testing.T) {
+	// The one that matters. A truncated chain returned with a nil error would be
+	// filtered against as if it were the whole story, so a connection blip on the
+	// second hop would let an excluded category through to a public feed.
+	repo := newMockCategoryRepo()
+	ctx := context.Background()
+	root := &model.Category{Name: "Adult"}
+	if err := repo.Create(ctx, root); err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	leaf := &model.Category{Name: "4K", ParentID: &root.ID}
+	if err := repo.Create(ctx, leaf); err != nil {
+		t.Fatalf("create leaf: %v", err)
+	}
+	repo.getErrByID = map[int64]error{root.ID: errors.New("connection reset by peer")}
+
+	if _, err := CategoryAncestorIDs(ctx, repo, leaf.ID); err == nil {
+		t.Fatal("a failed ancestor lookup must be reported, not silently truncated")
+	}
+}
+
+func TestCategoryAncestorIDsSurvivesACycle(t *testing.T) {
+	// A malformed parent chain must stop rather than spin: this runs inside the
+	// approve request.
+	repo := newMockCategoryRepo()
+	ctx := context.Background()
+	a := &model.Category{Name: "A"}
+	b := &model.Category{Name: "B"}
+	if err := repo.Create(ctx, a); err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	if err := repo.Create(ctx, b); err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+	a.ParentID = &b.ID
+	b.ParentID = &a.ID
+
+	got, err := CategoryAncestorIDs(ctx, repo, a.ID)
+	if err != nil {
+		t.Fatalf("CategoryAncestorIDs: %v", err)
+	}
+	// Walking a→b→a must stop at b and stay root-first, not merely stop.
+	if len(got) != 2 || got[0] != b.ID || got[1] != a.ID {
+		t.Fatalf("chain = %v, want [%d %d]", got, b.ID, a.ID)
+	}
+}
+
+func TestCategoryAncestorIDsFailsWhenTheLeafIsUnreadable(t *testing.T) {
+	// Returning [id] here would look like a root category and silently defeat a
+	// subtree filter, so the caller has to be told instead.
+	if _, err := CategoryAncestorIDs(context.Background(), newMockCategoryRepo(), 404); err == nil {
+		t.Fatal("expected an error when the category itself cannot be read")
+	}
+}
+
+// An absent ancestor row is the one failure worth tolerating: it means a torn
+// restore rather than a sick database, and dropping the announcement over it
+// would be worse than filtering on the part of the chain that is readable.
+func TestCategoryAncestorIDsStopsAtAMissingAncestor(t *testing.T) {
+	repo := newMockCategoryRepo()
+	ctx := context.Background()
+	missing := int64(999)
+	leaf := &model.Category{Name: "Orphan", ParentID: &missing}
+	if err := repo.Create(ctx, leaf); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := CategoryAncestorIDs(ctx, repo, leaf.ID)
+	if err != nil {
+		t.Fatalf("CategoryAncestorIDs: %v", err)
+	}
+	if len(got) != 1 || got[0] != leaf.ID {
+		t.Fatalf("chain = %v, want just the readable leaf", got)
+	}
 }

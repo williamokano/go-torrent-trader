@@ -30,22 +30,27 @@ const AnonymousUploader = "Anonymous"
 // as the webhook body, and streamed over SSE — so it must never contain a
 // secret, and never the real name behind an anonymous upload.
 type Announcement struct {
-	Event       string    `json:"event"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body"`
-	TorrentID   int64     `json:"torrent_id"`
-	Name        string    `json:"name"`
-	InfoHashHex string    `json:"info_hash"`
-	CategoryID  int64     `json:"category_id"`
-	Category    string    `json:"category"`
-	Size        int64     `json:"size"`
-	FileCount   int       `json:"file_count"`
-	Uploader    string    `json:"uploader"`
-	Anonymous   bool      `json:"anonymous"`
-	Freeleech   bool      `json:"freeleech"`
-	Silver      bool      `json:"silver"`
-	URL         string    `json:"url"`
-	PublishedAt time.Time `json:"published_at"`
+	Event       string `json:"event"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	TorrentID   int64  `json:"torrent_id"`
+	Name        string `json:"name"`
+	InfoHashHex string `json:"info_hash"`
+	CategoryID  int64  `json:"category_id"`
+	Category    string `json:"category"`
+	// CategoryPath is the category's ancestor chain, root first and ending with
+	// CategoryID. It is what lets a filter on "Adult" also cover "Adult / 4K":
+	// the announcement carries only its leaf category, so without the chain a
+	// filter could only ever match the exact category a torrent sits in.
+	CategoryPath []int64   `json:"category_path,omitempty"`
+	Size         int64     `json:"size"`
+	FileCount    int       `json:"file_count"`
+	Uploader     string    `json:"uploader"`
+	Anonymous    bool      `json:"anonymous"`
+	Freeleech    bool      `json:"freeleech"`
+	Silver       bool      `json:"silver"`
+	URL          string    `json:"url"`
+	PublishedAt  time.Time `json:"published_at"`
 	// Coalesced is >0 on the single summary announcement that stands in for a
 	// batch the per-instance rate limit could not send individually.
 	Coalesced int `json:"coalesced,omitempty"`
@@ -54,6 +59,20 @@ type Announcement struct {
 	// an idempotency token. It is not serialized: the delivery row already stores
 	// it, and the payload should stay a pure description of the event.
 	DeliveryKey string `json:"-"`
+}
+
+// CategoryChain is the id list any category matching is done against: the full
+// ancestor path when the dispatcher resolved one, and the leaf category alone
+// otherwise (a test-send, or an old payload stored before the field existed).
+//
+// Exported because per-channel routing inside a connector has to agree with the
+// instance-level filter — an admin picking "Movies" in two selects that look
+// identical must not get subtree matching in one and exact matching in the other.
+func (a Announcement) CategoryChain() []int64 {
+	if len(a.CategoryPath) > 0 {
+		return a.CategoryPath
+	}
+	return []int64{a.CategoryID}
 }
 
 // EventKey is the dedupe key for a real announcement: one delivery per instance
