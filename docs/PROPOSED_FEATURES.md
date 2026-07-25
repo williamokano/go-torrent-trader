@@ -13,7 +13,9 @@ Where an item overlaps something already built, that is called out: several of
 these are smaller than they look, and at least one is mostly built already.
 
 Numbering (`PF-n`) is stable so items can be referenced from discussion. PF-1 to
-PF-15 came from the operator; PF-16 onward are proposals raised in review.
+PF-15 and PF-26 came from the operator; PF-16 to PF-25 were raised in review.
+PF-26 sits in Part B because it arrived later, not because it matters less — it
+is flagged as likely next.
 
 ---
 
@@ -392,6 +394,11 @@ Pairs naturally with the capped top tier floated in PF-3.
 Scheduled, admin-defined periods that change the economy: freeleech weekends,
 double bonus, double reputation, upload contests.
 
+**See PF-26**, which specifies the freeleech half of this. If both are built,
+freeleech should be PF-19's first modifier type rather than a parallel mechanism —
+the scheduler, the timezone answer and the computed-not-written discipline are the
+same for all of them.
+
 Cheap given PF-12 and PF-13 (a multiplier pipeline already has to exist) and it is
 the highest-leverage retention tool on this whole list: a recurring, announced
 reason to come back on a specific day. It also has an announcement channel
@@ -452,6 +459,78 @@ A public dashboard: total torrents, dead ratio (PF-9), active users, library
 growth. Cheap once PF-9 and PF-13 compute the numbers, and it makes the community
 feel like a shared project rather than a service.
 
+## PF-26: Scheduled and rule-based freeleech
+
+*Operator proposal, flagged as likely next.* Freeleech should apply itself from
+rules and a schedule instead of being toggled by hand.
+
+**Mechanics as described:**
+- **Rules** grant freeleech automatically — e.g. anything larger than X, to push
+  downloads onto content that needs seeders. Other conditions **TBD**.
+- **Global rules** — "everything downloaded between now and next week is free".
+- **Deadlines**, so a window ends on its own. A recurring weekend freeleech should
+  be configured once and never touched again.
+
+**What already exists.** More than it looks:
+- `torrents.free` and `torrents.silver` (migration 004) — silver is half credit,
+  free is none.
+- `countedDownload()` (`internal/service/tracker.go`) is the **single** place
+  policy is applied: free → 0, silver → half, free wins when both are set. Every
+  route into ratio accounting goes through it.
+- `announce_events.counted_downloaded_delta` (migration 052) already persists the
+  discounted figure per announce, alongside the raw delta.
+- `freeleech_ticket` is already seeded in the bonus store as a catalogue-only kind,
+  deliberately disabled "until effects exist" — a per-user freeleech grant is
+  already anticipated and would resolve through the same place.
+
+So the work is a **policy resolver above `countedDownload`**, not a change to how
+accounting works. Effective freeleech becomes the union of: the torrent's own
+flags, any active global window, any matching rule, and eventually a user's
+freeleech ticket.
+
+**The trap: do not let a scheduled job flip `torrents.free`.**
+
+It is the obvious implementation and it destroys information. Once a job writes
+the column, a manual staff grant and an automatic one are indistinguishable — so
+when the window closes and the job clears the flag, it also clears every
+permanent grant staff made by hand, and nothing records that it happened. The
+same collision appears the other way: a rule matching a torrent staff had
+deliberately set to *not* free will silently override that decision.
+
+Effective state should be **computed at announce time** from the manual flags plus
+the active windows and rules, leaving `torrents.free` meaning exactly what it
+means today: a deliberate, permanent, human decision. This also makes the feature
+reversible — turning the whole thing off restores prior behaviour with no data to
+repair.
+
+**Retroactivity is already correct, for free.** Because the discounted figure is
+computed and stored per announce, a window closing cannot claw back credit already
+granted, and a window opening does not retroactively refund. That falls out of the
+existing design; it just needs to not be broken.
+
+**Open questions:**
+- Which timezone do windows and deadlines run in? "Weekend" is not a global
+  concept, and this needs a site timezone setting to be answerable.
+- Do rules and windows compose with `silver`, or does any freeleech grant simply
+  win? (Today free already beats silver — the most generous reading. Extending
+  that rule is probably right and is the simplest to explain to members.)
+- Should a torrent display *why* it is currently free — rule, window, or manual?
+  Members will ask, and "it was free yesterday" support requests are much cheaper
+  to answer when the page says which window applied.
+- Does a rule evaluate once at upload, or continuously? A size rule is static, but
+  "fewer than N seeders" would have to be re-evaluated, and that is a different
+  cost profile.
+- Do announcements and RSS carry the *effective* freeleech state or the stored
+  flag? Connector filters already match on freeleech, and browse already has a
+  freeleech-only filter — both would otherwise disagree with what the tracker
+  actually charges.
+
+**Relationship to PF-19:** PF-19 proposed site-wide scheduled modifiers and named
+freeleech weekends as an example. This is that feature, specified. If PF-19 is
+built, freeleech should be its first modifier type rather than a parallel
+mechanism — double-upload and double-bonus windows want the same scheduler, the
+same timezone answer and the same "computed, not written" discipline.
+
 ---
 
 # Dependencies and build order
@@ -505,7 +584,11 @@ first turns several later items into small features.
 11. **PF-16 — subscriptions.** Independent; can slot in anywhere. High value for
     the cost.
 12. **PF-13, PF-12, PF-19 — the economy layer**, specified together so multiplier
-    stacking is decided once.
+    stacking is decided once. **PF-26 (freeleech) is the natural first slice** and
+    can be built ahead of the rest: it depends on nothing else here, and it forces
+    the two decisions the rest of the layer needs anyway — a site timezone, and
+    the rule that effective state is computed at accrual time rather than written
+    back onto the row.
 13. **PF-7 — real-time.** Independent, but cheaper after there are more things
     worth updating live.
 14. **PF-6 — chat rooms.** Largest single lift; wants teams first.
@@ -515,11 +598,24 @@ first turns several later items into small features.
 
 # Cross-cutting concerns
 
-**One multiplier decision, made once.** PF-12 (reputation tiers), PF-13 (goals)
-and PF-19 (site events) all multiply the same bonus award. Whether they stack
-additively or multiplicatively, and whether they apply at award or read time, must
-be decided once and written down — otherwise the bonus economy becomes impossible
-to reason about or to audit.
+**One multiplier decision, made once.** PF-12 (reputation tiers), PF-13 (goals),
+PF-19 (site events) and PF-26 (freeleech rules) all modify the same accounting.
+Whether they stack additively or multiplicatively, and whether they apply at
+accrual or read time, must be decided once and written down — otherwise the
+economy becomes impossible to reason about or to audit.
+
+PF-26 already has the right answer available to copy: `counted_downloaded_delta`
+is computed per announce and stored, so the discount is fixed at the moment it is
+granted and no later change can rewrite history. Every other modifier should work
+the same way.
+
+**Scheduled state must be computed, never written back.** Any feature that turns
+something on for a window — freeleech, double bonus, a contest — is tempting to
+implement as a cron job that flips a column and another that flips it back. That
+destroys the distinction between a temporary automatic grant and a permanent
+manual one, so the "off" job silently clears deliberate staff decisions, and
+nothing records that it happened. Compute effective state at read/accrual time and
+leave the manual columns meaning exactly what they mean today.
 
 **Feature-flag sprawl.** Eleven of these items ask for their own admin on/off
 switch. `site_settings` is the right home, and there is an established pattern
