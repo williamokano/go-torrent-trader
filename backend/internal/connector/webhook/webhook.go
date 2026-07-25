@@ -31,11 +31,6 @@ const (
 	HeaderSignature = "X-Announce-Signature"
 )
 
-// maxDrainBytes is how much of a response body is read before closing. The body
-// is never used, but draining a little lets the connection be reused; draining
-// all of it would let a hostile endpoint stream forever.
-const maxDrainBytes = 4 << 10
-
 // Config is the webhook instance's admin-editable settings.
 type Config struct {
 	URL    string `json:"url"`
@@ -127,7 +122,7 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 		return fmt.Errorf("webhook request failed: %w", connector.StripURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, connector.MaxDrainBytes))
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		// Status only — no body echo (it may quote the request, including
