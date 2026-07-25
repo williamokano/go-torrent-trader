@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -17,11 +18,15 @@ import (
 // AdminHandler handles admin HTTP endpoints.
 type AdminHandler struct {
 	admin *service.AdminService
+	// feeds lets a class losing can_feed end the streams its members already
+	// have open. May be nil, in which case a group edit simply does not
+	// disconnect anyone.
+	feeds *AnnounceHub
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(admin *service.AdminService) *AdminHandler {
-	return &AdminHandler{admin: admin}
+func NewAdminHandler(admin *service.AdminService, feeds *AnnounceHub) *AdminHandler {
+	return &AdminHandler{admin: admin, feeds: feeds}
 }
 
 // HandleListUsers handles GET /api/v1/admin/users.
@@ -283,6 +288,7 @@ func groupToMap(g *model.Group) map[string]interface{} {
 		"is_admin":     g.IsAdmin,
 		"is_moderator": g.IsModerator,
 		"is_immune":    g.IsImmune,
+		"can_feed":     g.CanFeed,
 	}
 }
 
@@ -352,6 +358,17 @@ func (h *AdminHandler) HandleUpdateGroup(w http.ResponseWriter, r *http.Request)
 		}
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to update group")
 		return
+	}
+
+	// A class can have just lost the feeds, and the gate only runs at connect —
+	// so its members would otherwise keep watching until they closed the tab.
+	// Everyone is dropped rather than just that class's members: the hub knows
+	// user ids, not groups, and a reconnect costs seconds and re-resolves.
+	if h.feeds != nil {
+		if dropped := h.feeds.DisconnectAll(); dropped > 0 {
+			slog.Info("group permissions changed, reconnecting live feed watchers",
+				"group_id", id, "streams", dropped)
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{"group": groupToMap(group)})

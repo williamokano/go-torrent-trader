@@ -53,6 +53,7 @@ type Deps struct {
 	ConnectorService          *service.ConnectorService
 	ConnectorStatus           ConnectorStatusProvider
 	AnnounceHub               *AnnounceHub
+	FeedAccess                FeedAccess
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -161,7 +162,7 @@ func NewRouter(deps *Deps) chi.Router {
 			// The live feeds a member may subscribe to. Members only, like every
 			// other listing on a private tracker.
 			if deps.ConnectorService != nil {
-				feeds := NewAnnounceFeedsHandler(deps.ConnectorService)
+				feeds := NewAnnounceFeedsHandler(deps.ConnectorService, deps.FeedAccess)
 				r.Route("/announce-feeds", func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/", feeds.HandleList)
@@ -432,7 +433,7 @@ func NewRouter(deps *Deps) chi.Router {
 					}
 
 					if deps.AdminService != nil {
-						admin := NewAdminHandler(deps.AdminService)
+						admin := NewAdminHandler(deps.AdminService, deps.AnnounceHub)
 						r.Get("/users", admin.HandleListUsers)
 						r.Get("/users/{id}", admin.HandleGetUserDetail)
 						r.Put("/users/{id}", admin.HandleUpdateUser)

@@ -296,9 +296,11 @@ func run() int {
 	connectorRegistry.Register(discord.New(connectorHTTPClient))
 	connectorRegistry.Register(telegram.New(connectorHTTPClient))
 
-	announceHub := handler.NewAnnounceHub(sessionStore)
+	feedAccess := service.NewFeedAccessService(userRepo, groupRepo)
+	announceHub := handler.NewAnnounceHub(sessionStore, feedAccess)
 	go announceHub.Run()
 	announceHub.WatchConfigChanges(eventBus)
+	announceHub.WatchRestrictions(eventBus)
 	connectorRegistry.Register(sse.New(announceHub.Broadcast))
 
 	connectorRepo := postgres.NewConnectorRepo(db)
@@ -384,6 +386,7 @@ func run() int {
 		ConnectorService:          connectorService,
 		ConnectorStatus:           connectorManager,
 		AnnounceHub:               announceHub,
+		FeedAccess:                feedAccess,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,

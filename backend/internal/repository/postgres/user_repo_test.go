@@ -901,3 +901,132 @@ func TestGroupRepoListAndGet(t *testing.T) {
 		t.Errorf("name = %q, want %q", got.Name, groups[0].Name)
 	}
 }
+
+// The feed gate reads this on every connect, so the narrow query has to return
+// what Create wrote. The schema default is covered separately, by a raw insert —
+// Create writes the struct, so it never exercises one.
+func TestUserRepoCanFeedRoundTrips(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+
+	user := newUser(t, db)
+
+	canFeed, groupID, err := repo.CanFeed(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("CanFeed: %v", err)
+	}
+	if !canFeed {
+		t.Fatal("a new member must keep feed access until it is taken away")
+	}
+	if groupID != user.GroupID {
+		t.Fatalf("groupID = %d, want %d", groupID, user.GroupID)
+	}
+}
+
+func TestUserRepoSetPrivilegeFlagRevokesFeedAccess(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+
+	user := newUser(t, db)
+
+	if err := repo.SetPrivilegeFlag(ctx, user.ID, model.RestrictionTypeFeed, false); err != nil {
+		t.Fatalf("SetPrivilegeFlag: %v", err)
+	}
+	canFeed, _, err := repo.CanFeed(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("CanFeed: %v", err)
+	}
+	if canFeed {
+		t.Fatal("the feed restriction must clear the user's flag")
+	}
+}
+
+// The premise of migration 076 is that rows already in the database keep feed
+// access on deploy. Create writes the struct, so only a raw insert exercises the
+// column default the migration actually installed.
+func TestSchemaDefaultsGrantFeedAccess(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	groupID := anyGroupID(t, db)
+	var userID int64
+	err := db.QueryRowContext(ctx,
+		`INSERT INTO users (username, email, password_hash, group_id)
+		 VALUES ($1, $2, 'hash', $3) RETURNING id`,
+		uniq("legacy"), uniq("legacy")+"@example.test", groupID,
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("inserting a user the way a pre-076 row exists: %v", err)
+	}
+
+	canFeed, _, err := NewUserRepo(db).CanFeed(ctx, userID)
+	if err != nil {
+		t.Fatalf("CanFeed: %v", err)
+	}
+	if !canFeed {
+		t.Fatal("a row that predates can_feed must keep access")
+	}
+
+	groupCanFeed, err := NewGroupRepo(db).CanFeed(ctx, groupID)
+	if err != nil {
+		t.Fatalf("group CanFeed: %v", err)
+	}
+	if !groupCanFeed {
+		t.Fatal("a class that predates can_feed must keep access")
+	}
+}
+
+// The group half of the gate, plus the write path that was renumbered to make
+// room for can_feed — the same statement shape that already broke the users
+// INSERT once in this change.
+func TestGroupRepoRoundTripsCanFeed(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewGroupRepo(db)
+
+	g := &model.Group{
+		Name: uniq("Class"), Slug: uniq("class"), Level: 5,
+		CanUpload: true, CanDownload: true, CanFeed: false,
+	}
+	if err := repo.Create(ctx, g); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	stored, err := repo.GetByID(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.CanFeed {
+		t.Fatal("a class created without the feeds must not have them")
+	}
+	if !stored.CanUpload || stored.Level != 5 {
+		t.Fatalf("other columns landed wrong: %+v", stored)
+	}
+
+	stored.CanFeed = true
+	if err := repo.Update(ctx, stored); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	canFeed, err := repo.CanFeed(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("CanFeed: %v", err)
+	}
+	if !canFeed {
+		t.Fatal("granting the feeds to a class must persist")
+	}
+
+	// The update must not have written can_feed into some other column.
+	after, err := repo.GetByID(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update: %v", err)
+	}
+	if after.Level != 5 || after.Name != stored.Name || !after.CanUpload {
+		t.Fatalf("update disturbed another column: %+v", after)
+	}
+}

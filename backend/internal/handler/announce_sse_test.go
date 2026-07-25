@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,9 @@ func newStreamHarness(t *testing.T) *streamHarness {
 	t.Helper()
 
 	sessions := testutil.NewMemorySessionStore()
-	hub := NewAnnounceHub(sessions)
+	// Admitted by default: the access gate has its own tests below, and every
+	// other test here is about framing, fan-out and lifecycle.
+	hub := NewAnnounceHub(sessions, &stubFeedAccess{allowed: true})
 	hub.heartbeat = 50 * time.Millisecond
 	go hub.Run()
 
@@ -340,7 +343,7 @@ func TestAnnounceStreamCapsStreamsPerUser(t *testing.T) {
 // win, which is exactly how someone would get past a cap meant to stop bulk
 // stream opening.
 func TestAnnounceHubCapIsAtomicUnderConcurrentConnects(t *testing.T) {
-	hub := NewAnnounceHub(testutil.NewMemorySessionStore())
+	hub := NewAnnounceHub(testutil.NewMemorySessionStore(), &stubFeedAccess{allowed: true})
 
 	const attempts = 50
 	var wg sync.WaitGroup
@@ -379,7 +382,7 @@ func TestAnnounceHubCapIsAtomicUnderConcurrentConnects(t *testing.T) {
 // made to fall behind reliably — the drop logic is what needs asserting, not
 // the operating system's buffering.
 func TestAnnounceHubDropsAClientThatStopsConsuming(t *testing.T) {
-	hub := NewAnnounceHub(testutil.NewMemorySessionStore())
+	hub := NewAnnounceHub(testutil.NewMemorySessionStore(), &stubFeedAccess{allowed: true})
 	go hub.Run()
 
 	const frames = sseClientBuffer * 4
@@ -699,10 +702,176 @@ func TestAnnounceStreamReleasesCapSlotsOnDisconnectAll(t *testing.T) {
 		h.waitForClients(t, i+1)
 	}
 
-	h.hub.disconnectAll()
+	h.hub.DisconnectAll()
 	waitFor(t, "every stream to close", func() bool { return h.hub.clientCount() == 0 })
 
 	reader, closeStream := h.connect(t, token)
 	closers = append(closers, closeStream)
 	readSSEFrame(t, reader)
+}
+
+// stubFeedAccess answers the live-feed gate.
+type stubFeedAccess struct {
+	allowed bool
+	err     error
+}
+
+func (s *stubFeedAccess) Allowed(context.Context, int64) (bool, error) {
+	return s.allowed, s.err
+}
+
+func newGatedHarness(t *testing.T, access FeedAccess) *streamHarness {
+	t.Helper()
+
+	h := newStreamHarness(t)
+	h.hub.access = access
+	return h
+}
+
+// An unwired gate is a wiring bug, and the one place it can happen (main.go) is
+// excluded from coverage — so it has to be a locked door rather than a privilege
+// that quietly stops enforcing.
+func TestAnnounceStreamRefusesWhenNoGateIsWired(t *testing.T) {
+	h := newGatedHarness(t, nil)
+	token := h.login(t, 1)
+
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream?token=" + token)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 when no access check is wired", resp.StatusCode)
+	}
+}
+
+// Revoking has to close streams however the restriction was applied — the admin
+// form and warning escalation both publish this event, and neither goes through
+// the other's code.
+func TestAnnounceHubClosesStreamsWhenFeedAccessIsRevoked(t *testing.T) {
+	h := newStreamHarness(t)
+	bus := event.NewInMemoryBus()
+	h.hub.WatchRestrictions(bus)
+
+	victim, closeVictim := h.connect(t, h.login(t, 1))
+	defer closeVictim()
+	readSSEFrame(t, victim)
+	bystander, closeBystander := h.connect(t, h.login(t, 2))
+	defer closeBystander()
+	readSSEFrame(t, bystander)
+	h.waitForClients(t, 2)
+
+	bus.Publish(context.Background(), &event.RestrictionAppliedEvent{
+		Base:            event.NewBase(event.RestrictionApplied, event.Actor{ID: 9}),
+		UserID:          1,
+		RestrictionType: model.RestrictionTypeFeed,
+	})
+
+	waitFor(t, "the revoked member's stream to close", func() bool { return h.hub.clientCount() == 1 })
+}
+
+// Suspending chat must not throw someone off the live feed.
+func TestAnnounceHubIgnoresOtherRestrictions(t *testing.T) {
+	h := newStreamHarness(t)
+	bus := event.NewInMemoryBus()
+	h.hub.WatchRestrictions(bus)
+
+	reader, closeStream := h.connect(t, h.login(t, 1))
+	defer closeStream()
+	readSSEFrame(t, reader)
+	h.waitForClients(t, 1)
+
+	bus.Publish(context.Background(), &event.RestrictionAppliedEvent{
+		Base:            event.NewBase(event.RestrictionApplied, event.Actor{ID: 9}),
+		UserID:          1,
+		RestrictionType: model.RestrictionTypeChat,
+	})
+
+	if h.hub.clientCount() != 1 {
+		t.Fatal("a chat restriction must not close a live feed stream")
+	}
+}
+
+func TestAnnounceStreamRefusesAMemberWithoutFeedAccess(t *testing.T) {
+	h := newGatedHarness(t, &stubFeedAccess{allowed: false})
+	token := h.login(t, 1)
+
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream?token=" + token)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+	if h.hub.clientCount() != 0 {
+		t.Fatal("a refused member must not be registered with the hub")
+	}
+}
+
+// The gate reads live rows, so a member whose access is confirmed still gets in.
+func TestAnnounceStreamAdmitsAMemberWithFeedAccess(t *testing.T) {
+	h := newGatedHarness(t, &stubFeedAccess{allowed: true})
+
+	reader, closeStream := h.connect(t, h.login(t, 1))
+	defer closeStream()
+
+	if frame := readSSEFrame(t, reader); !strings.HasPrefix(frame, "retry:") {
+		t.Fatalf("frame = %q, want the retry hint that opens every stream", frame)
+	}
+}
+
+// A gate that cannot answer must not admit: serving a stream to someone whose
+// access could not be confirmed is the wrong way round.
+func TestAnnounceStreamRefusesWhenTheGateFails(t *testing.T) {
+	h := newGatedHarness(t, &stubFeedAccess{allowed: true, err: errors.New("database is down")})
+	token := h.login(t, 1)
+
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream?token=" + token)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 when access cannot be confirmed", resp.StatusCode)
+	}
+}
+
+// Revoking access has to close what is already open, or the member keeps
+// receiving announcements for as long as the tab stays open.
+func TestAnnounceHubDisconnectsOneMember(t *testing.T) {
+	h := newStreamHarness(t)
+
+	victim, closeVictim := h.connect(t, h.login(t, 1))
+	defer closeVictim()
+	readSSEFrame(t, victim)
+	bystander, closeBystander := h.connectFeed(t, "no-adult", h.login(t, 2))
+	defer closeBystander()
+	readSSEFrame(t, bystander)
+	h.waitForClients(t, 2)
+
+	if dropped := h.hub.DisconnectUser(1); dropped != 1 {
+		t.Fatalf("dropped %d streams, want 1", dropped)
+	}
+	waitFor(t, "the revoked member's stream to close", func() bool { return h.hub.clientCount() == 1 })
+
+	// Everyone else keeps watching, including on another feed.
+	payload, err := json.Marshal(sampleAnnouncement())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	h.hub.Broadcast("no-adult", "torrent.published:42", payload)
+	for {
+		frame := readSSEFrame(t, bystander)
+		if strings.HasPrefix(frame, ": ping") {
+			continue
+		}
+		if !strings.Contains(frame, "event: announcement") {
+			t.Fatalf("frame = %q, want the bystander's announcement", frame)
+		}
+		break
+	}
 }

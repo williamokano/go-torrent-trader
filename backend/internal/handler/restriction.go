@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -21,6 +22,10 @@ type RestrictionHandler struct {
 }
 
 // NewRestrictionHandler creates a new RestrictionHandler.
+//
+// Revoking live feed access closes the member's open streams, but that happens
+// on the RestrictionApplied event (see AnnounceHub.WatchRestrictions) rather than
+// here — warning escalation revokes without going anywhere near this handler.
 func NewRestrictionHandler(restrictionSvc *service.RestrictionService, hub *ChatHub) *RestrictionHandler {
 	return &RestrictionHandler{restrictionSvc: restrictionSvc, hub: hub}
 }
@@ -30,6 +35,7 @@ type setRestrictionsRequest struct {
 	CanUpload   *bool   `json:"can_upload"`
 	CanChat     *bool   `json:"can_chat"`
 	CanInvite   *bool   `json:"can_invite"`
+	CanFeed     *bool   `json:"can_feed"`
 	Reason      string  `json:"reason"`
 	ExpiresAt   *string `json:"expires_at"`
 }
@@ -101,6 +107,9 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 	}
 	if req.CanInvite != nil {
 		actions = append(actions, restrictionAction{"invite", !*req.CanInvite})
+	}
+	if req.CanFeed != nil {
+		actions = append(actions, restrictionAction{model.RestrictionTypeFeed, !*req.CanFeed})
 	}
 
 	for _, action := range actions {

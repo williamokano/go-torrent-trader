@@ -83,6 +83,7 @@ interface UserDetail {
   can_download: boolean;
   can_upload: boolean;
   can_chat: boolean;
+  can_feed: boolean;
   can_invite: boolean;
   disabled_until: string | null;
   created_at: string;
@@ -161,20 +162,23 @@ function formatHistoryPair(entry: EditHistoryEntry): [string, string] {
   return [from, to];
 }
 
-type PrivilegeType = "download" | "upload" | "chat" | "invite";
+type PrivilegeType = "download" | "upload" | "chat" | "invite" | "feed";
 
 const PRIVILEGES: {
   type: PrivilegeType;
   label: string;
   field: keyof Pick<
     UserDetail,
-    "can_download" | "can_upload" | "can_chat" | "can_invite"
+    "can_download" | "can_upload" | "can_chat" | "can_invite" | "can_feed"
   >;
 }[] = [
   { type: "download", label: "Download", field: "can_download" },
   { type: "upload", label: "Upload", field: "can_upload" },
   { type: "chat", label: "Chat", field: "can_chat" },
   { type: "invite", label: "Invite", field: "can_invite" },
+  // Live feeds are all-or-nothing: there is no per-feed restriction, so this
+  // covers every feed the site has.
+  { type: "feed", label: "Live feeds", field: "can_feed" },
 ];
 
 export function AdminUserDetailPage() {
@@ -229,6 +233,7 @@ export function AdminUserDetailPage() {
   const [restrictUpload, setRestrictUpload] = useState(false);
   const [restrictChat, setRestrictChat] = useState(false);
   const [restrictInvite, setRestrictInvite] = useState(false);
+  const [restrictFeed, setRestrictFeed] = useState(false);
   const [applyingRestrictions, setApplyingRestrictions] = useState(false);
   const [liftingRestrictionId, setLiftingRestrictionId] = useState<
     number | null
@@ -573,7 +578,8 @@ export function AdminUserDetailPage() {
       !restrictDownload &&
       !restrictUpload &&
       !restrictChat &&
-      !restrictInvite
+      !restrictInvite &&
+      !restrictFeed
     ) {
       toast.error("Select at least one privilege to suspend");
       return;
@@ -589,6 +595,7 @@ export function AdminUserDetailPage() {
       if (restrictUpload) body.can_upload = false;
       if (restrictChat) body.can_chat = false;
       if (restrictInvite) body.can_invite = false;
+      if (restrictFeed) body.can_feed = false;
       if (restrictionExpiry) body.expires_at = restrictionExpiry;
 
       const res = await fetch(
@@ -610,6 +617,7 @@ export function AdminUserDetailPage() {
         setRestrictUpload(false);
         setRestrictChat(false);
         setRestrictInvite(false);
+        setRestrictFeed(false);
         fetchUser();
         fetchRestrictions();
       } else {
@@ -630,6 +638,7 @@ export function AdminUserDetailPage() {
     if (type === "upload") body.can_upload = true;
     if (type === "chat") body.can_chat = true;
     if (type === "invite") body.can_invite = true;
+    if (type === "feed") body.can_feed = true;
 
     const res = await fetch(
       `${getConfig().API_URL}/api/v1/admin/users/${id}/restrictions`,
@@ -1048,6 +1057,11 @@ export function AdminUserDetailPage() {
                   checked={restrictInvite}
                   onChange={(e) => setRestrictInvite(e.target.checked)}
                 />
+                <Checkbox
+                  label="Suspend live feeds"
+                  checked={restrictFeed}
+                  onChange={(e) => setRestrictFeed(e.target.checked)}
+                />
               </div>
               <Textarea
                 label="Reason"
@@ -1080,7 +1094,8 @@ export function AdminUserDetailPage() {
                     (!restrictDownload &&
                       !restrictUpload &&
                       !restrictChat &&
-                      !restrictInvite)
+                      !restrictInvite &&
+                      !restrictFeed)
                   }
                 >
                   {applyingRestrictions ? "Applying…" : "Apply restrictions"}

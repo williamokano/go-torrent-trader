@@ -50,6 +50,12 @@ const RECONNECT_DELAY_MS = 5000;
 interface AnnounceStream {
   announcements: FeedItem[];
   state: StreamState;
+  /**
+   * Increments on every dropped stream. The page watches it to re-check access:
+   * a revoked privilege closes the stream, and the refusal is only readable on
+   * an endpoint that can return a status code.
+   */
+  reconnects: number;
 }
 
 /**
@@ -65,7 +71,15 @@ interface AnnounceStream {
  * opens the other one, and clears what is on screen — the announcements shown
  * must be the ones this feed carries, not a mix of both.
  */
-export function useAnnounceStream(feed?: string): AnnounceStream {
+interface StreamOptions {
+  /** When false no stream is opened at all — e.g. the member may not watch. */
+  enabled?: boolean;
+}
+
+export function useAnnounceStream(
+  feed?: string,
+  { enabled = true }: StreamOptions = {},
+): AnnounceStream {
   // The feed each list belongs to travels with it. React runs an effect cleanup
   // after paint, so the previous feed's EventSource is still attached for a
   // moment after the reset — a frame arriving in that window would otherwise be
@@ -76,6 +90,7 @@ export function useAnnounceStream(feed?: string): AnnounceStream {
     items: FeedItem[];
   }>({ feed, items: [] });
   const [state, setState] = useState<StreamState>("connecting");
+  const [reconnects, setReconnects] = useState(0);
   // A ref rather than state: the message handler must not be re-created (and the
   // stream re-opened) on every event.
   const nextKey = useRef(0);
@@ -140,6 +155,7 @@ export function useAnnounceStream(feed?: string): AnnounceStream {
     }
 
     function connect() {
+      if (!enabled) return;
       const token = getAccessToken();
       if (!token) return;
 
@@ -156,6 +172,7 @@ export function useAnnounceStream(feed?: string): AnnounceStream {
       stream.onopen = () => setState("live");
       stream.onerror = () => {
         setState("reconnecting");
+        setReconnects((n) => n + 1);
         stream.close();
         if (cancelled) return;
         retryTimer = setTimeout(connect, RECONNECT_DELAY_MS);
@@ -170,7 +187,7 @@ export function useAnnounceStream(feed?: string): AnnounceStream {
       clearTimeout(retryTimer);
       source?.close();
     };
-  }, [feed]);
+  }, [feed, enabled]);
 
-  return { announcements: announcements.items, state };
+  return { announcements: announcements.items, state, reconnects };
 }

@@ -577,15 +577,19 @@ func TestWarningEscalation_AllRestrictionTypes(t *testing.T) {
 
 	restrictionRepo.mu.Lock()
 	defer restrictionRepo.mu.Unlock()
-	if len(restrictionRepo.restrictions) != 4 {
-		t.Fatalf("expected 4 restrictions (download+upload+chat+invite), got %d", len(restrictionRepo.restrictions))
+	// "All" has to mean all: an operator locking someone down at the warning
+	// threshold and finding they kept the live feeds would reasonably call that
+	// a bug.
+	if len(restrictionRepo.restrictions) != 5 {
+		t.Fatalf("expected 5 restrictions (download+upload+chat+invite+feed), got %d",
+			len(restrictionRepo.restrictions))
 	}
 
 	types := make(map[string]bool)
 	for _, r := range restrictionRepo.restrictions {
 		types[r.RestrictionType] = true
 	}
-	for _, expected := range []string{"download", "upload", "chat", "invite"} {
+	for _, expected := range []string{"download", "upload", "chat", "invite", "feed"} {
 		if !types[expected] {
 			t.Errorf("expected %s restriction to be applied", expected)
 		}

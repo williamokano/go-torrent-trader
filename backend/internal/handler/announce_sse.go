@@ -14,6 +14,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -33,6 +34,12 @@ const (
 	// twenty windows multiplies every announcement twenty times.
 	sseMaxPerUser = 5
 )
+
+// FeedAccess reports whether a member may watch live feeds. A narrow interface
+// so the hub does not depend on the whole service layer.
+type FeedAccess interface {
+	Allowed(ctx context.Context, userID int64) (bool, error)
+}
 
 // sseClient is one connected browser watching one feed.
 type sseClient struct {
@@ -57,6 +64,7 @@ func (c *sseClient) close() {
 // need Redis pub/sub between the hubs — deliberately not built yet.
 type AnnounceHub struct {
 	sessionStore service.SessionStore
+	access       FeedAccess
 
 	// clients is keyed by feed slug. A frame produced by one feed must never
 	// reach another's watchers: the whole point of several feeds is that each
@@ -76,9 +84,15 @@ type feedFrame struct {
 }
 
 // NewAnnounceHub creates an AnnounceHub.
-func NewAnnounceHub(sessionStore service.SessionStore) *AnnounceHub {
+//
+// A nil access check refuses everyone. This is an authorization gate, so a
+// wiring mistake has to be a locked door rather than a privilege that quietly
+// stops enforcing — and the only way to reach nil is a bug in main.go, which is
+// excluded from coverage and so would not be caught by anything else.
+func NewAnnounceHub(sessionStore service.SessionStore, access FeedAccess) *AnnounceHub {
 	return &AnnounceHub{
 		sessionStore: sessionStore,
+		access:       access,
 		clients:      make(map[string]map[*sseClient]struct{}),
 		broadcast:    make(chan feedFrame, 256),
 		heartbeat:    sseHeartbeat,
@@ -175,6 +189,75 @@ func (h *AnnounceHub) Broadcast(feed, id string, payload []byte) {
 	}
 }
 
+// mayWatch answers on the live rows, so a revoked privilege bites on the next
+// connect rather than whenever the member next logs in.
+//
+// A lookup failure denies. The alternative is serving a stream to someone whose
+// access could not be confirmed, which is the wrong way round for a check whose
+// entire job is to say no.
+func (h *AnnounceHub) mayWatch(ctx context.Context, userID int64) bool {
+	if h.access == nil {
+		slog.Error("announce stream: no feed access check wired, refusing")
+		return false
+	}
+	allowed, err := h.access.Allowed(ctx, userID)
+	if err != nil {
+		slog.Error("announce stream: could not read feed access", "user_id", userID, "error", err)
+		return false
+	}
+	return allowed
+}
+
+// DisconnectUser closes every stream a member has open.
+//
+// Called when their feed access is revoked: an open stream would otherwise keep
+// delivering announcements to someone who has just been told they cannot watch,
+// for as long as they leave the tab open.
+func (h *AnnounceHub) DisconnectUser(userID int64) int {
+	h.mu.Lock()
+	var dropped []*sseClient
+	for feed, clients := range h.clients {
+		for client := range clients {
+			if client.userID != userID {
+				continue
+			}
+			dropped = append(dropped, client)
+			delete(clients, client)
+		}
+		if len(clients) == 0 {
+			delete(h.clients, feed)
+		}
+	}
+	h.mu.Unlock()
+
+	for _, client := range dropped {
+		client.close()
+	}
+	return len(dropped)
+}
+
+// WatchRestrictions closes a member's streams the moment their feed access is
+// revoked.
+//
+// Subscribed to the event rather than called from the admin handler, because the
+// handler is not the only thing that revokes: warning escalation applies
+// restrictions too, and anything added later will as well. An open stream would
+// otherwise keep delivering announcements to someone who has just been told they
+// may not watch, for as long as they leave the tab open.
+func (h *AnnounceHub) WatchRestrictions(bus event.Bus) {
+	bus.Subscribe(event.RestrictionApplied, func(_ context.Context, evt event.Event) error {
+		applied, ok := evt.(*event.RestrictionAppliedEvent)
+		if !ok || applied.RestrictionType != model.RestrictionTypeFeed {
+			return nil
+		}
+		if dropped := h.DisconnectUser(applied.UserID); dropped > 0 {
+			slog.Info("live feed access revoked, closed open streams",
+				"user_id", applied.UserID, "streams", dropped)
+		}
+		return nil
+	})
+}
+
 // WatchConfigChanges disconnects every watcher whenever a live feed is created,
 // edited, toggled or deleted.
 //
@@ -195,7 +278,7 @@ func (h *AnnounceHub) WatchConfigChanges(bus event.Bus) {
 		if !ok || changed.Kind != "sse" {
 			return nil
 		}
-		if dropped := h.disconnectAll(); dropped > 0 {
+		if dropped := h.DisconnectAll(); dropped > 0 {
 			slog.Info("announce stream: live feeds changed, disconnecting watchers to re-resolve",
 				"clients", dropped)
 		}
@@ -203,8 +286,11 @@ func (h *AnnounceHub) WatchConfigChanges(bus event.Bus) {
 	})
 }
 
-// disconnectAll closes every stream and reports how many were closed.
-func (h *AnnounceHub) disconnectAll() int {
+// DisconnectAll closes every stream and reports how many were closed.
+//
+// Exported because a class losing the feeds has to end the streams its members
+// already have open, and the admin group handler is where that is known.
+func (h *AnnounceHub) DisconnectAll() int {
 	h.mu.Lock()
 	clients := make([]*sseClient, 0, len(h.clients))
 	for _, feed := range h.clients {
@@ -267,6 +353,11 @@ func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
 	session := h.sessionStore.GetByAccessToken(token)
 	if session == nil {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
+		return
+	}
+
+	if !h.mayWatch(r.Context(), session.UserID) {
+		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have access to the live feeds")
 		return
 	}
 

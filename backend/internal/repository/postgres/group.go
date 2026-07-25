@@ -24,7 +24,7 @@ func NewGroupRepo(db *sql.DB) *GroupRepo {
 
 func (r *GroupRepo) List(ctx context.Context) ([]model.Group, error) {
 	query := `SELECT id, name, slug, level, color, can_upload, can_download, can_invite,
-		can_comment, can_forum, is_admin, is_moderator, is_immune, can_self_approve, created_at, updated_at
+		can_comment, can_forum, is_admin, is_moderator, is_immune, can_self_approve, can_feed, created_at, updated_at
 		FROM groups ORDER BY level ASC`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -39,7 +39,7 @@ func (r *GroupRepo) List(ctx context.Context) ([]model.Group, error) {
 		if err := rows.Scan(
 			&g.ID, &g.Name, &g.Slug, &g.Level, &g.Color,
 			&g.CanUpload, &g.CanDownload, &g.CanInvite,
-			&g.CanComment, &g.CanForum, &g.IsAdmin, &g.IsModerator, &g.IsImmune, &g.CanSelfApprove,
+			&g.CanComment, &g.CanForum, &g.IsAdmin, &g.IsModerator, &g.IsImmune, &g.CanSelfApprove, &g.CanFeed,
 			&g.CreatedAt, &g.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan group: %w", err)
@@ -55,14 +55,14 @@ func (r *GroupRepo) List(ctx context.Context) ([]model.Group, error) {
 
 func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*model.Group, error) {
 	query := `SELECT id, name, slug, level, color, can_upload, can_download, can_invite,
-		can_comment, can_forum, is_admin, is_moderator, is_immune, can_self_approve, created_at, updated_at
+		can_comment, can_forum, is_admin, is_moderator, is_immune, can_self_approve, can_feed, created_at, updated_at
 		FROM groups WHERE id = $1`
 
 	var g model.Group
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&g.ID, &g.Name, &g.Slug, &g.Level, &g.Color,
 		&g.CanUpload, &g.CanDownload, &g.CanInvite,
-		&g.CanComment, &g.CanForum, &g.IsAdmin, &g.IsModerator, &g.IsImmune, &g.CanSelfApprove,
+		&g.CanComment, &g.CanForum, &g.IsAdmin, &g.IsModerator, &g.IsImmune, &g.CanSelfApprove, &g.CanFeed,
 		&g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
@@ -73,13 +73,13 @@ func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*model.Group, error)
 
 func (r *GroupRepo) Create(ctx context.Context, g *model.Group) error {
 	query := `INSERT INTO groups
-		(name, slug, level, color, can_upload, can_download, can_invite, can_comment, can_forum, is_admin, is_moderator, is_immune)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		(name, slug, level, color, can_upload, can_download, can_invite, can_comment, can_forum, is_admin, is_moderator, is_immune, can_feed)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		g.Name, g.Slug, g.Level, g.Color,
 		g.CanUpload, g.CanDownload, g.CanInvite, g.CanComment, g.CanForum,
-		g.IsAdmin, g.IsModerator, g.IsImmune,
+		g.IsAdmin, g.IsModerator, g.IsImmune, g.CanFeed,
 	).Scan(&g.ID, &g.CreatedAt, &g.UpdatedAt)
 }
 
@@ -87,13 +87,13 @@ func (r *GroupRepo) Update(ctx context.Context, g *model.Group) error {
 	query := `UPDATE groups SET
 		name = $1, slug = $2, level = $3, color = $4,
 		can_upload = $5, can_download = $6, can_invite = $7, can_comment = $8, can_forum = $9,
-		is_admin = $10, is_moderator = $11, is_immune = $12, updated_at = NOW()
-		WHERE id = $13
+		is_admin = $10, is_moderator = $11, is_immune = $12, can_feed = $13, updated_at = NOW()
+		WHERE id = $14
 		RETURNING updated_at`
 	err := r.db.QueryRowContext(ctx, query,
 		g.Name, g.Slug, g.Level, g.Color,
 		g.CanUpload, g.CanDownload, g.CanInvite, g.CanComment, g.CanForum,
-		g.IsAdmin, g.IsModerator, g.IsImmune, g.ID,
+		g.IsAdmin, g.IsModerator, g.IsImmune, g.CanFeed, g.ID,
 	).Scan(&g.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sql.ErrNoRows
@@ -126,4 +126,16 @@ func (r *GroupRepo) CountMembers(ctx context.Context, groupID int64) (int, error
 		return 0, fmt.Errorf("count group members: %w", err)
 	}
 	return n, nil
+}
+
+// CanFeed reports whether a class may watch the live feeds.
+func (r *GroupRepo) CanFeed(ctx context.Context, groupID int64) (bool, error) {
+	var canFeed bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT can_feed FROM groups WHERE id = $1`, groupID,
+	).Scan(&canFeed)
+	if err != nil {
+		return false, fmt.Errorf("read group feed access: %w", err)
+	}
+	return canFeed, nil
 }

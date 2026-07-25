@@ -20,6 +20,8 @@ type Group struct {
 	// CanSelfApprove marks the Uploader class (BE-8.22c): members may approve
 	// their own torrent submissions.
 	CanSelfApprove bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// CanFeed lets members of this class watch the live release feeds.
+	CanFeed   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

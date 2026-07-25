@@ -87,7 +87,46 @@ function announcement(overrides: Record<string, unknown> = {}) {
 function mockFeeds(feeds: { slug: string; name: string }[]) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(() => Promise.resolve({ ok: true, json: async () => ({ feeds }) })),
+    vi.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: async () => ({ feeds }) }),
+    ),
+  );
+}
+
+/** The feed list refusing a member who has no can_feed. */
+function mockFeedsForbidden() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: { code: "forbidden" } }),
+      }),
+    ),
+  );
+}
+
+/** The feed list answering normally first, then refusing — a mid-session revoke. */
+function mockFeedsThenForbidden(feeds: { slug: string; name: string }[]) {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => {
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ feeds }),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: { code: "forbidden" } }),
+      });
+    }),
   );
 }
 
@@ -454,5 +493,80 @@ describe("LiveReleasesPage feeds", () => {
     // leaving them would misrepresent what this feed carries.
     expect(screen.queryByText("Some.Release-GROUP")).not.toBeInTheDocument();
     expect(screen.getByText("Waiting for releases…")).toBeInTheDocument();
+  });
+});
+
+describe("LiveReleasesPage access", () => {
+  test("says so when the account has no feed access, and opens no stream", async () => {
+    // EventSource cannot read a status code, so a refused stream would retry
+    // every few seconds forever and read as "reconnecting" to someone who is
+    // never getting in. The feed list answers with a real status instead.
+    mockFeedsForbidden();
+    renderPage();
+
+    expect(
+      await screen.findByText(/does not have access to the live feeds/),
+    ).toBeInTheDocument();
+
+    // The page opens one stream before the refusal arrives — it cannot know
+    // sooner. What matters is that it is closed and not retried, rather than
+    // reconnecting every few seconds against a server that will keep saying no.
+    expect(MockEventSource.instances.every((source) => source.closed)).toBe(
+      true,
+    );
+
+    const opened = MockEventSource.instances.length;
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(MockEventSource.instances).toHaveLength(opened);
+  });
+
+  test("shows no status badge or picker when access is refused", async () => {
+    mockFeedsForbidden();
+    renderPage(["/live?feed=no-adult"]);
+
+    await screen.findByText(/does not have access to the live feeds/);
+    expect(screen.queryByLabelText("Feed")).not.toBeInTheDocument();
+    expect(screen.queryByText("connecting")).not.toBeInTheDocument();
+    expect(screen.queryByText("Waiting for releases…")).not.toBeInTheDocument();
+  });
+});
+
+describe("LiveReleasesPage access changing mid-session", () => {
+  test("a stream dropped because access was revoked ends in the denial message", async () => {
+    // The server closes the stream when the privilege is taken away. Without a
+    // re-check the page would retry every few seconds forever, reading
+    // "reconnecting" to someone who is never getting back in.
+    mockFeedsThenForbidden([{ slug: "default", name: "Everything" }]);
+    renderPage();
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    MockEventSource.instances[0].fail();
+
+    expect(
+      await screen.findByText(/does not have access to the live feeds/),
+    ).toBeInTheDocument();
+  });
+
+  test("a server error is not read as a refusal", async () => {
+    // A 500 means the check could not run, not that the member is refused —
+    // showing them a denial would be a lie, and a permanent one.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "internal_error" } }),
+        }),
+      ),
+    );
+    renderPage();
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(
+      screen.queryByText(/does not have access to the live feeds/),
+    ).not.toBeInTheDocument();
   });
 });

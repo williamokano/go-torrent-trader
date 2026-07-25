@@ -60,6 +60,7 @@ type AdminUserView struct {
 	CanChat       bool    `json:"can_chat"`
 	CanForum      bool    `json:"can_forum"`
 	CanInvite     bool    `json:"can_invite"`
+	CanFeed       bool    `json:"can_feed"`
 	DisabledUntil *string `json:"disabled_until"`
 	CreatedAt     string  `json:"created_at"`
 	LastAccess    *string `json:"last_access"`
@@ -658,6 +659,7 @@ func (s *AdminService) userToView(u *model.User, groupName string) AdminUserView
 		CanChat:     u.CanChat,
 		CanForum:    u.CanForum,
 		CanInvite:   u.CanInvite,
+		CanFeed:     u.CanFeed,
 		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if u.DisabledUntil != nil {
@@ -1156,6 +1158,14 @@ type GroupWriteRequest struct {
 	IsAdmin     bool    `json:"is_admin"`
 	IsModerator bool    `json:"is_moderator"`
 	IsImmune    bool    `json:"is_immune"`
+	// CanFeed grants this class the live release feeds. An individual member can
+	// still have it taken away by a restriction.
+	//
+	// A pointer, unlike its neighbours: those predate every client, but a client
+	// written before can_feed existed omits the key, and a plain bool would read
+	// that as false and revoke the feeds for the whole class on an unrelated
+	// edit. Absent means "leave it as it was".
+	CanFeed *bool `json:"can_feed"`
 }
 
 // slugifyGroupName derives a URL-safe slug from a group name, used when the
@@ -1168,7 +1178,10 @@ func slugifyGroupName(name string) string {
 
 // normalizeGroupInput validates and normalizes a write request into a Group.
 // It does not set ID, CreatedAt, or UpdatedAt.
-func normalizeGroupInput(req GroupWriteRequest) (*model.Group, error) {
+//
+// current is the group being edited, or nil when creating. It supplies the value
+// for any field the request may legitimately omit.
+func normalizeGroupInput(req GroupWriteRequest, current *model.Group) (*model.Group, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, ErrGroupNameRequired
@@ -1197,6 +1210,16 @@ func normalizeGroupInput(req GroupWriteRequest) (*model.Group, error) {
 		}
 	}
 
+	// A new class gets the feeds unless it says otherwise, matching the column
+	// default; an edit keeps whatever it had.
+	canFeed := true
+	if current != nil {
+		canFeed = current.CanFeed
+	}
+	if req.CanFeed != nil {
+		canFeed = *req.CanFeed
+	}
+
 	return &model.Group{
 		Name:        name,
 		Slug:        slug,
@@ -1210,6 +1233,7 @@ func normalizeGroupInput(req GroupWriteRequest) (*model.Group, error) {
 		IsAdmin:     req.IsAdmin,
 		IsModerator: req.IsModerator,
 		IsImmune:    req.IsImmune,
+		CanFeed:     canFeed,
 	}, nil
 }
 
@@ -1242,7 +1266,7 @@ func (s *AdminService) CreateGroup(ctx context.Context, req GroupWriteRequest) (
 	if s.groupWriter == nil {
 		return nil, ErrGroupWritesUnavailable
 	}
-	group, err := normalizeGroupInput(req)
+	group, err := normalizeGroupInput(req, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1269,7 +1293,7 @@ func (s *AdminService) UpdateGroup(ctx context.Context, id int64, req GroupWrite
 		return nil, fmt.Errorf("get group: %w", err)
 	}
 
-	group, err := normalizeGroupInput(req)
+	group, err := normalizeGroupInput(req, existing)
 	if err != nil {
 		return nil, err
 	}
