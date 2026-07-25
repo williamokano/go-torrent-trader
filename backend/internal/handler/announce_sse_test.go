@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -310,6 +311,41 @@ func TestAnnounceStreamCapsStreamsPerUser(t *testing.T) {
 	readSSEFrame(t, other)
 }
 
+// Counting and then registering is a race two simultaneous connects can both
+// win, which is exactly how someone would get past a cap meant to stop bulk
+// stream opening.
+func TestAnnounceHubCapIsAtomicUnderConcurrentConnects(t *testing.T) {
+	hub := NewAnnounceHub(testutil.NewMemorySessionStore())
+
+	const attempts = 50
+	var wg sync.WaitGroup
+	admitted := make(chan bool, attempts)
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			admitted <- hub.tryRegister(&sseClient{
+				userID: 1, send: make(chan []byte, sseClientBuffer),
+			})
+		}()
+	}
+	wg.Wait()
+	close(admitted)
+
+	var accepted int
+	for ok := range admitted {
+		if ok {
+			accepted++
+		}
+	}
+	if accepted != sseMaxPerUser {
+		t.Fatalf("admitted %d streams, want exactly the cap of %d", accepted, sseMaxPerUser)
+	}
+	if hub.clientCount() != sseMaxPerUser {
+		t.Fatalf("hub holds %d clients, want %d", hub.clientCount(), sseMaxPerUser)
+	}
+}
+
 // A client that stops consuming must be dropped rather than allowed to wedge
 // the fan-out to everyone else.
 //
@@ -321,28 +357,24 @@ func TestAnnounceHubDropsAClientThatStopsConsuming(t *testing.T) {
 	hub := NewAnnounceHub(testutil.NewMemorySessionStore())
 	go hub.Run()
 
+	const frames = sseClientBuffer * 4
+
+	// The stalled client never reads, so its buffer fills. The other is given a
+	// buffer bigger than the whole burst, which is what "keeping up" means here
+	// — draining it from a goroutine instead would make the test depend on the
+	// scheduler running that goroutine between broadcasts, and it would be
+	// dropped too on an unlucky run.
 	stalled := &sseClient{userID: 1, send: make(chan []byte, sseClientBuffer)}
-	healthy := &sseClient{userID: 2, send: make(chan []byte, sseClientBuffer)}
-	hub.register <- stalled
-	hub.register <- healthy
-
-	// Drain the healthy client so only the other one falls behind.
-	received := make(chan int, 1)
-	go func() {
-		count := 0
-		for range healthy.send {
-			count++
-		}
-		received <- count
-	}()
-
-	waitFor(t, "both clients to register", func() bool { return hub.clientCount() == 2 })
+	keepingUp := &sseClient{userID: 2, send: make(chan []byte, frames+1)}
+	if !hub.tryRegister(stalled) || !hub.tryRegister(keepingUp) {
+		t.Fatal("test setup: both clients should register")
+	}
 
 	payload, _ := json.Marshal(sampleAnnouncement())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < sseClientBuffer*4; i++ {
+		for i := 0; i < frames; i++ {
 			hub.Broadcast("torrent.published:1", payload)
 		}
 	}()
@@ -355,12 +387,14 @@ func TestAnnounceHubDropsAClientThatStopsConsuming(t *testing.T) {
 
 	waitFor(t, "the stalled client to be dropped", func() bool { return hub.clientCount() == 1 })
 
-	// And the one that kept up is still connected and still receiving.
 	hub.mu.RLock()
-	_, healthyStillThere := hub.clients[healthy]
+	_, survived := hub.clients[keepingUp]
 	hub.mu.RUnlock()
-	if !healthyStillThere {
+	if !survived {
 		t.Fatal("the client that kept up should not have been dropped")
+	}
+	if len(keepingUp.send) == 0 {
+		t.Fatal("the surviving client should have received the announcements")
 	}
 }
 
@@ -450,4 +484,29 @@ func dataOf(frame string) string {
 		}
 	}
 	return b.String()
+}
+
+// SSE treats a bare CR as a line break too, so it must not be able to terminate
+// a frame early and let the remainder be read as fields.
+func TestSSEFrameNeutralisesBareCarriageReturns(t *testing.T) {
+	frame := string(sseFrame("announcement", "k", []byte("{\"a\":\"x\rid: spoofed\"}")))
+
+	var dataLines, idLines int
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			dataLines++
+		}
+		if strings.HasPrefix(line, "id: ") {
+			idLines++
+		}
+	}
+	if dataLines != 1 {
+		t.Fatalf("frame = %q, want the CR neutralised into a single data line", frame)
+	}
+	if idLines != 1 {
+		t.Fatalf("frame = %q, want exactly the one real id field", frame)
+	}
+	if strings.Contains(frame, "\r") {
+		t.Fatalf("frame = %q, want no carriage returns", frame)
+	}
 }

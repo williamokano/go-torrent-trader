@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { LiveReleasesPage } from "@/pages/LiveReleasesPage";
 
+let currentToken = "test-token";
+
 vi.mock("@/features/auth/token", () => ({
-  getAccessToken: vi.fn(() => "test-token"),
+  getAccessToken: () => currentToken,
 }));
 
 vi.mock("@/config", () => ({
@@ -82,6 +84,7 @@ function announcement(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   MockEventSource.instances = [];
+  currentToken = "test-token";
   vi.stubGlobal("EventSource", MockEventSource);
 });
 
@@ -223,5 +226,77 @@ describe("LiveReleasesPage", () => {
     unmount();
 
     expect(source.closed).toBe(true);
+  });
+  // EventSource's own retry always reuses the URL it was built with — and the
+  // token is in that URL. After a refresh the browser would retry a request the
+  // server must reject, forever, so the stream is rebuilt with a fresh token.
+  test("reconnects with a freshly read token", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { source } = renderPage();
+      source.open();
+
+      currentToken = "rotated-token";
+      source.fail();
+
+      expect(screen.getByRole("status")).toHaveTextContent("reconnecting");
+      expect(source.closed).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+
+      expect(MockEventSource.instances).toHaveLength(2);
+      expect(MockEventSource.instances[1].url).toContain("token=rotated-token");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("does not reconnect after unmounting", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { source, unmount } = renderPage();
+      source.fail();
+      unmount();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      expect(MockEventSource.instances).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Without pruning, the dedupe set grows for the life of the page even though
+  // the visible list is capped.
+  test("an announcement evicted by the cap can appear again", () => {
+    const { source } = renderPage();
+
+    source.emit("announcement", announcement({ torrent_id: 1, name: "First" }));
+    for (let i = 2; i <= 101; i++) {
+      source.emit(
+        "announcement",
+        announcement({ torrent_id: i, name: `Release.${i}` }),
+      );
+    }
+    expect(screen.queryByText("First")).toBeNull();
+
+    source.emit("announcement", announcement({ torrent_id: 1, name: "First" }));
+    expect(screen.getByText("First")).toBeInTheDocument();
+  });
+
+  // A coalesced summary carries its representative row's torrent id, so keys
+  // have to be independent of it or React would see duplicates.
+  test("renders several coalesced summaries sharing a torrent id", () => {
+    const { source } = renderPage();
+
+    source.emit("announcement", announcement({ coalesced: 3 }));
+    source.emit("announcement", announcement({ coalesced: 5 }));
+
+    expect(screen.getByText(/3 more releases published/)).toBeInTheDocument();
+    expect(screen.getByText(/5 more releases published/)).toBeInTheDocument();
   });
 });

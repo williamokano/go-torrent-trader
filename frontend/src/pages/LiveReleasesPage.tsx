@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAnnounceStream } from "@/lib/useAnnounceStream";
-import type { Announcement, StreamState } from "@/lib/useAnnounceStream";
+import type { FeedItem, StreamState } from "@/lib/useAnnounceStream";
 import { formatBytes, timeAgo } from "@/utils/format";
 import "./live-releases.css";
 
@@ -36,14 +36,8 @@ export function LiveReleasesPage() {
         <p className="live__empty">Waiting for releases…</p>
       ) : (
         <ul className="live__list">
-          {announcements.map((announcement, index) => (
-            <li
-              // A coalesced summary shares its representative's torrent id, so
-              // the id alone is not unique; the index keeps the list keys
-              // stable because entries are only ever prepended.
-              key={`${announcement.torrent_id}-${index}`}
-              className="live__item"
-            >
+          {announcements.map((announcement) => (
+            <li key={announcement.key} className="live__item">
               <ReleaseRow announcement={announcement} />
             </li>
           ))}
@@ -53,7 +47,7 @@ export function LiveReleasesPage() {
   );
 }
 
-function ReleaseRow({ announcement }: { announcement: Announcement }) {
+function ReleaseRow({ announcement }: { announcement: FeedItem }) {
   if (announcement.coalesced) {
     return (
       <div className="live__summary">

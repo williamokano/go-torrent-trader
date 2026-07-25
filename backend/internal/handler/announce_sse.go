@@ -27,9 +27,6 @@ const (
 	// sseMaxPerUser bounds fan-out. Without it one person with a pinned tab in
 	// twenty windows multiplies every announcement twenty times.
 	sseMaxPerUser = 5
-	// sseUnregisterGrace is how long a departing client waits to be reaped by
-	// the hub before removing itself.
-	sseUnregisterGrace = time.Second
 )
 
 // sseClient is one connected browser.
@@ -55,11 +52,9 @@ func (c *sseClient) close() {
 type AnnounceHub struct {
 	sessionStore service.SessionStore
 
-	clients    map[*sseClient]struct{}
-	register   chan *sseClient
-	unregister chan *sseClient
-	broadcast  chan []byte
-	mu         sync.RWMutex
+	clients   map[*sseClient]struct{}
+	broadcast chan []byte
+	mu        sync.RWMutex
 
 	// heartbeat is a field so tests need not wait twenty-five seconds.
 	heartbeat time.Duration
@@ -70,44 +65,60 @@ func NewAnnounceHub(sessionStore service.SessionStore) *AnnounceHub {
 	return &AnnounceHub{
 		sessionStore: sessionStore,
 		clients:      make(map[*sseClient]struct{}),
-		register:     make(chan *sseClient, 64),
-		unregister:   make(chan *sseClient, 64),
 		broadcast:    make(chan []byte, 256),
 		heartbeat:    sseHeartbeat,
 	}
 }
 
-// Run starts the hub loop. Call it in a goroutine.
+// Run fans queued announcements out to connected clients. Call it in a
+// goroutine.
+//
+// Registration and removal are not routed through here: they are plain
+// mutex-guarded map operations, and making the cap atomic meant doing the check
+// and the insert under one lock anyway. Only the fan-out needs a loop.
 func (h *AnnounceHub) Run() {
-	for {
-		select {
-		case client := <-h.register:
-			h.mu.Lock()
-			h.clients[client] = struct{}{}
-			h.mu.Unlock()
-
-		case client := <-h.unregister:
-			h.remove(client)
-
-		case frame := <-h.broadcast:
-			h.mu.RLock()
-			var slow []*sseClient
-			for client := range h.clients {
-				select {
-				case client.send <- frame:
-				default:
-					// Buffer full: this client is not keeping up. Drop it rather
-					// than let it stall the fan-out to everyone else.
-					slow = append(slow, client)
-				}
-			}
-			h.mu.RUnlock()
-
-			for _, client := range slow {
-				h.remove(client)
+	for frame := range h.broadcast {
+		h.mu.RLock()
+		var slow []*sseClient
+		for client := range h.clients {
+			select {
+			case client.send <- frame:
+			default:
+				// Buffer full: this client is not keeping up. Collect it and drop
+				// it after the loop, rather than let it stall everyone else's
+				// fan-out or mutate the map mid-range.
+				slow = append(slow, client)
 			}
 		}
+		h.mu.RUnlock()
+
+		for _, client := range slow {
+			h.remove(client)
+		}
 	}
+}
+
+// tryRegister admits a client if the user is under their stream cap.
+//
+// The check and the insert happen under one lock on purpose: counting first and
+// registering afterwards is a race two simultaneous connects can both win, and
+// the cap exists precisely to stop someone opening streams in bulk.
+func (h *AnnounceHub) tryRegister(client *sseClient) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var forUser int
+	for existing := range h.clients {
+		if existing.userID == client.userID {
+			forUser++
+		}
+	}
+	if forUser >= sseMaxPerUser {
+		return false
+	}
+
+	h.clients[client] = struct{}{}
+	return true
 }
 
 // remove reaps a client. Safe to call from either the hub or a handler.
@@ -169,11 +180,13 @@ func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.countForUser(session.UserID) >= sseMaxPerUser {
+	client := &sseClient{userID: session.UserID, send: make(chan []byte, sseClientBuffer)}
+	if !h.tryRegister(client) {
 		ErrorResponse(w, http.StatusTooManyRequests, "too_many_streams",
 			fmt.Sprintf("at most %d live feeds per user", sseMaxPerUser))
 		return
 	}
+	defer h.remove(client)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -187,10 +200,6 @@ func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flusher.Flush()
-
-	client := &sseClient{userID: session.UserID, send: make(chan []byte, sseClientBuffer)}
-	h.register <- client
-	defer h.detach(client)
 
 	ticker := time.NewTicker(h.heartbeat)
 	defer ticker.Stop()
@@ -220,28 +229,6 @@ func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// detach removes a departing client, preferring the hub so registration and
-// removal stay serialised, but never waiting on it indefinitely.
-func (h *AnnounceHub) detach(client *sseClient) {
-	select {
-	case h.unregister <- client:
-	case <-time.After(sseUnregisterGrace):
-		h.remove(client)
-	}
-}
-
-func (h *AnnounceHub) countForUser(userID int64) int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var count int
-	for client := range h.clients {
-		if client.userID == userID {
-			count++
-		}
-	}
-	return count
-}
-
 // sseFrame renders one event. Data is split across lines because SSE terminates
 // a frame on a blank line, so an embedded newline would truncate the payload.
 func sseFrame(event, id string, payload []byte) []byte {
@@ -254,9 +241,13 @@ func sseFrame(event, id string, payload []byte) []byte {
 		b.WriteString(sseSanitize(id))
 		b.WriteString("\n")
 	}
-	for _, line := range strings.Split(string(payload), "\n") {
+	// SSE treats CR, LF and CRLF alike as line breaks, so every one has to
+	// become its own data: line or the frame terminates early. JSON escaping
+	// already rules this out for a marshalled announcement — this is the belt to
+	// its braces, since the payload type is only a []byte.
+	for _, line := range strings.Split(strings.ReplaceAll(string(payload), "\r\n", "\n"), "\n") {
 		b.WriteString("data: ")
-		b.WriteString(strings.TrimRight(line, "\r"))
+		b.WriteString(strings.ReplaceAll(line, "\r", ""))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
