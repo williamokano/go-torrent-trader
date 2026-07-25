@@ -1,8 +1,25 @@
 # External Notification Connectors — Design
 
-**Status:** design only, not implemented. Stored for later.
+**Status:** Phase 1 implemented (BE-10.1 — the connector seam, Chat and Webhook
+connectors, delivery pipeline and admin CRUD). Phases 2–4 in progress; phase 5
+(per-user relay) remains future work. Implementation plan: `docs/plans/BE-10.md`.
+Where this document and the plan differ, the plan's §1 records the decision.
+
 **Relates to:** `docs/EXTENSIBILITY.md` (reaction-side plugins), `docs/TRACKER_MODS.md`
 ("IRC / Discord announce bot"), `docs/FUTURE_WORK.md` (Real-Time Stats Push / SSE).
+
+Two things the implementation settled that this document left open:
+
+- **Delivery is at-least-once.** The `(instance_id, event_key)` unique index
+  gives exactly one delivery *row* per event per instance, and a per-row lease
+  stops two overlapping drains sending the same announcement. A success whose
+  bookkeeping write then fails still retries, so a receiver that cares should
+  deduplicate on the `X-Announce-Delivery` header.
+- **Coalescing is per-kind, not global.** Replacing a backlog with "+N more" is
+  the desired behaviour for a destination a person reads and data loss for one a
+  program reads, so `Connector.Coalescable()` decides. Machine-read kinds spend
+  their whole rate budget on individual deliveries and defer the rest to the
+  next window instead.
 
 ## 1. Motivation
 

@@ -7,6 +7,12 @@ export interface ChatMessage {
   username: string;
   message: string;
   created_at: string;
+  /**
+   * An authorless announcement posted by the site itself (BE-10 chat
+   * connector). It has no user behind it, so it gets no profile link and no
+   * moderation actions.
+   */
+  system?: boolean;
 }
 
 type WSMessage =
@@ -132,6 +138,7 @@ class ChatSocket {
                 username: data.username,
                 message: data.message,
                 created_at: data.created_at,
+                system: data.system,
               },
             });
             break;

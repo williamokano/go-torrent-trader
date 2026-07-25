@@ -80,6 +80,11 @@ export function AdminLayout() {
           </NavLink>
         )}
         {isAdmin && (
+          <NavLink to="/admin/connectors" className={navLinkClass}>
+            Connectors
+          </NavLink>
+        )}
+        {isAdmin && (
           <NavLink to="/admin/bans" className={navLinkClass}>
             Bans
           </NavLink>

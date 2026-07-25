@@ -113,11 +113,20 @@ export function Shoutbox() {
           </div>
         )}
         {messages.map((msg) => (
-          <div key={msg.id} className="shoutbox__message">
+          <div
+            key={msg.id}
+            className={`shoutbox__message${msg.system ? " shoutbox__message--system" : ""}`}
+          >
             <span className="shoutbox__message-time">
               {formatTime(msg.created_at)}
             </span>
-            {isStaff ? (
+            {/* A system announcement has no author, so it gets no profile
+                link and no moderation actions targeting a user. */}
+            {msg.system ? (
+              <span className="shoutbox__message-system-label">
+                {msg.username}
+              </span>
+            ) : isStaff ? (
               <ChatModMenu userId={msg.user_id} username={msg.username} />
             ) : (
               <Link
@@ -132,7 +141,7 @@ export function Shoutbox() {
               className="shoutbox__message-text"
               inline
             />
-            {isStaff && (
+            {isStaff && !msg.system && (
               <button
                 className="shoutbox__message-delete"
                 onClick={() => setDeletingMsgId(msg.id)}

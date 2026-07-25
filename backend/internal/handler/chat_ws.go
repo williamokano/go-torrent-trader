@@ -217,6 +217,26 @@ func (h *ChatHub) Run() {
 	}
 }
 
+// Broadcast pushes a pre-marshaled payload to every connected chat client.
+//
+// It exists so the chat notification connector — which runs on the worker side —
+// can reach WS clients without importing the hub's internals. That works because
+// the HTTP server and the worker share a process (see main.go), the same
+// assumption the existing SendToUser bridge already relies on.
+//
+// The send is non-blocking. Its callers are a worker task holding one of ten
+// asynq slots and an admin's test-send HTTP request; a plain channel send
+// ignores their contexts, so if Run() were not draining — a burst deeper than
+// the buffer, or a deployment where the hub goroutine never started — either
+// would park forever. Dropping a shoutbox line is the right trade against that.
+func (h *ChatHub) Broadcast(payload []byte) {
+	select {
+	case h.broadcast <- ChatBroadcast{Data: payload}:
+	default:
+		slog.Warn("chat broadcast dropped: hub buffer full")
+	}
+}
+
 // SendToUser sends a payload to all connected clients belonging to the given user.
 func (h *ChatHub) SendToUser(userID int64, payload []byte) {
 	h.mu.RLock()
@@ -598,6 +618,7 @@ func chatMessagePayload(msg *model.ChatMessage) map[string]interface{} {
 		"user_id":    msg.UserID,
 		"username":   msg.Username,
 		"message":    msg.Message,
+		"system":     msg.System,
 		"created_at": msg.CreatedAt.Format(time.RFC3339),
 	}
 }

@@ -81,6 +81,15 @@ const (
 	// never unlocks download.
 	SettingModerationEnabled          = "moderation_enabled"
 	SettingModerationPublicVisibility = "moderation_public_visibility"
+
+	// External notification connector settings keys (BE-10).
+	// SettingConnectorsEnabled is the global kill-switch: false silences every
+	// connector kind without touching per-instance enabled flags.
+	// SettingConnectorsAllowPrivateNetworks relaxes the outbound SSRF guard so a
+	// self-hosted receiver on the LAN can be targeted.
+	SettingConnectorsEnabled              = "connectors_enabled"
+	SettingConnectorDeliveryRetentionDays = "connector_delivery_retention_days"
+	SettingConnectorsAllowPrivateNetworks = "connectors_allow_private_networks"
 )
 
 // SiteSettingsService handles site settings business logic.
@@ -120,9 +129,16 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 			return fmt.Errorf("%w: registration mode must be %q or %q",
 				ErrInvalidSetting, RegistrationModeOpen, RegistrationModeInviteOnly)
 		}
-	case SettingModerationEnabled, SettingModerationPublicVisibility:
+	case SettingModerationEnabled, SettingModerationPublicVisibility,
+		SettingConnectorsEnabled, SettingConnectorsAllowPrivateNetworks:
 		if value != "true" && value != "false" {
 			return fmt.Errorf("%w: %s must be %q or %q", ErrInvalidSetting, key, "true", "false")
+		}
+	case SettingConnectorDeliveryRetentionDays:
+		// Zero or negative is meaningful (it disables pruning), so only
+		// non-numeric input is rejected here.
+		if _, err := strconv.Atoi(value); err != nil {
+			return fmt.Errorf("%w: %s must be a whole number of days", ErrInvalidSetting, key)
 		}
 	}
 

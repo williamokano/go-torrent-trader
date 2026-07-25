@@ -685,3 +685,54 @@ type DashboardStats struct {
 type DashboardRepository interface {
 	GetStats(ctx context.Context) (*DashboardStats, error)
 }
+
+// ConnectorRepository defines persistence operations for external notification
+// connector instances (BE-10).
+type ConnectorRepository interface {
+	Create(ctx context.Context, c *model.NotificationConnector) error
+	GetByID(ctx context.Context, id int64) (*model.NotificationConnector, error)
+	List(ctx context.Context) ([]model.NotificationConnector, error)
+	ListEnabled(ctx context.Context) ([]model.NotificationConnector, error)
+	Update(ctx context.Context, c *model.NotificationConnector) error
+	Delete(ctx context.Context, id int64) error
+	// CountByKind backs the singleton check for kinds like chat and sse. The
+	// unique index in migration 071 is the real guarantee; this gives the
+	// service a 409 to return instead of a constraint violation.
+	CountByKind(ctx context.Context, kind string) (int64, error)
+}
+
+// ConnectorDeliveryRepository defines persistence operations for the connector
+// delivery log, which doubles as the retry queue.
+type ConnectorDeliveryRepository interface {
+	// InsertPending inserts a delivery row, returning false (without error) when
+	// one already exists for the same (instance, event_key). The dispatcher only
+	// enqueues work when it actually inserted, which is what makes duplicate
+	// dispatch a no-op instead of a double announcement.
+	InsertPending(ctx context.Context, d *model.ConnectorDelivery) (bool, error)
+	// ListDue returns pending rows whose next_attempt_at has arrived (or is
+	// unset), oldest first.
+	ListDue(ctx context.Context, instanceID int64, now time.Time, limit int) ([]model.ConnectorDelivery, error)
+	// ClaimForDelivery takes a short lease on a due row by pushing its
+	// next_attempt_at into the future, returning false when another worker got
+	// there first. Two drains for the same instance can genuinely overlap — a
+	// slow drain is still running when the next one is enqueued — and without a
+	// claim both would read the same due rows from ListDue and announce them
+	// twice. A lease rather than a status flag means a worker that dies
+	// mid-delivery simply becomes due again when the lease expires.
+	ClaimForDelivery(ctx context.Context, id int64, leaseUntil, now time.Time) (bool, error)
+	// CountSentSince backs the per-instance rate budget.
+	CountSentSince(ctx context.Context, instanceID int64, since time.Time) (int64, error)
+	// MarkSent closes a row as model.DeliverySent or model.DeliveryCoalesced.
+	MarkSent(ctx context.Context, id int64, status string) error
+	// MarkFailedAttempt records a failed attempt. A nil nextAttemptAt means the
+	// row is dead-lettered (status failed) rather than scheduled again.
+	MarkFailedAttempt(ctx context.Context, id int64, attempts int, lastError string, nextAttemptAt *time.Time) error
+	ListByInstance(ctx context.Context, instanceID int64, page, perPage int) ([]model.ConnectorDelivery, int64, error)
+	// LatestStatusByInstance returns the most recent delivery per instance for
+	// the admin list page's status column.
+	LatestStatusByInstance(ctx context.Context) (map[int64]model.ConnectorDelivery, error)
+	// InstancesWithDue backs the maintenance sweep that recovers work stranded
+	// by a crash between insert and enqueue.
+	InstancesWithDue(ctx context.Context, now time.Time) ([]int64, error)
+	DeleteOld(ctx context.Context, cutoff time.Time) (int64, error)
+}

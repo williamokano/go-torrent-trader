@@ -95,6 +95,34 @@ func (s *ChatService) SendMessage(ctx context.Context, userID int64, message str
 	return msg, nil
 }
 
+// SendSystemMessage posts an authorless announcement to the shoutbox on behalf
+// of the site itself (used by the chat notification connector).
+//
+// It deliberately skips the mute and CanChat checks that SendMessage applies:
+// those exist to police users, and there is no user here. The length and
+// emptiness limits still apply — a runaway template should not be able to write
+// an unbounded row.
+func (s *ChatService) SendSystemMessage(ctx context.Context, message string) (*model.ChatMessage, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return nil, fmt.Errorf("%w: message cannot be empty", ErrInvalidChatMessage)
+	}
+	if len(message) > maxChatMessageLength {
+		return nil, fmt.Errorf("%w: message exceeds %d characters", ErrInvalidChatMessage, maxChatMessageLength)
+	}
+
+	msg := &model.ChatMessage{
+		Message: message,
+		System:  true,
+	}
+	if err := s.messages.Create(ctx, msg); err != nil {
+		return nil, fmt.Errorf("create system chat message: %w", err)
+	}
+	msg.Username = model.SystemChatUsername
+
+	return msg, nil
+}
+
 // ListRecent returns the most recent chat messages in chronological order.
 func (s *ChatService) ListRecent(ctx context.Context, limit int) ([]model.ChatMessage, error) {
 	if limit <= 0 {

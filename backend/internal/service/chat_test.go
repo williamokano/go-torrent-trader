@@ -543,3 +543,90 @@ func TestChatService_CleanupExpiredMutes(t *testing.T) {
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+
+// --- system messages (BE-10.1) ---
+
+func TestSendSystemMessageStoresAuthorlessRow(t *testing.T) {
+	messages := newMockChatMessageRepo()
+	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus())
+
+	msg, err := svc.SendSystemMessage(context.Background(), "  New torrent: Thing  ")
+	if err != nil {
+		t.Fatalf("SendSystemMessage: %v", err)
+	}
+
+	if !msg.System {
+		t.Fatal("system flag not set")
+	}
+	if msg.UserID != 0 {
+		t.Fatalf("user_id = %d, want 0: a system message has no author", msg.UserID)
+	}
+	if msg.Username != model.SystemChatUsername {
+		t.Fatalf("username = %q, want %q", msg.Username, model.SystemChatUsername)
+	}
+	if msg.Message != "New torrent: Thing" {
+		t.Fatalf("message = %q, want it trimmed", msg.Message)
+	}
+	if len(messages.messages) != 1 {
+		t.Fatalf("stored %d messages, want 1", len(messages.messages))
+	}
+}
+
+// Mutes and chat-privilege checks police users; there is no user behind a
+// system announcement, so they must not apply to it.
+func TestSendSystemMessageIgnoresMutesAndPrivileges(t *testing.T) {
+	// Both repos fail on every call, so the message can only get through if
+	// SendSystemMessage never consults them at all.
+	messages := newMockChatMessageRepo()
+	svc := NewChatService(messages, &explodingMuteRepo{}, &explodingUserRepo{}, event.NewInMemoryBus())
+
+	msg, err := svc.SendSystemMessage(context.Background(), "announcement")
+	if err != nil {
+		t.Fatalf("SendSystemMessage consulted the mute/privilege checks: %v", err)
+	}
+	if !msg.System {
+		t.Fatal("system flag not set")
+	}
+}
+
+// The exploding repositories fail the one lookup SendMessage makes and
+// SendSystemMessage must not, so an accidental check is impossible to miss.
+
+type explodingMuteRepo struct{ mockChatMuteRepo }
+
+func (e *explodingMuteRepo) GetActiveMute(context.Context, int64) (*model.ChatMute, error) {
+	return nil, errors.New("mute repository must not be consulted for a system message")
+}
+
+type explodingUserRepo struct{ mockChatUserRepo }
+
+func (e *explodingUserRepo) GetByID(context.Context, int64) (*model.User, error) {
+	return nil, errors.New("user repository must not be consulted for a system message")
+}
+
+func TestSendSystemMessageRejectsEmptyAndOversized(t *testing.T) {
+	svc := NewChatService(newMockChatMessageRepo(), newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus())
+
+	if _, err := svc.SendSystemMessage(context.Background(), "   "); !errors.Is(err, ErrInvalidChatMessage) {
+		t.Fatalf("err = %v, want ErrInvalidChatMessage for an empty message", err)
+	}
+	if _, err := svc.SendSystemMessage(context.Background(), strings.Repeat("x", maxChatMessageLength+1)); !errors.Is(err, ErrInvalidChatMessage) {
+		t.Fatalf("err = %v, want ErrInvalidChatMessage for an oversized message", err)
+	}
+}
+
+func TestSendSystemMessagePropagatesStorageFailure(t *testing.T) {
+	messages := &failingChatMessageRepo{}
+	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus())
+
+	if _, err := svc.SendSystemMessage(context.Background(), "announcement"); err == nil {
+		t.Fatal("expected a storage failure to surface so the delivery retries")
+	}
+}
+
+// failingChatMessageRepo fails every write, standing in for a database outage.
+type failingChatMessageRepo struct{ mockChatMessageRepo }
+
+func (r *failingChatMessageRepo) Create(context.Context, *model.ChatMessage) error {
+	return errors.New("database down")
+}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -45,6 +47,55 @@ type stubDashboardRepo struct{}
 func (s *stubDashboardRepo) GetStats(_ context.Context) (*repository.DashboardStats, error) {
 	return &repository.DashboardStats{}, nil
 }
+
+// The connector repositories are inert here: this test only cares that the
+// routes register (a nil service silently drops them) and that the guard in
+// front of them holds. Behaviour lives in admin_connectors_test.go.
+
+type nopConnectorRepo struct{}
+
+func (nopConnectorRepo) Create(context.Context, *model.NotificationConnector) error { return nil }
+func (nopConnectorRepo) GetByID(context.Context, int64) (*model.NotificationConnector, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopConnectorRepo) List(context.Context) ([]model.NotificationConnector, error) {
+	return nil, nil
+}
+func (nopConnectorRepo) ListEnabled(context.Context) ([]model.NotificationConnector, error) {
+	return nil, nil
+}
+func (nopConnectorRepo) Update(context.Context, *model.NotificationConnector) error { return nil }
+func (nopConnectorRepo) Delete(context.Context, int64) error                        { return sql.ErrNoRows }
+func (nopConnectorRepo) CountByKind(context.Context, string) (int64, error)         { return 0, nil }
+
+type nopConnectorDeliveryRepo struct{}
+
+func (nopConnectorDeliveryRepo) InsertPending(context.Context, *model.ConnectorDelivery) (bool, error) {
+	return false, nil
+}
+func (nopConnectorDeliveryRepo) ListDue(context.Context, int64, time.Time, int) ([]model.ConnectorDelivery, error) {
+	return nil, nil
+}
+func (nopConnectorDeliveryRepo) ClaimForDelivery(context.Context, int64, time.Time, time.Time) (bool, error) {
+	return false, nil
+}
+func (nopConnectorDeliveryRepo) CountSentSince(context.Context, int64, time.Time) (int64, error) {
+	return 0, nil
+}
+func (nopConnectorDeliveryRepo) MarkSent(context.Context, int64, string) error { return nil }
+func (nopConnectorDeliveryRepo) MarkFailedAttempt(context.Context, int64, int, string, *time.Time) error {
+	return nil
+}
+func (nopConnectorDeliveryRepo) ListByInstance(context.Context, int64, int, int) ([]model.ConnectorDelivery, int64, error) {
+	return nil, 0, nil
+}
+func (nopConnectorDeliveryRepo) LatestStatusByInstance(context.Context) (map[int64]model.ConnectorDelivery, error) {
+	return nil, nil
+}
+func (nopConnectorDeliveryRepo) InstancesWithDue(context.Context, time.Time) ([]int64, error) {
+	return nil, nil
+}
+func (nopConnectorDeliveryRepo) DeleteOld(context.Context, time.Time) (int64, error) { return 0, nil }
 
 // fullRouterDeps wires every service so that every route registers. A nil
 // service silently drops its routes from the table — which would make this test
@@ -95,8 +146,10 @@ func fullRouterDeps(t *testing.T) *Deps {
 		CheatFlagRepo: &stubCheatFlagRepo{},
 		DashboardRepo: &stubDashboardRepo{},
 		BackupService: &backupManagerStub{},
-		UserRepo:      users,
-		StatsCache:    service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
+		ConnectorService: service.NewConnectorService(nopConnectorRepo{}, nopConnectorDeliveryRepo{},
+			connector.NewRegistry(), "http://localhost"),
+		UserRepo:   users,
+		StatsCache: service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
 	}
 }
 

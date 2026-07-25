@@ -200,3 +200,16 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* System announcements (BE-10 chat connector) have no author, so they read as
+   site notices rather than as someone talking. */
+.chat__message--system {
+  background-color: color-mix(in srgb, var(--color-accent), transparent 92%);
+  border-left: 2px solid var(--color-accent);
+}
+
+.chat__message-system-label {
+  font-weight: 600;
+  font-style: italic;
+  color: var(--color-accent);
+}

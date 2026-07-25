@@ -8,12 +8,17 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/chat"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/httpguard"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/webhook"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
@@ -266,6 +271,31 @@ func run() int {
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
+	// External notification connectors (BE-10). The registry is fixed at compile
+	// time; adding a destination means adding a package and one Register call.
+	connectorRegistry := connector.NewRegistry()
+	connectorRegistry.Register(chat.New(chatService, chatHub.Broadcast))
+	// The outbound HTTP client re-reads the allow-private setting so an admin
+	// flipping it takes effect without a restart, but the read happens inside the
+	// dialer on every new connection — so it is cached briefly rather than
+	// putting a database round trip in front of every TCP connect.
+	connectorHTTPClient := httpguard.NewClient(
+		cachedBool(func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			return siteSettingsService.GetBool(ctx, service.SettingConnectorsAllowPrivateNetworks, false)
+		}, 15*time.Second),
+		10*time.Second)
+	connectorRegistry.Register(webhook.New(connectorHTTPClient))
+
+	connectorRepo := postgres.NewConnectorRepo(db)
+	connectorDeliveryRepo := postgres.NewConnectorDeliveryRepo(db)
+	connectorService := service.NewConnectorService(connectorRepo, connectorDeliveryRepo,
+		connectorRegistry, cfg.Site.BaseURL)
+	connectorEnqueuer := worker.NewAsynqConnectorEnqueuer(asynqClient)
+	listener.RegisterConnectorDispatcher(eventBus, connectorRepo, connectorDeliveryRepo,
+		siteSettingsService, connectorEnqueuer, cfg.Site.BaseURL)
+
 	// Wire PM notification listener — pushes real-time unread count via WebSocket.
 	listener.RegisterPMNotificationListener(eventBus, messageRepo, chatHub.SendToUser)
 
@@ -319,6 +349,7 @@ func run() int {
 		PromotionService:          promotionService,
 		BonusService:              bonusService,
 		InviteDistributionService: inviteDistributionService,
+		ConnectorService:          connectorService,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,
@@ -354,6 +385,17 @@ func run() int {
 
 		NotificationRepo:      notificationRepo,
 		NotificationRetention: cfg.Worker.NotificationRetention,
+
+		ConnectorRegistry:     connectorRegistry,
+		ConnectorRepo:         connectorRepo,
+		ConnectorDeliveryRepo: connectorDeliveryRepo,
+		ConnectorEnqueuer:     connectorEnqueuer,
+		// A func, not a value: unlike NotificationRetention (env-only), this is an
+		// admin-editable site setting, so reading it once at boot would make an
+		// edit appear to work and silently do nothing until the next restart.
+		ConnectorDeliveryRetention: func() time.Duration {
+			return connectorDeliveryRetention(siteSettingsService)
+		},
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)
@@ -439,6 +481,35 @@ func run() int {
 
 	slog.Info("server stopped")
 	return 0
+}
+
+// connectorDeliveryRetention reads how long delivery-log rows are kept. A
+// non-positive value disables pruning, so it is passed straight through.
+func connectorDeliveryRetention(settings *service.SiteSettingsService) time.Duration {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	days := settings.GetInt(ctx, service.SettingConnectorDeliveryRetentionDays, 30)
+	return time.Duration(days) * 24 * time.Hour
+}
+
+// cachedBool memoises a setting lookup for ttl, so a per-connection read does
+// not become a per-connection query.
+func cachedBool(read func() bool, ttl time.Duration) func() bool {
+	var (
+		mu      sync.Mutex
+		value   bool
+		expires time.Time
+	)
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Now().Before(expires) {
+			return value
+		}
+		value = read()
+		expires = time.Now().Add(ttl)
+		return value
+	}
 }
 
 func main() {
