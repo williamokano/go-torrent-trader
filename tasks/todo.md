@@ -1,262 +1,97 @@
-# Session Resume Document
+# Session Resume
 
-The source of truth for task status is `docs/IMPLEMENTATION_TASKS.md`. This file is for session context only.
+Context for picking work back up. **`docs/IMPLEMENTATION_TASKS.md` is the source of
+truth for story status** — this file never contradicts it, and anything here that
+ends up disagreeing with it is a bug in this file.
 
-## Session 2026-07-25 — Multiple live feeds with slugs (BE-10.7, IN PROGRESS)
+Keep it short. A session's detail belongs in its PR description and in the story's
+"Delivered" bullets; what belongs here is only what a future session cannot
+reconstruct from the repository.
 
-Branch `feat/multiple-live-feeds`. Operator ask: several live feeds, each with its
-own URL — "everything", "everything except 18+", "just anime" — built on the
-include/exclude filters BE-10.6 landed.
+Last verified against the code: **2026-07-25**, at `3412060`.
 
-### Review notes
+---
 
-Four ways a watcher could end up on the wrong feed, all found by review, all fixed:
+## Where things stand
 
-1. The picker showed the alphabetically-first feed while a plain `/live` streamed
-   the legacy `default` one. A member could read "Safe for work" over the
-   unfiltered feed — and could not select the feed being *displayed*, because
-   choosing an already-selected option fires no change event. One resolver now
-   feeds both the picker and the subscription.
-2. Renaming a feed frees its slug; another feed taking it later would silently
-   rebind everyone still connected under the old name. Any live-feed change now
-   disconnects watchers, who reconnect and re-resolve.
-3. React runs effect cleanups after paint, so a frame from the feed just left
-   could land in the new feed's cleared list. The list is stamped with its feed.
-4. The unique index keyed on the raw slug while the code read a trimmed one with
-   a `"default"` fallback — `" news"` and `"news"`, and any number of slugless
-   rows, coexisted as separate rows resolving to one feed.
+- `main` is clean, no open PRs, no unmerged branches.
+- Backend coverage **82.3%**, CI floor **80.0** (`COVERAGE_FLOOR` in
+  `.github/workflows/backend.yml`). `cmd/server` and `internal/testutil` are excluded
+  from the denominator.
+- Frontend: 862 tests, lint clean (3 long-standing `exhaustive-deps` warnings that
+  predate this work), Prettier clean.
+- Latest release: **v0.24.0**. Note `release.yml` applies the `latest` Docker tag to
+  whatever tag it builds, so re-running it against an older tag moves `latest`
+  backwards.
 
-Also: losing the check-then-insert race returned a 500 rather than the 409 the
-check would have given; and rollback left the `slug` key behind, which the
-pre-075 binary rejects on every save.
+## What is actually left
 
-Worth remembering: **a feed's filters are not an access control.** Any member can
-open any feed and sees every enabled feed's name. Filed as BE-10.8.
+**The migration tool is the only real block of unbuilt work.** MT-0.2 through MT-2.3
+(11 stories) are a ~320-line Cobra skeleton: `run`, `discover`, `verify`, `rollback`
+and `validate` are all `// TODO`. Nothing depends on it, so it is schedulable
+whenever.
 
+Everything else in the backlog is DONE, DEFERRED or REMOVED. Deferred work lives in
+`docs/FUTURE_WORK.md` — currently BE-2.5 (UDP tracker), BE-9.4 (real-time stats push)
+and FE-7.1–7.3 (theme switching).
 
-- [x] **SSE stops being a singleton.** Migration 075 drops the singleton index and
-      replaces it with a unique index on the feed slug, so two feeds cannot share a
-      URL even under a concurrent write.
-- [x] **Each instance carries a `slug`**, validated at save time (lowercase, digits,
-      dashes) and rejected as a duplicate by the service with a 409 before the index
-      has to catch it.
-- [x] **`GET /api/v1/announce-stream/{slug}`.** The unslugged route stays as an alias
-      for the feed named `default`, so a page open across the deploy reconnects
-      instead of 404-ing forever.
-- [x] **The hub keys clients by feed** rather than holding one global set. The
-      per-user stream cap stays global — it exists to bound fan-out, and five tabs
-      is five tabs whichever feed they watch.
-- [x] **`GET /api/v1/announce-feeds`** lists slug + name for enabled feeds, so the
-      page can offer a picker. Deliberately its own narrow view rather than the
-      admin connector list, which carries config members have no business reading.
-- [x] **FE:** feed picker on the live releases page, selection in the URL
-      (`/live?feed=anime`) so a feed can be linked.
-- [x] Tests: slug validation and uniqueness, per-feed fan-out isolation, the legacy
-      alias, the cap across feeds, and the page's picker.
+Open by decision rather than by neglect: **live feeds are not access-scoped per
+feed.** `can_feed` is one privilege across every feed (BE-10.8). Per-feed gating was
+considered and deliberately not built.
 
-## Session 2026-07-25 — Connector admin usability (BE-10.6)
+## Known bugs / tech debt
 
-Branch `feat/connector-admin-usability`. Four operator-reported fixes from using the
-connectors page for real. Backlog entry: BE-10.6 in `docs/IMPLEMENTATION_TASKS.md`.
+Nothing outstanding. Every bug this file used to track — FE-BUG-1, BE-8.19,
+BE-STATS-1, BE-STATS-3 — is closed or superseded; see the backlog.
 
-- [x] **Category pickers render the tree.** `buildCategoryOptions` rebuilt on
-      `buildCategoryTree`: ordering is parent → `sort_order` → name *explicitly*
-      rather than by trusting the caller's array order, and every label carries the
-      full ancestor path (`— Movies / Dub`) because in a multi-select the parent row
-      is often scrolled out of sight. Both connector selects now use it.
-- [x] **Fixed a bug this uncovered in every picker on the site.** The old builder
-      walked roots → direct children only, so a **third-level category was silently
-      dropped** from upload, edit, browse and RSS as well.
-- [x] **Category filters gained include/exclude**, and a listed category now covers
-      its whole subtree. Without the subtree part the feature would only have looked
-      like it worked: an announcement carries the leaf category, so excluding "Adult"
-      while a torrent sits in "Adult / 4K" would let it straight through.
-- [x] Ancestor chain resolved once per event (`service.CategoryAncestorIDs`,
-      cycle-guarded) onto `Announcement.CategoryPath`. **Fails closed**: if it cannot
-      be resolved, category-filtered instances are skipped and logged while
-      unfiltered ones still deliver.
-- [x] **Chat is no longer a singleton** — migration 074 narrows the partial unique
-      index to `sse` alone. 071 untouched.
-- [x] **Template help derived from the backend**, examples rendered from `Sample()`
-      rather than written down, with a reflection guard test.
+Two traps worth knowing before touching adjacent code, both recorded in
+[`lessons.md`](lessons.md):
 
-### Review notes
+- `UserRepo.Create` writes every column from the struct, so a new
+  `NOT NULL DEFAULT` column silently reads `false` for anything created through Go
+  unless the constructor sets it explicitly.
+- The `latest` Docker tag, above.
 
-- **Both review agents found the same Critical, and they were right.** The first cut
-  of `CategoryAncestorIDs` returned a *truncated chain with a nil error* for any
-  failure past the first hop, so a connection blip read as "this category has no
-  parents" and the fail-closed guard never fired — the exact leak it exists to
-  prevent. Only `sql.ErrNoRows` is tolerated now. The mock repository was returning a
-  bare `errors.New("not found")`, which is what let the hole hide; it now returns what
-  the real repository returns.
-- Two more corrections from the same review: the guard withheld from *every*
-  category-filtered instance, though an include filter on the leaf fallback can only
-  under-match (so only exclude mode is held back now); and a withheld instance got no
-  delivery row at all, so the announcement simply vanished — it is written as a failed
-  row with the reason now.
-- IRC per-channel routing was still leaf-only while the UI had started advertising
-  subtree matching in an identical-looking select. Now shares `CategoryChain()`.
-- My own test caught a real bug in `CategoryAncestorIDs`: the parent id was appended
-  before the row was read, so a *dangling* parent id ended up in the chain. Appending
-  only after a successful read fixed it.
-- The reflection guard was mutation-checked — adding an undocumented field to
-  `RenderContext` does fail the build.
-- Worth remembering: the *include* direction changed behaviour too. Listing "Movies"
-  now matches "Movies / Action", which it previously did not. Called out in the PR.
+---
 
-## Session 2026-07-17 — BE-8.20 / FE-5.17: username profile route + resolved @mentions
+## Recent work
 
-Branch `feat/username-profile-and-mention-links` (worktree `username-route-and-mentions`).
-Follows two smaller same-session fixes: PR #108 (release workflow Go version) and
-PR #109 (mention-dropdown caret positioning, `MarkdownEditor`'s typeahead — a
-different feature from the @mention *linking* built here).
+**BE-10 — External Notification Connectors** (2026-07-25). Announce a new torrent
+anywhere: shoutbox, webhook, IRC, live feed, Discord, Telegram. Design in
+`docs/NOTIFICATION_CONNECTORS.md`, plan in `docs/plans/BE-10.md`.
 
-**Part A** — `/user/{id}` → `/user/{username}`: backend `GetProfile` resolves via
-`GetByUsername`; frontend route/fetch/`UsernameDisplay`/5 direct link sites updated;
-6 synthesized-fallback call sites (`comment.username ?? "User #123"`) gained `noLink`
-guards so a missing username can't build a garbage link. Clean break, no numeric-ID
-fallback (usernames can legally be all-numeric — dual resolution would risk collision).
+| Story | PR | What landed |
+|---|---|---|
+| BE-10.1 | #141 | The connector seam: event → dispatcher → `connector_deliveries` → asynq drain. Registry, admin CRUD, Chat + generic Webhook, migrations 071–073 |
+| BE-10.2 | #142 | IRC, persistent-connector lifecycle, Postgres advisory-lock leader election |
+| BE-10.3 | #143 | SSE live feed, hub fan-out, the "live releases" page |
+| BE-10.4 | #144 | Discord embeds + Telegram Bot API, `connector.ErrPermanent` |
+| BE-10.6 | #145 | Nested category pickers site-wide, include/exclude filters, several shoutbox instances, template help |
+| BE-10.7 | #146 | Several live feeds, each with its own slug and URL |
+| BE-10.8 | #147 | `can_feed` — live feed access as a class privilege, revocable per member |
 
-**Part B** — resolved @mention linking: migration 058 (`mentioned_usernames` JSONB on
-`torrent_comments`/`forum_posts`), `UserRepository.GetByUsernames`, new
-`ResolveMentionedUsernames` service helper (parallel to, not replacing, the existing
-`publishMention` notification pipeline), wired into Create/Update/Edit for comments
-and forum posts. Frontend `remarkMention` plugin (mirrors `remarkSpoiler`'s pattern)
-linkifies only resolved usernames in `MarkdownRenderer`. v1 scope: comments + forum
-posts only — PMs and news deferred (PMs argued to be a different problem, not just
-unwired, since they're strictly 1:1 and a mention notification would just duplicate
-the existing "new message" one).
+Released as **v0.24.0**.
 
-- [x] Both parts implemented, backend + frontend, with tests at each layer
-- [x] Devil's-advocate + code-reviewer agents run in parallel per CLAUDE.md §5.
-      Code reviewer: clean, 0 blocking findings. Devil's advocate: 4 confirmed,
-      empirically-verified findings, all fixed:
-      1. `EditPost` reordered so `ResolveMentionedUsernames` (a new fallible call)
-         runs *before* `CreateEdit`, not between it and `Update` — closes a window
-         where edit history could record an edit that never landed.
-      2. `remarkMention` only honored the backend's `^`-boundary rule for a
-         paragraph's *first* text node; later sibling nodes (after `*emphasis*`,
-         links, code spans) treated their own start as a fresh `^`, so
-         `*cool*@alice` could wrongly linkify. Fixed with a second boundary-less
-         regex for non-first children — verified via the agent's own live
-         reproduction before and after.
-      3. `scanMentionedUsernames` errors used to abort the whole `ListByTorrent`/
-         `ListByTopic` page on one malformed row. Now logs and degrades to `[]`
-         for that row only — `mentioned_usernames` is a pure rendering aid, must
-         never take the page down.
-      4. `AdminService.UpdateUser` set `user.Username` with zero format
-         validation, unlike registration — harmless before this PR, now
-         consequential since the username *is* the routing key. Added the same
-         `usernameRe` check registration already uses.
-- [x] Final backend/frontend verification re-run after the 4 fixes: go build/vet/test
-      (incl. Docker repo tests — migration 058 applies cleanly), golangci-lint 0
-      issues, coverage 80.2% ≥ 80.0% floor, vitest 615 passed, frontend build/lint/
-      format green
-- [x] `docs/IMPLEMENTATION_TASKS.md` updated (BE-8.20 / FE-5.17 added, DONE)
-- [ ] Commit, push, open PR
+**Dropped: BE-10.5, the per-user relay.** The multi-feed live stream covers it, and
+it would have meant per-user filters, rate limits and delivery log — a second copy of
+the pipeline for a want nobody had expressed. Nothing was built for it; the one
+concession the design had made, `Announcement.Event` staying a plain string, is worth
+keeping anyway so later event kinds can widen it.
 
-## Session 2026-07-16 (cont'd 2) — admin user detail revamp + edit history
+**Earlier arcs**, all shipped and documented in the backlog, so no session notes are
+kept here: BE-8.22 torrent submission moderation (#136–#139), BE-9.24 staff-only
+activity log entries, BE-8.20/FE-5.17 username profile routes and @mention linking,
+the admin user detail revamp, and the invite follow-ups.
 
-Branch `feat/admin-user-detail-revamp` (worktree). Brief: revamp `/admin/users/{id}`.
-Production screenshot is behind local main (Suspend invite, Privileges panel, and
-Bonus points already exist locally), so the remaining scope is:
+---
 
-1. Form spacing/layout — sibling inputs touch each other; fix vertical rhythm in the
-   shared form primitives + sectioned page layout, same design system site-wide.
-2. Unit-aware editing of Uploaded/Downloaded (B/KB/MB/GB/TB, 1024-based to match
-   `formatBytes`) instead of raw bytes.
-3. Audit trail for admin edits of user fields (old, new, who, when) — especially
-   uploaded/downloaded/invites, recorded for all profile fields; "Edit history"
-   panel on the page.
+## Working notes
 
-### Backend
-- [x] Migration `057_create_user_edit_history.sql` (table + `(user_id, created_at DESC)` index)
-- [x] `model.UserEditHistory`
-- [x] `repository.UserEditHistoryRepository` (batch Record; ListByUser w/ limit+offset+total)
-- [x] `postgres.UserEditHistoryRepo` + testcontainers repo test
-- [x] `AdminService`: `SetEditHistoryRepo`, diff-and-record in `UpdateUser` (non-fatal,
-      logged on failure), `ListUserEditHistory`; unit tests
-- [x] `HandleListUserEditHistory` GET `/api/v1/admin/users/{id}/edit-history` + router + tests
-- [x] Wire in `cmd/server/main.go`
-
-### Frontend
-- [x] `ByteSizeInput` form component (canonical-bytes state, amount+unit select,
-      exact-bytes hint) + tests
-- [x] Shared form polish (`.form-stack`, focus ring, textarea min-height) — token-based, site-wide
-- [x] `AdminUserDetailPage`: form-stack layout, ByteSizeInput for uploaded/downloaded,
-      Edit history panel (bytes fields humanized, load-more)
-- [x] Page test updates (30 pass)
-
-### Verification
-- [x] backend: build, vet, full tests (Docker repo tests → migration 057 applies), golangci-lint 0 issues, coverage 80.1% ≥ 80.0% floor
-- [x] frontend: build, vitest 596 passed, lint 0 errors, format:check clean
-- [x] `docs/IMPLEMENTATION_TASKS.md` story BE-8.17 added, marked DONE
-- [x] Devil's advocate + code reviewer findings triaged: fixed the critical
-      (dirty-fields-only saves — untouched uploaded/downloaded no longer revert
-      announce accrual or pollute the audit trail), audit retention (no user_id
-      FK; changed_by username snapshot; changed_by index), ByteSizeInput
-      empty/clamp/a11y, history dedupe + error state + no-op-looking byte
-      diffs, UTC timestamps, limit clamp, derefString reuse. Deferred to
-      BE-8.18: SetStats path + tx-integrated audit + keyset pagination.
-      Filed BE-8.19 [BUG]: cleanup worker hard-deletes banned users.
-
-## Session 2026-07-16 (cont'd) — BE-8.15 + BE-8.16: invite follow-ups
-
-PR #102 (FE-5.15) merged to main. Follow-up branch `feat/invite-outstanding-management`:
-
-- [x] BE-8.15 — admin view/revoke of a user's outstanding invites: `GET /api/v1/admin/users/{id}/invites`, `DELETE /api/v1/admin/invites/{id}` (`InviteService.RevokeInvite`, hard-deletes unredeemed invites, 409 on redeemed), outstanding-invites panel on `AdminUserDetailPage` with status badges + revoke, `InviteRevokedEvent` → activity log
-- [x] BE-8.16 — closed the privilege-flag drift race: `UserRepo.Update` no longer writes can_download/upload/chat/invite at all (mirrors `bonus_points`); new targeted `UserRepo.SetPrivilegeFlag` is the only writer, used by `RestrictionService`; regression test `TestUserRepoUpdate_DoesNotClobberPrivilegeFlags` proves a stale full-row `Update` can't clobber a concurrent restriction
-- [x] Verified: go build/vet/test (incl. Docker repo tests), golangci-lint 0 issues, coverage 80.1% ≥ 80.0% floor, vitest 569 passed, frontend build/lint/format green
-- [x] `docs/IMPLEMENTATION_TASKS.md` updated (BE-8.15, BE-8.16 marked DONE)
-
-## Session 2026-07-16 — FE-5.15: admin surface rollout + invite restriction
-
-Branch `feat/admin-ui-consistency-invite-restriction` (worktree). All done, verified:
-
-- [x] Backend `invite` restriction type: migration 055 (`users.can_invite`), model/repo/service/handler, `CreateInvite` returns 403 `invite_restricted`, admin + profile views expose `can_invite`
-- [x] `AdminUserDetailPage` rebuilt on admin-ui primitives; Privileges panel shows download/upload/chat/invite with suspend + restore
-- [x] All remaining admin pages (dashboard, torrents, bans, warnings, reports, chat-mutes, cheat-flags, news, forums, categories, backups, settings) adopted `admin-ui.css` conventions; per-page CSS trimmed
-- [x] Verified: go build/vet/test (incl. Docker repo tests → migration 055 applies), golangci-lint 0 issues, coverage 80.2% ≥ 80.0% floor, vitest 561 passed, frontend build/lint/format green
-- [x] `docs/IMPLEMENTATION_TASKS.md` updated (FE-5.15 added, BE-8.9 note)
-
-## Current State (2026-07-14)
-
-Main is clean, no open PRs, no stray worktrees.
-
-Recently merged: BE-9.11 (#69), BE-9.15 (#71), CI quality gates (#72, #73), repository testcontainers harness + migration 039 fix (#74), BE-9.16 (#75), postgres coverage to 80% (#76).
-
-## Backlog audit (2026-07-14)
-
-All 145 stories were checked against the code, not against their labels.
-
-- **118 marked DONE — all verified genuinely implemented.** Every one has a real artifact behind it, and the multi-part stories (forum moderation lock/pin/move/rename, multi-device sessions, admin forum CRUD, admin password + passkey reset, wait-time system, quick ban) were checked at the behaviour level rather than by filename.
-- **2 corrections still standing:** FE-0.7 is `[PARTIAL]`, not open — the renderer shipped, but the `!!spoiler!!` plugin and `MarkdownEditor` do not exist and it reaches only 4 of its target surfaces. BE-3.12 was rescoped — the endpoint it specs is already served by `GET /api/v1/users?search=`.
-- **2 stories added** for work that was implemented but tracked nowhere: BE-9.17 (testcontainers harness + the migration 039 fix) and BE-9.18 (CI quality gates).
-- **No open story turned out to be secretly finished.** BE-4.2, BE-7.2, BE-8.7, BE-9.13, BE-9.14 and BE-3.13 have zero implementation.
-
-## Coverage
-
-Overall backend **61.2%** (was 42.1%). `repository/postgres` **80.7%**. The floor in `.github/workflows/backend.yml` gates at 59 and ratchets upward.
-
-The remaining gap is almost entirely `internal/handler` (~1,600 uncovered statements) — see BE-9.6.
-
-## What's Next
-
-**Biggest block of unbuilt work: the migration tool.** MT-0.2 through MT-2.3 (11 stories) are a 320-line Cobra skeleton — `run`, `discover`, `verify`, `rollback` and `validate` are all `// TODO` stubs. Nothing depends on it, so it is schedulable whenever.
-
-**Other open work:**
-- BE-9.6 — coverage to 80% (the `handler` package is the gap)
-- BE-9.4 — real-time stats (the footer still polls `/api/v1/stats`; the Redis `StatsCache` cut DB load but there is no push)
-- BE-9.13 / BE-9.14 — notification email digest and batching (an `email.go` service already exists to build on)
-- FE-0.7 — spoiler plugin, `MarkdownEditor`, and the unreached surfaces
-- BE-3.12 — frontend @mention typeahead for the forum/comment editors
-- BE-8.7 — database backup (nothing exists at all)
-- BE-4.2 — auto-invite distribution; BE-7.2 — PM drafts; BE-3.13 — rich metadata (research)
-- FE-1.5 — the "Completed" view (deferred to the PM system)
-
-## Known Bugs / Tech Debt
-
-- FE-BUG-1 [DONE]: Invites page doesn't reflect updated count after admin edit (auth context caches) — see `docs/IMPLEMENTATION_TASKS.md`
-- BE-8.19 [BUG]: cleanup worker step 4 hard-deletes *banned* users (bare `enabled = false AND created_at < 7d` filter matches them), cascading their data away — found 2026-07-17 during BE-8.17 audit-retention review
-- BE-STATS-1: Footer stats polling — half-addressed by the Redis `StatsCache`; still no WebSocket/SSE push (BE-9.4)
-- BE-STATS-3: Removed — no legacy data to backfill (see BE-9.5)
+- **Worktrees:** `git worktree list` should show only `main`. Agent worktrees under
+  `.claude/worktrees/` are session leftovers — five survived from 2026-07-19 until
+  they were cleaned up on 2026-07-25, long after their branches had merged, which
+  made `git worktree list` read as though work were in flight when none was.
+- **Edit this file in the main working directory.** It has been committed from
+  feature worktrees, which is how it came to disagree with itself: a section written
+  in one working copy is invisible to another, so an anchored insert silently does
+  nothing. Check the anchor exists first — see `lessons.md`.
