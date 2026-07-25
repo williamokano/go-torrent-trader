@@ -30,6 +30,16 @@ func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, http.ErrNotSupported
 }
 
+// Flush forwards to the underlying writer so streaming responses (SSE) can push
+// each frame as it is produced. Embedding http.ResponseWriter alone does not
+// provide this: the embedded *interface* has no Flush, so a handler's
+// w.(http.Flusher) assertion fails and the response sits in the buffer.
+func (sr *statusRecorder) Flush() {
+	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // Unwrap returns the underlying ResponseWriter for middleware that
 // needs to walk the wrapper chain (e.g. gorilla/websocket).
 func (sr *statusRecorder) Unwrap() http.ResponseWriter {

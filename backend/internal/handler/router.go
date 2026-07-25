@@ -52,6 +52,7 @@ type Deps struct {
 	RSSConfig                 *RSSConfig
 	ConnectorService          *service.ConnectorService
 	ConnectorStatus           ConnectorStatusProvider
+	AnnounceHub               *AnnounceHub
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -70,6 +71,13 @@ func NewRouter(deps *Deps) chi.Router {
 	// wrapper that strips http.Hijacker.
 	if deps != nil && deps.ChatHub != nil {
 		r.Get("/ws/chat", deps.ChatHub.HandleWebSocket)
+	}
+
+	// Live announcement stream. Registered outside the auth middleware group
+	// for the same reason as /ws/chat: EventSource cannot set an Authorization
+	// header, so the handler validates a query-param token itself.
+	if deps != nil && deps.AnnounceHub != nil {
+		r.Get("/api/v1/announce-stream", deps.AnnounceHub.HandleStream)
 	}
 
 	// Health check

@@ -148,8 +148,9 @@ func fullRouterDeps(t *testing.T) *Deps {
 		BackupService: &backupManagerStub{},
 		ConnectorService: service.NewConnectorService(nopConnectorRepo{}, nopConnectorDeliveryRepo{},
 			connector.NewRegistry(), bus, "http://localhost"),
-		UserRepo:   users,
-		StatsCache: service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
+		AnnounceHub: NewAnnounceHub(sessions),
+		UserRepo:    users,
+		StatsCache:  service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
 	}
 }
 
@@ -357,5 +358,27 @@ func TestStatsRouteRejectsAnonymous(t *testing.T) {
 	r := route{http.MethodGet, "/api/v1/stats"}
 	if !rejectedByAuthMiddleware(t, router, r) {
 		t.Errorf("%s %s is reachable without a session — it must require auth", r.method, r.pattern)
+	}
+}
+
+// The live announcement stream is registered outside the auth middleware group
+// because EventSource cannot set an Authorization header, so the handler is
+// solely responsible for rejecting an anonymous caller. A route that opts out of
+// the middleware is exactly the one worth pinning here.
+func TestAnnounceStreamRequiresASession(t *testing.T) {
+	deps := fullRouterDeps(t)
+	router := NewRouter(deps)
+
+	for _, path := range []string{
+		"/api/v1/announce-stream",
+		"/api/v1/announce-stream?token=nonsense",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("GET %s = %d, want 401", path, w.Code)
+		}
 	}
 }
