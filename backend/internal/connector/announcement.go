@@ -2,6 +2,7 @@ package connector
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"text/template"
 	"time"
@@ -94,15 +95,25 @@ func NewRenderContext(a Announcement) RenderContext {
 	}
 }
 
-// ValidateTemplate parse-checks an admin-supplied template. Called from every
+// ValidateTemplate checks an admin-supplied template, called from every
 // connector's ValidateConfig so a template that cannot render is rejected at
-// save time rather than silently failing every delivery later.
+// save time rather than silently failing every delivery afterwards.
+//
+// It renders as well as parses. Parsing alone would accept {{.Titel}} — the
+// template package only rejects an unknown *field* at execution time, and
+// missingkey=error does not help because the render context is a struct, not a
+// map — so a single typo would save cleanly and then dead-letter every
+// announcement for that instance until someone read the log.
 func ValidateTemplate(tmpl string) error {
 	if strings.TrimSpace(tmpl) == "" {
 		return nil
 	}
-	if _, err := newTemplate(tmpl); err != nil {
+	t, err := newTemplate(tmpl)
+	if err != nil {
 		return err
+	}
+	if err := t.Execute(io.Discard, NewRenderContext(Sample())); err != nil {
+		return fmt.Errorf("render template: %w", err)
 	}
 	return nil
 }
@@ -124,8 +135,9 @@ func RenderTemplate(tmpl string, a Announcement) (string, error) {
 	return buf.String(), nil
 }
 
-// newTemplate parses with missingkey=error so a typo like {{.Titel}} is a save-
-// time rejection rather than a "<no value>" that ships to every subscriber.
+// newTemplate parses the template. missingkey=error only affects map lookups,
+// which the struct render context never does — the real typo guard is the trial
+// render in ValidateTemplate.
 func newTemplate(tmpl string) (*template.Template, error) {
 	t, err := template.New("announcement").Option("missingkey=error").Parse(tmpl)
 	if err != nil {

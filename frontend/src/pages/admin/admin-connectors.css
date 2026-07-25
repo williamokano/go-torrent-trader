@@ -39,3 +39,21 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
+
+.admin-connectors__log-pagination {
+  margin-top: var(--space-md);
+}
+
+.admin-connectors__headers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Header name, value and the remove button read as one row. */
+.admin-connectors__header-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-xs);
+  align-items: end;
+}

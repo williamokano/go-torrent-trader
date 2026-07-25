@@ -11,9 +11,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +65,12 @@ func (c *Connector) Kind() string           { return "webhook" }
 func (c *Connector) Singleton() bool        { return false }
 func (c *Connector) SecretFields() []string { return []string{"hmac_secret"} }
 
+// Coalescable is false: a webhook feeds software, and a "+N more" summary names
+// one torrent and a count, leaving a receiver no way to learn about the rest.
+// Rate-limited announcements wait for the next window instead of being folded
+// away.
+func (c *Connector) Coalescable() bool { return false }
+
 // ValidateConfig checks everything that can be checked without a network call.
 func (c *Connector) ValidateConfig(cfg json.RawMessage) error {
 	var parsed Config
@@ -101,9 +109,7 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 
 	req, err := http.NewRequestWithContext(ctx, method, cfg.URL, bytes.NewReader(body))
 	if err != nil {
-		// The URL is in the error here, but ValidateConfig already rejected
-		// embedded credentials, so there is nothing secret in it.
-		return fmt.Errorf("build webhook request: %w", err)
+		return fmt.Errorf("build webhook request: %w", stripURL(err))
 	}
 
 	timestamp := strconv.FormatInt(c.now().Unix(), 10)
@@ -120,10 +126,7 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		// net/http wraps the request URL into *url.Error. That is safe here for
-		// the same reason as above, and the pipeline runs RedactError over it
-		// regardless before anything is stored or logged.
-		return fmt.Errorf("webhook request failed: %w", err)
+		return fmt.Errorf("webhook request failed: %w", stripURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes))
@@ -134,6 +137,20 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 		return fmt.Errorf("webhook returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// stripURL unwraps *url.Error, which carries the full request URL.
+//
+// ValidateConfig rejects credentials in the userinfo, but plenty of receivers
+// (Slack, Discord, Mattermost) put the token in the path instead — and this
+// error is what lands in the delivery log for the whole retention window.
+// Keeping only the cause loses nothing worth reading.
+func stripURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return fmt.Errorf("%s: %w", urlErr.Op, urlErr.Err)
+	}
+	return err
 }
 
 // Sign produces the X-Announce-Signature value. The timestamp is part of the

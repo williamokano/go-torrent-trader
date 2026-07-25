@@ -443,4 +443,99 @@ describe("AdminConnectorsPage", () => {
     expect(body.filters.exclude_anonymous).toBe(true);
     expect(body.filters.category_ids).toEqual([2]);
   });
+
+  test("the webhook headers editor adds, edits and removes rows", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Add header" }),
+    );
+    const headerInputs = within(dialog).getAllByLabelText("Header");
+    await user.type(headerInputs[headerInputs.length - 1], "X-Tracker");
+    const valueInputs = within(dialog).getAllByLabelText("Value");
+    await user.type(valueInputs[valueInputs.length - 1], "test");
+
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    const body = JSON.parse(lastRequest("PUT")!.init!.body!);
+    expect(body.config.headers).toEqual({ "X-Tracker": "test" });
+  });
+
+  // A summary that only shows the newest 25 hides exactly the dead-lettered
+  // delivery an admin opens the log to find.
+  test("the delivery log paginates", async () => {
+    const user = userEvent.setup();
+    const rows = Array.from({ length: 25 }, (_, i) => ({
+      id: i + 1,
+      instance_id: 1,
+      event_key: `torrent.published:${i + 1}`,
+      event_type: "torrent.published",
+      status: "sent",
+      attempts: 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    mockApi({ deliveries: rows });
+    // Report more rows than one page holds.
+    const original = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, init?: FetchInit) => {
+      if (url.includes("/deliveries")) {
+        requests.push({ url, init });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ deliveries: rows, total: 60 }),
+        });
+      }
+      return original(url, init);
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Log" }));
+    await screen.findByText("Delivery log — My Hook");
+
+    await user.click(await screen.findByRole("button", { name: "2" }));
+
+    await waitFor(() => {
+      expect(lastRequest("GET", "page=2")).toBeDefined();
+    });
+  });
+
+  // Offering a singleton kind that already exists just earns a 409 after the
+  // admin has filled in the whole form.
+  test("a singleton kind already in use is not offered again", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      connectors: [
+        {
+          ...webhookConnector,
+          id: 2,
+          kind: "chat",
+          name: "Shoutbox",
+          singleton: true,
+        },
+      ],
+    });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Add Connector" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    const kindSelect = within(dialog).getByLabelText("Kind");
+    expect(
+      within(kindSelect).queryByRole("option", { name: "Shoutbox" }),
+    ).toBeNull();
+    expect(
+      within(kindSelect).getByRole("option", { name: "Webhook" }),
+    ).toBeInTheDocument();
+  });
 });

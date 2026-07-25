@@ -62,6 +62,19 @@ func TestValidateTemplate(t *testing.T) {
 	}
 }
 
+// A field typo parses fine and only fails when rendered, so validation has to
+// render too — otherwise the template saves cleanly and then dead-letters every
+// announcement for that instance until someone reads the log.
+func TestValidateTemplateRejectsFieldTypo(t *testing.T) {
+	err := ValidateTemplate("New: {{.Titel}}")
+	if err == nil {
+		t.Fatal("expected a template referencing an unknown field to be rejected at save time")
+	}
+	if !strings.Contains(err.Error(), "Titel") {
+		t.Fatalf("error = %v, want it to name the offending field", err)
+	}
+}
+
 func TestHumanSize(t *testing.T) {
 	cases := []struct {
 		in   int64
@@ -111,6 +124,7 @@ type panickingConnector struct{}
 func (panickingConnector) Kind() string                         { return "boom" }
 func (panickingConnector) Singleton() bool                      { return false }
 func (panickingConnector) SecretFields() []string               { return nil }
+func (panickingConnector) Coalescable() bool                    { return true }
 func (panickingConnector) ValidateConfig(json.RawMessage) error { return nil }
 func (panickingConnector) Deliver(context.Context, Instance, Announcement) error {
 	panic("third-party client blew up")

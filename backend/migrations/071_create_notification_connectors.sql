@@ -42,11 +42,24 @@ CREATE TABLE IF NOT EXISTS connector_deliveries (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_connector_deliveries_dedupe
     ON connector_deliveries (instance_id, event_key);
 
--- The drain handler's hot query: due rows for one instance, oldest first.
+-- The drain handler's hot query: due rows for one instance, oldest first. Also
+-- serves the maintenance sweep's scan for instances with due work.
 CREATE INDEX IF NOT EXISTS idx_connector_deliveries_due
     ON connector_deliveries (instance_id, status, next_attempt_at);
 
+-- The admin delivery log pages by instance, newest first; without this it is a
+-- full scan plus a sort on every page load once retention has built up.
+CREATE INDEX IF NOT EXISTS idx_connector_deliveries_log
+    ON connector_deliveries (instance_id, created_at DESC, id DESC);
+
+-- Retention pruning runs every five minutes over the whole table and only ever
+-- touches closed rows.
+CREATE INDEX IF NOT EXISTS idx_connector_deliveries_prune
+    ON connector_deliveries (created_at) WHERE status <> 'pending';
+
 -- +goose Down
+DROP INDEX IF EXISTS idx_connector_deliveries_prune;
+DROP INDEX IF EXISTS idx_connector_deliveries_log;
 DROP INDEX IF EXISTS idx_connector_deliveries_due;
 DROP INDEX IF EXISTS uq_connector_deliveries_dedupe;
 DROP TABLE IF EXISTS connector_deliveries;

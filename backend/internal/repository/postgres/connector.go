@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -68,7 +69,7 @@ func (r *ConnectorRepo) Update(ctx context.Context, c *model.NotificationConnect
 	if err := r.db.QueryRowContext(ctx, query,
 		c.Name, c.Enabled, jsonbOrEmpty(c.Config), jsonbOrEmpty(c.Filters), c.ID,
 	).Scan(&c.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
 		return fmt.Errorf("update connector: %w", err)
@@ -109,7 +110,7 @@ func scanConnector(row rowScanner) (*model.NotificationConnector, error) {
 	var c model.NotificationConnector
 	if err := row.Scan(&c.ID, &c.Kind, &c.Name, &c.Enabled, &c.Config, &c.Filters,
 		&c.CreatedAt, &c.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
 		return nil, fmt.Errorf("scan connector: %w", err)

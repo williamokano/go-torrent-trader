@@ -13,21 +13,43 @@ import (
 // TorrentPublished event the bus carries.
 type publishedHarness struct {
 	svc      *TorrentService
-	repo     *memTorrentRepo
+	repo     *leakyTorrentRepo
 	settings *mockSiteSettingsRepo
 	events   []*event.TorrentPublishedEvent
+}
+
+// leakyTorrentRepo fills in UploaderName on every read, anonymous or not.
+//
+// The production query already substitutes "Anonymous" for an anonymous upload,
+// so a repo that behaves itself cannot tell whether the service's own redaction
+// works. This one hands back the real username in every case, which is the only
+// way to prove the service drops it rather than merely inheriting a safe value
+// from SQL — and it is exactly what a future change to that query would look
+// like.
+type leakyTorrentRepo struct {
+	*memTorrentRepo
+	uploaderName string
+}
+
+func (r *leakyTorrentRepo) GetByID(ctx context.Context, id int64) (*model.Torrent, error) {
+	torrent, err := r.memTorrentRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	torrent.UploaderName = r.uploaderName
+	return torrent, nil
 }
 
 func newPublishedHarness(t *testing.T) *publishedHarness {
 	t.Helper()
 
-	repo := newMemTorrentRepo()
+	repo := &leakyTorrentRepo{memTorrentRepo: newMemTorrentRepo(), uploaderName: "alice"}
 	bus := event.NewInMemoryBus()
 	settingsRepo := newMockSiteSettingsRepo()
 
 	svc := NewTorrentService(nil, repo, newMemUserRepo(), newMemStorage(),
 		TorrentServiceConfig{}, bus, nil)
-	svc.SetModerationRepo(&fakeModerationRepo{repo: repo})
+	svc.SetModerationRepo(&fakeModerationRepo{repo: repo.memTorrentRepo})
 	svc.SetSiteSettings(NewSiteSettingsService(settingsRepo, bus))
 
 	h := &publishedHarness{svc: svc, repo: repo, settings: settingsRepo}
@@ -65,6 +87,7 @@ func TestApproveEmitsTorrentPublished(t *testing.T) {
 		UploaderID:       5,
 		UploaderName:     "alice",
 		Free:             true,
+		Visible:          true,
 		ModerationStatus: model.ModerationPending,
 	}
 	if err := h.repo.Create(ctx, tor); err != nil {
@@ -114,6 +137,7 @@ func TestApproveOfAnonymousTorrentCarriesNoUploaderName(t *testing.T) {
 		UploaderID:       5,
 		UploaderName:     "alice",
 		Anonymous:        true,
+		Visible:          true,
 		ModerationStatus: model.ModerationPending,
 	}
 	if err := h.repo.Create(ctx, tor); err != nil {
@@ -134,13 +158,78 @@ func TestApproveOfAnonymousTorrentCarriesNoUploaderName(t *testing.T) {
 	if e.UploaderName != "" {
 		t.Fatalf("uploader name = %q, want it dropped at the source for an anonymous upload", e.UploaderName)
 	}
+	// The approver is a moderator here, so their name is legitimately on the
+	// event — but it must not be the uploader's.
+	if e.Actor.Username == "alice" {
+		t.Fatal("the anonymous uploader's name leaked through the event actor")
+	}
+}
+
+// Positive control: without it the assertion above could go vacuous if the
+// harness ever stopped resolving the name.
+func TestApproveOfNamedTorrentCarriesTheUploaderName(t *testing.T) {
+	ctx := context.Background()
+	h := newPublishedHarness(t)
+
+	tor := &model.Torrent{
+		Name:             "Public.Release-GROUP",
+		UploaderID:       5,
+		Visible:          true,
+		ModerationStatus: model.ModerationPending,
+	}
+	if err := h.repo.Create(ctx, tor); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if _, err := h.svc.ApproveTorrent(ctx, tor.ID, 9, model.Permissions{IsAdmin: true}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if h.events[0].UploaderName != "alice" {
+		t.Fatalf("uploader name = %q, want the real name on a non-anonymous upload", h.events[0].UploaderName)
+	}
+}
+
+// A torrent that is banned or hidden is not public, whatever its moderation
+// status says, so announcing it would hand out a dead link.
+func TestBannedOrHiddenTorrentIsNotAnnounced(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		banned  bool
+		visible bool
+	}{
+		{"banned", true, true},
+		{"hidden", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			h := newPublishedHarness(t)
+
+			tor := &model.Torrent{
+				Name:             "Suppressed",
+				UploaderID:       5,
+				Banned:           tc.banned,
+				Visible:          tc.visible,
+				ModerationStatus: model.ModerationPending,
+			}
+			if err := h.repo.Create(ctx, tor); err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			if _, err := h.svc.ApproveTorrent(ctx, tor.ID, 9, model.Permissions{IsAdmin: true}); err != nil {
+				t.Fatalf("approve: %v", err)
+			}
+			if len(h.events) != 0 {
+				t.Fatalf("published %d events for a %s torrent, want 0", len(h.events), tc.name)
+			}
+		})
+	}
 }
 
 func TestRejectDoesNotEmitTorrentPublished(t *testing.T) {
 	ctx := context.Background()
 	h := newPublishedHarness(t)
 
-	tor := &model.Torrent{Name: "Rejected", UploaderID: 5, ModerationStatus: model.ModerationPending}
+	tor := &model.Torrent{Name: "Rejected", UploaderID: 5, Visible: true, ModerationStatus: model.ModerationPending}
 	if err := h.repo.Create(ctx, tor); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -159,7 +248,7 @@ func TestReapproveDoesNotEmitTwice(t *testing.T) {
 	ctx := context.Background()
 	h := newPublishedHarness(t)
 
-	tor := &model.Torrent{Name: "Twice", UploaderID: 5, ModerationStatus: model.ModerationPending}
+	tor := &model.Torrent{Name: "Twice", UploaderID: 5, Visible: true, ModerationStatus: model.ModerationPending}
 	if err := h.repo.Create(ctx, tor); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -180,7 +269,7 @@ func TestRejectedThenApprovedEmitsOnce(t *testing.T) {
 	ctx := context.Background()
 	h := newPublishedHarness(t)
 
-	tor := &model.Torrent{Name: "Second Chance", UploaderID: 5, ModerationStatus: model.ModerationPending}
+	tor := &model.Torrent{Name: "Second Chance", UploaderID: 5, Visible: true, ModerationStatus: model.ModerationPending}
 	if err := h.repo.Create(ctx, tor); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -235,6 +324,11 @@ func TestUploadWithModerationOffEmitsOnUpload(t *testing.T) {
 	if e.Actor.ID != 5 {
 		t.Fatalf("actor = %d, want the uploader (5)", e.Actor.ID)
 	}
+	// The upload path re-fetches purely to pick up the names the insert does not
+	// have; without that round trip this is empty.
+	if e.UploaderName != "alice" {
+		t.Fatalf("uploader name = %q, want the re-fetched name", e.UploaderName)
+	}
 }
 
 func TestAnonymousAutoApprovedUploadCarriesNoUploaderName(t *testing.T) {
@@ -252,10 +346,16 @@ func TestAnonymousAutoApprovedUploadCarriesNoUploaderName(t *testing.T) {
 	if len(h.events) != 1 {
 		t.Fatalf("got %d events, want 1", len(h.events))
 	}
-	if h.events[0].UploaderName != "" {
-		t.Fatalf("uploader name = %q, want it dropped for an anonymous upload", h.events[0].UploaderName)
+	e := h.events[0]
+	if e.UploaderName != "" {
+		t.Fatalf("uploader name = %q, want it dropped for an anonymous upload", e.UploaderName)
 	}
-	if !h.events[0].Anonymous {
+	if !e.Anonymous {
 		t.Fatal("anonymous flag lost")
+	}
+	// On this path the actor IS the uploader, so the actor username is the
+	// second place the real name could escape.
+	if e.Actor.Username != "" {
+		t.Fatalf("actor username = %q, want it dropped: on the upload path the actor is the anonymous uploader", e.Actor.Username)
 	}
 }

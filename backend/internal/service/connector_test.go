@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
-	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
@@ -168,7 +167,9 @@ func (r *mockDeliveryRepo) CountSentSince(_ context.Context, instanceID int64, s
 
 func (r *mockDeliveryRepo) MarkSent(_ context.Context, id int64, status string) error {
 	d, ok := r.rows[id]
-	if !ok {
+	// Mirrors the real repository: only a pending row can be closed, so a slow
+	// drain cannot resurrect one another drain already dead-lettered.
+	if !ok || d.Status != model.DeliveryPending {
 		return sql.ErrNoRows
 	}
 	d.Status = status
@@ -272,6 +273,7 @@ type fakeConnector struct {
 func (f *fakeConnector) Kind() string           { return f.kind }
 func (f *fakeConnector) Singleton() bool        { return f.singleton }
 func (f *fakeConnector) SecretFields() []string { return f.secrets }
+func (f *fakeConnector) Coalescable() bool      { return true }
 
 func (f *fakeConnector) ValidateConfig(cfg json.RawMessage) error {
 	if f.validateFn != nil {
@@ -307,10 +309,9 @@ func newConnectorHarness(t *testing.T) *connectorHarness {
 
 	repo := newMockConnectorRepo()
 	deliveries := newMockDeliveryRepo()
-	settings := NewSiteSettingsService(newMockSiteSettingsRepo(), event.NewInMemoryBus())
 
 	return &connectorHarness{
-		svc:        NewConnectorService(repo, deliveries, registry, settings, "https://tracker.test"),
+		svc:        NewConnectorService(repo, deliveries, registry, "https://tracker.test"),
 		repo:       repo,
 		deliveries: deliveries,
 		hook:       hook,
@@ -673,5 +674,53 @@ func TestStoredTestPayloadHasNoSecret(t *testing.T) {
 		if strings.Contains(string(row.Payload), "s3cr3t") {
 			t.Fatalf("delivery payload contains the secret: %s", row.Payload)
 		}
+	}
+}
+
+// A row left behind by a downgrade — its kind no longer registered — must not
+// have its config returned. Nothing knows which of its keys are credentials, so
+// the only safe assumption is that all of them are.
+func TestConnectorViewOfUnregisteredKindDisclosesNothing(t *testing.T) {
+	h := newConnectorHarness(t)
+	created := mustCreate(t, h, webhookInput())
+
+	// Simulate a build that no longer ships the webhook connector.
+	h.svc = NewConnectorService(h.repo, h.deliveries, connector.NewRegistry(), "https://tracker.test")
+
+	view, err := h.svc.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(encoded), "s3cr3t") || strings.Contains(string(encoded), "example.test") {
+		t.Fatalf("view of an unregistered kind disclosed its config: %s", encoded)
+	}
+	if string(view.Config) != "{}" {
+		t.Fatalf("config = %s, want {}", view.Config)
+	}
+}
+
+// The test-send row is pending until Deliver returns. Without a lease a drain
+// running concurrently would pick it up and send the same test a second time to
+// the live destination.
+func TestTestSendRowIsHiddenFromTheDrainWhileInFlight(t *testing.T) {
+	h := newConnectorHarness(t)
+	created := mustCreate(t, h, webhookInput())
+
+	var duringDelivery []model.ConnectorDelivery
+	h.hook.deliverFn = func(connector.Instance, connector.Announcement) error {
+		duringDelivery, _ = h.deliveries.ListDue(context.Background(), created.ID, time.Now(), 10)
+		return nil
+	}
+
+	if _, err := h.svc.TestSend(context.Background(), created.ID); err != nil {
+		t.Fatalf("TestSend: %v", err)
+	}
+
+	if len(duringDelivery) != 0 {
+		t.Fatalf("a concurrent drain saw %d due rows mid-test-send, want 0", len(duringDelivery))
 	}
 }

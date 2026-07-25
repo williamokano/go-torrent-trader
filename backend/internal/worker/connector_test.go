@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
@@ -137,7 +138,9 @@ func (r *fakeDeliveryRepo) MarkSent(_ context.Context, id int64, status string) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	d, ok := r.rows[id]
-	if !ok {
+	// Mirrors the real repository: only a pending row can be closed, so a slow
+	// drain cannot resurrect one another drain already dead-lettered.
+	if !ok || d.Status != model.DeliveryPending {
 		return sql.ErrNoRows
 	}
 	d.Status = status
@@ -186,8 +189,9 @@ type drainCall struct {
 }
 
 type fakeEnqueuer struct {
-	mu    sync.Mutex
-	calls []drainCall
+	mu        sync.Mutex
+	calls     []drainCall
+	followUps []drainCall
 }
 
 func (e *fakeEnqueuer) EnqueueConnectorDrain(_ context.Context, instanceID int64, delay time.Duration) error {
@@ -197,17 +201,31 @@ func (e *fakeEnqueuer) EnqueueConnectorDrain(_ context.Context, instanceID int64
 	return nil
 }
 
+// EnqueueConnectorDrainFollowUp is what a drain uses to schedule its own next
+// run; the tests assert through `calls` either way, but recording both keeps the
+// distinction visible.
+func (e *fakeEnqueuer) EnqueueConnectorDrainFollowUp(_ context.Context, instanceID int64, delay time.Duration) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	call := drainCall{instanceID: instanceID, delay: delay}
+	e.calls = append(e.calls, call)
+	e.followUps = append(e.followUps, call)
+	return nil
+}
+
 type stubConnector struct {
-	mu        sync.Mutex
-	kind      string
-	secrets   []string
-	delivered []connector.Announcement
-	deliverFn func(connector.Announcement) error
+	mu         sync.Mutex
+	kind       string
+	secrets    []string
+	delivered  []connector.Announcement
+	deliverFn  func(connector.Announcement) error
+	noCoalesce bool
 }
 
 func (s *stubConnector) Kind() string                         { return s.kind }
 func (s *stubConnector) Singleton() bool                      { return false }
 func (s *stubConnector) SecretFields() []string               { return s.secrets }
+func (s *stubConnector) Coalescable() bool                    { return !s.noCoalesce }
 func (s *stubConnector) ValidateConfig(json.RawMessage) error { return nil }
 func (s *stubConnector) Deliver(_ context.Context, _ connector.Instance, a connector.Announcement) error {
 	s.mu.Lock()
@@ -259,7 +277,7 @@ func newDrainHarness(t *testing.T, config string) *drainHarness {
 
 func (h *drainHarness) run(t *testing.T) {
 	t.Helper()
-	task, err := NewConnectorDrainTask(1, 0)
+	task, err := NewConnectorDrainTask(1, 0, true)
 	if err != nil {
 		t.Fatalf("NewConnectorDrainTask: %v", err)
 	}
@@ -282,7 +300,7 @@ func announcementN(n int) connector.Announcement {
 // --- task construction ---
 
 func TestConnectorDrainTaskPayloadIsMinimal(t *testing.T) {
-	task, err := NewConnectorDrainTask(7, 0)
+	task, err := NewConnectorDrainTask(7, 0, true)
 	if err != nil {
 		t.Fatalf("NewConnectorDrainTask: %v", err)
 	}
@@ -479,7 +497,9 @@ func TestDrainDeadLettersUnreadablePayload(t *testing.T) {
 
 // --- instance state ---
 
-func TestDrainFailsRowsForDisabledInstance(t *testing.T) {
+// Toggling an instance off to edit it is routine, so recently queued rows wait
+// rather than being thrown away.
+func TestDrainKeepsRecentRowsForBrieflyDisabledInstance(t *testing.T) {
 	h := newDrainHarness(t, `{}`)
 	h.instance.Enabled = false
 	row := h.deliveries.add(1, announcementN(1), 0)
@@ -489,6 +509,22 @@ func TestDrainFailsRowsForDisabledInstance(t *testing.T) {
 	if len(h.conn.delivered) != 0 {
 		t.Fatal("a disabled instance must not deliver")
 	}
+	if h.deliveries.rows[row.ID].Status != model.DeliveryPending {
+		t.Fatalf("status = %q, want it left pending through a brief disable",
+			h.deliveries.rows[row.ID].Status)
+	}
+}
+
+// A long-disabled instance does eventually give up, so re-enabling it does not
+// flush a flood of week-old announcements.
+func TestDrainFailsStaleRowsForDisabledInstance(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.instance.Enabled = false
+	row := h.deliveries.add(1, announcementN(1), 0)
+	row.CreatedAt = time.Now().Add(-2 * connectorDisabledGrace)
+
+	h.run(t)
+
 	stored := h.deliveries.rows[row.ID]
 	if stored.Status != model.DeliveryFailed {
 		t.Fatalf("status = %q, want failed", stored.Status)
@@ -557,6 +593,45 @@ func TestDrainCoalescesWhenBudgetIsShort(t *testing.T) {
 		if got := h.deliveries.rows[row.ID].Status; got != want {
 			t.Fatalf("row %d status = %q, want %q", i+1, got, want)
 		}
+	}
+}
+
+// A machine-read destination cannot use a "+N more" summary — a bot has no way
+// to recover the torrents it stands for — so the whole budget goes on individual
+// deliveries and the remainder waits for the next window.
+func TestDrainDefersRatherThanCoalescingForMachineConsumers(t *testing.T) {
+	h := newDrainHarness(t, `{"rate_per_min":3}`)
+	h.conn.noCoalesce = true
+	var rows []*model.ConnectorDelivery
+	for i := 1; i <= 6; i++ {
+		rows = append(rows, h.deliveries.add(1, announcementN(i), 0))
+	}
+
+	h.run(t)
+
+	if len(h.conn.delivered) != 3 {
+		t.Fatalf("sent %d messages, want the full budget of 3", len(h.conn.delivered))
+	}
+	for _, a := range h.conn.delivered {
+		if a.Coalesced != 0 {
+			t.Fatal("a non-coalescable connector must never receive a summary")
+		}
+	}
+	for i, row := range rows {
+		stored := h.deliveries.rows[row.ID]
+		if i < 3 {
+			if stored.Status != model.DeliverySent {
+				t.Fatalf("row %d status = %q, want sent", i+1, stored.Status)
+			}
+			continue
+		}
+		// Deferred, not dropped: still pending, no attempt burned.
+		if stored.Status != model.DeliveryPending || stored.Attempts != 0 {
+			t.Fatalf("row %d = %+v, want it left pending for the next window", i+1, stored)
+		}
+	}
+	if len(h.enqueuer.calls) != 1 || h.enqueuer.calls[0].delay != connectorRateWindow {
+		t.Fatalf("follow-up = %+v, want one queued for the next window", h.enqueuer.calls)
 	}
 }
 
@@ -632,10 +707,56 @@ func TestDrainQueuesFollowUpWhenBatchIsFull(t *testing.T) {
 	}
 }
 
+// The two enqueue paths differ only in whether asynq is allowed to collapse
+// duplicates, and getting that backwards is invisible without a real client:
+// the uniqueness lock is held for the whole duration of the running task, so a
+// collapsing enqueue from inside the handler is always rejected and the retry
+// silently never happens.
+func TestConnectorEnqueuerCollapsesDispatchesButNotFollowUps(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	inspector := asynq.NewInspector(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = inspector.Close() })
+
+	enqueuer := NewAsynqConnectorEnqueuer(client)
+	ctx := context.Background()
+
+	// The dispatcher path collapses: a burst of approvals produces one drain.
+	if err := enqueuer.EnqueueConnectorDrain(ctx, 1, 0); err != nil {
+		t.Fatalf("first dispatch enqueue: %v", err)
+	}
+	if err := enqueuer.EnqueueConnectorDrain(ctx, 1, 0); err != nil {
+		t.Fatalf("a collapsed duplicate must be reported as success, got: %v", err)
+	}
+	pending, err := inspector.ListPendingTasks("default")
+	if err != nil {
+		t.Fatalf("listing pending tasks: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("%d pending drains, want 1: the burst should have collapsed", len(pending))
+	}
+
+	// The follow-up path must reach the queue even though the same uniqueness
+	// key was just locked — asserting on the queue, not on the returned error,
+	// because a collapsed enqueue reports success too.
+	if err := enqueuer.EnqueueConnectorDrainFollowUp(ctx, 1, 30*time.Second); err != nil {
+		t.Fatalf("follow-up enqueue: %v", err)
+	}
+	scheduled, err := inspector.ListScheduledTasks("default")
+	if err != nil {
+		t.Fatalf("listing scheduled tasks: %v", err)
+	}
+	if len(scheduled) != 1 {
+		t.Fatalf("%d scheduled drains, want 1: the drain's own retry must not be collapsed away", len(scheduled))
+	}
+}
+
 // --- guards ---
 
 func TestDrainWithoutWiringIsANoOp(t *testing.T) {
-	task, err := NewConnectorDrainTask(1, 0)
+	task, err := NewConnectorDrainTask(1, 0, true)
 	if err != nil {
 		t.Fatalf("NewConnectorDrainTask: %v", err)
 	}
@@ -712,6 +833,35 @@ func TestDrainClaimsBeforeDelivering(t *testing.T) {
 	stored := h.deliveries.rows[row.ID]
 	if stored.Status != model.DeliverySent || stored.NextAttemptAt != nil {
 		t.Fatalf("row = %+v, want sent with the lease cleared", stored)
+	}
+}
+
+// One unreadable row must not dead-letter the whole batch it happens to sit at
+// the end of.
+func TestDrainCoalescedSkipsUnreadableRepresentative(t *testing.T) {
+	h := newDrainHarness(t, `{"rate_per_min":1}`)
+	for i := 1; i <= 3; i++ {
+		h.deliveries.add(1, announcementN(i), 0)
+	}
+	// The newest row is the natural representative; corrupt it.
+	h.deliveries.rows[3].Payload = json.RawMessage(`{not json`)
+
+	h.run(t)
+
+	if len(h.conn.delivered) != 1 {
+		t.Fatalf("delivered %d, want the summary to fall back to a readable row", len(h.conn.delivered))
+	}
+	if h.conn.delivered[0].Coalesced != 2 {
+		t.Fatalf("Coalesced = %d, want 2: the summary must only speak for the rows it covers",
+			h.conn.delivered[0].Coalesced)
+	}
+	if h.deliveries.rows[3].Status != model.DeliveryFailed {
+		t.Fatalf("corrupt row status = %q, want failed", h.deliveries.rows[3].Status)
+	}
+	for _, id := range []int64{1, 2} {
+		if h.deliveries.rows[id].Status != model.DeliveryCoalesced {
+			t.Fatalf("row %d status = %q, want coalesced", id, h.deliveries.rows[id].Status)
+		}
 	}
 }
 

@@ -39,7 +39,22 @@ type Connector interface {
 	// SecretFields lists the top-level config keys holding credentials. They are
 	// stripped from every API response, kept on update when resubmitted empty,
 	// and scrubbed out of delivery errors before those are logged or stored.
+	//
+	// Secrets must be JSON strings: redaction matches on the string value, so a
+	// number or object would be stripped from API responses but not scrubbed
+	// out of error text.
 	SecretFields() []string
+
+	// Coalescable reports whether a rate-limited backlog may be replaced by a
+	// single "+N more" summary.
+	//
+	// True only for destinations a person reads, where the summary is the point
+	// — nobody wants twenty shoutbox lines. It must be false wherever something
+	// machine-readable consumes the feed: a summary names one torrent and a
+	// count, so a bot has no way to recover the other N−1, and the events are
+	// gone. Those kinds get the budget spent on individual deliveries instead
+	// and the remainder simply waits for the next window.
+	Coalescable() bool
 
 	// ValidateConfig rejects bad admin input at save time, so a broken config can
 	// never reach the delivery path.

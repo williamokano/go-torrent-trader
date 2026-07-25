@@ -30,6 +30,17 @@ func TestCheckIPRejectsInternalAddresses(t *testing.T) {
 		"fc00::1",         // IPv6 unique-local
 		"::",              // IPv6 unspecified
 		"::ffff:10.0.0.1", // IPv4-mapped IPv6 must not sneak past the v4 checks
+		// These embed an IPv4 address inside an IPv6 one, so To4() is nil and
+		// every v4 predicate is skipped — the reason the explicit prefix list
+		// exists alongside the predicates.
+		"64:ff9b::a9fe:a9fe", // NAT64 wrapping 169.254.169.254
+		"64:ff9b::7f00:1",    // NAT64 wrapping 127.0.0.1
+		"2002:0a00:0001::",   // 6to4 wrapping 10.0.0.1
+		"0.0.0.1",            // 0.0.0.0/8 — http://0/ reaches loopback on Linux
+		"100.64.0.1",         // carrier-grade NAT
+		"192.0.0.1",          // IETF protocol assignments
+		"198.18.0.1",         // benchmarking
+		"240.0.0.1",          // reserved
 	}
 	for _, raw := range blocked {
 		t.Run(raw, func(t *testing.T) {
@@ -120,30 +131,54 @@ func TestClientRejectsHostnameThatResolvesToLoopback(t *testing.T) {
 	}
 }
 
-// Every redirect hop re-enters the same dialer, so an allowed host cannot bounce
-// a request into the metadata service.
-func TestClientGuardsRedirectTargets(t *testing.T) {
+// A receiver that 302s somewhere else would otherwise be handed the request
+// body, the HMAC signature and every admin-configured header — Go strips only
+// Authorization and Cookie across hosts. So a cross-host redirect is refused
+// before it is even dialed.
+func TestClientRefusesCrossHostRedirect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
 	}))
 	defer srv.Close()
 
-	// Permit only the first dial (the test server on loopback); the redirect
-	// target is then judged on its own merits, exactly as a real public host
-	// redirecting inward would be.
 	dials := 0
 	client := NewClient(func() bool {
 		dials++
-		return dials == 1
+		return true
 	}, 5*time.Second)
 
 	if _, err := client.Get(srv.URL); err == nil {
-		t.Fatal("expected the redirect to the metadata address to be refused")
-	} else if !strings.Contains(err.Error(), "blocked address") {
-		t.Fatalf("error = %v, want it to name the blocked address", err)
+		t.Fatal("expected a cross-host redirect to be refused")
+	} else if !strings.Contains(err.Error(), "cross-host redirect") {
+		t.Fatalf("error = %v, want it to name the refused redirect", err)
 	}
-	if dials < 2 {
-		t.Fatalf("dials = %d, want the redirect target to have been dialed and checked", dials)
+	if dials != 1 {
+		t.Fatalf("dials = %d, want the redirect target never to have been contacted", dials)
+	}
+}
+
+// Same-host redirects stay legal, so an http→https upgrade on the receiver's own
+// host still works.
+func TestClientFollowsSameHostRedirect(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, srv.URL+"/moved", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	client := NewClient(func() bool { return true }, 5*time.Second)
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("same-host redirect should be followed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }
 

@@ -755,9 +755,11 @@ func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID i
 	if err != nil {
 		return nil, err
 	}
-	// Approval is the other publish point. ErrNotPending above already blocks a
-	// second approval, so this cannot double-emit; a rejected torrent later
-	// approved is a legitimate first publish.
+	// Approval is the other publish point. A rejected torrent later approved is
+	// a legitimate first publish. Two racing approvals could both reach here —
+	// the ErrNotPending check above is a read before an unconditional UPDATE —
+	// but the connector pipeline dedupes on (instance, torrent) in the database,
+	// so the announcement still happens exactly once.
 	s.publishPublished(ctx, published, userID)
 	return published, nil
 }
@@ -770,12 +772,23 @@ func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID i
 // than by each renderer: the event never carries it, so no listener, stored
 // payload or connector output downstream can leak it even by mistake.
 func (s *TorrentService) publishPublished(ctx context.Context, torrent *model.Torrent, actorID int64) {
+	// A banned or hidden torrent is not public, whatever its moderation status
+	// says — announcing it externally would hand out a link members cannot use.
+	if torrent.Banned || !torrent.Visible {
+		return
+	}
+
 	uploaderName := torrent.UploaderName
+	actor := s.actorFromUserID(ctx, actorID)
 	if torrent.Anonymous {
 		uploaderName = ""
+		// On the auto-approve upload path the actor IS the uploader, so leaving
+		// the username on the event would smuggle the very name the field above
+		// just dropped. No consumer of this event needs it.
+		actor.Username = ""
 	}
 	s.eventBus.Publish(ctx, &event.TorrentPublishedEvent{
-		Base:         event.NewBase(event.TorrentPublished, s.actorFromUserID(ctx, actorID)),
+		Base:         event.NewBase(event.TorrentPublished, actor),
 		TorrentID:    torrent.ID,
 		Name:         torrent.Name,
 		InfoHashHex:  hex.EncodeToString(torrent.InfoHash),

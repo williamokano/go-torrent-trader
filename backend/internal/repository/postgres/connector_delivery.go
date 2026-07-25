@@ -114,11 +114,13 @@ func (r *ConnectorDeliveryRepo) CountSentSince(ctx context.Context, instanceID i
 func (r *ConnectorDeliveryRepo) MarkSent(ctx context.Context, id int64, status string) error {
 	// last_error is left in place on purpose: on a row that took several
 	// attempts it is the only record of why, and the status already says the
-	// delivery ultimately succeeded.
+	// delivery ultimately succeeded. The status predicate matters too — a slow
+	// drain finishing after another one dead-lettered its leased row must not
+	// flip 'failed' back to 'sent'.
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE connector_deliveries
 		 SET status = $1, next_attempt_at = NULL, updated_at = NOW()
-		 WHERE id = $2`, status, id)
+		 WHERE id = $2 AND status = $3`, status, id, model.DeliveryPending)
 	if err != nil {
 		return fmt.Errorf("mark connector delivery %s: %w", status, err)
 	}

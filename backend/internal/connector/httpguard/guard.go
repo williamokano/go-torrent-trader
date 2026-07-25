@@ -25,9 +25,25 @@ import (
 // guarded dialer, so this is about not following a loop, not about safety.
 const maxRedirects = 3
 
-// cgnat is the carrier-grade NAT range. net.IP has no predicate for it, but it
-// is routinely used for internal networks (Tailscale, some ISPs).
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+// blockedPrefixes covers what net.IP's predicates miss. The NAT64 and 6to4
+// entries matter most: they embed an IPv4 address inside an IPv6 one, so
+// ip.To4() returns nil and every v4 check below is skipped —
+// http://[64:ff9b::a9fe:a9fe]/ would otherwise reach the metadata service on
+// any NAT64-capable host.
+var blockedPrefixes = []struct {
+	prefix netip.Prefix
+	why    string
+}{
+	{netip.MustParsePrefix("0.0.0.0/8"), "this-network"}, // http://0/ reaches loopback on Linux
+	{netip.MustParsePrefix("100.64.0.0/10"), "carrier-grade NAT"},
+	{netip.MustParsePrefix("192.0.0.0/24"), "IETF protocol assignments"},
+	{netip.MustParsePrefix("198.18.0.0/15"), "benchmarking"},
+	{netip.MustParsePrefix("240.0.0.0/4"), "reserved"},
+	{netip.MustParsePrefix("64:ff9b::/96"), "NAT64"},
+	{netip.MustParsePrefix("64:ff9b:1::/48"), "local-use NAT64"},
+	{netip.MustParsePrefix("2002::/16"), "6to4"},
+	{netip.MustParsePrefix("100::/64"), "discard-only"},
+}
 
 // ErrBlockedAddress is returned by the dialer when a destination resolves to an
 // address connectors are not allowed to reach.
@@ -68,9 +84,17 @@ func NewClient(allowPrivate func() bool, timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
 				return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			// Go strips Authorization and Cookie across hosts but forwards every
+			// other header, so a receiver could 302 to a host of its choosing and
+			// collect the admin-configured headers and the HMAC signature along
+			// with the body. Same-host redirects (http→https, path moves) are
+			// still fine.
+			if req.URL.Host != via[0].URL.Host {
+				return fmt.Errorf("refusing cross-host redirect to %q", req.URL.Host)
 			}
 			return nil
 		},
@@ -99,25 +123,28 @@ func CheckIP(ip net.IP) error {
 		ip = v4
 	}
 
-	switch {
-	case ip.IsUnspecified():
-		return blocked(ip, "unspecified")
-	case ip.IsLoopback():
-		return blocked(ip, "loopback")
-	case ip.IsPrivate():
-		// RFC1918 for v4, fc00::/7 unique-local for v6.
+	// Allow-list rather than deny-list: anything that is not a routable global
+	// unicast address has no business being a webhook target, and this single
+	// check subsumes loopback, link-local, multicast, unspecified and broadcast
+	// without depending on remembering each predicate.
+	if !ip.IsGlobalUnicast() {
+		return blocked(ip, "not a global unicast address")
+	}
+	if ip.IsPrivate() {
+		// RFC1918 for v4, fc00::/7 unique-local for v6 — both are global unicast
+		// by the standard's definition, so they need saying explicitly.
 		return blocked(ip, "private")
-	case ip.IsLinkLocalUnicast():
-		// 169.254.0.0/16 — this is where cloud metadata services live.
-		return blocked(ip, "link-local")
-	case ip.IsLinkLocalMulticast(), ip.IsInterfaceLocalMulticast(), ip.IsMulticast():
-		return blocked(ip, "multicast")
-	case ip.Equal(net.IPv4bcast):
-		return blocked(ip, "broadcast")
 	}
 
-	if addr, ok := netip.AddrFromSlice(ip); ok && cgnat.Contains(addr.Unmap()) {
-		return blocked(ip, "carrier-grade NAT")
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return blocked(ip, "unparseable")
+	}
+	addr = addr.Unmap()
+	for _, entry := range blockedPrefixes {
+		if entry.prefix.Contains(addr) {
+			return blocked(ip, entry.why)
+		}
 	}
 
 	return nil

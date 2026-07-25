@@ -43,6 +43,17 @@ const (
 	// scheduling jitter; if the worker dies mid-delivery the lease simply
 	// expires and the row becomes due again.
 	connectorClaimLease = 30 * time.Second
+	// connectorDrainDeadline bounds a whole run. The row batch alone does not:
+	// 100 rows against a black-holed endpoint is 100 × the deliver timeout, and
+	// there are only ten asynq slots shared with every other job. Whatever is
+	// left over is picked up by the immediate follow-up.
+	connectorDrainDeadline = 60 * time.Second
+	// connectorDisabledGrace is how long a disabled instance's queued rows are
+	// kept before being dead-lettered. Toggling an instance off to edit it is
+	// routine, and losing the announcements queued in those few minutes would be
+	// a nasty surprise; a week-long disable should not flush a stale flood on
+	// re-enable either.
+	connectorDisabledGrace = 15 * time.Minute
 )
 
 // ConnectorDrainPayload is the drain task's payload.
@@ -60,14 +71,23 @@ type ConnectorDrainPayload struct {
 // The delivery rows carry attempts and next_attempt_at, which is what lets one
 // run see the whole pending set — required for both dedupe and coalescing, and
 // something asynq's per-task retry cannot do.
-func NewConnectorDrainTask(instanceID int64, delay time.Duration) (*asynq.Task, error) {
+//
+// collapse adds the uniqueness window that turns a burst of dispatches into a
+// single drain. It must be false for a drain scheduling its own follow-up:
+// asynq holds the uniqueness lock for the whole duration of the running task
+// (it is released in Done, not at dequeue) and the key is type+payload, which
+// ProcessIn does not vary — so a collapsing enqueue from inside the handler is
+// always rejected as a duplicate and the follow-up silently never happens.
+// Concurrent drains are already made safe by ClaimForDelivery, so the follow-up
+// does not need collapsing anyway.
+func NewConnectorDrainTask(instanceID int64, delay time.Duration, collapse bool) (*asynq.Task, error) {
 	payload, err := json.Marshal(ConnectorDrainPayload{InstanceID: instanceID})
 	if err != nil {
 		return nil, fmt.Errorf("marshal connector drain payload: %w", err)
 	}
-	opts := []asynq.Option{
-		asynq.MaxRetry(0),
-		asynq.Unique(connectorDrainUnique),
+	opts := []asynq.Option{asynq.MaxRetry(0)}
+	if collapse {
+		opts = append(opts, asynq.Unique(connectorDrainUnique))
 	}
 	if delay > 0 {
 		opts = append(opts, asynq.ProcessIn(delay))
@@ -93,7 +113,10 @@ func NewConnectorDrainHandler(deps *WorkerDeps) func(ctx context.Context, t *asy
 			return nil
 		}
 
-		drainInstance(ctx, deps, payload.InstanceID)
+		drainCtx, cancel := context.WithTimeout(ctx, connectorDrainDeadline)
+		defer cancel()
+
+		drainInstance(drainCtx, deps, payload.InstanceID)
 		return nil
 	}
 }
@@ -121,7 +144,16 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 		return
 	}
 	if !inst.Enabled {
-		failAll(ctx, deps, due, "connector instance is disabled")
+		// Only give up on rows that have been waiting longer than the grace
+		// period; anything newer stays pending so a brief disable-to-edit does
+		// not throw the queue away.
+		var stale []model.ConnectorDelivery
+		for _, row := range due {
+			if now.Sub(row.CreatedAt) > connectorDisabledGrace {
+				stale = append(stale, row)
+			}
+		}
+		failAll(ctx, deps, stale, "connector instance is disabled")
 		return
 	}
 	impl, ok := deps.ConnectorRegistry.Get(inst.Kind)
@@ -142,19 +174,27 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 		return
 	}
 
-	// With more due than budget, the last unit of budget is spent on a single
-	// "+N more" summary instead of an individual message, so nothing is dropped
-	// silently: every row still ends up sent or coalesced.
+	// With more due than budget, a kind a person reads spends its last unit of
+	// budget on a single "+N more" summary, so nothing is dropped silently:
+	// every row still ends up sent or coalesced. A machine-read kind cannot do
+	// that — a summary is unrecoverable for a bot — so it spends the whole
+	// budget on individual deliveries and leaves the rest pending for the next
+	// window.
+	retryIn := time.Duration(0)
 	individual := len(due)
 	var toCoalesce []model.ConnectorDelivery
 	if len(due) > budget {
-		individual = budget - 1
-		toCoalesce = due[individual:]
+		if impl.Coalescable() {
+			individual = budget - 1
+			toCoalesce = due[individual:]
+		} else {
+			individual = budget
+			retryIn = connectorRateWindow
+		}
 	}
 
 	inject := connector.Instance{ID: inst.ID, Name: inst.Name, Config: inst.Config}
 	secretFields := impl.SecretFields()
-	retryIn := time.Duration(0)
 
 	for i := range due[:individual] {
 		row := due[i]
@@ -236,29 +276,41 @@ func deliverCoalesced(
 	rawConfig json.RawMessage,
 	secretFields []string,
 ) time.Duration {
-	last := rows[len(rows)-1]
-	announcement, err := decodeAnnouncement(last)
-	if err != nil {
-		for _, row := range rows {
+	// Drop unreadable rows first so the summary's count matches the rows it
+	// actually stands for, and so one corrupt payload cannot dead-letter the
+	// whole batch it happens to sit in.
+	readable := make([]model.ConnectorDelivery, 0, len(rows))
+	var announcement connector.Announcement
+	for _, row := range rows {
+		decoded, err := decodeAnnouncement(row)
+		if err != nil {
 			markFailed(ctx, deps, row, connectorMaxAttempts, err.Error())
+			continue
 		}
+		readable = append(readable, row)
+		// The newest readable row speaks for the batch.
+		announcement = decoded
+	}
+	if len(readable) == 0 {
 		return 0
 	}
-	announcement.Coalesced = len(rows)
-	announcement.DeliveryKey = last.EventKey
+
+	representative := readable[len(readable)-1]
+	announcement.Coalesced = len(readable)
+	announcement.DeliveryKey = representative.EventKey
 
 	deliverCtx, cancel := context.WithTimeout(ctx, connectorDeliverTimeout)
 	defer cancel()
 
 	if err := connector.SafeDeliver(deliverCtx, impl, inst, announcement); err != nil {
 		retryIn := time.Duration(0)
-		for _, row := range rows {
+		for _, row := range readable {
 			retryIn = minNonZero(retryIn, recordFailure(ctx, deps, row, err, rawConfig, secretFields))
 		}
 		return retryIn
 	}
 
-	for _, row := range rows {
+	for _, row := range readable {
 		if err := deps.ConnectorDeliveryRepo.MarkSent(ctx, row.ID, model.DeliveryCoalesced); err != nil {
 			slog.Error("connector drain: failed to mark delivery coalesced",
 				"instance_id", row.InstanceID, "delivery_id", row.ID, "error", err)
@@ -360,11 +412,13 @@ func decodeAnnouncement(row model.ConnectorDelivery) (connector.Announcement, er
 	return a, nil
 }
 
+// enqueueDrain schedules this drain's own follow-up. It uses the non-collapsing
+// path because the uniqueness lock for this very task is still held.
 func enqueueDrain(ctx context.Context, deps *WorkerDeps, instanceID int64, delay time.Duration) {
 	if deps.ConnectorEnqueuer == nil {
 		return
 	}
-	if err := deps.ConnectorEnqueuer.EnqueueConnectorDrain(ctx, instanceID, delay); err != nil {
+	if err := deps.ConnectorEnqueuer.EnqueueConnectorDrainFollowUp(ctx, instanceID, delay); err != nil {
 		slog.Error("connector drain: failed to re-enqueue drain",
 			"instance_id", instanceID, "delay", delay, "error", err)
 	}

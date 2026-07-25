@@ -42,18 +42,30 @@ func NewAsynqConnectorEnqueuer(client *asynq.Client) *AsynqConnectorEnqueuer {
 	return &AsynqConnectorEnqueuer{client: client}
 }
 
-// EnqueueConnectorDrain queues a drain for one instance, optionally deferred.
+// EnqueueConnectorDrain queues a drain for one instance, collapsing a burst of
+// dispatches into a single run.
 //
-// A duplicate inside the task's uniqueness window is reported as success: that
-// is the burst-collapse doing its job (25 approvals in a second produce one
-// drain, which then delivers all 25 rows), not a failure to schedule work.
+// A duplicate inside the uniqueness window is reported as success: that is the
+// collapse doing its job (25 approvals in a second produce one drain, which then
+// delivers all 25 rows), not a failure to schedule work.
 func (e *AsynqConnectorEnqueuer) EnqueueConnectorDrain(_ context.Context, instanceID int64, delay time.Duration) error {
-	task, err := NewConnectorDrainTask(instanceID, delay)
+	return e.enqueue(instanceID, delay, true)
+}
+
+// EnqueueConnectorDrainFollowUp queues the next run from inside a drain that is
+// still executing. It deliberately does not collapse — see NewConnectorDrainTask
+// for why a collapsing enqueue here would always be swallowed.
+func (e *AsynqConnectorEnqueuer) EnqueueConnectorDrainFollowUp(_ context.Context, instanceID int64, delay time.Duration) error {
+	return e.enqueue(instanceID, delay, false)
+}
+
+func (e *AsynqConnectorEnqueuer) enqueue(instanceID int64, delay time.Duration, collapse bool) error {
+	task, err := NewConnectorDrainTask(instanceID, delay, collapse)
 	if err != nil {
 		return fmt.Errorf("create connector drain task: %w", err)
 	}
 	if _, err := e.client.Enqueue(task); err != nil {
-		if errors.Is(err, asynq.ErrDuplicateTask) {
+		if collapse && errors.Is(err, asynq.ErrDuplicateTask) {
 			return nil
 		}
 		return fmt.Errorf("enqueue connector drain task: %w", err)

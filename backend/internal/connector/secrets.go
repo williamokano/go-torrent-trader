@@ -14,6 +14,10 @@ const Redacted = "[redacted]"
 // redaction would have removed.
 const maxErrorLen = 1000
 
+// minRedactableSecretLen is the shortest value worth substring-matching. Below
+// it the match is more likely to be coincidence than credential.
+const minRedactableSecretLen = 6
+
 // RedactConfig strips every secret key out of a config object and reports which
 // of them actually held a value. The API returns the redacted form plus that
 // list, which is what lets the admin UI show "•••• set — leave blank to keep"
@@ -112,7 +116,14 @@ func RedactString(s string, cfg json.RawMessage, secretFields []string) string {
 		for _, field := range secretFields {
 			var value string
 			raw, present := obj[field]
-			if !present || json.Unmarshal(raw, &value) != nil || value == "" {
+			if !present || json.Unmarshal(raw, &value) != nil {
+				continue
+			}
+			// A very short secret would match all over an unrelated message and
+			// shred it. Anything that short is not a credential worth protecting
+			// at the cost of an unreadable delivery log; the save-time validators
+			// are where such a value should be refused.
+			if len(value) < minRedactableSecretLen {
 				continue
 			}
 			s = strings.ReplaceAll(s, value, Redacted)

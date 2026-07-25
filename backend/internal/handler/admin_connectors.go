@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -51,6 +52,9 @@ func (h *ConnectorHandler) respondError(w http.ResponseWriter, err error, fallba
 		ErrorResponse(w, status, code, err.Error())
 		return
 	}
+	// The client gets a generic message; the cause only exists here, so it has
+	// to be logged or an unexpected failure leaves no trace at all.
+	slog.Error("connector admin request failed", "detail", fallback, "error", err)
 	ErrorResponse(w, http.StatusInternalServerError, "internal_error", fallback)
 }
 
@@ -69,7 +73,7 @@ func connectorID(r *http.Request) (int64, bool) {
 func (h *ConnectorHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	connectors, err := h.svc.List(r.Context())
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list connectors")
+		h.respondError(w, err, "failed to list connectors")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -179,18 +183,7 @@ func (h *ConnectorHandler) HandleDeliveries(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	page := 1
-	perPage := 25
-	if v := r.URL.Query().Get("page"); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-			page = parsed
-		}
-	}
-	if v := r.URL.Query().Get("per_page"); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 100 {
-			perPage = parsed
-		}
-	}
+	page, perPage := parsePagination(r)
 
 	deliveries, total, err := h.svc.Deliveries(r.Context(), id, page, perPage)
 	if err != nil {

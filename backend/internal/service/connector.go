@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -43,24 +45,24 @@ type ConnectorService struct {
 	repo       repository.ConnectorRepository
 	deliveries repository.ConnectorDeliveryRepository
 	registry   *connector.Registry
-	settings   *SiteSettingsService
 	baseURL    string
 }
 
 // NewConnectorService creates a ConnectorService. baseURL is used to build the
 // link in the test-send sample announcement.
+//
+// It deliberately takes no SiteSettingsService: the kill-switch belongs to the
+// dispatcher, and test-send is meant to work regardless of it.
 func NewConnectorService(
 	repo repository.ConnectorRepository,
 	deliveries repository.ConnectorDeliveryRepository,
 	registry *connector.Registry,
-	settings *SiteSettingsService,
 	baseURL string,
 ) *ConnectorService {
 	return &ConnectorService{
 		repo:       repo,
 		deliveries: deliveries,
 		registry:   registry,
-		settings:   settings,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 	}
 }
@@ -249,7 +251,10 @@ func (s *ConnectorService) List(ctx context.Context) ([]ConnectorView, error) {
 	latest, err := s.deliveries.LatestStatusByInstance(ctx)
 	if err != nil {
 		// A broken delivery log should not hide the instances themselves — the
-		// admin still needs to be able to fix or disable them.
+		// admin still needs to be able to fix or disable them. Log it, though:
+		// otherwise this degrades to permanently blank status chips with no
+		// indication anything is wrong.
+		slog.Error("connector: failed to load latest delivery statuses", "error", err)
 		latest = nil
 	}
 
@@ -314,25 +319,40 @@ func (s *ConnectorService) TestSend(ctx context.Context, id int64) (*DeliveryVie
 		return nil, fmt.Errorf("marshal test announcement: %w", err)
 	}
 
+	// The row is hidden from the drain worker for as long as this request could
+	// possibly take: it is pending until Deliver returns, and a drain that saw
+	// it in the meantime would send the same test a second time to the live
+	// destination.
+	leaseUntil := time.Now().Add(2 * testSendTimeout)
 	row := &model.ConnectorDelivery{
-		InstanceID: c.ID,
-		EventKey:   announcement.DeliveryKey,
-		EventType:  connector.EventTest,
-		Payload:    payload,
-		Status:     model.DeliveryPending,
+		InstanceID:    c.ID,
+		EventKey:      announcement.DeliveryKey,
+		EventType:     connector.EventTest,
+		Payload:       payload,
+		Status:        model.DeliveryPending,
+		NextAttemptAt: &leaseUntil,
 	}
-	if _, err := s.deliveries.InsertPending(ctx, row); err != nil {
+	inserted, err := s.deliveries.InsertPending(ctx, row)
+	if err != nil {
 		return nil, fmt.Errorf("record test delivery: %w", err)
+	}
+	if !inserted {
+		// The key carries a fresh UUID, so this cannot happen without the
+		// repository misbehaving — and continuing would update row ID 0.
+		return nil, fmt.Errorf("record test delivery: delivery key %q already exists", row.EventKey)
 	}
 
 	deliverCtx, cancel := context.WithTimeout(ctx, testSendTimeout)
 	defer cancel()
+	// The result is recorded even if the admin navigated away mid-request;
+	// otherwise the row would sit pending and the sweep would re-send the test.
+	finalizeCtx := context.WithoutCancel(ctx)
 
 	inst := connector.Instance{ID: c.ID, Name: c.Name, Config: c.Config}
 	deliverErr := connector.SafeDeliver(deliverCtx, impl, inst, announcement)
 
 	if deliverErr == nil {
-		if err := s.deliveries.MarkSent(ctx, row.ID, model.DeliverySent); err != nil {
+		if err := s.deliveries.MarkSent(finalizeCtx, row.ID, model.DeliverySent); err != nil {
 			return nil, fmt.Errorf("record test delivery result: %w", err)
 		}
 		row.Status = model.DeliverySent
@@ -341,7 +361,7 @@ func (s *ConnectorService) TestSend(ctx context.Context, id int64) (*DeliveryVie
 	}
 
 	message := connector.RedactError(deliverErr, c.Config, impl.SecretFields())
-	if err := s.deliveries.MarkFailedAttempt(ctx, row.ID, 1, message, nil); err != nil {
+	if err := s.deliveries.MarkFailedAttempt(finalizeCtx, row.ID, 1, message, nil); err != nil {
 		return nil, fmt.Errorf("record test delivery result: %w", err)
 	}
 	row.Status = model.DeliveryFailed
@@ -441,7 +461,7 @@ func validateConnectorName(name string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("%w: name is required", ErrConnectorInvalid)
 	}
-	if len(trimmed) > maxConnectorNameLength {
+	if utf8.RuneCountInString(trimmed) > maxConnectorNameLength {
 		return "", fmt.Errorf("%w: name cannot exceed %d characters", ErrConnectorInvalid, maxConnectorNameLength)
 	}
 	return trimmed, nil

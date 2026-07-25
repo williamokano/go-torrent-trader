@@ -136,7 +136,7 @@ func TestMaintenancePrunesConnectorDeliveriesPastRetention(t *testing.T) {
 	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo()}
 	deps := &WorkerDeps{
 		ConnectorDeliveryRepo:      deliveries,
-		ConnectorDeliveryRetention: 30 * 24 * time.Hour,
+		ConnectorDeliveryRetention: func() time.Duration { return 30 * 24 * time.Hour },
 	}
 
 	before := time.Now()
@@ -157,7 +157,7 @@ func TestMaintenancePrunesConnectorDeliveriesPastRetention(t *testing.T) {
 // A misconfigured zero would set the cutoff to now and wipe the whole log.
 func TestMaintenanceSkipsConnectorPruneWhenRetentionNonPositive(t *testing.T) {
 	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo()}
-	deps := &WorkerDeps{ConnectorDeliveryRepo: deliveries, ConnectorDeliveryRetention: 0}
+	deps := &WorkerDeps{ConnectorDeliveryRepo: deliveries, ConnectorDeliveryRetention: func() time.Duration { return 0 }}
 
 	if err := NewMaintenanceHandler(deps)(context.Background(), nil); err != nil {
 		t.Fatalf("maintenance: %v", err)
@@ -200,7 +200,7 @@ func TestMaintenanceToleratesDueLookupFailure(t *testing.T) {
 }
 
 func TestMaintenanceSkipsConnectorStepsWhenUnwired(t *testing.T) {
-	if err := NewMaintenanceHandler(&WorkerDeps{ConnectorDeliveryRetention: time.Hour})(context.Background(), nil); err != nil {
+	if err := NewMaintenanceHandler(&WorkerDeps{ConnectorDeliveryRetention: func() time.Duration { return time.Hour }})(context.Background(), nil); err != nil {
 		t.Fatalf("maintenance: %v", err)
 	}
 }

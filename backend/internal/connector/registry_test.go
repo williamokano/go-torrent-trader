@@ -14,6 +14,7 @@ type fakeConnector struct {
 func (f fakeConnector) Kind() string                         { return f.kind }
 func (f fakeConnector) Singleton() bool                      { return f.singleton }
 func (f fakeConnector) SecretFields() []string               { return nil }
+func (f fakeConnector) Coalescable() bool                    { return true }
 func (f fakeConnector) ValidateConfig(json.RawMessage) error { return nil }
 func (f fakeConnector) Deliver(context.Context, Instance, Announcement) error {
 	return nil

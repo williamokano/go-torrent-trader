@@ -50,6 +50,10 @@ func (c *Connector) Kind() string           { return "chat" }
 func (c *Connector) Singleton() bool        { return true }
 func (c *Connector) SecretFields() []string { return nil }
 
+// Coalescable: the shoutbox is read by people, and twenty lines in a row from a
+// bulk import is exactly what the "+N more" summary exists to prevent.
+func (c *Connector) Coalescable() bool { return true }
+
 // ValidateConfig rejects a template that cannot parse, so a typo fails at save
 // time instead of failing every delivery afterwards.
 func (c *Connector) ValidateConfig(cfg json.RawMessage) error {

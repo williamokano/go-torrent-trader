@@ -124,7 +124,7 @@ func (s *stubConnectorDeliveryRepo) CountSentSince(context.Context, int64, time.
 
 func (s *stubConnectorDeliveryRepo) MarkSent(_ context.Context, id int64, status string) error {
 	d, ok := s.rows[id]
-	if !ok {
+	if !ok || d.Status != model.DeliveryPending {
 		return sql.ErrNoRows
 	}
 	d.Status = status
@@ -198,6 +198,7 @@ type stubWebhookConnector struct {
 func (s *stubWebhookConnector) Kind() string           { return "webhook" }
 func (s *stubWebhookConnector) Singleton() bool        { return false }
 func (s *stubWebhookConnector) SecretFields() []string { return []string{"hmac_secret"} }
+func (s *stubWebhookConnector) Coalescable() bool      { return false }
 
 func (s *stubWebhookConnector) ValidateConfig(cfg json.RawMessage) error {
 	var parsed struct {
@@ -221,6 +222,7 @@ type stubChatConnector struct{}
 func (stubChatConnector) Kind() string                         { return "chat" }
 func (stubChatConnector) Singleton() bool                      { return true }
 func (stubChatConnector) SecretFields() []string               { return nil }
+func (stubChatConnector) Coalescable() bool                    { return true }
 func (stubChatConnector) ValidateConfig(json.RawMessage) error { return nil }
 func (stubChatConnector) Deliver(context.Context, connector.Instance, connector.Announcement) error {
 	return nil
@@ -251,8 +253,7 @@ func setupConnectorAdmin(t *testing.T) *connectorAdminHarness {
 	registry.Register(stubChatConnector{})
 
 	repo := newStubConnectorRepo()
-	settingsSvc := service.NewSiteSettingsService(inviteDistSettingsStub{}, bus)
-	svc := service.NewConnectorService(repo, newStubConnectorDeliveryRepo(), registry, settingsSvc, "https://tracker.test")
+	svc := service.NewConnectorService(repo, newStubConnectorDeliveryRepo(), registry, "https://tracker.test")
 
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(),
 		&testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL,
@@ -358,7 +359,7 @@ func TestConnectorCreateAndList(t *testing.T) {
 // The response body is the thing an admin's browser (and any proxy log) sees.
 func TestConnectorResponsesNeverContainTheSecret(t *testing.T) {
 	h := setupConnectorAdmin(t)
-	id := h.createConnector(t)
+	h.createConnector(t)
 
 	for _, path := range []string{"/api/v1/admin/connectors", "/api/v1/admin/connectors/1"} {
 		rec := doGroupRequest(t, h.router, h.admin, http.MethodGet, path, nil)
@@ -386,7 +387,6 @@ func TestConnectorResponsesNeverContainTheSecret(t *testing.T) {
 	if strings.Contains(string(resp.Connector.Config), "hmac_secret") {
 		t.Fatalf("config still names the secret key: %s", resp.Connector.Config)
 	}
-	_ = id
 }
 
 func TestConnectorCreateRejectsSecondSingleton(t *testing.T) {

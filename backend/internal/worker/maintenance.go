@@ -80,12 +80,15 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 
 		// 6. Prune the connector delivery log. Same non-positive guard as above:
 		// a misconfigured zero would set the cutoff to now and wipe the log.
-		if deps.ConnectorDeliveryRepo != nil && deps.ConnectorDeliveryRetention > 0 {
-			cutoff := time.Now().Add(-deps.ConnectorDeliveryRetention)
-			if purged, err := deps.ConnectorDeliveryRepo.DeleteOld(ctx, cutoff); err != nil {
-				slog.Error("maintenance: failed to purge old connector deliveries", "error", err)
-			} else if purged > 0 {
-				slog.Info("maintenance: purged old connector deliveries", "count", purged, "cutoff", cutoff)
+		if deps.ConnectorDeliveryRepo != nil && deps.ConnectorDeliveryRetention != nil {
+			retention := deps.ConnectorDeliveryRetention()
+			if retention > 0 {
+				cutoff := time.Now().Add(-retention)
+				if purged, err := deps.ConnectorDeliveryRepo.DeleteOld(ctx, cutoff); err != nil {
+					slog.Error("maintenance: failed to purge old connector deliveries", "error", err)
+				} else if purged > 0 {
+					slog.Info("maintenance: purged old connector deliveries", "count", purged, "cutoff", cutoff)
+				}
 			}
 		}
 

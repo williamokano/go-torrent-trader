@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getAccessToken } from "@/features/auth/token";
 import { getConfig } from "@/config";
 import { useToast } from "@/components/toast";
@@ -10,6 +10,7 @@ import {
   Select,
   Textarea,
 } from "@/components/form";
+import { Pagination } from "@/components/Pagination";
 import { timeAgo } from "@/utils/format";
 import "./admin-ui.css";
 import "./admin-connectors.css";
@@ -59,6 +60,8 @@ interface Category {
   id: number;
   name: string;
 }
+
+const DELIVERIES_PER_PAGE = 25;
 
 /** Which config keys each kind treats as write-only credentials. */
 const SECRET_FIELDS: Record<string, string[]> = {
@@ -149,30 +152,38 @@ export function AdminConnectorsPage() {
   const [deliveriesFor, setDeliveriesFor] = useState<Connector | null>(null);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [deliveriesLoading, setDeliveriesLoading] = useState(false);
+  const [deliveriesPage, setDeliveriesPage] = useState(1);
+  const [deliveriesTotal, setDeliveriesTotal] = useState(0);
+  const deliveriesRequestRef = useRef(0);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
-  const fetchConnectors = useCallback(async () => {
-    setLoading(true);
-    try {
-      const token = getAccessToken();
-      const res = await fetch(
-        `${getConfig().API_URL}/api/v1/admin/connectors`,
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        },
-      );
-      if (!res.ok) {
+  const fetchConnectors = useCallback(
+    async (showLoading = true) => {
+      // A background refresh after a toggle should not blank the table out.
+      if (showLoading) setLoading(true);
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/connectors`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
+        );
+        if (!res.ok) {
+          toast.error("Failed to load connectors");
+          return;
+        }
+        const data = await res.json();
+        setConnectors(data.connectors ?? []);
+        setKinds(data.kinds ?? []);
+      } catch {
         toast.error("Failed to load connectors");
-        return;
+      } finally {
+        if (showLoading) setLoading(false);
       }
-      const data = await res.json();
-      setConnectors(data.connectors ?? []);
-      setKinds(data.kinds ?? []);
-    } catch {
-      toast.error("Failed to load connectors");
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+    },
+    [toast],
+  );
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -196,9 +207,16 @@ export function AdminConnectorsPage() {
     fetchCategories();
   }, [fetchCategories]);
 
+  /** Kinds that can still be created: a singleton already in use is spent. */
+  function availableKinds(): string[] {
+    return kinds.filter(
+      (kind) => !connectors.some((c) => c.kind === kind && c.singleton),
+    );
+  }
+
   function openCreate() {
     setEditingId(null);
-    setForm(emptyForm(kinds[0] ?? ""));
+    setForm(emptyForm(availableKinds()[0] ?? ""));
     setModalOpen(true);
   }
 
@@ -232,7 +250,7 @@ export function AdminConnectorsPage() {
       const res = await fetch(url, {
         method: editingId ? "PUT" : "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -263,6 +281,8 @@ export function AdminConnectorsPage() {
    * in the payload, so the backend keeps the stored ones.
    */
   async function handleToggle(connector: Connector) {
+    if (togglingId !== null) return;
+    setTogglingId(connector.id);
     try {
       const token = getAccessToken();
       const res = await fetch(
@@ -270,7 +290,7 @@ export function AdminConnectorsPage() {
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${token}`,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -286,9 +306,11 @@ export function AdminConnectorsPage() {
         toast.error(body?.error?.message ?? "Failed to update connector");
         return;
       }
-      await fetchConnectors();
+      await fetchConnectors(false);
     } catch {
       toast.error("Failed to update connector");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -313,9 +335,9 @@ export function AdminConnectorsPage() {
       if (body?.status === "sent") {
         toast.success(`Test message sent to ${connector.name}`);
       } else {
-        toast.error(body?.error ?? "Test send failed");
+        toast.error(body?.error || "Test send failed");
       }
-      await fetchConnectors();
+      await fetchConnectors(false);
     } catch {
       toast.error("Test send failed");
     } finally {
@@ -349,27 +371,43 @@ export function AdminConnectorsPage() {
     }
   }
 
-  async function openDeliveries(connector: Connector) {
-    setDeliveriesFor(connector);
-    setDeliveriesLoading(true);
-    try {
-      const token = getAccessToken();
-      const res = await fetch(
-        `${getConfig().API_URL}/api/v1/admin/connectors/${connector.id}/deliveries?page=1&per_page=25`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-      );
-      if (!res.ok) {
-        toast.error("Failed to load delivery log");
-        return;
+  const openDeliveries = useCallback(
+    async (connector: Connector, page: number) => {
+      setDeliveriesFor(connector);
+      setDeliveriesPage(page);
+      // Clear first: otherwise a failed or slow fetch leaves the previous
+      // connector's rows sitting under the new connector's heading.
+      setDeliveries([]);
+      setDeliveriesTotal(0);
+      setDeliveriesLoading(true);
+      // Two quick clicks can resolve out of order; only the latest wins.
+      const request = ++deliveriesRequestRef.current;
+      try {
+        const token = getAccessToken();
+        const res = await fetch(
+          `${getConfig().API_URL}/api/v1/admin/connectors/${connector.id}/deliveries?page=${page}&per_page=${DELIVERIES_PER_PAGE}`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (request !== deliveriesRequestRef.current) return;
+        if (!res.ok) {
+          toast.error("Failed to load delivery log");
+          return;
+        }
+        const data = await res.json();
+        setDeliveries(data.deliveries ?? []);
+        setDeliveriesTotal(data.total ?? 0);
+      } catch {
+        if (request === deliveriesRequestRef.current) {
+          toast.error("Failed to load delivery log");
+        }
+      } finally {
+        if (request === deliveriesRequestRef.current) {
+          setDeliveriesLoading(false);
+        }
       }
-      const data = await res.json();
-      setDeliveries(data.deliveries ?? []);
-    } catch {
-      toast.error("Failed to load delivery log");
-    } finally {
-      setDeliveriesLoading(false);
-    }
-  }
+    },
+    [toast],
+  );
 
   function setConfigField(key: string, value: unknown) {
     setForm((prev) => ({ ...prev, config: { ...prev.config, [key]: value } }));
@@ -426,6 +464,71 @@ export function AdminConnectorsPage() {
     );
   }
 
+  /**
+   * Free-form request headers. They are stored and returned like any other
+   * config value — deliberately not treated as secrets in v1 — so the hint
+   * steers credentials towards the HMAC secret instead.
+   */
+  function renderHeadersEditor() {
+    const headers = (form.config.headers as Record<string, string>) ?? {};
+    const entries = Object.entries(headers);
+
+    function writeHeaders(next: Record<string, string>) {
+      setConfigField("headers", next);
+    }
+
+    return (
+      <div className="admin-connectors__headers">
+        <span className="form-label">Extra request headers</span>
+        <p className="admin-muted">
+          Stored and shown in plain text. For authentication prefer the HMAC
+          secret below, which is write-only.
+        </p>
+        {entries.map(([name, value], index) => (
+          <div className="admin-connectors__header-row" key={index}>
+            <Input
+              label="Header"
+              value={name}
+              onChange={(e) => {
+                const next: Record<string, string> = {};
+                entries.forEach(([n, v], i) => {
+                  next[i === index ? e.target.value : n] = v;
+                });
+                writeHeaders(next);
+              }}
+            />
+            <Input
+              label="Value"
+              value={value}
+              onChange={(e) =>
+                writeHeaders({ ...headers, [name]: e.target.value })
+              }
+            />
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost admin-btn--sm"
+              aria-label={`Remove header ${name}`}
+              onClick={() => {
+                const next = { ...headers };
+                delete next[name];
+                writeHeaders(next);
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="admin-btn admin-btn--ghost admin-btn--sm"
+          onClick={() => writeHeaders({ ...headers, "": "" })}
+        >
+          Add header
+        </button>
+      </div>
+    );
+  }
+
   function renderKindFields() {
     switch (form.kind) {
       case "chat":
@@ -457,11 +560,19 @@ export function AdminConnectorsPage() {
               value={(form.config.method as string) ?? "POST"}
               onChange={(e) => setConfigField("method", e.target.value)}
             />
+            {renderHeadersEditor()}
             {renderSecretField("hmac_secret", "HMAC signing secret")}
           </>
         );
       default:
-        return null;
+        // A kind the backend registered but this build has no editor for. Saying
+        // so beats silently offering an empty form that creates a broken
+        // instance.
+        return (
+          <p className="admin-muted">
+            This build has no configuration editor for “{form.kind}”.
+          </p>
+        );
     }
   }
 
@@ -480,7 +591,7 @@ export function AdminConnectorsPage() {
           <button
             className="admin-btn admin-btn--primary"
             onClick={openCreate}
-            disabled={kinds.length === 0}
+            disabled={availableKinds().length === 0}
           >
             Add Connector
           </button>
@@ -488,7 +599,7 @@ export function AdminConnectorsPage() {
       </div>
 
       {loading ? (
-        <p>Loading connectors...</p>
+        <p role="status">Loading connectors...</p>
       ) : connectors.length === 0 ? (
         <div className="admin-panel">
           <p className="admin-empty">No connectors configured yet.</p>
@@ -511,12 +622,12 @@ export function AdminConnectorsPage() {
                   <tr key={connector.id}>
                     <td className="admin-table__name">{connector.name}</td>
                     <td className="admin-muted">{kindLabel(connector.kind)}</td>
-                    <td className="admin-table__center">
+                    <td className="admin-table__toggle">
                       <input
                         type="checkbox"
-                        className="admin-table__toggle"
                         aria-label={`Enable ${connector.name}`}
                         checked={connector.enabled}
+                        disabled={togglingId !== null}
                         onChange={() => handleToggle(connector)}
                       />
                     </td>
@@ -549,7 +660,7 @@ export function AdminConnectorsPage() {
                         </button>
                         <button
                           className="admin-btn admin-btn--ghost admin-btn--sm"
-                          onClick={() => openDeliveries(connector)}
+                          onClick={() => openDeliveries(connector, 1)}
                         >
                           Log
                         </button>
@@ -589,7 +700,7 @@ export function AdminConnectorsPage() {
             </button>
           </div>
           {deliveriesLoading ? (
-            <p>Loading deliveries...</p>
+            <p role="status">Loading deliveries...</p>
           ) : deliveries.length === 0 ? (
             <p className="admin-empty">No deliveries recorded yet.</p>
           ) : (
@@ -629,6 +740,15 @@ export function AdminConnectorsPage() {
               </table>
             </div>
           )}
+          {deliveriesTotal > DELIVERIES_PER_PAGE && (
+            <div className="admin-connectors__log-pagination">
+              <Pagination
+                currentPage={deliveriesPage}
+                totalPages={Math.ceil(deliveriesTotal / DELIVERIES_PER_PAGE)}
+                onPageChange={(page) => openDeliveries(deliveriesFor, page)}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -645,10 +765,13 @@ export function AdminConnectorsPage() {
             // The kind decides how the stored config is interpreted, so it is
             // fixed once an instance exists.
             disabled={editingId !== null}
-            options={kinds.map((kind) => ({
-              value: kind,
-              label: kindLabel(kind),
-            }))}
+            // A singleton kind that already has its one instance is filtered
+            // out rather than offered and then rejected with a 409 after the
+            // admin has filled in the whole form. When editing, the instance's
+            // own kind stays listed so the (disabled) picker still shows it.
+            options={(editingId !== null ? kinds : availableKinds()).map(
+              (kind) => ({ value: kind, label: kindLabel(kind) }),
+            )}
             value={form.kind}
             onChange={(e) =>
               setForm((prev) => ({

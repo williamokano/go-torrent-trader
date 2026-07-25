@@ -41,6 +41,16 @@ func RegisterConnectorDispatcher(
 	siteBaseURL string,
 ) {
 	bus.Subscribe(event.TorrentPublished, func(_ context.Context, evt event.Event) error {
+		// The bus dispatches synchronously and does not recover, so a panic here
+		// would travel up through publishPublished into ApproveTorrent and 500 an
+		// approval that has already been committed. Nothing this listener does is
+		// worth that.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("connector dispatch: panicked", "panic", r)
+			}
+		}()
+
 		e, ok := evt.(*event.TorrentPublishedEvent)
 		if !ok {
 			return nil
