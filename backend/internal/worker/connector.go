@@ -48,6 +48,14 @@ const (
 	// there are only ten asynq slots shared with every other job. Whatever is
 	// left over is picked up by the immediate follow-up.
 	connectorDrainDeadline = 60 * time.Second
+	// connectorNotReadyRetry is how soon to look again when a connector says it
+	// is not ready (an IRC client mid-reconnect, or a node that does not own the
+	// connection). Short, because the condition usually clears in seconds.
+	connectorNotReadyRetry = 15 * time.Second
+	// connectorNotReadyMaxAge stops "not ready" from meaning "never": a
+	// destination that has not come up within this window is treated as a real
+	// failure so the row dead-letters instead of being rescheduled forever.
+	connectorNotReadyMaxAge = 15 * time.Minute
 	// connectorDisabledGrace is how long a disabled instance's queued rows are
 	// kept before being dead-lettered. Toggling an instance off to edit it is
 	// routine, and losing the announcements queued in those few minutes would be
@@ -329,6 +337,28 @@ func recordFailure(
 	rawConfig json.RawMessage,
 	secretFields []string,
 ) time.Duration {
+	// "Not ready" is not a failure: an IRC client reconnecting, or a standby
+	// node that does not own the connection, will be fine shortly. Counting it
+	// against the five-attempt budget would let a routine reconnect dead-letter
+	// a whole queue of good announcements, so the row is simply rescheduled —
+	// but only up to a bounded age, so a destination that never comes up still
+	// stops eventually.
+	if errors.Is(deliverErr, connector.ErrNotReady) {
+		if time.Since(row.CreatedAt) > connectorNotReadyMaxAge {
+			markFailed(ctx, deps, row, row.Attempts+1,
+				connector.RedactError(deliverErr, rawConfig, secretFields))
+			return 0
+		}
+		next := time.Now().Add(connectorNotReadyRetry)
+		if err := deps.ConnectorDeliveryRepo.MarkFailedAttempt(
+			ctx, row.ID, row.Attempts, connector.RedactError(deliverErr, rawConfig, secretFields), &next,
+		); err != nil {
+			slog.Error("connector drain: failed to reschedule a not-ready delivery",
+				"instance_id", row.InstanceID, "delivery_id", row.ID, "error", err)
+		}
+		return connectorNotReadyRetry
+	}
+
 	// Every error path funnels through RedactError before it can reach a log
 	// line or the last_error column — a Telegram bot token lives in the request
 	// URL, and net/http puts that URL in the error.

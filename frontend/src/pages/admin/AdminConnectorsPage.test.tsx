@@ -50,6 +50,7 @@ interface MockOptions {
   deliveries?: unknown[];
   saveOk?: boolean;
   saveError?: string;
+  statuses?: Record<string, { state: string; last_error?: string }>;
 }
 
 /** Records every request so a test can assert on the exact payload sent. */
@@ -63,6 +64,12 @@ function mockApi(options: MockOptions = {}) {
     requests.push({ url, init });
     const method = init?.method ?? "GET";
 
+    if (url.includes("/connectors/status")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ statuses: options.statuses ?? {} }),
+      });
+    }
     if (url.includes("/api/v1/categories")) {
       return Promise.resolve({
         ok: true,
@@ -537,5 +544,136 @@ describe("AdminConnectorsPage", () => {
     expect(
       within(kindSelect).getByRole("option", { name: "Webhook" }),
     ).toBeInTheDocument();
+  });
+  // --- IRC (BE-10.2) ---
+
+  const ircConnector = {
+    ...webhookConnector,
+    id: 3,
+    kind: "irc",
+    name: "Libera",
+    config: {
+      server: "irc.libera.chat",
+      port: 6697,
+      tls: true,
+      nick: "announcebot",
+      channels: [{ name: "#announce", categories: [] }],
+    },
+    secrets_set: ["sasl_pass"],
+  };
+
+  test("the IRC sub-form renders its own fields and serializes channels", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [ircConnector], kinds: ["chat", "irc", "webhook"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByLabelText("Server")).toHaveValue(
+      "irc.libera.chat",
+    );
+    expect(within(dialog).getByLabelText("Nick")).toHaveValue("announcebot");
+    expect(within(dialog).getByLabelText("Use TLS")).toBeChecked();
+    // Both credentials are write-only, and one of them is already set.
+    expect(within(dialog).getByLabelText("SASL password")).toHaveAttribute(
+      "placeholder",
+      "•••• set — leave blank to keep",
+    );
+    expect(within(dialog).getByLabelText("NickServ password")).toHaveAttribute(
+      "placeholder",
+      "Not set",
+    );
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Add channel" }),
+    );
+    const channelInputs = within(dialog).getAllByLabelText("Channel");
+    await user.type(channelInputs[channelInputs.length - 1], "#movies");
+    await user.selectOptions(
+      within(dialog).getAllByLabelText("Categories (empty = all)")[1],
+      "2",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    const body = JSON.parse(lastRequest("PUT")!.init!.body!);
+    expect(body.config.channels).toEqual([
+      { name: "#announce", categories: [] },
+      { name: "#movies", categories: [2] },
+    ]);
+    // Untouched secrets stay untouched.
+    expect("sasl_pass" in body.config).toBe(false);
+  });
+
+  test("a channel row can be removed", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [ircConnector], kinds: ["irc"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Remove channel #announce" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    expect(JSON.parse(lastRequest("PUT")!.init!.body!).config.channels).toEqual(
+      [],
+    );
+  });
+
+  test("the connection status badge reflects the polled state", async () => {
+    mockApi({
+      connectors: [ircConnector],
+      kinds: ["irc"],
+      statuses: { "3": { state: "connected" } },
+    });
+    renderPage();
+
+    expect(await screen.findByText("connected")).toBeInTheDocument();
+  });
+
+  // A standby node is healthy for the cluster but is not announcing from here,
+  // which is the question the badge answers.
+  test("a node that does not own the connection says so", async () => {
+    mockApi({
+      connectors: [ircConnector],
+      kinds: ["irc"],
+      statuses: { "3": { state: "not_owner" } },
+    });
+    renderPage();
+
+    expect(await screen.findByText("another node")).toBeInTheDocument();
+  });
+
+  test("an errored connection surfaces its reason in a tooltip", async () => {
+    mockApi({
+      connectors: [ircConnector],
+      kinds: ["irc"],
+      statuses: { "3": { state: "error", last_error: "connection refused" } },
+    });
+    renderPage();
+
+    const badge = await screen.findByText("error");
+    expect(badge).toHaveAttribute("title", "connection refused");
+  });
+
+  // Polling a status endpoint on a site with no IRC instance is pure noise.
+  test("status is not polled when no persistent connector exists", async () => {
+    mockApi();
+    renderPage();
+
+    await screen.findByText("My Hook");
+    expect(requests.some((r) => r.url.includes("/connectors/status"))).toBe(
+      false,
+    );
   });
 });

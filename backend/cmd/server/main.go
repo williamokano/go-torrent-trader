@@ -18,6 +18,8 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/chat"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/httpguard"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/irc"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/leader"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/webhook"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -287,14 +289,31 @@ func run() int {
 		}, 15*time.Second),
 		10*time.Second)
 	connectorRegistry.Register(webhook.New(connectorHTTPClient))
+	connectorRegistry.Register(irc.New())
 
 	connectorRepo := postgres.NewConnectorRepo(db)
 	connectorDeliveryRepo := postgres.NewConnectorDeliveryRepo(db)
 	connectorService := service.NewConnectorService(connectorRepo, connectorDeliveryRepo,
-		connectorRegistry, cfg.Site.BaseURL)
+		connectorRegistry, eventBus, cfg.Site.BaseURL)
 	connectorEnqueuer := worker.NewAsynqConnectorEnqueuer(asynqClient)
 	listener.RegisterConnectorDispatcher(eventBus, connectorRepo, connectorDeliveryRepo,
 		siteSettingsService, connectorEnqueuer, cfg.Site.BaseURL)
+
+	// Persistent connectors (IRC) hold a connection that exactly one node may
+	// own; a Postgres advisory lock decides which. A single-process deployment
+	// acquires instantly and never notices there was an election.
+	connectorManager := connector.NewManager(connectorRepo, connectorRegistry,
+		func(instanceID int64) connector.Lease { return leader.NewLease(db, instanceID) })
+	eventBus.Subscribe(event.ConnectorConfigChanged, func(_ context.Context, _ event.Event) error {
+		connectorManager.HandleConfigChanged()
+		return nil
+	})
+	connectorCtx, stopConnectors := context.WithCancel(context.Background())
+	// Deferred as the safety net for the error-exit paths; the shutdown branch
+	// below also calls it explicitly so ordering against the database pool is
+	// obvious rather than implied by defer order.
+	defer stopConnectors()
+	go connectorManager.Run(connectorCtx)
 
 	// Wire PM notification listener — pushes real-time unread count via WebSocket.
 	listener.RegisterPMNotificationListener(eventBus, messageRepo, chatHub.SendToUser)
@@ -350,6 +369,7 @@ func run() int {
 		BonusService:              bonusService,
 		InviteDistributionService: inviteDistributionService,
 		ConnectorService:          connectorService,
+		ConnectorStatus:           connectorManager,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,
@@ -477,6 +497,9 @@ func run() int {
 		if scheduler != nil {
 			scheduler.Shutdown()
 		}
+		// Before the database pool closes: the IRC clients need to send QUIT,
+		// and their advisory locks live on connections from that pool.
+		stopConnectors()
 	}
 
 	slog.Info("server stopped")

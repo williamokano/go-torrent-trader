@@ -51,6 +51,7 @@ type Deps struct {
 	BackupService             BackupManager
 	RSSConfig                 *RSSConfig
 	ConnectorService          *service.ConnectorService
+	ConnectorStatus           ConnectorStatusProvider
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -529,8 +530,11 @@ func NewRouter(deps *Deps) chi.Router {
 
 					// External notification connectors (BE-10)
 					if deps.ConnectorService != nil {
-						connectors := NewConnectorHandler(deps.ConnectorService)
+						connectors := NewConnectorHandler(deps.ConnectorService, deps.ConnectorStatus)
 						r.Get("/connectors", connectors.HandleList)
+						// Registered before /connectors/{id} so "status" is not
+						// parsed as an instance ID.
+						r.Get("/connectors/status", connectors.HandleStatus)
 						r.Post("/connectors", connectors.HandleCreate)
 						r.Get("/connectors/{id}", connectors.HandleGet)
 						r.Put("/connectors/{id}", connectors.HandleUpdate)

@@ -57,3 +57,17 @@
   gap: var(--space-xs);
   align-items: end;
 }
+
+.admin-connectors__channels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Channel name, its category filter and the remove button read as one row. */
+.admin-connectors__channel-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-xs);
+  align-items: end;
+}

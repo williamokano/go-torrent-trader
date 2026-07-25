@@ -890,3 +890,57 @@ func TestDrainTreatsClaimFailureAsNotOwned(t *testing.T) {
 		t.Fatal("a failed claim must not be treated as ownership")
 	}
 }
+
+// --- "not ready" (BE-10.2) ---
+
+// A reconnecting IRC client is not a delivery failure. Counting it against the
+// five-attempt budget would let a routine reconnect dead-letter a whole queue of
+// perfectly good announcements.
+func TestDrainNotReadyReschedulesWithoutBurningAnAttempt(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: still connecting", connector.ErrNotReady)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+
+	before := time.Now()
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.Attempts != 0 {
+		t.Fatalf("attempts = %d, want 0: not-ready must not consume the retry budget", stored.Attempts)
+	}
+	if stored.Status != model.DeliveryPending {
+		t.Fatalf("status = %q, want it left pending", stored.Status)
+	}
+	if stored.NextAttemptAt == nil {
+		t.Fatal("next_attempt_at must be set so the row comes back")
+	}
+	if gap := stored.NextAttemptAt.Sub(before); gap > connectorNotReadyRetry+5*time.Second {
+		t.Fatalf("next attempt in %v, want about %v", gap, connectorNotReadyRetry)
+	}
+	if len(h.enqueuer.calls) != 1 || h.enqueuer.calls[0].delay != connectorNotReadyRetry {
+		t.Fatalf("follow-up = %+v, want one queued shortly", h.enqueuer.calls)
+	}
+}
+
+// "Not ready" must not mean "never": a destination that has been down for a long
+// time is a real failure and has to stop being retried.
+func TestDrainNotReadyGivesUpOnAnOldDelivery(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: still connecting", connector.ErrNotReady)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+	row.CreatedAt = time.Now().Add(-2 * connectorNotReadyMaxAge)
+
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.Status != model.DeliveryFailed {
+		t.Fatalf("status = %q, want failed once it has waited past the cap", stored.Status)
+	}
+	if stored.NextAttemptAt != nil {
+		t.Fatal("a dead-lettered row must not be scheduled again")
+	}
+}

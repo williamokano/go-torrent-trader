@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
@@ -296,6 +297,11 @@ type connectorHarness struct {
 	deliveries *mockDeliveryRepo
 	hook       *fakeConnector
 	chat       *fakeConnector
+	bus        event.Bus
+	// changes records every ConnectorConfigChanged the service published, which
+	// is how the ConnectorManager learns a persistent connection needs
+	// starting, stopping or restarting.
+	changes []*event.ConnectorConfigChangedEvent
 }
 
 func newConnectorHarness(t *testing.T) *connectorHarness {
@@ -309,14 +315,21 @@ func newConnectorHarness(t *testing.T) *connectorHarness {
 
 	repo := newMockConnectorRepo()
 	deliveries := newMockDeliveryRepo()
+	bus := event.NewInMemoryBus()
 
-	return &connectorHarness{
-		svc:        NewConnectorService(repo, deliveries, registry, "https://tracker.test"),
+	h := &connectorHarness{
+		svc:        NewConnectorService(repo, deliveries, registry, bus, "https://tracker.test"),
 		repo:       repo,
 		deliveries: deliveries,
 		hook:       hook,
 		chat:       chat,
+		bus:        bus,
 	}
+	bus.Subscribe(event.ConnectorConfigChanged, func(_ context.Context, evt event.Event) error {
+		h.changes = append(h.changes, evt.(*event.ConnectorConfigChangedEvent))
+		return nil
+	})
+	return h
 }
 
 func mustCreate(t *testing.T, h *connectorHarness, in ConnectorInput) *ConnectorView {
@@ -685,7 +698,7 @@ func TestConnectorViewOfUnregisteredKindDisclosesNothing(t *testing.T) {
 	created := mustCreate(t, h, webhookInput())
 
 	// Simulate a build that no longer ships the webhook connector.
-	h.svc = NewConnectorService(h.repo, h.deliveries, connector.NewRegistry(), "https://tracker.test")
+	h.svc = NewConnectorService(h.repo, h.deliveries, connector.NewRegistry(), h.bus, "https://tracker.test")
 
 	view, err := h.svc.Get(context.Background(), created.ID)
 	if err != nil {
@@ -722,5 +735,49 @@ func TestTestSendRowIsHiddenFromTheDrainWhileInFlight(t *testing.T) {
 
 	if len(duringDelivery) != 0 {
 		t.Fatalf("a concurrent drain saw %d due rows mid-test-send, want 0", len(duringDelivery))
+	}
+}
+
+// --- config-change events (BE-10.2) ---
+
+// The ConnectorManager reconciles long-lived connections from these events;
+// without one, an admin's edit would not take effect until the next poll.
+func TestConnectorMutationsPublishConfigChanged(t *testing.T) {
+	h := newConnectorHarness(t)
+	ctx := context.Background()
+
+	created := mustCreate(t, h, webhookInput())
+	if len(h.changes) != 1 || h.changes[0].InstanceID != created.ID || h.changes[0].Deleted {
+		t.Fatalf("after create, changes = %+v", h.changes)
+	}
+
+	if _, err := h.svc.Update(ctx, created.ID, ConnectorInput{Name: "Renamed"}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(h.changes) != 2 || h.changes[1].Deleted {
+		t.Fatalf("after update, changes = %+v", h.changes)
+	}
+
+	if err := h.svc.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(h.changes) != 3 || !h.changes[2].Deleted {
+		t.Fatalf("after delete, changes = %+v", h.changes)
+	}
+	// The kind is what tells the manager whether a connection needs stopping,
+	// so it has to survive the row being gone.
+	if h.changes[2].Kind != "webhook" {
+		t.Fatalf("delete event kind = %q, want webhook", h.changes[2].Kind)
+	}
+}
+
+func TestConnectorFailedMutationsPublishNothing(t *testing.T) {
+	h := newConnectorHarness(t)
+
+	if _, err := h.svc.Create(context.Background(), ConnectorInput{Kind: "nope", Name: "x"}); err == nil {
+		t.Fatal("expected an unknown kind to be rejected")
+	}
+	if len(h.changes) != 0 {
+		t.Fatalf("a rejected create published %d events, want 0", len(h.changes))
 	}
 }

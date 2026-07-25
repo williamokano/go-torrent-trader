@@ -9,18 +9,28 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
-// ConnectorHandler serves the admin API for external notification connectors.
-type ConnectorHandler struct {
-	svc *service.ConnectorService
+// ConnectorStatusProvider reports the lifecycle state of persistent connector
+// instances on this node. Implemented by connector.Manager; nil when no
+// persistent connectors are wired.
+type ConnectorStatusProvider interface {
+	Status() map[int64]connector.ManagerStatus
 }
 
-// NewConnectorHandler creates a new ConnectorHandler.
-func NewConnectorHandler(svc *service.ConnectorService) *ConnectorHandler {
-	return &ConnectorHandler{svc: svc}
+// ConnectorHandler serves the admin API for external notification connectors.
+type ConnectorHandler struct {
+	svc    *service.ConnectorService
+	status ConnectorStatusProvider
+}
+
+// NewConnectorHandler creates a new ConnectorHandler. status may be nil, in
+// which case the status endpoint reports an empty set.
+func NewConnectorHandler(svc *service.ConnectorService, status ConnectorStatusProvider) *ConnectorHandler {
+	return &ConnectorHandler{svc: svc, status: status}
 }
 
 // connectorErrorStatus maps the service's sentinel errors onto HTTP statuses so
@@ -80,6 +90,21 @@ func (h *ConnectorHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		"connectors": connectors,
 		"kinds":      h.svc.Kinds(),
 	})
+}
+
+// HandleStatus handles GET /api/v1/admin/connectors/status.
+//
+// The answer is deliberately node-local: it says what THIS process is doing, so
+// a standby honestly reports not_owner rather than guessing about the cluster.
+// With the single-process default that distinction never comes up.
+func (h *ConnectorHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
+	statuses := map[string]connector.ManagerStatus{}
+	if h.status != nil {
+		for id, status := range h.status.Status() {
+			statuses[strconv.FormatInt(id, 10)] = status
+		}
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"statuses": statuses})
 }
 
 // HandleCreate handles POST /api/v1/admin/connectors.
