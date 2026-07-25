@@ -18,6 +18,7 @@ interface Group {
   can_invite: boolean;
   can_comment: boolean;
   can_forum: boolean;
+  can_feed: boolean;
   is_admin: boolean;
   is_moderator: boolean;
   is_immune: boolean;
@@ -29,6 +30,7 @@ type CapabilityKey =
   | "can_invite"
   | "can_comment"
   | "can_forum"
+  | "can_feed"
   | "is_admin"
   | "is_moderator"
   | "is_immune";
@@ -39,6 +41,7 @@ const CAPABILITY_COLUMNS: { key: CapabilityKey; label: string }[] = [
   { key: "can_invite", label: "Invite" },
   { key: "can_comment", label: "Comment" },
   { key: "can_forum", label: "Forum" },
+  { key: "can_feed", label: "Live feeds" },
   { key: "is_admin", label: "Admin" },
   { key: "is_moderator", label: "Moderator" },
   { key: "is_immune", label: "Immune" },
@@ -54,6 +57,7 @@ interface GroupFormData {
   can_invite: boolean;
   can_comment: boolean;
   can_forum: boolean;
+  can_feed: boolean;
   is_admin: boolean;
   is_moderator: boolean;
   is_immune: boolean;
@@ -69,6 +73,7 @@ const emptyForm: GroupFormData = {
   can_invite: false,
   can_comment: true,
   can_forum: true,
+  can_feed: true,
   is_admin: false,
   is_moderator: false,
   is_immune: false,
@@ -122,6 +127,7 @@ export function AdminGroupsPage() {
       can_invite: group.can_invite,
       can_comment: group.can_comment,
       can_forum: group.can_forum,
+      can_feed: group.can_feed,
       is_admin: group.is_admin,
       is_moderator: group.is_moderator,
       is_immune: group.is_immune,
@@ -148,6 +154,7 @@ export function AdminGroupsPage() {
       can_invite: form.can_invite,
       can_comment: form.can_comment,
       can_forum: form.can_forum,
+      can_feed: form.can_feed,
       is_admin: form.is_admin,
       is_moderator: form.is_moderator,
       is_immune: form.is_immune,

@@ -145,6 +145,7 @@ func RegisterWarningEscalationListener(
 					model.RestrictionTypeUpload,
 					model.RestrictionTypeChat,
 					model.RestrictionTypeInvite,
+					model.RestrictionTypeFeed,
 				}
 			}
 

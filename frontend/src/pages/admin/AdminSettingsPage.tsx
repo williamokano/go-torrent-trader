@@ -200,6 +200,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
       { value: "upload", label: "Upload" },
       { value: "chat", label: "Chat" },
       { value: "invite", label: "Invite" },
+      { value: "feed", label: "Live feeds" },
       { value: "all", label: "All" },
     ],
   },

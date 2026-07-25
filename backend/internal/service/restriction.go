@@ -229,7 +229,8 @@ func (s *RestrictionService) SyncUserFlag(ctx context.Context, userID int64, res
 
 func isValidRestrictionType(t string) bool {
 	switch t {
-	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat, model.RestrictionTypeInvite:
+	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat,
+		model.RestrictionTypeInvite, model.RestrictionTypeFeed:
 		return true
 	}
 	return false

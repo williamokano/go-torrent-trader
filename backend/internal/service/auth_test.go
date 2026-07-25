@@ -255,6 +255,27 @@ func TestRegister_Success(t *testing.T) {
 	}
 }
 
+// Create writes the struct rather than relying on column defaults, so a
+// privilege left unset at registration is inserted as false. A new member would
+// silently have no live feeds.
+func TestRegister_GrantsFeedAccess(t *testing.T) {
+	repo := newMockUserRepo()
+	sessions := newTestSessionStore()
+	svc := NewAuthService(repo, sessions, newTestPasswordResetStore(), &noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+
+	result, err := svc.Register(context.Background(), RegisterRequest{
+		Username: "testuser",
+		Email:    "test@example.com",
+		Password: "password123",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.User.CanFeed {
+		t.Error("a new member must be able to watch the live feeds")
+	}
+}
+
 // TestRegister_SetsActivatedAtWhenNoConfirmationRequired is part of the
 // regression coverage for BE-8.19: when no email confirmation is required,
 // the account is usable the instant it's created, so ActivatedAt must be

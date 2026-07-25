@@ -8,6 +8,9 @@ const (
 	RestrictionTypeUpload   = "upload"
 	RestrictionTypeChat     = "chat"
 	RestrictionTypeInvite   = "invite"
+	// RestrictionTypeFeed suspends live feed access. Feeds are all-or-nothing:
+	// there is no per-feed restriction, so this covers every one of them.
+	RestrictionTypeFeed = "feed"
 )
 
 // Restriction represents a per-user privilege restriction record.

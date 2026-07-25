@@ -36,6 +36,7 @@ const mockUser = {
   can_upload: true,
   can_chat: true,
   can_invite: true,
+  can_feed: true,
   warned: false,
   donor: false,
   parked: false,
@@ -339,7 +340,7 @@ describe("AdminUserDetailPage", () => {
     expect(screen.getByText("Parked")).toBeInTheDocument();
   });
 
-  test("renders all four privileges as allowed", async () => {
+  test("renders every privilege as allowed", async () => {
     mockFetchResponses();
     renderPage();
 
@@ -349,8 +350,45 @@ describe("AdminUserDetailPage", () => {
     expect(screen.getByText("Download")).toBeInTheDocument();
     expect(screen.getByText("Upload")).toBeInTheDocument();
     expect(screen.getByText("Chat")).toBeInTheDocument();
-    expect(screen.getAllByText("Allowed")).toHaveLength(4);
+    expect(screen.getByText("Live feeds")).toBeInTheDocument();
+    expect(screen.getAllByText("Allowed")).toHaveLength(5);
     expect(screen.queryByText("Suspended")).not.toBeInTheDocument();
+  });
+
+  test("shows a suspended live feed privilege with a restore button", async () => {
+    mockFetchResponses({ can_feed: false });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Suspended")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Allowed")).toHaveLength(4);
+    expect(screen.getByText("Restore")).toBeInTheDocument();
+  });
+
+  test("suspending live feeds submits the feed privilege", async () => {
+    mockFetchResponses();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Suspend live feeds")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByLabelText("Suspend live feeds"));
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "watching from a shared account" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply restrictions" }));
+
+    await waitFor(() => {
+      const putCall = mockFetch.mock.calls.find(
+        ([url, opts]) =>
+          typeof url === "string" &&
+          url.includes("/restrictions") &&
+          opts?.method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      expect(JSON.parse(putCall![1].body).can_feed).toBe(false);
+    });
   });
 
   test("shows suspended invite privilege with restore button", async () => {
@@ -360,7 +398,7 @@ describe("AdminUserDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Suspended")).toBeInTheDocument();
     });
-    expect(screen.getAllByText("Allowed")).toHaveLength(3);
+    expect(screen.getAllByText("Allowed")).toHaveLength(4);
     expect(screen.getByText("Restore")).toBeInTheDocument();
   });
 

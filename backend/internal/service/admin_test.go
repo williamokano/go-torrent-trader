@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1203,5 +1205,69 @@ func TestAdminListUsers_WithLastAccess(t *testing.T) {
 	}
 	if views[0].LastAccess == nil {
 		t.Error("expected LastAccess to be set")
+	}
+}
+
+// A client written before can_feed existed omits the key. Reading that as false
+// would revoke the live feeds for a whole class on an unrelated edit — which is
+// exactly why can_self_approve was kept out of this request shape.
+func TestUpdateGroupKeepsCanFeedWhenTheRequestOmitsIt(t *testing.T) {
+	existing := &model.Group{ID: 5, Name: "Power User", Slug: "power", CanFeed: true}
+
+	group, err := normalizeGroupInput(GroupWriteRequest{
+		Name: "Power User", Slug: "power", Level: 10,
+	}, existing)
+	if err != nil {
+		t.Fatalf("normalizeGroupInput: %v", err)
+	}
+	if !group.CanFeed {
+		t.Fatal("an edit that says nothing about the feeds must not take them away")
+	}
+}
+
+func TestUpdateGroupHonoursAnExplicitCanFeed(t *testing.T) {
+	existing := &model.Group{ID: 5, Name: "Power User", Slug: "power", CanFeed: true}
+	revoke := false
+
+	group, err := normalizeGroupInput(GroupWriteRequest{
+		Name: "Power User", Slug: "power", CanFeed: &revoke,
+	}, existing)
+	if err != nil {
+		t.Fatalf("normalizeGroupInput: %v", err)
+	}
+	if group.CanFeed {
+		t.Fatal("an explicit false must revoke the class's feeds")
+	}
+}
+
+// A new class gets the feeds unless it says otherwise, matching the column
+// default rather than Go's zero value.
+func TestCreateGroupGrantsCanFeedByDefault(t *testing.T) {
+	group, err := normalizeGroupInput(GroupWriteRequest{Name: "New", Slug: "new"}, nil)
+	if err != nil {
+		t.Fatalf("normalizeGroupInput: %v", err)
+	}
+	if !group.CanFeed {
+		t.Fatal("a new class must get the live feeds by default")
+	}
+}
+
+// The admin user panel renders "Allowed" or "Suspended" straight from this
+// field. Omitting it made every user on the site read as suspended — an
+// undefined boolean is falsy — with a Restore button that changed nothing.
+func TestAdminUserViewCarriesFeedAccess(t *testing.T) {
+	for _, canFeed := range []bool{true, false} {
+		svc := &AdminService{}
+		view := svc.userToView(&model.User{ID: 1, Username: "member", CanFeed: canFeed}, "User")
+		if view.CanFeed != canFeed {
+			t.Fatalf("CanFeed = %v, want %v", view.CanFeed, canFeed)
+		}
+		encoded, err := json.Marshal(view)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if !strings.Contains(string(encoded), `"can_feed"`) {
+			t.Fatalf("admin user view omits can_feed: %s", encoded)
+		}
 	}
 }

@@ -16,7 +16,7 @@ import (
 const userColumns = `id, username, email, password_hash, password_scheme, passkey,
 	group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 	ip, last_login, last_access, invites, bonus_points, warned, warn_until, donor,
-	invited_by, can_download, can_upload, can_chat, can_forum, can_invite, disabled_until,
+	invited_by, can_download, can_upload, can_chat, can_forum, can_invite, can_feed, disabled_until,
 	activated_at, created_at, updated_at`
 
 // UserRepo implements repository.UserRepository using PostgreSQL.
@@ -41,7 +41,7 @@ func scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
 		&u.GroupID, &u.Uploaded, &u.Downloaded, &u.Avatar, &u.Title, &u.Info,
 		&u.Enabled, &u.Parked, &u.IP, &u.LastLogin, &u.LastAccess,
 		&u.Invites, &u.BonusPoints, &u.Warned, &u.WarnUntil, &u.Donor,
-		&u.InvitedBy, &u.CanDownload, &u.CanUpload, &u.CanChat, &u.CanForum, &u.CanInvite,
+		&u.InvitedBy, &u.CanDownload, &u.CanUpload, &u.CanChat, &u.CanForum, &u.CanInvite, &u.CanFeed,
 		&u.DisabledUntil, &u.ActivatedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -111,11 +111,11 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 		username, email, password_hash, password_scheme, passkey,
 		group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 		ip, last_login, last_access, invites, warned, warn_until, donor, invited_by,
-		can_download, can_upload, can_chat, can_forum, can_invite, disabled_until, activated_at
+		can_download, can_upload, can_chat, can_forum, can_invite, can_feed, disabled_until, activated_at
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 		$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-		$22, $23, $24, $25, $26, $27, $28
+		$22, $23, $24, $25, $26, $27, $28, $29
 	) RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -123,7 +123,7 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 		user.GroupID, user.Uploaded, user.Downloaded, user.Avatar, user.Title,
 		user.Info, user.Enabled, user.Parked, user.IP, user.LastLogin,
 		user.LastAccess, user.Invites, user.Warned, user.WarnUntil, user.Donor,
-		user.InvitedBy, user.CanDownload, user.CanUpload, user.CanChat, user.CanForum, user.CanInvite, user.DisabledUntil,
+		user.InvitedBy, user.CanDownload, user.CanUpload, user.CanChat, user.CanForum, user.CanInvite, user.CanFeed, user.DisabledUntil,
 		user.ActivatedAt,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 }
@@ -204,6 +204,8 @@ func privilegeFlagColumn(restrictionType string) (string, bool) {
 		return "can_chat", true
 	case model.RestrictionTypeInvite:
 		return "can_invite", true
+	case model.RestrictionTypeFeed:
+		return "can_feed", true
 	default:
 		return "", false
 	}
@@ -472,4 +474,21 @@ func (r *UserRepo) IncrementStats(ctx context.Context, id int64, uploadedDelta, 
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// CanFeed reports the user's own live-feed flag and their group, in one read.
+//
+// A narrow query rather than GetByID: this runs on every live-feed connect and
+// on every feed listing, and it has no business loading a whole user row —
+// including the password hash — to answer a boolean.
+func (r *UserRepo) CanFeed(ctx context.Context, userID int64) (bool, int64, error) {
+	var canFeed bool
+	var groupID int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT can_feed, group_id FROM users WHERE id = $1`, userID,
+	).Scan(&canFeed, &groupID)
+	if err != nil {
+		return false, 0, fmt.Errorf("read user feed access: %w", err)
+	}
+	return canFeed, groupID, nil
 }

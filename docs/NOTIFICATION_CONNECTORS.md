@@ -283,12 +283,18 @@ Table `notification_connectors`:
 - **sse**: `{ slug }` — the feed's URL segment. Several feeds can exist, each with
   its own filters: one carrying everything, another everything except a category.
 
-  **A feed's filters are a presentation choice, not an access control.** Every
-  authenticated member may open any feed's stream, and every enabled feed's name
-  is listed to every member by `GET /api/v1/announce-feeds`. A feed filtered to
-  staff-only categories would still be listed and still be subscribable — it
-  narrows what a feed carries, it does not decide who may read it. Per-feed group
-  gating would be a separate change (see BE-10.8 below).
+  **A feed's filters are a presentation choice, not an access control.** They
+  narrow what a feed carries; they do not decide who may read it. Access is one
+  privilege across every feed — `can_feed`, granted by class and revocable per
+  member (BE-10.8) — so a member either gets the live feeds or does not. A feed
+  filtered to staff-only categories is still visible to anyone holding
+  `can_feed`; filters are not the place to express that.
+
+  Revoking `can_feed` closes the member's open streams, because the gate runs at
+  connect and a stream held open would otherwise outlive the privilege. Editing a
+  class's `can_feed` disconnects every watcher rather than just that class's, for
+  the same reason and because the hub keys clients by user, not by group — they
+  reconnect within seconds and are re-checked.
 
   Renaming or deleting a feed disconnects every watcher, on purpose: the hub keys
   watchers by slug, so a freed slug later taken by another feed would otherwise
@@ -408,8 +414,9 @@ package (it already runs digests, cleanup, bonus, backups).
 4. **SSE live feed (internal, authenticated).** `GET /api/v1/announce-stream`
    (SSE) — members enroll and receive published torrents in real time. Reuses the
    WS-hub fan-out pattern (like `ChatHub`); SSE is preferred over WebSocket for a
-   one-directional broadcast (per `docs/FUTURE_WORK.md`). This is the natural seam
-   for the future per-user relay (§9): same `Announcement`, filtered per subscriber.
+   one-directional broadcast (per `docs/FUTURE_WORK.md`). This is the seam
+   several named feeds are built on: same `Announcement`, one client set per
+   feed.
 5. **Discord.** Incoming-webhook POST (an embed). Effectively a specialized
    webhook connector with Discord formatting.
 6. **Telegram.** Bot API `sendMessage` to configured chat id(s).
@@ -423,14 +430,20 @@ New admin page **Notifications → Connectors** (admin-only):
 - **Test send** button (delivers a sample announcement; shows the result).
 - Delivery log / recent failures per instance.
 
-## 9. Future: per-user relay (explicitly deferred)
+## 9. Per-user relay — dropped
 
-Once the connector + `Announcement` + SSE feed exist, let **users** subscribe to
-their *own* filtered stream of events (categories, uploaders, metadata, "my
-torrents") delivered to a channel they own — their own webhook, the SSE feed, or a
-DM. It reuses the exact same `Announcement` and dispatcher, scoped per-user with
-per-user filters and per-user rate limits. Out of scope for the first pass; IRC and
-chat are the priority.
+This was to let **users** subscribe to their own filtered stream of events
+delivered to a channel they own — their own webhook, the SSE feed, or a DM.
+
+**Dropped by operator decision (2026-07-25).** The live feeds cover the need:
+several can exist, each with its own filters and its own URL, and a member picks
+one. A per-user relay would have meant per-user filters, per-user rate limits and
+a per-user delivery log — a second copy of the whole pipeline, aimed at a want
+nobody had expressed.
+
+Nothing was built for it, and nothing is left behind: the only concession the
+design ever made was keeping `Announcement.Event` a plain string, which is worth
+having anyway so later event kinds (forum posts, news) can widen it.
 
 ## 10. Security & ops checklist
 
@@ -465,8 +478,7 @@ framework up front:
   fan-out; graceful reconnect/fallback. FE: an opt-in "live releases" view.
 - **Phase 4 — Discord + Telegram.** Both are thin specializations of the webhook /
   bot-POST path once Phase 1 exists.
-- **Phase 5 (future) — per-user relay.** Per-user subscriptions + filters over the
-  same `Announcement`/SSE machinery (§9).
+- **Phase 5 — per-user relay: dropped** (§9). The multi-feed live stream covers it.
 
 ## 12. Open questions
 

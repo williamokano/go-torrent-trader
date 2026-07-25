@@ -38,5 +38,10 @@ func PermissionsFromGroup(g *Group) Permissions {
 		IsModerator:    g.IsModerator,
 		IsImmune:       g.IsImmune,
 		CanSelfApprove: g.CanSelfApprove,
+		// CanFeed is deliberately absent. It would carry only the class half of
+		// live feed access, so it would be wrong for any member whose own flag
+		// was revoked, and stale the moment the class was edited — an inviting
+		// but incorrect thing for a caller to branch on. FeedAccessService reads
+		// the live rows instead.
 	}
 }

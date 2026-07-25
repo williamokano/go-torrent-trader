@@ -29,16 +29,20 @@ type User struct {
 	// ActivatedAt requires no follow-up request, so it stays nil precisely for
 	// registrations that were never activated at all. This is what the
 	// cleanup worker's expired-registration purge (BE-8.19) keys off of.
-	ActivatedAt   *time.Time
-	Invites       int
-	BonusPoints   int64
-	Warned        bool
-	WarnUntil     *time.Time
-	Donor         bool
-	InvitedBy     *int64
-	CanDownload   bool
-	CanUpload     bool
-	CanChat       bool
+	ActivatedAt *time.Time
+	Invites     int
+	BonusPoints int64
+	Warned      bool
+	WarnUntil   *time.Time
+	Donor       bool
+	InvitedBy   *int64
+	CanDownload bool
+	CanUpload   bool
+	CanChat     bool
+	// CanFeed is the per-user half of live feed access: the class grants it,
+	// and a restriction can take it away from one member without moving them
+	// out of their class.
+	CanFeed       bool
 	CanForum      bool
 	CanInvite     bool
 	DisabledUntil *time.Time

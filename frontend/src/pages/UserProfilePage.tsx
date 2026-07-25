@@ -44,6 +44,7 @@ interface PublicUser {
   can_download: boolean;
   can_upload: boolean;
   can_chat: boolean;
+  can_feed?: boolean;
   can_invite: boolean;
   recent_uploads?: Array<{
     id: number;
@@ -396,7 +397,8 @@ export function UserProfilePage() {
         (profile.can_download === false ||
           profile.can_upload === false ||
           profile.can_chat === false ||
-          profile.can_invite === false) && (
+          profile.can_invite === false ||
+          profile.can_feed === false) && (
           <div className="profile-restrictions">
             <h2 className="profile-restrictions__title">Active Restrictions</h2>
             {profile.can_download === false && (
@@ -420,6 +422,12 @@ export function UserProfilePage() {
             {profile.can_invite === false && (
               <p className="profile-restrictions__item profile-restrictions__item--suspended">
                 {isOwnProfile ? "Your" : "This user's"} invite privileges are
+                currently suspended.
+              </p>
+            )}
+            {profile.can_feed === false && (
+              <p className="profile-restrictions__item profile-restrictions__item--suspended">
+                {isOwnProfile ? "Your" : "This user's"} live feed access is
                 currently suspended.
               </p>
             )}

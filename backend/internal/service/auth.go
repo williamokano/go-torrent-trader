@@ -308,6 +308,10 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		CanChat:        true,
 		CanForum:       true,
 		CanInvite:      true,
+		// Set here as well as defaulted in the schema: Create writes the struct,
+		// so a field left zero inserts false and the column default never
+		// applies. A new member would silently have no live feeds.
+		CanFeed: true,
 	}
 
 	// No confirmation step means the account is usable the instant it's

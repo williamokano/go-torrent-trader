@@ -11,6 +11,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
+	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -43,7 +44,7 @@ func newFeedsHandler(t *testing.T, repo *feedListRepo) *AnnounceFeedsHandler {
 	registry := connector.NewRegistry()
 	registry.Register(sse.New(func(string, string, []byte) {}))
 	svc := service.NewConnectorService(repo, nil, registry, event.NewInMemoryBus(), "https://tracker.test")
-	return NewAnnounceFeedsHandler(svc)
+	return NewAnnounceFeedsHandler(svc, &stubFeedsAccess{allowed: true})
 }
 
 func TestAnnounceFeedsListsEnabledFeeds(t *testing.T) {
@@ -57,7 +58,7 @@ func TestAnnounceFeedsListsEnabledFeeds(t *testing.T) {
 	}})
 
 	rec := httptest.NewRecorder()
-	h.HandleList(rec, httptest.NewRequest(http.MethodGet, "/api/v1/announce-feeds", nil))
+	h.HandleList(rec, authedRequest())
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -90,7 +91,7 @@ func TestAnnounceFeedsExposeNoConfiguration(t *testing.T) {
 	}})
 
 	rec := httptest.NewRecorder()
-	h.HandleList(rec, httptest.NewRequest(http.MethodGet, "/api/v1/announce-feeds", nil))
+	h.HandleList(rec, authedRequest())
 
 	for _, leak := range []string{"filters", "config", "rate_per_min", "category_ids", "exclude"} {
 		if strings.Contains(rec.Body.String(), leak) {
@@ -103,9 +104,73 @@ func TestAnnounceFeedsReportsARepositoryFailure(t *testing.T) {
 	h := newFeedsHandler(t, &feedListRepo{err: context.DeadlineExceeded})
 
 	rec := httptest.NewRecorder()
-	h.HandleList(rec, httptest.NewRequest(http.MethodGet, "/api/v1/announce-feeds", nil))
+	h.HandleList(rec, authedRequest())
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+}
+
+type stubFeedsAccess struct {
+	allowed bool
+	err     error
+}
+
+func (s *stubFeedsAccess) Allowed(context.Context, int64) (bool, error) {
+	return s.allowed, s.err
+}
+
+// authedRequest carries the user id the auth middleware would have put there.
+func authedRequest() *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/announce-feeds", nil)
+	return req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, int64(7)))
+}
+
+func TestAnnounceFeedsRefusesAMemberWithoutAccess(t *testing.T) {
+	// Listing feeds to someone who cannot open any of them would offer a page
+	// that only ever fails.
+	registry := connector.NewRegistry()
+	registry.Register(sse.New(func(string, string, []byte) {}))
+	svc := service.NewConnectorService(&feedListRepo{}, nil, registry, event.NewInMemoryBus(), "https://tracker.test")
+	h := NewAnnounceFeedsHandler(svc, &stubFeedsAccess{allowed: false})
+
+	rec := httptest.NewRecorder()
+	h.HandleList(rec, authedRequest())
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestAnnounceFeedsRefusesWhenTheGateFails(t *testing.T) {
+	registry := connector.NewRegistry()
+	registry.Register(sse.New(func(string, string, []byte) {}))
+	svc := service.NewConnectorService(&feedListRepo{}, nil, registry, event.NewInMemoryBus(), "https://tracker.test")
+	h := NewAnnounceFeedsHandler(svc, &stubFeedsAccess{allowed: true, err: context.DeadlineExceeded})
+
+	rec := httptest.NewRecorder()
+	h.HandleList(rec, authedRequest())
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), `"feeds"`) {
+		t.Fatalf("a failed gate must not return a feed list: %s", rec.Body)
+	}
+}
+
+// The route sits behind auth, so a request with no user id means the middleware
+// chain changed under it — refusing beats listing to an unknown caller.
+func TestAnnounceFeedsRefusesAnUnidentifiedCaller(t *testing.T) {
+	registry := connector.NewRegistry()
+	registry.Register(sse.New(func(string, string, []byte) {}))
+	svc := service.NewConnectorService(&feedListRepo{}, nil, registry, event.NewInMemoryBus(), "https://tracker.test")
+	h := NewAnnounceFeedsHandler(svc, &stubFeedsAccess{allowed: true})
+
+	rec := httptest.NewRecorder()
+	h.HandleList(rec, httptest.NewRequest(http.MethodGet, "/api/v1/announce-feeds", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }

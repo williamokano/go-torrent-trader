@@ -51,6 +51,11 @@ const STATE_LABELS: Record<StreamState, string> = {
 
 export function LiveReleasesPage() {
   const [feeds, setFeeds] = useState<Feed[]>([]);
+  // EventSource cannot read a status code — a 403 reaches it as an
+  // indistinguishable onerror, so the page would retry every few seconds
+  // forever and show "reconnecting" to someone who is never getting in. The
+  // feed list answers with a real status, so that is where access is read.
+  const [denied, setDenied] = useState(false);
   // The feed lives in the URL rather than in state, so a feed can be linked to
   // and the back button moves between them.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -63,8 +68,20 @@ export function LiveReleasesPage() {
     requested && feeds.length > 0 && selected !== requested,
   );
 
-  const { announcements, state } = useAnnounceStream(selected);
+  // No stream is opened for a member who may not watch: it would be refused,
+  // and retried, and refused again.
+  const { announcements, state, reconnects } = useAnnounceStream(
+    denied ? undefined : selected,
+    {
+      enabled: !denied,
+    },
+  );
 
+  // Re-read on every reconnect, not only at mount. Access can be revoked while
+  // the page is open: the server closes the stream, and without this the page
+  // would retry every few seconds forever, reading "reconnecting" to someone who
+  // is never getting back in. It recovers the same way — access restored, the
+  // next attempt succeeds and the denial clears.
   useEffect(() => {
     let cancelled = false;
 
@@ -75,9 +92,23 @@ export function LiveReleasesPage() {
           `${getConfig().API_URL}/api/v1/announce-feeds`,
           token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
         );
-        if (!res.ok) return;
+        if (res.status === 403) {
+          // Distinguished by code rather than status alone: a future middleware
+          // could 403 for something that has nothing to do with feed access.
+          const body = await res.json().catch(() => null);
+          if (!cancelled && body?.error?.code === "forbidden") setDenied(true);
+          return;
+        }
+        if (!res.ok) {
+          // A server-side failure is not a refusal — keep whatever the page has
+          // and let the stream retry.
+          return;
+        }
         const data = await res.json();
-        if (!cancelled) setFeeds(data.feeds ?? []);
+        if (!cancelled) {
+          setDenied(false);
+          setFeeds(data.feeds ?? []);
+        }
       } catch {
         // The picker is an extra: without it the page still watches the default
         // feed, which is what it did before feeds existed.
@@ -88,7 +119,7 @@ export function LiveReleasesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reconnects]);
 
   return (
     <div className="live">
@@ -101,7 +132,7 @@ export function LiveReleasesPage() {
           </p>
         </div>
         <div className="live__controls">
-          {feeds.length > 1 && (
+          {!denied && feeds.length > 1 && (
             <label className="live__feed">
               <span className="live__feed-label">Feed</span>
               <select
@@ -125,17 +156,26 @@ export function LiveReleasesPage() {
               </select>
             </label>
           )}
-          <span
-            className={`live__status live__status--${state}`}
-            role="status"
-            aria-live="polite"
-          >
-            {STATE_LABELS[state]}
-          </span>
+          {!denied && (
+            <span
+              className={`live__status live__status--${state}`}
+              role="status"
+              aria-live="polite"
+            >
+              {STATE_LABELS[state]}
+            </span>
+          )}
         </div>
       </div>
 
-      {missing && (
+      {denied ? (
+        <p className="live__denied" role="status" aria-live="polite">
+          Your account does not have access to the live feeds. Ask a staff
+          member if you think that is wrong.
+        </p>
+      ) : null}
+
+      {!denied && missing && (
         <p className="live__missing" role="status">
           That feed no longer exists — showing{" "}
           {feeds.find((feed) => feed.slug === selected)?.name ?? selected}{" "}
@@ -143,7 +183,7 @@ export function LiveReleasesPage() {
         </p>
       )}
 
-      {announcements.length === 0 ? (
+      {denied ? null : announcements.length === 0 ? (
         <p className="live__empty">Waiting for releases…</p>
       ) : (
         <ul className="live__list">

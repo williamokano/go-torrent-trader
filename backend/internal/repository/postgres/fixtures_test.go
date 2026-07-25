@@ -50,6 +50,7 @@ func newUser(t *testing.T, db *sql.DB) *model.User {
 		CanUpload:      true,
 		CanChat:        true,
 		CanForum:       true,
+		CanFeed:        true,
 	}
 	if err := NewUserRepo(db).Create(context.Background(), u); err != nil {
 		t.Fatalf("creating user: %v", err)

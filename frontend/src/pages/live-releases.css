@@ -130,3 +130,8 @@
   color: var(--color-text-muted);
   font-style: italic;
 }
+
+/* Shown to a member whose account has no live feed access. */
+.live__denied {
+  color: var(--color-text-muted);
+}

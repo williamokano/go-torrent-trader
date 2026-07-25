@@ -222,7 +222,7 @@ func newAdminDeps() *adminDeps {
 	return d
 }
 
-func (d *adminDeps) handler() *AdminHandler { return NewAdminHandler(d.svc) }
+func (d *adminDeps) handler() *AdminHandler { return NewAdminHandler(d.svc, nil) }
 
 // --- user detail ------------------------------------------------------------
 
