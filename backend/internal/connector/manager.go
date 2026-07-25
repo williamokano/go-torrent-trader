@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -35,9 +36,15 @@ const (
 	// owner has gone away.
 	acquireBackoffMin = 5 * time.Second
 	acquireBackoffMax = 60 * time.Second
+	// healthyRunDuration is how long a connection must last to count as a
+	// success worth resetting the backoff for.
+	healthyRunDuration = time.Minute
 	// stopGrace bounds how long a stopping instance is waited for, so one wedged
-	// client cannot stall reconciliation for the others.
-	stopGrace = 5 * time.Second
+	// client cannot stall reconciliation for the others. It is comfortably
+	// longer than a client's own shutdown grace (irc's quitGrace is 3s), so the
+	// client is the one that gives up first and the normal path is a clean stop
+	// rather than a race between two timeouts.
+	stopGrace = 10 * time.Second
 	// defaultConfirmInterval is how often the owner re-proves it still holds the
 	// lock. The window between the lock actually being lost and us noticing is
 	// the window in which two nodes could both be announcing, so it stays short.
@@ -89,15 +96,25 @@ type Manager struct {
 	// kinds remembers each managed instance's kind so Status can find its
 	// connector without going back to the database on every poll.
 	kinds map[int64]string
+	// generation increments per supervisor start; see managed.generation.
+	generation uint64
 
 	// reconcile carries a nudge from the event bus to the run loop. Buffered
 	// depth 1: several changes arriving together only need one reconcile.
 	reconcile chan struct{}
+	// done is closed when Run returns, so shutdown can wait for the clients to
+	// disconnect before the database pool goes away.
+	done chan struct{}
 }
 
 type managed struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	// generation identifies this supervisor. If waitForStop ever times out, the
+	// replacement starts while the old one is still winding down, and the old
+	// one's final "stopped" would otherwise overwrite the new one's "connected"
+	// — leaving the panel showing a dead badge for a healthy connection.
+	generation uint64
 	// fingerprint detects an edit, so an unchanged instance is not needlessly
 	// disconnected and reconnected on every reconcile.
 	fingerprint string
@@ -114,14 +131,22 @@ func NewManager(repo repository.ConnectorRepository, registry *Registry, newLeas
 		status:          make(map[int64]ManagerStatus),
 		kinds:           make(map[int64]string),
 		reconcile:       make(chan struct{}, 1),
+		done:            make(chan struct{}),
 	}
 }
+
+// Done is closed once Run has finished stopping everything. Shutdown waits on
+// it, because the IRC clients need to send QUIT and their advisory locks live
+// on connections from the database pool — both are gone the moment the process
+// tears those down.
+func (m *Manager) Done() <-chan struct{} { return m.done }
 
 // Run reconciles until ctx is cancelled, then stops every instance.
 //
 // The periodic tick is a backstop, not the mechanism: config changes arrive as
 // events and reconcile immediately.
 func (m *Manager) Run(ctx context.Context) {
+	defer close(m.done)
 	m.reconcileOnce(ctx)
 
 	ticker := time.NewTicker(time.Minute)
@@ -223,7 +248,10 @@ func (m *Manager) reconcileOnce(ctx context.Context) {
 		delete(m.running, id)
 		if !keep {
 			delete(m.kinds, id)
-			m.status[id] = ManagerStatus{State: StateStopped, Since: time.Now()}
+			// Drop the status too: a deleted instance should stop being
+			// reported, and keeping it would grow the map without bound over
+			// create/delete cycles.
+			delete(m.status, id)
 		}
 	}
 	toStart := make([]model.NotificationConnector, 0, len(wanted))
@@ -261,21 +289,25 @@ func (m *Manager) start(ctx context.Context, inst model.NotificationConnector) {
 	done := make(chan struct{})
 
 	m.mu.Lock()
-	m.running[inst.ID] = &managed{cancel: cancel, done: done, fingerprint: fingerprint(inst)}
+	m.generation++
+	generation := m.generation
+	m.running[inst.ID] = &managed{
+		cancel: cancel, done: done, generation: generation, fingerprint: fingerprint(inst),
+	}
 	m.kinds[inst.ID] = inst.Kind
 	m.mu.Unlock()
 
-	m.setStatus(inst.ID, StateAcquiring, "")
+	m.setStatus(inst.ID, generation, StateAcquiring, "")
 
 	go func() {
 		defer close(done)
-		m.supervise(instCtx, inst)
+		m.supervise(instCtx, inst, generation)
 	}()
 }
 
 // supervise runs the acquire → own → run → lose cycle for one instance until
 // its context is cancelled.
-func (m *Manager) supervise(ctx context.Context, inst model.NotificationConnector) {
+func (m *Manager) supervise(ctx context.Context, inst model.NotificationConnector, generation uint64) {
 	backoff := acquireBackoffMin
 
 	for ctx.Err() == nil {
@@ -283,9 +315,9 @@ func (m *Manager) supervise(ctx context.Context, inst model.NotificationConnecto
 
 		acquired, err := lease.TryAcquire(ctx)
 		if err != nil {
-			m.setStatus(inst.ID, StateError, fmt.Sprintf("acquiring ownership: %v", err))
+			m.setStatus(inst.ID, generation, StateError, fmt.Sprintf("acquiring ownership: %v", err))
 		} else if !acquired {
-			m.setStatus(inst.ID, StateNotOwner, "")
+			m.setStatus(inst.ID, generation, StateNotOwner, "")
 		}
 		if err != nil || !acquired {
 			if !sleepCtx(ctx, backoff) {
@@ -295,11 +327,21 @@ func (m *Manager) supervise(ctx context.Context, inst model.NotificationConnecto
 			continue
 		}
 
-		backoff = acquireBackoffMin
-		m.runOwned(ctx, inst, lease)
+		startedAt := time.Now()
+		m.runOwned(ctx, inst, lease, generation)
 		lease.Release()
 
-		if !sleepCtx(ctx, acquireBackoffMin) {
+		// Only a run that actually lasted counts as success. A server refusing
+		// us (connection refused, K-line, bad SASL) returns immediately, and
+		// without this the node would reconnect every five seconds forever —
+		// and thrash the advisory lock, making ownership ping-pong between
+		// nodes that are all failing.
+		if time.Since(startedAt) >= healthyRunDuration {
+			backoff = acquireBackoffMin
+		} else {
+			backoff = nextBackoff(backoff)
+		}
+		if !sleepCtx(ctx, backoff) {
 			return
 		}
 	}
@@ -307,25 +349,39 @@ func (m *Manager) supervise(ctx context.Context, inst model.NotificationConnecto
 
 // runOwned runs the connector while ownership holds, and stops it the moment it
 // cannot be confirmed.
-func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector, lease Lease) {
+func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector, lease Lease, generation uint64) {
 	impl, ok := m.registry.Get(inst.Kind)
 	if !ok {
-		m.setStatus(inst.ID, StateError, fmt.Sprintf("unknown connector kind %q", inst.Kind))
+		m.setStatus(inst.ID, generation, StateError, fmt.Sprintf("unknown connector kind %q", inst.Kind))
 		return
 	}
 	persistent, ok := impl.(PersistentConnector)
 	if !ok {
-		m.setStatus(inst.ID, StateError, fmt.Sprintf("connector kind %q is not persistent", inst.Kind))
+		m.setStatus(inst.ID, generation, StateError, fmt.Sprintf("connector kind %q is not persistent", inst.Kind))
 		return
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// The watchdog is joined, not merely cancelled: it reads the lease's
+	// connection, and supervise calls Release() (which closes that connection)
+	// the moment this function returns. Leaving it running would be a data race
+	// on every path where Start returns for its own reasons.
+	watchdogDone := make(chan struct{})
+	defer func() {
+		cancel()
+		<-watchdogDone
+	}()
 
-	// The ownership watchdog. Losing the lock without noticing is the one
-	// failure that produces two announcing nodes, so an unconfirmable lease
-	// stops the client immediately rather than waiting for anything else.
+	// lostOwnership records why the client was stopped, so the admin sees
+	// "ownership lost: …" rather than the "context canceled" that Start
+	// naturally returns a moment later.
+	var lostOwnership atomic.Bool
+
+	// Losing the lock without noticing is the one failure that produces two
+	// announcing nodes, so an unconfirmable lease stops the client immediately
+	// rather than waiting for anything else.
 	go func() {
+		defer close(watchdogDone)
 		ticker := time.NewTicker(m.confirmInterval)
 		defer ticker.Stop()
 		for {
@@ -336,7 +392,8 @@ func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector
 				if err := lease.Confirm(runCtx); err != nil {
 					slog.Warn("connector manager: lost ownership, stopping client",
 						"instance_id", inst.ID, "error", err)
-					m.setStatus(inst.ID, StateError, fmt.Sprintf("ownership lost: %v", err))
+					lostOwnership.Store(true)
+					m.setStatus(inst.ID, generation, StateError, fmt.Sprintf("ownership lost: %v", err))
 					cancel()
 					return
 				}
@@ -344,7 +401,7 @@ func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector
 		}
 	}()
 
-	m.setStatus(inst.ID, StateConnecting, "")
+	m.setStatus(inst.ID, generation, StateConnecting, "")
 
 	err := func() (err error) {
 		// Third-party client code runs here; a panic must not take the process
@@ -357,17 +414,23 @@ func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector
 		instance := Instance{ID: inst.ID, Name: inst.Name, Config: inst.Config}
 		// Report connected optimistically: Start blocks for the connection's
 		// whole life, and Status() consults the live socket for the real answer.
-		m.setStatus(inst.ID, StateConnected, "")
+		m.setStatus(inst.ID, generation, StateConnected, "")
 		return persistent.Start(runCtx, instance)
 	}()
 
 	switch {
+	case lostOwnership.Load():
+		// The watchdog already recorded the real reason; Start's own
+		// "context canceled" would only bury it.
 	case ctx.Err() != nil:
-		m.setStatus(inst.ID, StateStopped, "")
+		m.setStatus(inst.ID, generation, StateStopped, "")
 	case err != nil:
-		m.setStatus(inst.ID, StateError, err.Error())
+		// This message is served by the admin status endpoint, so it goes
+		// through the same redaction as the delivery log — a panic value from
+		// third-party client code can carry anything.
+		m.setStatus(inst.ID, generation, StateError, RedactError(err, inst.Config, impl.SecretFields()))
 	default:
-		m.setStatus(inst.ID, StateStopped, "")
+		m.setStatus(inst.ID, generation, StateStopped, "")
 	}
 }
 
@@ -391,9 +454,15 @@ func (m *Manager) stopAll() {
 	}
 }
 
-func (m *Manager) setStatus(instanceID int64, state, lastError string) {
+// setStatus records a supervisor's state, ignoring writes from a superseded
+// generation.
+func (m *Manager) setStatus(instanceID int64, generation uint64, state, lastError string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if running, ok := m.running[instanceID]; ok && running.generation != generation {
+		return
+	}
 
 	previous := m.status[instanceID]
 	// Keep Since meaning "in this state since", not "last touched".

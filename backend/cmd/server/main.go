@@ -498,8 +498,14 @@ func run() int {
 			scheduler.Shutdown()
 		}
 		// Before the database pool closes: the IRC clients need to send QUIT,
-		// and their advisory locks live on connections from that pool.
+		// and their advisory locks live on connections from that pool. Cancelling
+		// only asks them to stop, so wait for them to actually finish.
 		stopConnectors()
+		select {
+		case <-connectorManager.Done():
+		case <-time.After(15 * time.Second):
+			slog.Warn("connector manager did not stop in time; locks will be released by session end")
+		}
 	}
 
 	slog.Info("server stopped")

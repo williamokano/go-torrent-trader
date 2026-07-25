@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -52,6 +53,9 @@ const (
 	// is not ready (an IRC client mid-reconnect, or a node that does not own the
 	// connection). Short, because the condition usually clears in seconds.
 	connectorNotReadyRetry = 15 * time.Second
+	// connectorNotReadyJitter spreads the retries of instances recovering from
+	// the same outage.
+	connectorNotReadyJitter = 5 * time.Second
 	// connectorNotReadyMaxAge stops "not ready" from meaning "never": a
 	// destination that has not come up within this window is treated as a real
 	// failure so the row dead-letters instead of being rescheduled forever.
@@ -344,19 +348,7 @@ func recordFailure(
 	// but only up to a bounded age, so a destination that never comes up still
 	// stops eventually.
 	if errors.Is(deliverErr, connector.ErrNotReady) {
-		if time.Since(row.CreatedAt) > connectorNotReadyMaxAge {
-			markFailed(ctx, deps, row, row.Attempts+1,
-				connector.RedactError(deliverErr, rawConfig, secretFields))
-			return 0
-		}
-		next := time.Now().Add(connectorNotReadyRetry)
-		if err := deps.ConnectorDeliveryRepo.MarkFailedAttempt(
-			ctx, row.ID, row.Attempts, connector.RedactError(deliverErr, rawConfig, secretFields), &next,
-		); err != nil {
-			slog.Error("connector drain: failed to reschedule a not-ready delivery",
-				"instance_id", row.InstanceID, "delivery_id", row.ID, "error", err)
-		}
-		return connectorNotReadyRetry
+		return rescheduleNotReady(ctx, deps, row, deliverErr, rawConfig, secretFields)
 	}
 
 	// Every error path funnels through RedactError before it can reach a log
@@ -380,6 +372,53 @@ func recordFailure(
 			"instance_id", row.InstanceID, "delivery_id", row.ID, "error", err)
 	}
 	return backoff
+}
+
+// rescheduleNotReady defers a delivery whose destination is temporarily unable
+// to take it, without consuming a retry attempt.
+//
+// It keeps whatever last_error the row already had: a row that failed four
+// times with "connection refused" and is now merely waiting for a reconnect
+// should still say why it failed, since the delivery log is the only place that
+// history exists.
+func rescheduleNotReady(
+	ctx context.Context,
+	deps *WorkerDeps,
+	row model.ConnectorDelivery,
+	deliverErr error,
+	rawConfig json.RawMessage,
+	secretFields []string,
+) time.Duration {
+	// A row with no creation time cannot be aged out — treat it as new rather
+	// than as two thousand years old, which would dead-letter it immediately.
+	age := time.Duration(0)
+	if !row.CreatedAt.IsZero() {
+		age = time.Since(row.CreatedAt)
+	}
+	if age > connectorNotReadyMaxAge {
+		markFailed(ctx, deps, row, row.Attempts+1,
+			connector.RedactError(deliverErr, rawConfig, secretFields))
+		return 0
+	}
+
+	message := ""
+	if row.LastError != nil {
+		message = *row.LastError
+	} else {
+		message = connector.RedactError(deliverErr, rawConfig, secretFields)
+	}
+
+	// Jittered, so several instances coming back from the same outage do not
+	// all retry on the same tick.
+	delay := connectorNotReadyRetry + time.Duration(rand.Int64N(int64(connectorNotReadyJitter)))
+	next := time.Now().Add(delay)
+	if err := deps.ConnectorDeliveryRepo.MarkFailedAttempt(
+		ctx, row.ID, row.Attempts, message, &next,
+	); err != nil {
+		slog.Error("connector drain: failed to reschedule a not-ready delivery",
+			"instance_id", row.InstanceID, "delivery_id", row.ID, "error", err)
+	}
+	return delay
 }
 
 func markFailed(ctx context.Context, deps *WorkerDeps, row model.ConnectorDelivery, attempts int, message string) {

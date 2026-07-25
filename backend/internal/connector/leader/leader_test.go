@@ -106,8 +106,10 @@ func TestConfirmSucceedsOnALiveSession(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery("pg_try_advisory_lock").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
-	mock.ExpectQuery("SELECT 1").
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	mock.ExpectQuery("pg_locks").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("pg_advisory_unlock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	lease := NewLease(db, 7)
 	if _, err := lease.TryAcquire(context.Background()); err != nil {
@@ -120,13 +122,36 @@ func TestConfirmSucceedsOnALiveSession(t *testing.T) {
 	}
 }
 
+// Confirm asks Postgres whether the lock is still held, so a lock that went
+// away without the session dying is caught. Nothing else can detect that case,
+// and missing it means two nodes announcing in parallel.
+func TestConfirmReportsLossWhenTheLockIsGone(t *testing.T) {
+	db, mock := newMockDB(t)
+	mock.ExpectQuery("pg_try_advisory_lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+	mock.ExpectQuery("pg_locks").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery("pg_advisory_unlock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
+
+	lease := NewLease(db, 7)
+	if _, err := lease.TryAcquire(context.Background()); err != nil {
+		t.Fatalf("TryAcquire: %v", err)
+	}
+	defer lease.Release()
+
+	if err := lease.Confirm(context.Background()); err == nil {
+		t.Fatal("a lock released without the session dying must be reported as lost")
+	}
+}
+
 // The whole safety property: an unprovable lease is a lost lease, and the
 // manager stops announcing the moment this returns an error.
 func TestConfirmFailureSurfaces(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery("pg_try_advisory_lock").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
-	mock.ExpectQuery("SELECT 1").WillReturnError(errors.New("connection reset by peer"))
+	mock.ExpectQuery("pg_locks").WillReturnError(errors.New("connection reset by peer"))
 
 	lease := NewLease(db, 7)
 	if _, err := lease.TryAcquire(context.Background()); err != nil {

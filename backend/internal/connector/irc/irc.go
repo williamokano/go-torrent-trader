@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
@@ -35,6 +36,12 @@ const (
 	// rate_per_min already bounds the overall rate; this is politeness towards
 	// servers that throttle bursts from one client.
 	channelSendDelay = time.Second
+	// maxChannels bounds one instance, because the pacing above has to fit
+	// inside the pipeline's per-delivery timeout. Beyond this the delivery
+	// could never finish, so it is refused at save time rather than
+	// dead-lettering every announcement later. More channels than this is what
+	// a second instance is for.
+	maxChannels = 8
 )
 
 // Channel is one target channel, optionally narrowed to some categories.
@@ -66,16 +73,27 @@ type Config struct {
 // config.
 type Connector struct {
 	mu      sync.RWMutex
-	clients map[int64]ircConn
+	clients map[int64]*client
 	dial    dialer
 	// sendDelay is the pause between channels, lowered in tests.
 	sendDelay time.Duration
 }
 
+// client is one instance's live connection plus whether it is registered.
+//
+// The two are tracked separately because the library reports its socket as
+// connected during the CAP/SASL handshake, when the server would answer a
+// PRIVMSG with ERR_NOTREGISTERED and drop it — which would mark the delivery
+// sent while nothing arrived.
+type client struct {
+	conn  ircConn
+	ready atomic.Bool
+}
+
 // New creates the IRC connector.
 func New() *Connector {
 	return &Connector{
-		clients:   make(map[int64]ircConn),
+		clients:   make(map[int64]*client),
 		dial:      newErgoConn,
 		sendDelay: channelSendDelay,
 	}
@@ -109,6 +127,9 @@ func (c *Connector) ValidateConfig(cfg json.RawMessage) error {
 	if len(parsed.Channels) == 0 {
 		return fmt.Errorf("at least one channel is required")
 	}
+	if len(parsed.Channels) > maxChannels {
+		return fmt.Errorf("at most %d channels per instance (add another instance for more)", maxChannels)
+	}
 	seen := make(map[string]bool, len(parsed.Channels))
 	for _, channel := range parsed.Channels {
 		if err := validateChannelName(channel.Name); err != nil {
@@ -133,12 +154,18 @@ func (c *Connector) Start(ctx context.Context, inst connector.Instance) error {
 		return err
 	}
 
-	defer c.forget(inst.ID)
-	return run(ctx, cfg, c.dial, func(conn ircConn) {
-		c.mu.Lock()
-		c.clients[inst.ID] = conn
-		c.mu.Unlock()
-	})
+	entry := &client{}
+	defer c.forget(inst.ID, entry)
+
+	return run(ctx, cfg, c.dial,
+		func(conn ircConn) {
+			entry.conn = conn
+			c.mu.Lock()
+			c.clients[inst.ID] = entry
+			c.mu.Unlock()
+		},
+		entry.ready.Store,
+	)
 }
 
 // Deliver writes one line per matching channel on the instance's live client.
@@ -153,12 +180,15 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 	}
 
 	c.mu.RLock()
-	conn := c.clients[inst.ID]
+	entry := c.clients[inst.ID]
 	c.mu.RUnlock()
 
-	if conn == nil || !conn.Connected() {
-		return fmt.Errorf("%w: irc client for instance %d is not connected", connector.ErrNotReady, inst.ID)
+	// Gated on registration, not on the socket: writing during the handshake
+	// would be silently discarded by the server while Privmsg reported success.
+	if entry == nil || !entry.ready.Load() {
+		return fmt.Errorf("%w: irc client for instance %d is not registered", connector.ErrNotReady, inst.ID)
 	}
+	conn := entry.conn
 
 	tmpl := cfg.Template
 	if a.Coalesced > 0 {
@@ -167,11 +197,10 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 		tmpl = DefaultTemplate
 	}
 
-	line, err := connector.RenderTemplate(tmpl, sanitizeAnnouncement(a))
+	line, err := renderLine(tmpl, a)
 	if err != nil {
 		return err
 	}
-	line = truncateLine(sanitizeLine(line), maxLineBytes)
 
 	targets := matchingChannels(cfg.Channels, a)
 	if len(targets) == 0 {
@@ -181,39 +210,105 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 		return nil
 	}
 
+	// A partial failure re-sends to the channels already reached when the row is
+	// retried. Delivery is at-least-once throughout the pipeline, and tracking
+	// per-channel progress would need per-target state on the delivery row for
+	// a duplicate line in a chat channel.
 	for i, target := range targets {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(c.sendDelay):
-			}
+		if i > 0 && !pause(ctx, c.sendDelay) {
+			return ctx.Err()
 		}
-		if err := conn.Privmsg(target, line); err != nil {
+		// The target comes from stored config, so it is sanitised here too
+		// rather than trusting it was validated on the way in.
+		if err := conn.Privmsg(sanitizeLine(target), line); err != nil {
 			return fmt.Errorf("irc privmsg to %s: %w", target, err)
 		}
 	}
 	return nil
 }
 
-// Status reports whether the instance currently has a live connection, for the
-// admin panel's badge.
+// pause waits between channel sends, reporting false if the context ended.
+func pause(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// renderLine renders and fits an announcement into one IRC line.
+//
+// When it does not fit, the *name* is shortened rather than the finished line:
+// the default template puts the URL last, so truncating the line would drop the
+// one part a reader needs.
+func renderLine(tmpl string, a connector.Announcement) (string, error) {
+	safe := sanitizeAnnouncement(a)
+
+	line, err := connector.RenderTemplate(tmpl, safe)
+	if err != nil {
+		return "", err
+	}
+	line = sanitizeLine(line)
+	if len(line) <= maxLineBytes {
+		return line, nil
+	}
+
+	overflow := len(line) - maxLineBytes
+	if len(safe.Name) > overflow {
+		safe.Name = truncateText(safe.Name, len(safe.Name)-overflow)
+		if line, err = connector.RenderTemplate(tmpl, safe); err != nil {
+			return "", err
+		}
+		line = sanitizeLine(line)
+	}
+	// Belt and braces: a template that ignores .Name, or a name that was
+	// already short, can still overrun.
+	return truncateText(line, maxLineBytes), nil
+}
+
+// Connected reports whether the instance is registered and able to announce,
+// which is what the admin panel's badge should reflect.
 func (c *Connector) Connected(instanceID int64) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	conn := c.clients[instanceID]
-	return conn != nil && conn.Connected()
+	entry := c.clients[instanceID]
+	return entry != nil && entry.ready.Load()
 }
 
-func (c *Connector) forget(instanceID int64) {
+// forget drops the instance's client, but only if it is still the one this run
+// published. The manager stops the old client before starting a replacement, so
+// this cannot normally collide — but a late-returning Start must never delete
+// its successor's entry and leave every delivery reporting not-ready.
+func (c *Connector) forget(instanceID int64, entry *client) {
+	entry.ready.Store(false)
 	c.mu.Lock()
-	delete(c.clients, instanceID)
+	if c.clients[instanceID] == entry {
+		delete(c.clients, instanceID)
+	}
 	c.mu.Unlock()
 }
 
 // matchingChannels picks the channels this announcement belongs in. A channel
 // with no categories takes everything.
+//
+// A coalesced summary goes to every channel: it stands for a batch that may
+// span several categories, and routing it by the one representative row's
+// category would silently drop the announcement for all the others.
 func matchingChannels(channels []Channel, a connector.Announcement) []string {
+	if a.Coalesced > 0 {
+		targets := make([]string, 0, len(channels))
+		for _, channel := range channels {
+			targets = append(targets, channel.Name)
+		}
+		return targets
+	}
+
 	var targets []string
 	for _, channel := range channels {
 		if len(channel.Categories) == 0 {
@@ -239,12 +334,12 @@ func matchingChannels(channels []Channel, a connector.Announcement) []string {
 // command from our authenticated bot. Sanitising the inputs rather than the
 // output means a custom template cannot reintroduce the hole.
 func sanitizeAnnouncement(a connector.Announcement) connector.Announcement {
+	// Only the fields RenderContext exposes to a template; sanitising the rest
+	// would be work nothing can reach.
 	a.Name = sanitizeLine(a.Name)
 	a.Category = sanitizeLine(a.Category)
 	a.Uploader = sanitizeLine(a.Uploader)
 	a.URL = sanitizeLine(a.URL)
-	a.Title = sanitizeLine(a.Title)
-	a.Body = sanitizeLine(a.Body)
 	return a
 }
 
@@ -263,13 +358,24 @@ func sanitizeLine(s string) string {
 	}, s)
 }
 
-// truncateLine keeps a line within the byte budget without splitting a rune.
-func truncateLine(s string, limit int) string {
+// truncateText keeps a string within a byte budget without splitting a rune.
+func truncateText(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
 	if len(s) <= limit {
 		return s
 	}
 	const ellipsis = "…"
 	budget := limit - len(ellipsis)
+	if budget <= 0 {
+		// No room for the marker; cut cleanly instead.
+		budget = limit
+		for budget > 0 && !isRuneBoundary(s, budget) {
+			budget--
+		}
+		return s[:budget]
+	}
 	for budget > 0 && !isRuneBoundary(s, budget) {
 		budget--
 	}

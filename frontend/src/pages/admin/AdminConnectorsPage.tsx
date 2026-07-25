@@ -153,12 +153,28 @@ interface FormState {
   clearSecrets: Record<string, boolean>;
 }
 
+/**
+ * Defaults a kind needs in its config from the start.
+ *
+ * A field that only defaults at render time looks filled in but submits
+ * nothing, so the admin sees "6697" in the Port box and a validation error
+ * saying the port is 0.
+ */
+function defaultConfig(kind: string): Record<string, unknown> {
+  switch (kind) {
+    case "irc":
+      return { port: 6697, tls: true, channels: [] };
+    default:
+      return {};
+  }
+}
+
 function emptyForm(kind: string): FormState {
   return {
     kind,
     name: "",
     enabled: true,
-    config: {},
+    config: defaultConfig(kind),
     filters: {},
     secrets: {},
     clearSecrets: {},
@@ -997,7 +1013,7 @@ export function AdminConnectorsPage() {
               setForm((prev) => ({
                 ...prev,
                 kind: e.target.value,
-                config: {},
+                config: defaultConfig(e.target.value),
                 secrets: {},
                 clearSecrets: {},
               }))

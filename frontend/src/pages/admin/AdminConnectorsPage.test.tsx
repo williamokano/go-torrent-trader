@@ -676,4 +676,90 @@ describe("AdminConnectorsPage", () => {
       false,
     );
   });
+  // A field that only defaults at render time looks filled in but submits
+  // nothing, so the admin gets "port must be between 1 and 65535, got 0" while
+  // staring at a box reading 6697.
+  test("creating an IRC connector submits the defaulted port and TLS", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [], kinds: ["chat", "irc", "webhook"] });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Add Connector" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    await user.selectOptions(within(dialog).getByLabelText("Kind"), "irc");
+    await user.type(within(dialog).getByLabelText("Name"), "Libera");
+    await user.type(within(dialog).getByLabelText("Server"), "irc.libera.chat");
+    await user.type(within(dialog).getByLabelText("Nick"), "announcebot");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Add channel" }),
+    );
+    await user.type(within(dialog).getByLabelText("Channel"), "#announce");
+
+    expect(within(dialog).getByLabelText("Port")).toHaveValue(6697);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("POST", "/admin/connectors")).toBeDefined();
+    });
+    const body = JSON.parse(
+      lastRequest("POST", "/admin/connectors")!.init!.body!,
+    );
+    expect(body.config.port).toBe(6697);
+    expect(body.config.tls).toBe(true);
+    expect(body.config.channels).toEqual([
+      { name: "#announce", categories: [] },
+    ]);
+  });
+
+  test("clearing an IRC secret submits null", async () => {
+    const user = userEvent.setup();
+    mockApi({ connectors: [ircConnector], kinds: ["irc"] });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getByLabelText("Clear stored value"));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(lastRequest("PUT")).toBeDefined();
+    });
+    expect(JSON.parse(lastRequest("PUT")!.init!.body!).config.sasl_pass).toBe(
+      null,
+    );
+  });
+
+  test("status polling stops when the page unmounts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockApi({
+        connectors: [ircConnector],
+        kinds: ["irc"],
+        statuses: { "3": { state: "connected" } },
+      });
+      const { unmount } = renderPage();
+
+      await vi.waitFor(() => {
+        expect(requests.some((r) => r.url.includes("/connectors/status"))).toBe(
+          true,
+        );
+      });
+
+      unmount();
+      const afterUnmount = requests.filter((r) =>
+        r.url.includes("/connectors/status"),
+      ).length;
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(
+        requests.filter((r) => r.url.includes("/connectors/status")).length,
+      ).toBe(afterUnmount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
