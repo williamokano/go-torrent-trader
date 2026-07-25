@@ -60,8 +60,10 @@ func TestKindAndShape(t *testing.T) {
 	if c.Kind() != "chat" {
 		t.Fatalf("Kind() = %q, want chat", c.Kind())
 	}
-	if !c.Singleton() {
-		t.Fatal("chat must be a singleton: there is only one shoutbox")
+	if c.Singleton() {
+		// Several instances post to the one shoutbox on purpose: each carries
+		// its own template and filters.
+		t.Fatal("chat must allow several instances")
 	}
 	if len(c.SecretFields()) != 0 {
 		t.Fatalf("SecretFields() = %v, want none", c.SecretFields())

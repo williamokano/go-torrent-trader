@@ -1,7 +1,9 @@
 // Package chat announces new torrents in the site's own shoutbox.
 //
-// It is a singleton kind: there is one shoutbox, so a second instance would just
-// double-post to it.
+// Several instances are allowed even though there is only one shoutbox: each
+// carries its own template and filters, so a site can word the Anime line
+// differently from the Movies line. Two instances whose filters overlap really
+// do post twice — that is the admin's call, not something to prevent here.
 package chat
 
 import (
@@ -47,7 +49,7 @@ func New(poster Poster, broadcast func([]byte)) *Connector {
 }
 
 func (c *Connector) Kind() string           { return "chat" }
-func (c *Connector) Singleton() bool        { return true }
+func (c *Connector) Singleton() bool        { return false }
 func (c *Connector) SecretFields() []string { return nil }
 
 // Coalescable: the shoutbox is read by people, and twenty lines in a row from a

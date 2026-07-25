@@ -78,8 +78,9 @@ func connectorID(r *http.Request) (int64, bool) {
 
 // HandleList handles GET /api/v1/admin/connectors.
 //
-// The response carries the registered kinds alongside the instances so the UI's
-// kind picker always matches what this build actually supports.
+// The response carries the registered kinds and the template surface alongside
+// the instances, so the UI's kind picker and template help always match what
+// this build actually supports.
 func (h *ConnectorHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	connectors, err := h.svc.List(r.Context())
 	if err != nil {
@@ -89,6 +90,10 @@ func (h *ConnectorHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"connectors": connectors,
 		"kinds":      h.svc.Kinds(),
+		// The template surface travels with the list so the help beside the
+		// template box always describes this build, rather than a copy in the
+		// frontend that can drift from it.
+		"template_fields": connector.TemplateFields(),
 	})
 }
 

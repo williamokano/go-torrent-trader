@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -309,17 +310,21 @@ func matchingChannels(channels []Channel, a connector.Announcement) []string {
 		return targets
 	}
 
+	// Matched against the whole ancestor chain, exactly like the instance-level
+	// filter: routing #movies to "Movies" has to catch a torrent filed under
+	// "Movies / Action", or the delivery is marked sent having gone nowhere.
+	chain := a.CategoryChain()
+
 	var targets []string
 	for _, channel := range channels {
 		if len(channel.Categories) == 0 {
 			targets = append(targets, channel.Name)
 			continue
 		}
-		for _, id := range channel.Categories {
-			if id == a.CategoryID {
-				targets = append(targets, channel.Name)
-				break
-			}
+		if slices.ContainsFunc(chain, func(id int64) bool {
+			return slices.Contains(channel.Categories, id)
+		}) {
+			targets = append(targets, channel.Name)
 		}
 	}
 	return targets

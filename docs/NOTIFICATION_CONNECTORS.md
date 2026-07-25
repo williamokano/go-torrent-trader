@@ -120,6 +120,14 @@ a `Title`, a `Body` (default template), the structured fields above, and the URL
 Each connector formats it its own way (IRC = one line; Discord = an embed; webhook
 = JSON).
 
+It also carries **`category_path`** — the category's ancestor chain, root first,
+ending with `category_id`. It is what makes a category filter cover a subtree
+(§5.2), it is part of the stored payload and therefore of the webhook body and
+the SSE frame, and IRC re-reads it at delivery time so per-channel routing agrees
+with the instance filter. The dispatcher resolves it once per event, for every
+announcement, so its presence never depends on how some unrelated instance
+happens to be filtered.
+
 > Note: the same pattern generalizes to other event kinds later (`forum.post`,
 > `news.published`, `user.registered`). Start with `torrent.published`; keep the
 > `Announcement.Event` field so connectors and filters can widen without a
@@ -237,11 +245,16 @@ Built-in kinds register at bootstrap — **compile-time modules, not hot-loaded*
 ## 5. Configuration & storage
 
 **Multiple instances, independently toggleable.** Every connector kind **except
-chat** can have **several independent instances**, each with its own config and
+sse** can have **several independent instances**, each with its own config and
 its own `enabled` flag — e.g. two IRC connections to different networks, a Discord
-webhook per category, three generic webhooks. Chat is the one singleton: there is a
-single shoutbox, so it's effectively one built-in instance (still with an `enabled`
-flag). "Just decide to not notify" is simply `enabled=false` on an instance — the
+webhook per category, three generic webhooks. Chat is included: several shoutbox
+instances post to the one shoutbox, but each carries its own template and filters,
+which is how a site words the Anime line differently from the Movies line. Two
+chat instances whose filters overlap really do post twice — the admin's call to
+make. SSE is the remaining singleton: one live feed, and a second instance would
+deliver the same announcement to the same subscribers twice.
+
+"Just decide to not notify" is simply `enabled=false` on an instance — the
 config is kept, delivery stops; deleting an instance removes it entirely. An
 optional **global kill-switch** site setting (`connectors_enabled`) mutes *all*
 external delivery at once (maintenance, incident) without touching per-instance
@@ -271,9 +284,30 @@ Table `notification_connectors`:
 ### 5.2 Filters / routing
 
 `filters` narrows which announcements an instance receives:
-`{ event_types:["torrent.published"], category_ids:[...], min_size, freeleech_only, exclude_anonymous }`.
+`{ event_types:["torrent.published"], category_ids:[...], category_mode, min_size, freeleech_only, exclude_anonymous }`.
 "One or more" targets (e.g. IRC channels per category) live inside the instance
 config (`channels[].categories`) so a single connection can route by category.
+Those channel categories match the ancestor chain too: the two selects look
+identical in the admin UI, so picking a parent has to mean the same thing in
+both — otherwise routing `#movies` to "Movies" would post nothing for a torrent
+filed under "Movies / Action" while the delivery was still recorded as sent.
+
+`category_mode` is `include` (the default, and what an absent value means) or
+`exclude`. Exclude is what makes "everything except 18+" expressible without
+listing every other category — and it is the reason a listed category stands for
+its **whole subtree**: an announcement carries only the category the torrent sits
+in, so a filter excluding "Adult" while a torrent lives in "Adult / 4K" would
+otherwise let it straight through. The dispatcher resolves the category's
+ancestor chain onto `Announcement.CategoryPath` and the filter tests against
+that.
+
+If the chain cannot be resolved, only instances filtering in **exclude** mode are
+held back — an include filter falling back to the leaf can under-match but never
+over-deliver, so withholding it would lose announcements for no safety gain. A
+withheld announcement is still written to the delivery log as a **failed** row
+carrying the reason, because an announcement that silently never happened is the
+one thing that log must not hide. A leak into the feed configured to exclude it
+would not be recoverable at all.
 
 ### 5.3 Secrets — what they are and how hard we need to protect them
 

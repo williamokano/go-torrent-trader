@@ -7,6 +7,9 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+/** One indent level, matching the non-breaking spaces the category picker emits. */
+const I = "\u00a0\u00a0";
 import { MemoryRouter } from "react-router-dom";
 import { AdminConnectorsPage } from "@/pages/admin/AdminConnectorsPage";
 import { ToastProvider } from "@/components/toast";
@@ -51,6 +54,8 @@ interface MockOptions {
   saveOk?: boolean;
   saveError?: string;
   statuses?: Record<string, { state: string; last_error?: string }>;
+  categories?: unknown[];
+  templateFields?: unknown[];
 }
 
 /** Records every request so a test can assert on the exact payload sent. */
@@ -74,9 +79,11 @@ function mockApi(options: MockOptions = {}) {
       return Promise.resolve({
         ok: true,
         json: async () => ({
-          categories: [
-            { id: 1, name: "Movies" },
-            { id: 2, name: "TV" },
+          categories: options.categories ?? [
+            { id: 2, name: "TV", parent_id: null, sort_order: 2 },
+            { id: 3, name: "Dub", parent_id: 2, sort_order: 1 },
+            { id: 1, name: "Movies", parent_id: null, sort_order: 1 },
+            { id: 4, name: "Dub", parent_id: 1, sort_order: 1 },
           ],
         }),
       });
@@ -112,7 +119,22 @@ function mockApi(options: MockOptions = {}) {
     }
     return Promise.resolve({
       ok: true,
-      json: async () => ({ connectors, kinds }),
+      json: async () => ({
+        connectors,
+        kinds,
+        template_fields: options.templateFields ?? [
+          {
+            token: "{{.Name}}",
+            description: "Torrent name, as uploaded",
+            example: "Test.Announcement.2024.1080p.BluRay-GROUP",
+          },
+          {
+            token: "{{.SizeHuman}}",
+            description: "Size with binary units",
+            example: "4.00 GiB",
+          },
+        ],
+      }),
     });
   });
 }
@@ -437,7 +459,9 @@ describe("AdminConnectorsPage", () => {
       within(dialog).getByLabelText("Exclude anonymous uploads"),
     );
     await user.selectOptions(
-      within(dialog).getByLabelText("Categories (leave empty for all)"),
+      within(dialog).getByLabelText(
+        "Categories to include (leave empty for all)",
+      ),
       "2",
     );
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -962,5 +986,159 @@ describe("AdminConnectorsPage", () => {
       await screen.findByText("Test message sent to Announcements"),
     ).toBeInTheDocument();
     expect(lastRequest("POST", "/test")).toBeDefined();
+  });
+  describe("category filters", () => {
+    test("nests category options and orders them by parent then sort_order", async () => {
+      const user = userEvent.setup();
+      mockApi({ connectors: [] });
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("button", { name: "Add Connector" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      const select = within(dialog).getByLabelText(
+        "Categories to include (leave empty for all)",
+      );
+
+      // The API returned TV before Movies; sort_order puts Movies first, and
+      // each child follows its own parent rather than sorting among the roots.
+      expect(
+        Array.from(select.querySelectorAll("option"), (o) => o.textContent),
+      ).toEqual(["Movies", `${I}Movies / Dub`, "TV", `${I}TV / Dub`]);
+    });
+
+    test("tells the two same-named children apart by value", async () => {
+      const user = userEvent.setup();
+      mockApi({ connectors: [] });
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("button", { name: "Add Connector" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      const select = within(dialog).getByLabelText(
+        "Categories to include (leave empty for all)",
+      );
+
+      const dubs = Array.from(
+        select.querySelectorAll("option"),
+        (o) => [o.textContent, (o as HTMLOptionElement).value] as const,
+      ).filter(([label]) => label?.endsWith("Dub"));
+      expect(dubs).toEqual([
+        [`${I}Movies / Dub`, "4"],
+        [`${I}TV / Dub`, "3"],
+      ]);
+    });
+
+    test("saves the exclude mode with the chosen categories", async () => {
+      const user = userEvent.setup();
+      mockApi({ connectors: [] });
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("button", { name: "Add Connector" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      await user.type(within(dialog).getByLabelText("Name"), "Clean feed");
+      await user.selectOptions(
+        within(dialog).getByLabelText("Category filter mode"),
+        "exclude",
+      );
+      await user.selectOptions(
+        within(dialog).getByLabelText(
+          "Categories to exclude (leave empty to exclude none)",
+        ),
+        "2",
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+      await waitFor(() => {
+        expect(lastRequest("POST", "/admin/connectors")).toBeDefined();
+      });
+      const body = JSON.parse(
+        lastRequest("POST", "/admin/connectors")!.init!.body!,
+      );
+      expect(body.filters.category_mode).toBe("exclude");
+      expect(body.filters.category_ids).toEqual([2]);
+    });
+
+    test("an existing exclude filter comes back as exclude", async () => {
+      const user = userEvent.setup();
+      mockApi({
+        connectors: [
+          {
+            ...webhookConnector,
+            filters: { category_ids: [2], category_mode: "exclude" },
+          },
+        ],
+      });
+      renderPage();
+
+      await user.click(await screen.findByRole("button", { name: "Edit" }));
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        (
+          within(dialog).getByLabelText(
+            "Category filter mode",
+          ) as HTMLSelectElement
+        ).value,
+      ).toBe("exclude");
+      // The label has to follow the mode, or the admin reads "include" over a
+      // list that is excluding things.
+      expect(
+        within(dialog).getByLabelText(
+          "Categories to exclude (leave empty to exclude none)",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("template help", () => {
+    test("lists the fields the API reports, with what each renders to", async () => {
+      const user = userEvent.setup();
+      mockApi({ connectors: [], kinds: ["chat"] });
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("button", { name: "Add Connector" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+
+      await user.click(within(dialog).getByText("Available fields"));
+      expect(within(dialog).getByText("{{.SizeHuman}}")).toBeInTheDocument();
+      expect(
+        within(dialog).getByText("Size with binary units"),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText("4.00 GiB")).toBeInTheDocument();
+    });
+
+    test("shows no help when the API reports no fields", async () => {
+      const user = userEvent.setup();
+      mockApi({ connectors: [], kinds: ["chat"], templateFields: [] });
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("button", { name: "Add Connector" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).queryByText("Available fields"),
+      ).not.toBeInTheDocument();
+    });
+
+    test("does not offer template help for a webhook, which has no template", async () => {
+      const user = userEvent.setup();
+      mockApi({ connectors: [], kinds: ["webhook"] });
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("button", { name: "Add Connector" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).queryByText("Available fields"),
+      ).not.toBeInTheDocument();
+    });
   });
 });

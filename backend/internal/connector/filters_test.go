@@ -11,10 +11,14 @@ func publishedAnnouncement() Announcement {
 		TorrentID:  42,
 		Name:       "Some.Release-GROUP",
 		CategoryID: 3,
-		Category:   "Movies",
-		Size:       2 * 1024 * 1024 * 1024,
-		Uploader:   "alice",
-		FileCount:  1,
+		// The dispatcher always fills this in, so the default fixture carries it
+		// too: a filter test against a bare leaf would be exercising the
+		// fallback rather than the shape production sends.
+		CategoryPath: []int64{1, 3},
+		Category:     "Movies",
+		Size:         2 * 1024 * 1024 * 1024,
+		Uploader:     "alice",
+		FileCount:    1,
 	}
 }
 
@@ -48,6 +52,7 @@ func TestFiltersCategoryInclusion(t *testing.T) {
 	}
 
 	a.CategoryID = 7
+	a.CategoryPath = []int64{6, 7}
 	if f.Matches(a) {
 		t.Fatal("category 7 is not listed and must not match")
 	}
@@ -142,5 +147,120 @@ func TestParseFiltersRejectsNegativeMinSize(t *testing.T) {
 func TestParseFiltersRejectsMalformedJSON(t *testing.T) {
 	if _, err := ParseFilters(json.RawMessage(`{`)); err == nil {
 		t.Fatal("expected malformed filter JSON to be rejected")
+	}
+}
+
+// The exclude mode's whole point is the "everything except 18+" feed, so these
+// cover the case that mode exists for.
+
+func TestFiltersCategoryExclusion(t *testing.T) {
+	f, err := ParseFilters(json.RawMessage(`{"category_ids":[3,9],"category_mode":"exclude"}`))
+	if err != nil {
+		t.Fatalf("ParseFilters: %v", err)
+	}
+
+	a := publishedAnnouncement()
+	if f.Matches(a) {
+		t.Fatal("category 3 is excluded and must not match")
+	}
+
+	a.CategoryID = 7
+	a.CategoryPath = []int64{6, 7}
+	if !f.Matches(a) {
+		t.Fatal("category 7 is not excluded and must match")
+	}
+}
+
+func TestFiltersExplicitIncludeModeMatchesTheDefault(t *testing.T) {
+	explicit, err := ParseFilters(json.RawMessage(`{"category_ids":[3],"category_mode":"include"}`))
+	if err != nil {
+		t.Fatalf("ParseFilters(explicit): %v", err)
+	}
+	omitted, err := ParseFilters(json.RawMessage(`{"category_ids":[3]}`))
+	if err != nil {
+		t.Fatalf("ParseFilters(omitted): %v", err)
+	}
+
+	// Rows written before the mode existed must keep meaning what they meant.
+	for _, categoryID := range []int64{3, 7} {
+		a := publishedAnnouncement()
+		a.CategoryID = categoryID
+		a.CategoryPath = []int64{categoryID}
+		if explicit.Matches(a) != omitted.Matches(a) {
+			t.Fatalf("category %d: explicit include = %v, omitted = %v",
+				categoryID, explicit.Matches(a), omitted.Matches(a))
+		}
+	}
+}
+
+func TestFiltersEmptyCategoryListMatchesEverythingInBothModes(t *testing.T) {
+	for _, mode := range []string{"include", "exclude"} {
+		f, err := ParseFilters(json.RawMessage(`{"category_ids":[],"category_mode":"` + mode + `"}`))
+		if err != nil {
+			t.Fatalf("ParseFilters(%s): %v", mode, err)
+		}
+		// An exclude filter naming nothing excludes nothing. Reading it as
+		// "exclude everything" would silence an instance that looks unfiltered.
+		if !f.Matches(publishedAnnouncement()) {
+			t.Fatalf("%s mode with an empty list must match everything", mode)
+		}
+	}
+}
+
+func TestFiltersExcludeCoversTheWholeSubtree(t *testing.T) {
+	// The case the feature exists for: "Adult" (id 50) is excluded, and the
+	// torrent sits in "Adult / 4K" (id 51), so only the ancestor chain can catch
+	// it. Matching on the leaf id alone would leak it into the clean feed.
+	f, err := ParseFilters(json.RawMessage(`{"category_ids":[50],"category_mode":"exclude"}`))
+	if err != nil {
+		t.Fatalf("ParseFilters: %v", err)
+	}
+
+	a := publishedAnnouncement()
+	a.CategoryID = 51
+	a.CategoryPath = []int64{50, 51}
+	if f.Matches(a) {
+		t.Fatal("a sub-category of an excluded category must not match")
+	}
+}
+
+func TestFiltersIncludeCoversTheWholeSubtree(t *testing.T) {
+	f, err := ParseFilters(json.RawMessage(`{"category_ids":[1]}`))
+	if err != nil {
+		t.Fatalf("ParseFilters: %v", err)
+	}
+
+	a := publishedAnnouncement()
+	a.CategoryID = 51
+	a.CategoryPath = []int64{1, 51}
+	if !f.Matches(a) {
+		t.Fatal("a sub-category of an included category must match")
+	}
+
+	a.CategoryPath = []int64{2, 51}
+	if f.Matches(a) {
+		t.Fatal("a category under a different parent must not match")
+	}
+}
+
+func TestFiltersFallBackToTheLeafWhenNoPathIsKnown(t *testing.T) {
+	// Payloads stored before CategoryPath existed, and test-sends, carry only
+	// the leaf id. They must still filter on it rather than matching nothing.
+	f, err := ParseFilters(json.RawMessage(`{"category_ids":[3]}`))
+	if err != nil {
+		t.Fatalf("ParseFilters: %v", err)
+	}
+	a := publishedAnnouncement()
+	a.CategoryPath = nil
+	if !f.Matches(a) {
+		t.Fatal("with no path the leaf category must still match")
+	}
+}
+
+func TestParseFiltersRejectsUnknownCategoryMode(t *testing.T) {
+	// Degrading an unrecognised mode to "include" would inverse the filter: an
+	// instance meant to carry everything but 18+ would carry only 18+.
+	if _, err := ParseFilters(json.RawMessage(`{"category_ids":[3],"category_mode":"only"}`)); err == nil {
+		t.Fatal("expected an unknown category_mode to be rejected")
 	}
 }

@@ -158,6 +158,44 @@ func TestDeliverRoutesByChannelCategory(t *testing.T) {
 	}
 }
 
+// The instance filter and the per-channel routing are configured by two selects
+// that look identical, so they have to mean the same thing: picking a parent
+// covers everything under it in both. Without this, routing #movies to "Movies"
+// would silently post nothing for a torrent filed under "Movies / Action" while
+// the delivery was still marked sent.
+func TestDeliverRoutesASubcategoryToItsParentsChannel(t *testing.T) {
+	c, conn := newTestConnector()
+
+	a := announcement()
+	a.CategoryID = 42               // "Movies / Action"
+	a.CategoryPath = []int64{2, 42} // under "Movies" (2)
+	cfg := `{"server":"irc.test","port":6697,"nick":"announce","channels":[{"name":"#movies","categories":[2]}]}`
+
+	if err := c.Deliver(context.Background(), instance(cfg), a); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	lines := conn.lines()
+	if len(lines) != 1 || lines[0].target != "#movies" {
+		t.Fatalf("sent %v, want one line to #movies", lines)
+	}
+}
+
+func TestDeliverDoesNotRouteASiblingSubcategory(t *testing.T) {
+	c, conn := newTestConnector()
+
+	a := announcement()
+	a.CategoryID = 43
+	a.CategoryPath = []int64{3, 43} // under "TV" (3), not "Movies"
+	cfg := `{"server":"irc.test","port":6697,"nick":"announce","channels":[{"name":"#movies","categories":[2]}]}`
+
+	if err := c.Deliver(context.Background(), instance(cfg), a); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if len(conn.lines()) != 0 {
+		t.Fatal("a torrent under TV must not reach the Movies channel")
+	}
+}
+
 func TestDeliverSkipsWhenNoChannelMatches(t *testing.T) {
 	c, conn := newTestConnector()
 

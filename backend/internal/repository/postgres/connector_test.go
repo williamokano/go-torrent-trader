@@ -145,7 +145,9 @@ func TestConnectorRepoCountByKind(t *testing.T) {
 
 // The service returns a 409 first, but the index is what holds when two admins
 // (or two nodes) create the second instance at the same moment.
-func TestConnectorRepoSingletonIndexRejectsSecondChatRow(t *testing.T) {
+// Migration 074 narrowed the singleton index to sse alone, so this asserts the
+// index really was replaced rather than that the code merely stopped asking.
+func TestConnectorRepoAllowsSeveralChatRows(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
 	ctx := context.Background()
@@ -153,14 +155,13 @@ func TestConnectorRepoSingletonIndexRejectsSecondChatRow(t *testing.T) {
 
 	newConnector(t, db, "chat", "Shoutbox", true)
 
-	err := repo.Create(ctx, &model.NotificationConnector{
-		Kind: "chat", Name: "Shoutbox 2", Config: json.RawMessage(`{}`), Filters: json.RawMessage(`{}`),
-	})
-	if err == nil {
-		t.Fatal("expected the singleton index to reject a second chat instance")
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "chat", Name: "Shoutbox — Anime", Config: json.RawMessage(`{}`), Filters: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("second chat instance must be allowed: %v", err)
 	}
 
-	// The partial index only covers chat and sse; other kinds may repeat freely.
+	// The partial index still exists for sse; other kinds may repeat freely.
 	if err := repo.Create(ctx, &model.NotificationConnector{
 		Kind: "webhook", Name: "Hook A", Config: json.RawMessage(`{}`), Filters: json.RawMessage(`{}`),
 	}); err != nil {

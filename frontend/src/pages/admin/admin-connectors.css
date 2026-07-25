@@ -85,3 +85,39 @@
   gap: var(--space-xs);
   align-items: end;
 }
+
+/* Template field reference. Collapsed by default: it is a reminder for someone
+   already writing a template, not something to scroll past on every edit. */
+.admin-connectors__template-help {
+  margin-top: calc(-1 * var(--space-xs));
+  font-size: 0.85rem;
+}
+
+.admin-connectors__template-help summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.admin-connectors__template-help table {
+  width: 100%;
+  margin-top: var(--space-xs);
+  border-collapse: collapse;
+}
+
+.admin-connectors__template-help th,
+.admin-connectors__template-help td {
+  padding: 2px var(--space-xs) 2px 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* The rendered example can be long (a URL, a release name); it may wrap rather
+   than push the table into a horizontal scroll. */
+.admin-connectors__template-help td:last-child {
+  overflow-wrap: anywhere;
+}
+
+.admin-connectors__filter-hint {
+  margin-top: calc(-1 * var(--space-xs));
+  font-size: 0.85rem;
+}

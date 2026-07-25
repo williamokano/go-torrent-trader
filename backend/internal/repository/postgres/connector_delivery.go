@@ -30,8 +30,11 @@ func NewConnectorDeliveryRepo(db *sql.DB) repository.ConnectorDeliveryRepository
 // ON CONFLICT DO NOTHING makes a duplicate dispatch a silent no-op even when two
 // dispatchers race, which a check-then-insert could not.
 func (r *ConnectorDeliveryRepo) InsertPending(ctx context.Context, d *model.ConnectorDelivery) (bool, error) {
-	query := `INSERT INTO connector_deliveries (instance_id, event_key, event_type, payload, status, next_attempt_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+	// last_error is written here as well as by MarkFailed: the dispatcher records
+	// a row that is born failed when it refuses to deliver an announcement, and
+	// the reason is the whole point of writing it.
+	query := `INSERT INTO connector_deliveries (instance_id, event_key, event_type, payload, status, next_attempt_at, last_error)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (instance_id, event_key) DO NOTHING
 		RETURNING id, created_at, updated_at`
 
@@ -41,7 +44,7 @@ func (r *ConnectorDeliveryRepo) InsertPending(ctx context.Context, d *model.Conn
 	}
 
 	err := r.db.QueryRowContext(ctx, query,
-		d.InstanceID, d.EventKey, d.EventType, jsonbOrEmpty(d.Payload), status, d.NextAttemptAt,
+		d.InstanceID, d.EventKey, d.EventType, jsonbOrEmpty(d.Payload), status, d.NextAttemptAt, d.LastError,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		// The conflict target matched: this event was already recorded for this

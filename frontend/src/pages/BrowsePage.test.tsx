@@ -30,6 +30,10 @@ vi.mock("@/utils/metadata", async (importActual) => {
 const FAKE_CATEGORIES = [
   { id: 1, name: "Movies", parent_id: null, sort_order: 1 },
   { id: 2, name: "TV", parent_id: null, sort_order: 2 },
+  // A grandchild: the public pickers share one builder with the admin ones, and
+  // an earlier version of it dropped everything below the second level.
+  { id: 3, name: "Action", parent_id: 1, sort_order: 1 },
+  { id: 4, name: "4K", parent_id: 3, sort_order: 1 },
 ];
 
 const FAKE_TORRENTS = [
@@ -99,6 +103,25 @@ function renderBrowsePage(initialEntries = ["/browse"]) {
 }
 
 describe("BrowsePage", () => {
+  test("the category filter is nested, ordered and complete to any depth", async () => {
+    renderBrowsePage();
+
+    const select = await screen.findByLabelText("Category");
+    await waitFor(() => {
+      expect(select.querySelectorAll("option").length).toBeGreaterThan(1);
+    });
+    const indent = "\u00a0\u00a0";
+    expect(
+      Array.from(select.querySelectorAll("option"), (o) => o.textContent),
+    ).toEqual([
+      "All Categories",
+      "Movies",
+      `${indent}Movies / Action`,
+      `${indent}${indent}Movies / Action / 4K`,
+      "TV",
+    ]);
+  });
+
   test("renders page title", () => {
     renderBrowsePage();
     expect(screen.getByText("Browse Torrents")).toBeInTheDocument();
