@@ -59,4 +59,33 @@ describe("AdminSettingsPage", () => {
       screen.queryByText("cheat_detection_enabled"),
     ).not.toBeInTheDocument();
   });
+
+  // The page renders whatever rows the API returns, so a setting without a
+  // definition here shows up as its bare key — which is how an operator ends up
+  // unable to tell what "chat_system_display_name" does.
+  test("labels the shoutbox system name setting", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          {
+            key: "chat_system_display_name",
+            value: "System",
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Shoutbox System Name")).toBeInTheDocument();
+    expect(
+      screen.getByText(/author label shown on shoutbox announcements/i),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("System")).toBeInTheDocument();
+    expect(
+      screen.queryByText("chat_system_display_name"),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -122,7 +122,9 @@ export function Chat() {
                   {formatTime(msg.created_at)}
                 </span>
                 {/* A system announcement has no author, so it gets no profile
-                    link and no moderation actions targeting a user. */}
+                    link and no moderation actions targeting a user. Deleting the
+                    message itself is still allowed — a mis-worded announcement
+                    would otherwise be permanent. */}
                 {msg.system ? (
                   <span className="chat__message-system-label">
                     {msg.username}
@@ -142,7 +144,7 @@ export function Chat() {
                   className="chat__message-text"
                   inline
                 />
-                {isStaff && !msg.system && (
+                {isStaff && (
                   <button
                     className="chat__message-delete"
                     onClick={() => setDeletingMsgId(msg.id)}

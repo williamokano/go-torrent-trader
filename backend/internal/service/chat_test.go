@@ -206,7 +206,7 @@ func newTestChatService() (*ChatService, *mockChatMessageRepo, *mockChatMuteRepo
 	userRepo.users[1] = &model.User{ID: 1, Username: "alice", CanChat: true, CanDownload: true, CanUpload: true}
 	userRepo.users[2] = &model.User{ID: 2, Username: "bob", CanChat: true, CanDownload: true, CanUpload: true}
 
-	svc := NewChatService(chatRepo, muteRepo, userRepo, bus)
+	svc := NewChatService(chatRepo, muteRepo, userRepo, bus, nil)
 	return svc, chatRepo, muteRepo
 }
 
@@ -548,7 +548,7 @@ func ptrInt64(v int64) *int64 { return &v }
 
 func TestSendSystemMessageStoresAuthorlessRow(t *testing.T) {
 	messages := newMockChatMessageRepo()
-	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus())
+	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus(), nil)
 
 	msg, err := svc.SendSystemMessage(context.Background(), "  New torrent: Thing  ")
 	if err != nil {
@@ -578,7 +578,7 @@ func TestSendSystemMessageIgnoresMutesAndPrivileges(t *testing.T) {
 	// Both repos fail on every call, so the message can only get through if
 	// SendSystemMessage never consults them at all.
 	messages := newMockChatMessageRepo()
-	svc := NewChatService(messages, &explodingMuteRepo{}, &explodingUserRepo{}, event.NewInMemoryBus())
+	svc := NewChatService(messages, &explodingMuteRepo{}, &explodingUserRepo{}, event.NewInMemoryBus(), nil)
 
 	msg, err := svc.SendSystemMessage(context.Background(), "announcement")
 	if err != nil {
@@ -605,7 +605,7 @@ func (e *explodingUserRepo) GetByID(context.Context, int64) (*model.User, error)
 }
 
 func TestSendSystemMessageRejectsEmptyAndOversized(t *testing.T) {
-	svc := NewChatService(newMockChatMessageRepo(), newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus())
+	svc := NewChatService(newMockChatMessageRepo(), newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus(), nil)
 
 	if _, err := svc.SendSystemMessage(context.Background(), "   "); !errors.Is(err, ErrInvalidChatMessage) {
 		t.Fatalf("err = %v, want ErrInvalidChatMessage for an empty message", err)
@@ -617,7 +617,7 @@ func TestSendSystemMessageRejectsEmptyAndOversized(t *testing.T) {
 
 func TestSendSystemMessagePropagatesStorageFailure(t *testing.T) {
 	messages := &failingChatMessageRepo{}
-	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus())
+	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus(), nil)
 
 	if _, err := svc.SendSystemMessage(context.Background(), "announcement"); err == nil {
 		t.Fatal("expected a storage failure to surface so the delivery retries")
@@ -629,4 +629,162 @@ type failingChatMessageRepo struct{ mockChatMessageRepo }
 
 func (r *failingChatMessageRepo) Create(context.Context, *model.ChatMessage) error {
 	return errors.New("database down")
+}
+
+// --- system message labelling ---
+
+// newLabelledChatService wires a chat service whose system label is name.
+func newLabelledChatService(t *testing.T, messages repository.ChatMessageRepository, name string) *ChatService {
+	t.Helper()
+
+	settingsRepo := newMockSiteSettingsRepo()
+	if err := settingsRepo.Set(context.Background(), SettingChatSystemDisplayName, name); err != nil {
+		t.Fatalf("seed setting: %v", err)
+	}
+	return NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus(),
+		NewSiteSettingsService(settingsRepo, event.NewInMemoryBus()))
+}
+
+func TestSendSystemMessageUsesTheConfiguredName(t *testing.T) {
+	svc := newLabelledChatService(t, newMockChatMessageRepo(), "Tracker Bot")
+
+	msg, err := svc.SendSystemMessage(context.Background(), "New torrent: Thing")
+	if err != nil {
+		t.Fatalf("SendSystemMessage: %v", err)
+	}
+	if msg.Username != "Tracker Bot" {
+		t.Fatalf("username = %q, want %q", msg.Username, "Tracker Bot")
+	}
+}
+
+// The repository hands system rows back unlabelled, so a page that is not
+// relabelled here would render an announcement with a blank author.
+func TestListRecentLabelsSystemRows(t *testing.T) {
+	messages := newMockChatMessageRepo()
+	svc := newLabelledChatService(t, messages, "Tracker Bot")
+	ctx := context.Background()
+
+	// Written straight to the repository, the way a row comes back from
+	// Postgres: system rows carry no username.
+	if err := messages.Create(ctx, &model.ChatMessage{Message: "New torrent: Thing", System: true}); err != nil {
+		t.Fatalf("create system message: %v", err)
+	}
+	if err := messages.Create(ctx, &model.ChatMessage{UserID: 2, Username: "bob", Message: "hi"}); err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+
+	got, err := svc.ListRecent(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d messages, want 2", len(got))
+	}
+	for _, m := range got {
+		if m.System && m.Username != "Tracker Bot" {
+			t.Fatalf("system row username = %q, want %q", m.Username, "Tracker Bot")
+		}
+		// An authored row keeps the name the JOIN resolved.
+		if !m.System && m.Username != "bob" {
+			t.Fatalf("user row username = %q, want %q", m.Username, "bob")
+		}
+	}
+}
+
+func TestListHistoryLabelsSystemRows(t *testing.T) {
+	messages := newMockChatMessageRepo()
+	svc := newLabelledChatService(t, messages, "Tracker Bot")
+	ctx := context.Background()
+
+	if err := messages.Create(ctx, &model.ChatMessage{Message: "older announcement", System: true}); err != nil {
+		t.Fatalf("create system message: %v", err)
+	}
+	if err := messages.Create(ctx, &model.ChatMessage{UserID: 2, Username: "bob", Message: "newer"}); err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+
+	got, err := svc.ListHistory(ctx, 2, 10)
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d messages, want 1", len(got))
+	}
+	if got[0].Username != "Tracker Bot" {
+		t.Fatalf("system row username = %q, want %q", got[0].Username, "Tracker Bot")
+	}
+}
+
+// Site settings are injected after construction, so every path has to survive
+// the dependency being absent. For a display label the safe answer is the
+// built-in default — unlike an authorization check, where absent must mean "no".
+func TestSystemLabelFallsBackWithoutSiteSettings(t *testing.T) {
+	messages := newMockChatMessageRepo()
+	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus(), nil)
+	ctx := context.Background()
+
+	msg, err := svc.SendSystemMessage(ctx, "announcement")
+	if err != nil {
+		t.Fatalf("SendSystemMessage: %v", err)
+	}
+	if msg.Username != model.SystemChatUsername {
+		t.Fatalf("username = %q, want %q", msg.Username, model.SystemChatUsername)
+	}
+
+	got, err := svc.ListRecent(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if got[0].Username != model.SystemChatUsername {
+		t.Fatalf("listed username = %q, want %q", got[0].Username, model.SystemChatUsername)
+	}
+}
+
+// A page of ordinary chat must not pay for a settings read at all.
+func TestListRecentSkipsTheSettingsReadWithoutSystemRows(t *testing.T) {
+	messages := newMockChatMessageRepo()
+	settingsRepo := newMockSiteSettingsRepo()
+	svc := NewChatService(messages, newMockChatMuteRepo(), newMockChatUserRepo(), event.NewInMemoryBus(),
+		NewSiteSettingsService(settingsRepo, event.NewInMemoryBus()))
+	ctx := context.Background()
+
+	if err := messages.Create(ctx, &model.ChatMessage{UserID: 2, Username: "bob", Message: "hi"}); err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	if _, err := svc.ListRecent(ctx, 10); err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+
+	if got := settingsRepo.getCount(); got != 0 {
+		t.Fatalf("read settings %d times for a page with no announcements, want 0", got)
+	}
+}
+
+// The frontend guard that used to hide the delete button is gone, so the
+// service is now the only thing standing between a member and an announcement.
+// It must let staff through and keep everyone else out.
+func TestDeleteMessageAppliesToSystemRows(t *testing.T) {
+	messages := newMockChatMessageRepo()
+	svc := newLabelledChatService(t, messages, "Tracker Bot")
+	ctx := context.Background()
+
+	if err := messages.Create(ctx, &model.ChatMessage{Message: "New torrent: Oops", System: true}); err != nil {
+		t.Fatalf("create system message: %v", err)
+	}
+	id := messages.messages[0].ID
+
+	member := model.Permissions{}
+	if err := svc.DeleteMessage(ctx, id, 5, member); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("member delete = %v, want ErrForbidden", err)
+	}
+	if len(messages.messages) != 1 {
+		t.Fatal("a member's refused delete removed the row anyway")
+	}
+
+	if err := svc.DeleteMessage(ctx, id, 1, model.Permissions{IsAdmin: true}); err != nil {
+		t.Fatalf("staff delete of a system message: %v", err)
+	}
+	if len(messages.messages) != 0 {
+		t.Fatal("staff delete left the announcement in place")
+	}
 }

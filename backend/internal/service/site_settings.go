@@ -2,9 +2,15 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -34,6 +40,10 @@ const (
 	SettingChatStrikeResetSeconds = "chat_strike_reset_seconds"
 	SettingChatRateLimitMessage   = "chat_rate_limit_message"
 	SettingChatSpamMuteMessage    = "chat_spam_mute_message"
+
+	// SettingChatSystemDisplayName is the author label shown on authorless
+	// shoutbox announcements. Read through SystemChatName, which caches it.
+	SettingChatSystemDisplayName = "chat_system_display_name"
 
 	// Tracker connection limit settings keys.
 	SettingTrackerMaxPeersPerTorrent = "tracker_max_peers_per_torrent"
@@ -92,15 +102,52 @@ const (
 	SettingConnectorsAllowPrivateNetworks = "connectors_allow_private_networks"
 )
 
+// maxSystemChatNameLength bounds the shoutbox author label. It shares a flex row
+// with the timestamp and the message, so an essay here squeezes the text it is
+// supposed to introduce.
+const maxSystemChatNameLength = 32
+
+// cachedSettingTTL bounds how stale a cached setting may get. Set evicts
+// immediately, which is exact within one process — this is the safety net for a
+// replica that did not serve the write and never sees the event.
+const cachedSettingTTL = 5 * time.Minute
+
+// cachedSetting is one memoised value and the instant it stops being trusted.
+type cachedSetting struct {
+	value     string
+	expiresAt time.Time
+}
+
 // SiteSettingsService handles site settings business logic.
 type SiteSettingsService struct {
 	settings repository.SiteSettingsRepository
 	eventBus event.Bus
+
+	// cacheTTL is a field rather than the bare constant so a test can shrink it;
+	// production always gets cachedSettingTTL.
+	cacheTTL time.Duration
+	cacheMu  sync.RWMutex
+	cache    map[string]cachedSetting
+	// cacheGen is bumped on every eviction. A read that started before a write
+	// landed carries the old generation and is discarded instead of being
+	// written back — otherwise the evicted value would be resurrected for a
+	// full TTL by whichever read happened to be mid-query. Global rather than
+	// per key: a needless miss on an unrelated key costs one query.
+	cacheGen uint64
+	// now is swappable for the same reason. Nil is never stored — the
+	// constructor fills it.
+	now func() time.Time
 }
 
 // NewSiteSettingsService creates a new SiteSettingsService.
 func NewSiteSettingsService(settings repository.SiteSettingsRepository, bus event.Bus) *SiteSettingsService {
-	return &SiteSettingsService{settings: settings, eventBus: bus}
+	return &SiteSettingsService{
+		settings: settings,
+		eventBus: bus,
+		cacheTTL: cachedSettingTTL,
+		cache:    make(map[string]cachedSetting),
+		now:      time.Now,
+	}
 }
 
 // GetRegistrationMode returns the current registration mode (defaults to invite_only).
@@ -140,6 +187,19 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 		if _, err := strconv.Atoi(value); err != nil {
 			return fmt.Errorf("%w: %s must be a whole number of days", ErrInvalidSetting, key)
 		}
+	case SettingChatSystemDisplayName:
+		// Blank would render an announcement with no author at all, which reads
+		// as a broken row rather than as a site notice. Counted in runes: the
+		// limit is about how wide the label renders, not how many bytes it is.
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("%w: %s cannot be empty", ErrInvalidSetting, key)
+		}
+		if utf8.RuneCountInString(trimmed) > maxSystemChatNameLength {
+			return fmt.Errorf("%w: %s cannot exceed %d characters",
+				ErrInvalidSetting, key, maxSystemChatNameLength)
+		}
+		value = trimmed
 	}
 
 	// Get old value for event
@@ -151,6 +211,10 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	if err := s.settings.Set(ctx, key, value); err != nil {
 		return fmt.Errorf("set setting %q: %w", key, err)
 	}
+
+	// Evict before anything else observable happens, so a listener reacting to
+	// the event below cannot read the value this call just replaced.
+	s.evict(key)
 
 	// Publish generic setting changed event for all consumers
 	if oldValue != value {
@@ -172,6 +236,93 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	}
 
 	return nil
+}
+
+// SystemChatName returns the author label for authorless shoutbox messages,
+// falling back to model.SystemChatUsername when unset or unreadable.
+//
+// This is the only cached read on the service, and deliberately so: it is hit on
+// every shoutbox backfill and every announcement, it changes about never, and
+// being a display name it cannot do any harm by being a few minutes stale. A
+// general-purpose cached getter would invite the same treatment for something
+// like the connectors kill-switch, where an operator flipping it expects the
+// site to obey now.
+func (s *SiteSettingsService) SystemChatName(ctx context.Context) string {
+	return s.cachedString(ctx, SettingChatSystemDisplayName, model.SystemChatUsername)
+}
+
+// cachedString memoises one setting for cacheTTL.
+//
+// "No such row" is a stable answer and is cached as the fallback; any other
+// error is a storage failure, which returns the fallback but is *not* cached —
+// a connection blip must not pin the default for the whole TTL.
+func (s *SiteSettingsService) cachedString(ctx context.Context, key, fallback string) string {
+	now := s.now()
+	value, gen, ok := s.cacheLookup(key, now)
+	if ok {
+		return value
+	}
+
+	setting, err := s.settings.Get(ctx, key)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		// Not cached, so the next announcement retries — but say so, because
+		// otherwise an outage quietly renames the announcer on every line.
+		slog.Warn("site setting read failed, using fallback",
+			"key", key, "fallback", fallback, "error", err)
+		return fallback
+	}
+
+	value = fallback
+	if err == nil && setting != nil {
+		// Trimmed on read as well as on write: Set cannot reach a row an
+		// operator edited straight through psql, and a whitespace-only value
+		// would render an announcement with a blank author.
+		if trimmed := strings.TrimSpace(setting.Value); trimmed != "" {
+			value = trimmed
+		}
+	}
+
+	s.cacheStore(key, value, now.Add(s.cacheTTL), gen)
+	return value
+}
+
+// cacheLookup returns a live cache entry and the generation it was read at. Its
+// own method so the read lock is released by defer and cannot still be held
+// when cachedString goes on to take the write lock — an RWMutex is not
+// reentrant, and that would deadlock.
+func (s *SiteSettingsService) cacheLookup(key string, now time.Time) (string, uint64, bool) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+
+	entry, ok := s.cache[key]
+	if !ok || !now.Before(entry.expiresAt) {
+		return "", s.cacheGen, false
+	}
+	return entry.value, s.cacheGen, true
+}
+
+// cacheStore writes back a value read from storage, unless something was
+// evicted while that read was in flight — in which case the value is already
+// known to be stale and must not be cached.
+func (s *SiteSettingsService) cacheStore(key, value string, expiresAt time.Time, gen uint64) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	if s.cacheGen != gen {
+		return
+	}
+	s.cache[key] = cachedSetting{value: value, expiresAt: expiresAt}
+}
+
+// evict drops a cached key. Called from Set, which is the only writer inside
+// this process; another process's write is only picked up when the entry
+// expires, which is what cachedSettingTTL is for.
+func (s *SiteSettingsService) evict(key string) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	s.cacheGen++
+	delete(s.cache, key)
 }
 
 // GetString returns a site setting as a string, or the fallback if not found.

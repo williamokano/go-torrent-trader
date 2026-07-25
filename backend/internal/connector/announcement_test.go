@@ -42,6 +42,123 @@ func TestRenderTemplateCustom(t *testing.T) {
 	}
 }
 
+// {{.Link}} exists so an admin does not have to write "[{{.Name}}]({{.URL}})"
+// by hand, which breaks the moment a name contains brackets — and scene names
+// contain brackets constantly.
+func TestMarkdownLinkEscapesBothSides(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		url  string
+		want string
+	}{
+		{
+			name: "plain",
+			text: "Some.Release-GROUP",
+			url:  "https://tracker.test/torrent/42",
+			want: "[Some.Release-GROUP](https://tracker.test/torrent/42)",
+		},
+		{
+			name: "brackets in the label would close it early",
+			text: "[SubsPlease] Show - 01",
+			url:  "https://tracker.test/t/1",
+			want: `[\[SubsPlease\] Show - 01](https://tracker.test/t/1)`,
+		},
+		{
+			name: "parens and emphasis markers in the label",
+			text: "Show (2024) *REPACK* _v2_ ~old~ `raw`",
+			url:  "https://tracker.test/t/2",
+			want: "[Show \\(2024\\) \\*REPACK\\* \\_v2\\_ \\~old\\~ \\`raw\\`](https://tracker.test/t/2)",
+		},
+		{
+			name: "a backslash is escaped once, not twice over",
+			text: `back\slash`,
+			url:  "https://tracker.test/t/3",
+			want: `[back\\slash](https://tracker.test/t/3)`,
+		},
+		{
+			name: "parens in the destination would end it early",
+			text: "Name",
+			url:  "https://tracker.test/t/(4)",
+			want: "[Name](https://tracker.test/t/%284%29)",
+		},
+		{
+			// A label pointing nowhere is worse than no link: it renders as
+			// literal brackets around the name.
+			name: "no url yields the escaped text alone",
+			text: "[Name]",
+			url:  "  ",
+			want: `\[Name\]`,
+		},
+		{
+			// Torrent names are uploader-controlled. Left raw, this renders as a
+			// second link to an attacker-chosen host inside a row that reads as
+			// an official site announcement.
+			name: "an autolink in the name cannot open a second link",
+			text: "Ping <https://evil.example.com> now",
+			url:  "https://tracker.test/t/5",
+			want: `[Ping \<https://evil.example.com\> now](https://tracker.test/t/5)`,
+		},
+		{
+			name: "raw HTML in the name is inert",
+			text: `Auto <a href='https://evil.example.com'>x</a>`,
+			url:  "https://tracker.test/t/6",
+			want: `[Auto \<a href='https://evil.example.com'\>x\</a\>](https://tracker.test/t/6)`,
+		},
+		{
+			name: "an entity in the name stays literal",
+			text: "Tom &amp; Jerry",
+			url:  "https://tracker.test/t/7",
+			want: `[Tom \&amp; Jerry](https://tracker.test/t/7)`,
+		},
+		{
+			// ![alt](url) inside the label would otherwise become an image.
+			name: "image syntax in the name is inert",
+			text: "Show ![x](https://evil.example.com/p.png)",
+			url:  "https://tracker.test/t/8",
+			want: `[Show \!\[x\]\(https://evil.example.com/p.png\)](https://tracker.test/t/8)`,
+		},
+		{
+			// A newline reads as a paragraph break, which splits the link in
+			// half and leaves the URL bare.
+			name: "whitespace is collapsed",
+			text: "Para1\n\nPara2\tend",
+			url:  "https://tracker.test/t/9",
+			want: "[Para1 Para2 end](https://tracker.test/t/9)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := MarkdownLink(tc.text, tc.url); got != tc.want {
+				t.Fatalf("MarkdownLink(%q, %q) = %q, want %q", tc.text, tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRenderTemplateLinkField(t *testing.T) {
+	a := publishedAnnouncement()
+	a.Name = "[Group] Thing"
+	a.URL = "https://tracker.test/torrent/42"
+
+	got, err := RenderTemplate("{{.Link}}", a)
+	if err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	if want := `[\[Group\] Thing](https://tracker.test/torrent/42)`; got != want {
+		t.Fatalf("rendered %q, want %q", got, want)
+	}
+}
+
+// The shared default feeds IRC and Announcement.Body, where Markdown is noise.
+// Only the shoutbox connector opts into the linked form.
+func TestSharedDefaultTemplateStaysPlainText(t *testing.T) {
+	if strings.Contains(DefaultTemplate, "{{.Link}}") {
+		t.Fatalf("shared DefaultTemplate = %q, must stay plain text", DefaultTemplate)
+	}
+}
+
 // A template referencing a field the render context does not expose must fail,
 // not quietly render "<no value>" into every announcement.
 func TestRenderTemplateRejectsUnknownField(t *testing.T) {
@@ -185,5 +302,56 @@ func TestDecodeConfigToleratesUnknownKeys(t *testing.T) {
 	}
 	if cfg.Template != "x" {
 		t.Fatalf("template = %q, want %q", cfg.Template, "x")
+	}
+}
+
+// The shoutbox refuses a message over 500 bytes, and the label is a torrent
+// name: uploader-controlled, up to 255 characters, and doubled in length by
+// escaping. Without a bound, an adversarially punctuated name would render an
+// announcement its own destination rejects — the delivery burns its retries and
+// dead-letters, and only that torrent is affected, so it would look like a
+// one-off.
+func TestMarkdownLinkBoundsAnAdversarialLabel(t *testing.T) {
+	// The worst case for escaping: every character costs two bytes.
+	worst := strings.Repeat("_", 255)
+
+	got := MarkdownLink(worst, "https://tracker.test/torrent/424242")
+	if len(got) > maxLinkLabelBytes+len("https://tracker.test/torrent/424242")+len("[]()") {
+		t.Fatalf("link is %d bytes, longer than the label budget allows", len(got))
+	}
+	if !strings.Contains(got, linkLabelEllipsis) {
+		t.Fatalf("a truncated label must say so: %q", got)
+	}
+
+	// Multi-byte runes are not escapable, so a rune count would have bounded
+	// this at three times the intended size.
+	cjk := MarkdownLink(strings.Repeat("運", 255), "https://tracker.test/t/1")
+	if len(cjk) > maxLinkLabelBytes+len("https://tracker.test/t/1")+len("[]()") {
+		t.Fatalf("CJK label is %d bytes — the budget is being counted in runes", len(cjk))
+	}
+
+	// A name that comfortably fits is passed through whole, ellipsis-free.
+	short := "Some.Release.2024.1080p.BluRay-GROUP"
+	if got := MarkdownLink(short, "https://tracker.test/t/2"); got != "["+short+"](https://tracker.test/t/2)" {
+		t.Fatalf("a short name must not be touched: %q", got)
+	}
+}
+
+// The end-to-end version of the bound: the line the shoutbox actually receives
+// has to survive its own length check.
+func TestDefaultChatLineFitsTheShoutboxLimit(t *testing.T) {
+	a := publishedAnnouncement()
+	a.Name = strings.Repeat("_", 255)
+	a.Category = strings.Repeat("c", 64)
+	a.URL = "https://a-rather-long-tracker-hostname.example.com/torrent/4294967296"
+
+	line, err := RenderTemplate("New torrent: {{.Link}} — {{.Category}}, {{.SizeHuman}}", a)
+	if err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	// maxChatMessageLength in internal/service; duplicated rather than imported
+	// because connector must not depend on service.
+	if len(line) > 500 {
+		t.Fatalf("rendered line is %d bytes, over the 500-byte shoutbox limit: %q", len(line), line)
 	}
 }

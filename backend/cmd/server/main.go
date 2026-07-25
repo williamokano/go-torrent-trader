@@ -210,7 +210,7 @@ func run() int {
 
 	chatMessageRepo := postgres.NewChatMessageRepo(db)
 	chatMuteRepo := postgres.NewChatMuteRepo(db)
-	chatService := service.NewChatService(chatMessageRepo, chatMuteRepo, userRepo, eventBus)
+	chatService := service.NewChatService(chatMessageRepo, chatMuteRepo, userRepo, eventBus, siteSettingsService)
 
 	warningRepo := postgres.NewWarningRepo(db)
 	warningService := service.NewWarningService(warningRepo, userRepo, messageRepo, eventBus)

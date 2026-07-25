@@ -69,12 +69,19 @@
   color: var(--color-accent);
 }
 
+/* The padding and the (transparent) left rule live on every row, not just on
+   the system variant: putting them on the variant alone shifted the timestamp
+   column sideways on announcements and left the accent bar flush against the
+   time. Now the variant only changes colour, and the columns stay aligned. */
 .shoutbox__message {
   display: flex;
   align-items: baseline;
   gap: var(--space-sm);
   font-size: var(--text-sm);
   line-height: 1.4;
+  padding: 2px var(--space-xs);
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
 }
 
 .shoutbox__message-time {
@@ -91,9 +98,19 @@
   flex-shrink: 0;
 }
 
-.shoutbox__message-text {
+/* min-width is the actual wrap fix: a flex item defaults to min-width:auto, so
+   an unbreakable run like a long URL made the row wider than the panel and the
+   message ran off the right edge instead of continuing on the next line.
+
+   Scoped to the row so it outranks .markdown-body's `word-wrap` — the legacy
+   alias of the same property, at the same specificity, on the same element
+   (MarkdownRenderer's span carries both classes). Left unscoped it would win
+   only by stylesheet order, which is invisible and would flip if the import
+   order or the CSS chunking ever changed. */
+.shoutbox__message .shoutbox__message-text {
   color: var(--color-text-secondary);
-  word-break: break-word;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .shoutbox__message-delete {
@@ -107,7 +124,10 @@
   transition: opacity 0.15s;
 }
 
-.shoutbox__message:hover .shoutbox__message-delete {
+/* Revealed on focus as well as hover: since BE-10.7 this is the only way to
+   remove a system announcement, and a keyboard user cannot hover. */
+.shoutbox__message:hover .shoutbox__message-delete,
+.shoutbox__message-delete:focus-visible {
   opacity: 1;
 }
 
@@ -173,12 +193,16 @@
 /* System announcements (BE-10 chat connector) have no author, so they read as
    site notices rather than as someone talking. */
 .shoutbox__message--system {
-  background-color: color-mix(in srgb, var(--color-accent), transparent 92%);
-  border-left: 2px solid var(--color-accent);
+  background-color: color-mix(in srgb, var(--color-accent), transparent 88%);
+  border-left-color: var(--color-accent);
 }
 
+/* flex-shrink matches the username link: the label is operator-settable up to
+   32 characters, and letting it wrap would undo the baseline alignment the
+   padding above exists to keep. */
 .shoutbox__message-system-label {
   font-weight: 600;
   font-style: italic;
   color: var(--color-accent);
+  flex-shrink: 0;
 }

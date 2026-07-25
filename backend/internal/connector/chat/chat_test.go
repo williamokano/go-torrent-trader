@@ -12,6 +12,11 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
+// systemLabel is deliberately not model.SystemChatUsername: the display name is
+// an operator setting that ChatService resolves, so a fake echoing the default
+// constant would let the connector hardcode it and still pass.
+const systemLabel = "Tracker Bot"
+
 type fakePoster struct {
 	posted []string
 	err    error
@@ -26,7 +31,7 @@ func (f *fakePoster) SendSystemMessage(_ context.Context, msg string) (*model.Ch
 	f.nextID++
 	return &model.ChatMessage{
 		ID:        f.nextID,
-		Username:  model.SystemChatUsername,
+		Username:  systemLabel,
 		Message:   msg,
 		System:    true,
 		CreatedAt: time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC),
@@ -101,11 +106,56 @@ func TestDeliverPostsAndBroadcasts(t *testing.T) {
 	if payload["system"] != true {
 		t.Fatalf("system = %v, want true", payload["system"])
 	}
-	if payload["username"] != model.SystemChatUsername {
-		t.Fatalf("username = %v, want %q", payload["username"], model.SystemChatUsername)
+	// The live line must carry the same label the reloaded line will, which is
+	// the one the service resolved — not a constant baked into this payload.
+	if payload["username"] != systemLabel {
+		t.Fatalf("username = %v, want %q", payload["username"], systemLabel)
 	}
 	if payload["user_id"].(float64) != 0 {
 		t.Fatalf("user_id = %v, want 0 (system messages have no author)", payload["user_id"])
+	}
+}
+
+// An instance with no template of its own must get the shoutbox default, which
+// links the torrent name — not the shared plain-text default that RenderTemplate
+// would otherwise fall back to.
+func TestDeliverDefaultTemplateLinksTheName(t *testing.T) {
+	c, poster, _ := newTestConnector()
+
+	inst := connector.Instance{ID: 1, Config: json.RawMessage(`{}`)}
+	if err := c.Deliver(context.Background(), inst, announcement()); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+
+	line := poster.posted[0]
+	want := "New torrent: [Some.Release-GROUP](https://tracker.test/torrent/7) — Movies, 2.00 GiB"
+	if line != want {
+		t.Fatalf("posted %q, want %q", line, want)
+	}
+	// Guards the substitution in Deliver: without it RenderTemplate falls back
+	// to the shared default and the name is not a link.
+	if strings.HasSuffix(line, announcement().URL) {
+		t.Fatalf("posted %q, which trails a bare URL — the shared default leaked through", line)
+	}
+}
+
+// A name full of Markdown punctuation is the normal case for scene releases, and
+// it must not be able to break out of the link it is the label for.
+func TestDeliverEscapesTheNameInsideTheLink(t *testing.T) {
+	c, poster, _ := newTestConnector()
+
+	a := announcement()
+	a.Name = "[SubsPlease] Show (2024) *REPACK*"
+
+	inst := connector.Instance{ID: 1, Config: json.RawMessage(`{}`)}
+	if err := c.Deliver(context.Background(), inst, a); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+
+	line := poster.posted[0]
+	want := `New torrent: [\[SubsPlease\] Show \(2024\) \*REPACK\*](https://tracker.test/torrent/7) — Movies, 2.00 GiB`
+	if line != want {
+		t.Fatalf("posted %q, want %q", line, want)
 	}
 }
 

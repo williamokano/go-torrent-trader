@@ -108,7 +108,7 @@ func fullRouterDeps(t *testing.T) *Deps {
 	groups := &stubGroupRepo{}
 	sessions := testutil.NewMemorySessionStore()
 
-	chatSvc := service.NewChatService(&stubChatMessageRepo{}, &stubChatMuteRepo{}, users, bus)
+	chatSvc := service.NewChatService(&stubChatMessageRepo{}, &stubChatMuteRepo{}, users, bus, nil)
 	settingsSvc := service.NewSiteSettingsService(newStubSiteSettingsRepo(), bus)
 	torrentSvc := service.NewTorrentService(nil, &stubTorrentRepo{}, users, &stubStorage{},
 		service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, &stubReseedRepo{})

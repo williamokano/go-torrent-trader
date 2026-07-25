@@ -44,7 +44,7 @@ func newWSHarness(t *testing.T, allowedOrigins []string, users ...*model.User) *
 	bus := event.NewInMemoryBus()
 	sessions := testutil.NewMemorySessionStore()
 
-	chatSvc := service.NewChatService(messages, mutes, userRepo, bus)
+	chatSvc := service.NewChatService(messages, mutes, userRepo, bus, nil)
 	settingsSvc := service.NewSiteSettingsService(newStubSiteSettingsRepo(), bus)
 
 	hub := NewChatHub(chatSvc, sessions, settingsSvc, bus, allowedOrigins)

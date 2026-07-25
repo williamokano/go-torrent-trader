@@ -17,6 +17,9 @@ interface SettingConfig {
   description?: string;
   type: "select" | "text" | "number" | "textarea";
   options?: { value: string; label: string }[];
+  /** Mirrors a backend length limit so it is enforced while typing rather than
+   *  reported as an error toast after Save All. */
+  maxLength?: number;
 }
 
 const SETTING_DEFINITIONS: SettingConfig[] = [
@@ -147,6 +150,14 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     description:
       "Reason recorded when a user is auto-muted for spam. Visible to staff in the mute record.",
     type: "text",
+  },
+  {
+    key: "chat_system_display_name",
+    label: "Shoutbox System Name",
+    description:
+      "Author label shown on shoutbox announcements posted by the site itself, such as new-torrent lines from a shoutbox connector. Up to 32 characters. Applies to new and existing announcements — the name is not stored on the message. Shared by every shoutbox connector instance.",
+    type: "text",
+    maxLength: 32,
   },
   // Tracker connection limits
   {
@@ -519,6 +530,7 @@ export function AdminSettingsPage() {
                         <input
                           className={`admin-settings__input${def.type === "number" ? " admin-settings__input--number" : ""}`}
                           type={def.type === "number" ? "number" : "text"}
+                          maxLength={def.maxLength}
                           value={editValues[s.key] ?? s.value}
                           onChange={(e) =>
                             setEditValues((prev) => ({

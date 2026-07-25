@@ -93,6 +93,14 @@ type RenderContext struct {
 	Size      int64
 	SizeHuman string
 	URL       string
+	// Link is Name linked to URL as Markdown, for destinations that render it
+	// (the shoutbox, Discord). It exists as a built-in rather than leaving
+	// admins to write "[{{.Name}}]({{.URL}})" because torrent names routinely
+	// contain brackets — "[SubsPlease] Show - 01" would close the label early
+	// and leave the rest of the name and a stray URL as literal text. The name
+	// is also uploader-controlled, so the escaping here is a security boundary:
+	// see escapeMarkdownRune.
+	Link      string
 	Uploader  string
 	Freeleech bool
 	FileCount int
@@ -107,11 +115,86 @@ func NewRenderContext(a Announcement) RenderContext {
 		Size:      a.Size,
 		SizeHuman: HumanSize(a.Size),
 		URL:       a.URL,
+		Link:      MarkdownLink(a.Name, a.URL),
 		Uploader:  a.Uploader,
 		Freeleech: a.Freeleech,
 		FileCount: a.FileCount,
 		Coalesced: a.Coalesced,
 	}
+}
+
+// maxLinkLabelBytes bounds the label of a generated Markdown link.
+//
+// It exists because the label is uploader-controlled — a torrent name — and the
+// shoutbox rejects a message over 500 bytes. Escaping adds a byte per escaped
+// character, so a 255-character name dense in punctuation could otherwise render
+// a line long enough that its own announcement is refused and dead-letters. 200
+// bytes is far more than reads well on one chat line; use {{.Name}} where the
+// full name matters.
+const maxLinkLabelBytes = 200
+
+// linkLabelEllipsis marks a label that was cut. Three bytes, reserved from the
+// budget whether or not it ends up being used.
+const linkLabelEllipsis = "…"
+
+// escapeMarkdownRune escapes one character for use inside a Markdown link
+// label. The set covers three separate hazards: characters that end the label
+// or the link early (`[`, `]`, `(`, `)`), characters that would turn part of a
+// name into emphasis or code (`*`, `_`, `~`, backtick), and characters that
+// would let an uploader open an element or an entity of their own (`<`, `>`,
+// `&`, `!`) — a name like "Ping <https://evil.example> now" otherwise renders as
+// a second, attacker-chosen link inside a row that reads as an official site
+// announcement. The backslash comes first so an escape cannot be re-escaped.
+func escapeMarkdownRune(r rune) string {
+	switch r {
+	case '\\', '[', ']', '(', ')', '*', '_', '~', '`', '<', '>', '&', '!':
+		return `\` + string(r)
+	}
+	return string(r)
+}
+
+// markdownURLEscaper percent-encodes the few characters that would terminate a
+// Markdown link destination. The rest of the URL is left alone: it was built by
+// the dispatcher from the configured site base URL, and re-encoding a whole
+// valid URL only risks mangling it.
+var markdownURLEscaper = strings.NewReplacer(
+	"(", "%28",
+	")", "%29",
+	" ", "%20",
+)
+
+// MarkdownLink renders text linked to url, escaped so neither can break out of
+// the link. An empty url yields the escaped text alone — a label pointing
+// nowhere is worse than no link.
+//
+// Whitespace is collapsed first: a name carrying a newline would otherwise be
+// read as a paragraph break, which splits the link in half and leaves the URL
+// bare.
+func MarkdownLink(text, url string) string {
+	label := escapeMarkdownLabel(strings.Join(strings.Fields(text), " "))
+	if strings.TrimSpace(url) == "" {
+		return label
+	}
+	return "[" + label + "](" + markdownURLEscaper.Replace(url) + ")"
+}
+
+// escapeMarkdownLabel escapes text and stops once the escaped result would
+// exceed maxLinkLabelBytes. Measured on the escaped output rather than the
+// input, because escaping is what makes the length unpredictable — and counted
+// in bytes, because that is the unit the message-length check uses.
+func escapeMarkdownLabel(text string) string {
+	budget := maxLinkLabelBytes - len(linkLabelEllipsis)
+
+	var b strings.Builder
+	for _, r := range text {
+		piece := escapeMarkdownRune(r)
+		if b.Len()+len(piece) > budget {
+			b.WriteString(linkLabelEllipsis)
+			break
+		}
+		b.WriteString(piece)
+	}
+	return b.String()
 }
 
 // ValidateTemplate checks an admin-supplied template, called from every

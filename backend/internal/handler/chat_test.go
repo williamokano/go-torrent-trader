@@ -148,7 +148,7 @@ func newChatDeps() *chatDeps {
 	mutes := &stubChatMuteRepo{}
 	users := newStubUserRepo(&model.User{ID: 7, Username: "member", CanChat: true})
 	bus := event.NewInMemoryBus()
-	chatSvc := service.NewChatService(messages, mutes, users, bus)
+	chatSvc := service.NewChatService(messages, mutes, users, bus, nil)
 
 	// A hub that is never Run(): its broadcast channel is buffered, so handlers
 	// can publish into it and the test reads the payloads back directly.
@@ -158,7 +158,7 @@ func newChatDeps() *chatDeps {
 }
 
 func (d *chatDeps) chatService() *service.ChatService {
-	return service.NewChatService(d.messages, d.mutes, d.users, event.NewInMemoryBus())
+	return service.NewChatService(d.messages, d.mutes, d.users, event.NewInMemoryBus(), nil)
 }
 
 // nextBroadcast returns the next payload the handler pushed to the hub.
