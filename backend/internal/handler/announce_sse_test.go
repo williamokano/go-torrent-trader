@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"github.com/williamokano/go-torrent-trader/backend/internal/testutil"
@@ -34,7 +39,12 @@ func newStreamHarness(t *testing.T) *streamHarness {
 	hub.heartbeat = 50 * time.Millisecond
 	go hub.Run()
 
-	server := httptest.NewServer(http.HandlerFunc(hub.HandleStream))
+	// Mounted on a chi router rather than served bare, so the {slug} parameter
+	// resolves exactly as it does in production.
+	router := chi.NewRouter()
+	router.Get("/api/v1/announce-stream/{slug}", hub.HandleStream)
+	router.Get("/api/v1/announce-stream", hub.HandleStream)
+	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 
 	return &streamHarness{hub: hub, server: server, sessions: sessions}
@@ -54,12 +64,24 @@ func (h *streamHarness) login(t *testing.T, userID int64) string {
 	return token
 }
 
-// connect opens a stream and returns a reader plus a func to close it.
+// connect opens the unslugged stream, which resolves to the default feed.
 func (h *streamHarness) connect(t *testing.T, token string) (*bufio.Reader, func()) {
+	t.Helper()
+	return h.connectPath(t, "/api/v1/announce-stream", token)
+}
+
+// connectFeed opens one named feed's stream.
+func (h *streamHarness) connectFeed(t *testing.T, feed, token string) (*bufio.Reader, func()) {
+	t.Helper()
+	return h.connectPath(t, "/api/v1/announce-stream/"+feed, token)
+}
+
+func (h *streamHarness) connectPath(t *testing.T, path, token string) (*bufio.Reader, func()) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.server.URL+"?token="+token, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		h.server.URL+path+"?token="+token, nil)
 	if err != nil {
 		cancel()
 		t.Fatalf("building request: %v", err)
@@ -134,7 +156,7 @@ func sampleAnnouncement() connector.Announcement {
 func TestAnnounceStreamRejectsMissingToken(t *testing.T) {
 	h := newStreamHarness(t)
 
-	resp, err := http.Get(h.server.URL)
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -148,7 +170,7 @@ func TestAnnounceStreamRejectsMissingToken(t *testing.T) {
 func TestAnnounceStreamRejectsInvalidToken(t *testing.T) {
 	h := newStreamHarness(t)
 
-	resp, err := http.Get(h.server.URL + "?token=nonsense")
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream?token=nonsense")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -167,7 +189,7 @@ func TestAnnounceStreamRejectsALoggedOutToken(t *testing.T) {
 
 	h.sessions.Delete(token)
 
-	resp, err := http.Get(h.server.URL + "?token=" + token)
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream?token=" + token)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -203,7 +225,7 @@ func TestAnnounceStreamDeliversABroadcast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	h.hub.Broadcast("torrent.published:42", payload)
+	h.hub.Broadcast(sse.DefaultSlug, "torrent.published:42", payload)
 
 	frame := readSSEFrame(t, reader)
 	if !strings.Contains(frame, "event: announcement") {
@@ -236,7 +258,7 @@ func TestAnnounceStreamNeverNamesAnAnonymousUploader(t *testing.T) {
 	a.Anonymous = true
 	a.Uploader = connector.AnonymousUploader
 	payload, _ := json.Marshal(a)
-	h.hub.Broadcast("torrent.published:42", payload)
+	h.hub.Broadcast(sse.DefaultSlug, "torrent.published:42", payload)
 
 	frame := readSSEFrame(t, reader)
 	if strings.Contains(frame, "alice") {
@@ -296,7 +318,10 @@ func TestAnnounceStreamCapsStreamsPerUser(t *testing.T) {
 		h.waitForClients(t, i+1)
 	}
 
-	resp, err := http.Get(h.server.URL + "?token=" + token)
+	// Counted across feeds, not per feed: five pinned tabs cost the same
+	// whichever feeds they watch, and a per-feed cap would be trivially evaded
+	// by opening each tab on a different one.
+	resp, err := http.Get(h.server.URL + "/api/v1/announce-stream/no-adult?token=" + token)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -325,7 +350,7 @@ func TestAnnounceHubCapIsAtomicUnderConcurrentConnects(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			admitted <- hub.tryRegister(&sseClient{
-				userID: 1, send: make(chan []byte, sseClientBuffer),
+				userID: 1, feed: sse.DefaultSlug, send: make(chan []byte, sseClientBuffer),
 			})
 		}()
 	}
@@ -364,8 +389,8 @@ func TestAnnounceHubDropsAClientThatStopsConsuming(t *testing.T) {
 	// — draining it from a goroutine instead would make the test depend on the
 	// scheduler running that goroutine between broadcasts, and it would be
 	// dropped too on an unlucky run.
-	stalled := &sseClient{userID: 1, send: make(chan []byte, sseClientBuffer)}
-	keepingUp := &sseClient{userID: 2, send: make(chan []byte, frames+1)}
+	stalled := &sseClient{userID: 1, feed: sse.DefaultSlug, send: make(chan []byte, sseClientBuffer)}
+	keepingUp := &sseClient{userID: 2, feed: sse.DefaultSlug, send: make(chan []byte, frames+1)}
 	if !hub.tryRegister(stalled) || !hub.tryRegister(keepingUp) {
 		t.Fatal("test setup: both clients should register")
 	}
@@ -375,7 +400,7 @@ func TestAnnounceHubDropsAClientThatStopsConsuming(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < frames; i++ {
-			hub.Broadcast("torrent.published:1", payload)
+			hub.Broadcast(sse.DefaultSlug, "torrent.published:1", payload)
 		}
 	}()
 
@@ -388,7 +413,7 @@ func TestAnnounceHubDropsAClientThatStopsConsuming(t *testing.T) {
 	waitFor(t, "the stalled client to be dropped", func() bool { return hub.clientCount() == 1 })
 
 	hub.mu.RLock()
-	_, survived := hub.clients[keepingUp]
+	_, survived := hub.clients[keepingUp.feed][keepingUp]
 	hub.mu.RUnlock()
 	if !survived {
 		t.Fatal("the client that kept up should not have been dropped")
@@ -509,4 +534,175 @@ func TestSSEFrameNeutralisesBareCarriageReturns(t *testing.T) {
 	if strings.Contains(frame, "\r") {
 		t.Fatalf("frame = %q, want no carriage returns", frame)
 	}
+}
+
+// The whole reason feeds exist: what one feed's filters allowed says nothing
+// about what the others are configured to carry, so a frame must never cross.
+func TestAnnounceStreamDeliversOnlyToItsOwnFeed(t *testing.T) {
+	h := newStreamHarness(t)
+
+	clean, closeClean := h.connectFeed(t, "no-adult", h.login(t, 1))
+	defer closeClean()
+	readSSEFrame(t, clean) // retry hint
+	h.waitForClients(t, 1)
+
+	payload, err := json.Marshal(sampleAnnouncement())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	h.hub.Broadcast("everything", "torrent.published:42", payload)
+
+	// Nothing for this watcher: a heartbeat is what the connection carries when
+	// no announcement is due, so seeing one proves the stream is alive and empty
+	// rather than merely slow.
+	frame := readSSEFrame(t, clean)
+	if !strings.HasPrefix(frame, ": ping") {
+		t.Fatalf("frame = %q, want a heartbeat: the announcement was for another feed", frame)
+	}
+
+	h.hub.Broadcast("no-adult", "torrent.published:43", payload)
+	for {
+		frame = readSSEFrame(t, clean)
+		if strings.HasPrefix(frame, ": ping") {
+			continue // heartbeats race the broadcast; keep reading
+		}
+		break
+	}
+	if !strings.Contains(frame, "id: torrent.published:43") {
+		t.Fatalf("frame = %q, want the announcement published to this feed", frame)
+	}
+}
+
+// A page left open across the deploy reconnects to the unslugged URL, so it has
+// to keep resolving to a real feed rather than 404 forever.
+func TestAnnounceStreamLegacyRouteIsTheDefaultFeed(t *testing.T) {
+	h := newStreamHarness(t)
+
+	reader, closeStream := h.connect(t, h.login(t, 1))
+	defer closeStream()
+	readSSEFrame(t, reader)
+	h.waitForClients(t, 1)
+
+	payload, err := json.Marshal(sampleAnnouncement())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	h.hub.Broadcast(sse.DefaultSlug, "torrent.published:42", payload)
+
+	frame := readSSEFrame(t, reader)
+	if !strings.Contains(frame, "event: announcement") {
+		t.Fatalf("frame = %q, want the default feed's announcement", frame)
+	}
+}
+
+func TestAnnounceStreamRejectsAMalformedFeedSlug(t *testing.T) {
+	h := newStreamHarness(t)
+	token := h.login(t, 1)
+
+	// A slug that cannot name a real feed is a 404, not a stream that would sit
+	// open forever carrying nothing.
+	for _, slug := range []string{"Not-Lower", "has_underscore", "..", "a--b"} {
+		resp, err := http.Get(h.server.URL + "/api/v1/announce-stream/" + slug + "?token=" + token)
+		if err != nil {
+			t.Fatalf("request %q: %v", slug, err)
+		}
+		status := resp.StatusCode
+		raw, _ := io.ReadAll(resp.Body)
+		body := string(raw)
+		_ = resp.Body.Close()
+		if status != http.StatusNotFound {
+			t.Errorf("slug %q: status = %d, want 404", slug, status)
+		}
+		// chi's own NotFound is a 404 too, so the body is what distinguishes
+		// "the handler rejected this slug" from "no route matched".
+		if !strings.Contains(body, "no such feed") {
+			t.Errorf("slug %q: body = %q, want the handler's own rejection", slug, body)
+		}
+	}
+}
+
+// A feed nobody publishes to is a quiet stream, not an error: refusing to open
+// it would mean holding a connector list in the hub and racing every admin edit
+// against every open connection.
+func TestAnnounceStreamOpensAnUnknownButValidFeed(t *testing.T) {
+	h := newStreamHarness(t)
+
+	reader, closeStream := h.connectFeed(t, "nobody-publishes-here", h.login(t, 1))
+	defer closeStream()
+
+	if frame := readSSEFrame(t, reader); !strings.HasPrefix(frame, "retry:") {
+		t.Fatalf("frame = %q, want the retry hint that opens every stream", frame)
+	}
+}
+
+// A renamed feed frees its slug, and another feed can then take it. Without
+// this, every browser still connected under the old name would silently start
+// receiving the other feed's announcements.
+func TestAnnounceStreamDisconnectsWatchersWhenFeedsChange(t *testing.T) {
+	h := newStreamHarness(t)
+	bus := event.NewInMemoryBus()
+	h.hub.WatchConfigChanges(bus)
+
+	reader, closeStream := h.connectFeed(t, "default", h.login(t, 1))
+	defer closeStream()
+	readSSEFrame(t, reader)
+	h.waitForClients(t, 1)
+
+	bus.Publish(context.Background(), &event.ConnectorConfigChangedEvent{
+		Base:       event.NewBase(event.ConnectorConfigChanged, event.Actor{ID: 1}),
+		InstanceID: 1,
+		Kind:       "sse",
+	})
+
+	waitFor(t, "the watcher to be disconnected", func() bool { return h.hub.clientCount() == 0 })
+}
+
+// Every other kind's config changes constantly (an admin editing a webhook), and
+// dropping live feeds for those would be gratuitous.
+func TestAnnounceStreamIgnoresOtherKindsChanging(t *testing.T) {
+	h := newStreamHarness(t)
+	bus := event.NewInMemoryBus()
+	h.hub.WatchConfigChanges(bus)
+
+	reader, closeStream := h.connectFeed(t, "default", h.login(t, 1))
+	defer closeStream()
+	readSSEFrame(t, reader)
+	h.waitForClients(t, 1)
+
+	bus.Publish(context.Background(), &event.ConnectorConfigChangedEvent{
+		Base:       event.NewBase(event.ConnectorConfigChanged, event.Actor{ID: 1}),
+		InstanceID: 2,
+		Kind:       "webhook",
+	})
+
+	if h.hub.clientCount() != 1 {
+		t.Fatal("a webhook edit must not disconnect live feed watchers")
+	}
+}
+
+// A disconnected watcher must be able to reconnect straight away — the slots it
+// held against the per-user cap have to be released, not merely orphaned.
+func TestAnnounceStreamReleasesCapSlotsOnDisconnectAll(t *testing.T) {
+	h := newStreamHarness(t)
+	token := h.login(t, 1)
+
+	var closers []func()
+	defer func() {
+		for _, closeStream := range closers {
+			closeStream()
+		}
+	}()
+	for i := 0; i < sseMaxPerUser; i++ {
+		reader, closeStream := h.connect(t, token)
+		closers = append(closers, closeStream)
+		readSSEFrame(t, reader)
+		h.waitForClients(t, i+1)
+	}
+
+	h.hub.disconnectAll()
+	waitFor(t, "every stream to close", func() bool { return h.hub.clientCount() == 0 })
+
+	reader, closeStream := h.connect(t, token)
+	closers = append(closers, closeStream)
+	readSSEFrame(t, reader)
 }

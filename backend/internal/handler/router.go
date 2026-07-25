@@ -77,6 +77,10 @@ func NewRouter(deps *Deps) chi.Router {
 	// for the same reason as /ws/chat: EventSource cannot set an Authorization
 	// header, so the handler validates a query-param token itself.
 	if deps != nil && deps.AnnounceHub != nil {
+		r.Get("/api/v1/announce-stream/{slug}", deps.AnnounceHub.HandleStream)
+		// The unslugged route predates multiple feeds and resolves to the default
+		// one, so a page left open across the deploy reconnects instead of
+		// failing forever.
 		r.Get("/api/v1/announce-stream", deps.AnnounceHub.HandleStream)
 	}
 
@@ -153,6 +157,16 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/me", auth.HandleMe)
 				})
 			})
+
+			// The live feeds a member may subscribe to. Members only, like every
+			// other listing on a private tracker.
+			if deps.ConnectorService != nil {
+				feeds := NewAnnounceFeedsHandler(deps.ConnectorService)
+				r.Route("/announce-feeds", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/", feeds.HandleList)
+				})
+			}
 
 			// Site stats (members only — private tracker, no anonymous browsing)
 			if deps.StatsCache != nil {

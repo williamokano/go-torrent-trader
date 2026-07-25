@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -30,9 +32,20 @@ func (r *ConnectorRepo) Create(ctx context.Context, c *model.NotificationConnect
 	if err := r.db.QueryRowContext(ctx, query,
 		c.Kind, c.Name, c.Enabled, jsonbOrEmpty(c.Config), jsonbOrEmpty(c.Filters),
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt); err != nil {
-		return fmt.Errorf("create connector: %w", err)
+		return fmt.Errorf("create connector: %w", asUniqueViolation(err))
 	}
 	return nil
+}
+
+// asUniqueViolation maps SQLSTATE 23505 onto the shared sentinel. Two admins
+// saving the same live-feed slug at the same instant is a conflict to report,
+// not an internal error to hide.
+func asUniqueViolation(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return fmt.Errorf("%w: %s", repository.ErrUniqueViolation, err)
+	}
+	return err
 }
 
 func (r *ConnectorRepo) GetByID(ctx context.Context, id int64) (*model.NotificationConnector, error) {
@@ -72,7 +85,7 @@ func (r *ConnectorRepo) Update(ctx context.Context, c *model.NotificationConnect
 		if errors.Is(err, sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
-		return fmt.Errorf("update connector: %w", err)
+		return fmt.Errorf("update connector: %w", asUniqueViolation(err))
 	}
 	return nil
 }

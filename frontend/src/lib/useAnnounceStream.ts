@@ -60,14 +60,40 @@ interface AnnounceStream {
  * the URL it was constructed with, and the token is in that URL. After a token
  * refresh the browser would retry a request the server must reject, forever. So
  * a failed stream is torn down and rebuilt with a freshly read token.
+ *
+ * `feed` is the slug of the feed to watch. Changing it tears the stream down and
+ * opens the other one, and clears what is on screen — the announcements shown
+ * must be the ones this feed carries, not a mix of both.
  */
-export function useAnnounceStream(): AnnounceStream {
-  const [announcements, setAnnouncements] = useState<FeedItem[]>([]);
+export function useAnnounceStream(feed?: string): AnnounceStream {
+  // The feed each list belongs to travels with it. React runs an effect cleanup
+  // after paint, so the previous feed's EventSource is still attached for a
+  // moment after the reset — a frame arriving in that window would otherwise be
+  // appended to the new feed's freshly cleared list, under the new feed's name.
+  // Stamping the list lets the old handler recognise that it is stale.
+  const [announcements, setAnnouncements] = useState<{
+    feed?: string;
+    items: FeedItem[];
+  }>({ feed, items: [] });
   const [state, setState] = useState<StreamState>("connecting");
-  // Refs rather than state: the message handler must not be re-created (and the
+  // A ref rather than state: the message handler must not be re-created (and the
   // stream re-opened) on every event.
-  const seen = useRef<Set<number>>(new Set());
   const nextKey = useRef(0);
+
+  // A feed change is a different subscription, so what is on screen belongs to
+  // the feed that is gone. The dedupe set goes with it: an announcement this
+  // feed has not shown must not be suppressed because the other one had.
+  //
+  // Reset during render rather than in an effect: React applies it before
+  // anything is painted, so the old feed's rows are never briefly shown under
+  // the new feed's name — and an effect doing this would cascade a second
+  // render for every switch.
+  const [watching, setWatching] = useState(feed);
+  if (watching !== feed) {
+    setWatching(feed);
+    setAnnouncements({ feed, items: [] });
+    setState("connecting");
+  }
 
   useEffect(() => {
     let source: EventSource | null = null;
@@ -84,28 +110,32 @@ export function useAnnounceStream(): AnnounceStream {
 
       setState("live");
       setAnnouncements((previous) => {
+        // A frame from the feed this page has already left.
+        if (previous.feed !== feed) return previous;
+
         // A reconnect can replay an announcement the page already has. A
         // coalesced summary is exempt: it shares its representative row's id
         // but is a different thing to show.
-        if (
+        //
+        // Read off the list rather than kept in a parallel set: the list is
+        // capped, so this is bounded for free, it cannot drift from what is on
+        // screen, and switching feeds clears the dedupe by clearing the list.
+        const duplicate =
           !announcement.coalesced &&
-          seen.current.has(announcement.torrent_id)
-        ) {
-          return previous;
-        }
+          previous.items.some(
+            (item) =>
+              !item.coalesced && item.torrent_id === announcement.torrent_id,
+          );
+        if (duplicate) return previous;
 
         nextKey.current += 1;
-        const next = [
-          { ...announcement, key: nextKey.current },
-          ...previous,
-        ].slice(0, MAX_ITEMS);
-
-        // Rebuilt from what is retained, so the dedupe set stays bounded by the
-        // cap instead of growing for the life of the page.
-        seen.current = new Set(
-          next.filter((item) => !item.coalesced).map((item) => item.torrent_id),
-        );
-        return next;
+        return {
+          feed: previous.feed,
+          items: [
+            { ...announcement, key: nextKey.current },
+            ...previous.items,
+          ].slice(0, MAX_ITEMS),
+        };
       });
     }
 
@@ -113,8 +143,13 @@ export function useAnnounceStream(): AnnounceStream {
       const token = getAccessToken();
       if (!token) return;
 
+      // Omitting the slug hits the legacy route, which resolves to the default
+      // feed — the same thing the page did before feeds existed.
+      const path = feed
+        ? `/api/v1/announce-stream/${encodeURIComponent(feed)}`
+        : "/api/v1/announce-stream";
       const stream = new EventSource(
-        `${getConfig().API_URL}/api/v1/announce-stream?token=${encodeURIComponent(token)}`,
+        `${getConfig().API_URL}${path}?token=${encodeURIComponent(token)}`,
       );
       source = stream;
 
@@ -135,7 +170,7 @@ export function useAnnounceStream(): AnnounceStream {
       clearTimeout(retryTimer);
       source?.close();
     };
-  }, []);
+  }, [feed]);
 
-  return { announcements, state };
+  return { announcements: announcements.items, state };
 }

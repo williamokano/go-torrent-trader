@@ -564,6 +564,12 @@ type ForumTopicRepository interface {
 // matching ErrInsufficientBonusPoints above.
 var ErrEditConflict = errors.New("post body changed since it was read")
 
+// ErrUniqueViolation is what a repository returns when the database refused a
+// write because a unique index already holds that value. It exists so a service
+// can turn the race it lost into the same readable conflict it would have
+// reported had it won the check, instead of a 500.
+var ErrUniqueViolation = errors.New("unique constraint violated")
+
 // ForumPostRepository defines persistence operations for forum posts.
 type ForumPostRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.ForumPost, error)

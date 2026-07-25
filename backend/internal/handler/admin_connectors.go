@@ -39,7 +39,8 @@ func connectorErrorStatus(err error) (int, bool) {
 	switch {
 	case errors.Is(err, service.ErrConnectorNotFound):
 		return http.StatusNotFound, true
-	case errors.Is(err, service.ErrConnectorSingleton):
+	case errors.Is(err, service.ErrConnectorSingleton),
+		errors.Is(err, service.ErrFeedSlugTaken):
 		return http.StatusConflict, true
 	case errors.Is(err, service.ErrConnectorUnknownKind),
 		errors.Is(err, service.ErrConnectorKindImmutable),

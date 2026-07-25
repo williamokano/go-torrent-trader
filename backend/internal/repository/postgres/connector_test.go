@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 func newConnector(t *testing.T, db *sql.DB, kind, name string, enabled bool) *model.NotificationConnector {
@@ -174,18 +175,111 @@ func TestConnectorRepoAllowsSeveralChatRows(t *testing.T) {
 	}
 }
 
-func TestConnectorRepoSingletonIndexCoversSSE(t *testing.T) {
+// Migration 075 replaced the sse singleton index with one on the feed slug, so
+// this asserts the index really was swapped rather than that the code merely
+// stopped asking.
+func TestConnectorRepoAllowsSeveralFeedsWithDistinctSlugs(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
 	ctx := context.Background()
 	repo := NewConnectorRepo(db)
 
-	newConnector(t, db, "sse", "Live Feed", true)
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Everything", Config: json.RawMessage(`{"slug":"everything"}`),
+		Filters: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("first feed: %v", err)
+	}
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Clean", Config: json.RawMessage(`{"slug":"no-adult"}`),
+		Filters: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("second feed with its own slug must be allowed: %v", err)
+	}
+}
+
+// The slug is the feed's URL, so the database has to refuse a duplicate even if
+// two admins save at the same instant and both pass the service-level check.
+func TestConnectorRepoRejectsADuplicateFeedSlug(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewConnectorRepo(db)
 
 	if err := repo.Create(ctx, &model.NotificationConnector{
-		Kind: "sse", Name: "Live Feed 2", Config: json.RawMessage(`{}`), Filters: json.RawMessage(`{}`),
+		Kind: "sse", Name: "Everything", Config: json.RawMessage(`{"slug":"everything"}`),
+		Filters: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("first feed: %v", err)
+	}
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Everything again", Config: json.RawMessage(`{"slug":"everything"}`),
+		Filters: json.RawMessage(`{}`),
 	}); err == nil {
-		t.Fatal("expected the singleton index to reject a second sse instance")
+		t.Fatal("expected the slug index to reject a second feed on the same URL")
+	}
+}
+
+// The index is partial. Both rows carry the *same* slug value on purpose: with
+// configs that merely lacked one they would be accepted even by an index with no
+// WHERE clause at all, so the partiality would not be under test.
+func TestConnectorRepoFeedSlugIndexIgnoresOtherKinds(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewConnectorRepo(db)
+
+	for _, name := range []string{"Hook A", "Hook B"} {
+		if err := repo.Create(ctx, &model.NotificationConnector{
+			Kind: "webhook", Name: name, Config: json.RawMessage(`{"slug":"same"}`),
+			Filters: json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+// A row with no slug at all resolves to the default feed, so a second one would
+// be a second feed on one URL. NULLs do not collide in a unique index, which is
+// why the index keys on the effective slug rather than the raw value.
+func TestConnectorRepoRejectsASecondFeedWithNoSlug(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewConnectorRepo(db)
+
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Legacy", Config: json.RawMessage(`{}`), Filters: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("first feed: %v", err)
+	}
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Legacy again", Config: json.RawMessage(`{}`), Filters: json.RawMessage(`{}`),
+	}); err == nil {
+		t.Fatal("two feeds with no slug both resolve to the default feed and must not coexist")
+	}
+}
+
+// The database must catch what the service's check-then-insert can lose a race
+// to, and the service must turn that into a conflict rather than a 500.
+func TestConnectorRepoDuplicateFeedSlugIsAUniqueViolation(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewConnectorRepo(db)
+
+	if err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Everything", Config: json.RawMessage(`{"slug":"everything"}`),
+		Filters: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("first feed: %v", err)
+	}
+	err := repo.Create(ctx, &model.NotificationConnector{
+		Kind: "sse", Name: "Clash", Config: json.RawMessage(`{"slug":"everything"}`),
+		Filters: json.RawMessage(`{}`),
+	})
+	if !errors.Is(err, repository.ErrUniqueViolation) {
+		t.Fatalf("err = %v, want repository.ErrUniqueViolation", err)
 	}
 }
 

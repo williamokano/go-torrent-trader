@@ -5,15 +5,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/discord"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/telegram"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 // --- mock connector repository ---
@@ -372,8 +375,8 @@ func TestConnectorCreateRequiresName(t *testing.T) {
 	}
 }
 
-// chat and sse announce to one shared destination, so a second instance would
-// double-post to it.
+// A singleton kind still allows only one instance. Neither chat nor sse is one
+// any more, so this uses the harness's stand-in.
 func TestConnectorCreateRejectsSecondSingleton(t *testing.T) {
 	h := newConnectorHarness(t)
 
@@ -878,4 +881,133 @@ func strippedConfig(t *testing.T, config, field string) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(out)
+}
+
+// feedHarness registers the real sse connector, because slug handling is the
+// thing under test and a stand-in would prove nothing about it.
+func newFeedHarness(t *testing.T) *connectorHarness {
+	t.Helper()
+
+	h := newConnectorHarness(t)
+	h.svc.registry.Register(sse.New(func(string, string, []byte) {}))
+	return h
+}
+
+func feedInput(name, slug string) ConnectorInput {
+	return ConnectorInput{
+		Kind:    "sse",
+		Name:    name,
+		Enabled: true,
+		Config:  json.RawMessage(`{"slug":"` + slug + `"}`),
+	}
+}
+
+func TestFeedSlugMustBeFree(t *testing.T) {
+	h := newFeedHarness(t)
+
+	mustCreate(t, h, feedInput("Everything", "everything"))
+
+	// The slug is the feed's URL, so two feeds sharing one would serve each
+	// other's subscribers.
+	_, err := h.svc.Create(context.Background(), feedInput("Clean", "everything"))
+	if !errors.Is(err, ErrFeedSlugTaken) {
+		t.Fatalf("err = %v, want ErrFeedSlugTaken", err)
+	}
+}
+
+func TestSeveralFeedsWithDistinctSlugsAreAllowed(t *testing.T) {
+	h := newFeedHarness(t)
+
+	mustCreate(t, h, feedInput("Everything", "everything"))
+	if _, err := h.svc.Create(context.Background(), feedInput("Clean", "no-adult")); err != nil {
+		t.Fatalf("second feed with its own slug: %v", err)
+	}
+}
+
+func TestFeedKeepsItsOwnSlugOnUpdate(t *testing.T) {
+	// Renaming a feed without changing its slug must not collide with itself.
+	h := newFeedHarness(t)
+	created := mustCreate(t, h, feedInput("Everything", "everything"))
+
+	in := feedInput("Everything (renamed)", "everything")
+	if _, err := h.svc.Update(context.Background(), created.ID, in); err != nil {
+		t.Fatalf("update keeping its own slug: %v", err)
+	}
+}
+
+func TestFeedUpdateRejectsAnotherFeedsSlug(t *testing.T) {
+	h := newFeedHarness(t)
+	mustCreate(t, h, feedInput("Everything", "everything"))
+	clean := mustCreate(t, h, feedInput("Clean", "no-adult"))
+
+	_, err := h.svc.Update(context.Background(), clean.ID, feedInput("Clean", "everything"))
+	if !errors.Is(err, ErrFeedSlugTaken) {
+		t.Fatalf("err = %v, want ErrFeedSlugTaken", err)
+	}
+}
+
+func TestPublicFeedsListsOnlyEnabledFeeds(t *testing.T) {
+	h := newFeedHarness(t)
+	ctx := context.Background()
+
+	mustCreate(t, h, feedInput("Everything", "everything"))
+	disabled := feedInput("Clean", "no-adult")
+	disabled.Enabled = false
+	mustCreate(t, h, disabled)
+	// A non-feed instance must not show up in a list of live feeds.
+	mustCreate(t, h, webhookInput())
+
+	feeds, err := h.svc.PublicFeeds(ctx)
+	if err != nil {
+		t.Fatalf("PublicFeeds: %v", err)
+	}
+	if len(feeds) != 1 || feeds[0].Slug != "everything" || feeds[0].Name != "Everything" {
+		t.Fatalf("feeds = %+v, want just the enabled feed", feeds)
+	}
+}
+
+// The member-facing view carries a slug and a name and nothing else: filters and
+// config are the admin list's business, and that one is behind RequireAdmin.
+func TestPublicFeedsExposeNoConfiguration(t *testing.T) {
+	h := newFeedHarness(t)
+	mustCreate(t, h, feedInput("Everything", "everything"))
+
+	feeds, err := h.svc.PublicFeeds(context.Background())
+	if err != nil {
+		t.Fatalf("PublicFeeds: %v", err)
+	}
+	encoded, err := json.Marshal(feeds)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, leak := range []string{"config", "filters", "rate_per_min", "category_ids"} {
+		if strings.Contains(string(encoded), leak) {
+			t.Fatalf("public feed view leaked %q: %s", leak, encoded)
+		}
+	}
+}
+
+// The service checks the slug and then inserts, so two admins saving at once can
+// both pass the check. The database catches the loser — and the loser must read
+// the same conflict the winner's check would have produced, not a 500.
+func TestFeedSlugRaceLostToTheIndexIsAConflict(t *testing.T) {
+	h := newFeedHarness(t)
+	h.repo.createErr = fmt.Errorf("create connector: %w", repository.ErrUniqueViolation)
+
+	_, err := h.svc.Create(context.Background(), feedInput("Everything", "everything"))
+	if !errors.Is(err, ErrFeedSlugTaken) {
+		t.Fatalf("err = %v, want ErrFeedSlugTaken", err)
+	}
+}
+
+// The same mapping must not fire for another kind, whose unique violation means
+// something else entirely.
+func TestUniqueViolationForAnotherKindStaysAnError(t *testing.T) {
+	h := newConnectorHarness(t)
+	h.repo.createErr = fmt.Errorf("create connector: %w", repository.ErrUniqueViolation)
+
+	_, err := h.svc.Create(context.Background(), webhookInput())
+	if err == nil || errors.Is(err, ErrFeedSlugTaken) {
+		t.Fatalf("err = %v, want a plain error rather than a feed-slug conflict", err)
+	}
 }

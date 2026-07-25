@@ -1,4 +1,5 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { LiveReleasesPage } from "@/pages/LiveReleasesPage";
@@ -82,17 +83,26 @@ function announcement(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Answers the feed list; every test gets one so the page never hits the network. */
+function mockFeeds(feeds: { slug: string; name: string }[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve({ ok: true, json: async () => ({ feeds }) })),
+  );
+}
+
 beforeEach(() => {
   MockEventSource.instances = [];
   currentToken = "test-token";
   vi.stubGlobal("EventSource", MockEventSource);
+  mockFeeds([]);
 });
 
 afterEach(cleanup);
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ["/live"]) {
   const result = render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <LiveReleasesPage />
     </MemoryRouter>,
   );
@@ -298,5 +308,151 @@ describe("LiveReleasesPage", () => {
 
     expect(screen.getByText(/3 more releases published/)).toBeInTheDocument();
     expect(screen.getByText(/5 more releases published/)).toBeInTheDocument();
+  });
+});
+
+describe("LiveReleasesPage feeds", () => {
+  // Deliberately not in slug order: the page must not pick "whichever sorted
+  // first" as the feed it watches.
+  const twoFeeds = [
+    { slug: "default", name: "Everything" },
+    { slug: "no-adult", name: "Safe for work" },
+  ];
+
+  test("watches the feed named in the URL", () => {
+    renderPage(["/live?feed=no-adult"]);
+
+    expect(MockEventSource.instances[0].url).toBe(
+      "http://localhost:8080/api/v1/announce-stream/no-adult?token=test-token",
+    );
+  });
+
+  test("with no feed list yet it watches the legacy stream", () => {
+    // The unslugged route, which is what a link made before feeds existed — or
+    // a page open across the deploy — still resolves to. This is also the state
+    // the page is in if the feed list cannot be fetched at all.
+    renderPage();
+
+    expect(MockEventSource.instances[0].url).toBe(
+      "http://localhost:8080/api/v1/announce-stream?token=test-token",
+    );
+  });
+
+  test("with no feed in the URL it watches the same feed the picker shows", async () => {
+    // Regression: the picker used to show the alphabetically-first feed while
+    // the stream was bound to the legacy "default" one. On a private tracker
+    // that reads "Safe for work" over the unfiltered feed's releases.
+    mockFeeds(twoFeeds);
+    renderPage();
+
+    const picker = (await screen.findByLabelText("Feed")) as HTMLSelectElement;
+    const latest =
+      MockEventSource.instances[MockEventSource.instances.length - 1];
+    expect(latest.url).toContain(`/announce-stream/${picker.value}?`);
+    // "everything" sorts first, but "default" is what the legacy route resolves
+    // to, so that is the honest default.
+    expect(picker.value).toBe("default");
+  });
+
+  test("falls back to the first feed when no feed is named default", async () => {
+    mockFeeds([
+      { slug: "anime", name: "Anime" },
+      { slug: "releases", name: "Releases" },
+    ]);
+    renderPage();
+
+    const picker = (await screen.findByLabelText("Feed")) as HTMLSelectElement;
+    expect(picker.value).toBe("anime");
+    const latest =
+      MockEventSource.instances[MockEventSource.instances.length - 1];
+    expect(latest.url).toContain("/announce-stream/anime?");
+  });
+
+  test("says so when the feed in the URL no longer exists", async () => {
+    // The admin renamed or deleted it. Silently showing another feed's releases
+    // under the requested feed's name is the failure worth avoiding.
+    mockFeeds(twoFeeds);
+    renderPage(["/live?feed=deleted-feed"]);
+
+    expect(await screen.findByText(/no longer exists/)).toBeInTheDocument();
+    const latest =
+      MockEventSource.instances[MockEventSource.instances.length - 1];
+    expect(latest.url).toContain("/announce-stream/default?");
+  });
+
+  test("offers a picker once there is more than one feed", async () => {
+    mockFeeds(twoFeeds);
+    renderPage();
+
+    const picker = (await screen.findByLabelText("Feed")) as HTMLSelectElement;
+    expect(Array.from(picker.options, (option) => option.text)).toEqual([
+      "Everything",
+      "Safe for work",
+    ]);
+  });
+
+  test("does not clutter the page with a picker for a single feed", async () => {
+    mockFeeds([twoFeeds[0]]);
+    renderPage();
+
+    // Settle on the feed fetch itself: "Live Releases" is in the first render,
+    // so asserting after it would prove nothing about what the list did.
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(MockEventSource.instances.length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByLabelText("Feed")).not.toBeInTheDocument();
+  });
+
+  test("a frame from the feed just left is not shown under the new one", async () => {
+    // React runs an effect cleanup after paint, so the old stream is briefly
+    // still attached after the switch.
+    const user = userEvent.setup();
+    mockFeeds(twoFeeds);
+    renderPage(["/live?feed=default"]);
+
+    const old = MockEventSource.instances[0];
+    const picker = await screen.findByLabelText("Feed");
+    await user.selectOptions(picker, "no-adult");
+
+    old.emit("announcement", announcement());
+
+    expect(screen.queryByText("Some.Release-GROUP")).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting for releases…")).toBeInTheDocument();
+  });
+
+  test("choosing a feed puts it in the URL and reconnects", async () => {
+    const user = userEvent.setup();
+    mockFeeds(twoFeeds);
+    renderPage();
+
+    const picker = await screen.findByLabelText("Feed");
+    await user.selectOptions(picker, "no-adult");
+
+    const latest =
+      MockEventSource.instances[MockEventSource.instances.length - 1];
+    expect(latest.url).toBe(
+      "http://localhost:8080/api/v1/announce-stream/no-adult?token=test-token",
+    );
+    // The stream for the feed left behind must be closed, not left open
+    // consuming a slot against the per-user cap.
+    expect(MockEventSource.instances[0].closed).toBe(true);
+  });
+
+  test("switching feeds clears what the other feed had shown", async () => {
+    const user = userEvent.setup();
+    mockFeeds(twoFeeds);
+    renderPage(["/live?feed=default"]);
+
+    MockEventSource.instances[0].emit("announcement", announcement());
+    expect(screen.getByText("Some.Release-GROUP")).toBeInTheDocument();
+
+    const picker = await screen.findByLabelText("Feed");
+    await user.selectOptions(picker, "no-adult");
+
+    // The rows on screen belonged to a feed that is no longer being watched;
+    // leaving them would misrepresent what this feed carries.
+    expect(screen.queryByText("Some.Release-GROUP")).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting for releases…")).toBeInTheDocument();
   });
 });
