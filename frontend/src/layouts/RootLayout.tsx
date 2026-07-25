@@ -166,6 +166,13 @@ export function RootLayout() {
               Upload
             </NavLink>
             <NavLink
+              to="/live"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Live
+            </NavLink>
+            <NavLink
               to="/today"
               className="header__dropdown-item"
               onClick={closeMenu}

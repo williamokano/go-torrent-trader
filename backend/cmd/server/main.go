@@ -20,6 +20,7 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/httpguard"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/irc"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/leader"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/webhook"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -291,6 +292,10 @@ func run() int {
 	connectorRegistry.Register(webhook.New(connectorHTTPClient))
 	connectorRegistry.Register(irc.New())
 
+	announceHub := handler.NewAnnounceHub(sessionStore)
+	go announceHub.Run()
+	connectorRegistry.Register(sse.New(announceHub.Broadcast))
+
 	connectorRepo := postgres.NewConnectorRepo(db)
 	connectorDeliveryRepo := postgres.NewConnectorDeliveryRepo(db)
 	connectorService := service.NewConnectorService(connectorRepo, connectorDeliveryRepo,
@@ -370,6 +375,7 @@ func run() int {
 		InviteDistributionService: inviteDistributionService,
 		ConnectorService:          connectorService,
 		ConnectorStatus:           connectorManager,
+		AnnounceHub:               announceHub,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,

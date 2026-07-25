@@ -60,6 +60,7 @@ import { AdminForumsPage } from "@/pages/admin/AdminForumsPage";
 import { AdminCheatFlagsPage } from "@/pages/admin/AdminCheatFlagsPage";
 import { AdminBackupsPage } from "@/pages/admin/AdminBackupsPage";
 import { AdminConnectorsPage } from "@/pages/admin/AdminConnectorsPage";
+import { LiveReleasesPage } from "@/pages/LiveReleasesPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 
 export const router = createBrowserRouter([
@@ -169,6 +170,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <UserSettingsPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "live",
+        element: (
+          <ProtectedRoute>
+            <LiveReleasesPage />
           </ProtectedRoute>
         ),
       },

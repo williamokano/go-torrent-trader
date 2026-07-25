@@ -79,6 +79,7 @@ const KIND_LABELS: Record<string, string> = {
   chat: "Shoutbox",
   webhook: "Webhook",
   irc: "IRC",
+  sse: "Live Feed",
 };
 
 /** How often the IRC connection status is refreshed while the page is open. */
@@ -779,6 +780,15 @@ export function AdminConnectorsPage() {
             {renderHeadersEditor()}
             {renderSecretField("hmac_secret", "HMAC signing secret")}
           </>
+        );
+      case "sse":
+        // Deliberately config-less: who sees the feed is decided by
+        // authentication, and what appears in it by the filters below.
+        return (
+          <p className="admin-muted">
+            The live feed has nothing to configure. Use the filters below to
+            narrow what appears in it.
+          </p>
         );
       default:
         // A kind the backend registered but this build has no editor for. Saying

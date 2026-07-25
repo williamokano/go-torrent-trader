@@ -1,0 +1,108 @@
+/* Page-specific styles for the live releases feed. */
+
+.live__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.live__title {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-2xl);
+}
+
+.live__desc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  max-width: 48ch;
+}
+
+/* The connection state is the one thing that explains an empty feed, so it
+   stays visible rather than hiding behind a tooltip. */
+.live__status {
+  flex-shrink: 0;
+  padding: var(--space-2xs) var(--space-sm);
+  border-radius: var(--radius-full, 999px);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.live__status--live {
+  color: var(--color-success, var(--color-accent));
+  background-color: color-mix(
+    in srgb,
+    var(--color-success, var(--color-accent)),
+    transparent 88%
+  );
+}
+
+.live__status--connecting,
+.live__status--reconnecting {
+  color: var(--color-warning, var(--color-accent));
+  background-color: color-mix(
+    in srgb,
+    var(--color-warning, var(--color-accent)),
+    transparent 88%
+  );
+}
+
+.live__empty {
+  padding: var(--space-xl) 0;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.live__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.live__item {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.live__name {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.live__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.live__badge {
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.live__badge--freeleech {
+  color: var(--color-success, var(--color-accent));
+  background-color: color-mix(
+    in srgb,
+    var(--color-success, var(--color-accent)),
+    transparent 88%
+  );
+}
+
+.live__summary {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
