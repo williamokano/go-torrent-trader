@@ -351,6 +351,17 @@ func recordFailure(
 		return rescheduleNotReady(ctx, deps, row, deliverErr, rawConfig, secretFields)
 	}
 
+	// A connector that knows the delivery can never succeed is believed at once.
+	// Retrying would not fix it, and for a fan-out connector every retry means
+	// the destinations that did work receive the announcement again.
+	if errors.Is(deliverErr, connector.ErrPermanent) {
+		message := connector.RedactError(deliverErr, rawConfig, secretFields)
+		markFailed(ctx, deps, row, row.Attempts+1, message)
+		slog.Warn("connector delivery dead-lettered as permanent",
+			"instance_id", row.InstanceID, "delivery_id", row.ID, "error", message)
+		return 0
+	}
+
 	// Every error path funnels through RedactError before it can reach a log
 	// line or the last_error column — a Telegram bot token lives in the request
 	// URL, and net/http puts that URL in the error.

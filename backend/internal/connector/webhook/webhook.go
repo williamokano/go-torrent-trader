@@ -11,11 +11,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -109,7 +107,7 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 
 	req, err := http.NewRequestWithContext(ctx, method, cfg.URL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("build webhook request: %w", stripURL(err))
+		return fmt.Errorf("build webhook request: %w", connector.StripURL(err))
 	}
 
 	timestamp := strconv.FormatInt(c.now().Unix(), 10)
@@ -126,7 +124,7 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("webhook request failed: %w", stripURL(err))
+		return fmt.Errorf("webhook request failed: %w", connector.StripURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes))
@@ -137,20 +135,6 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 		return fmt.Errorf("webhook returned %d", resp.StatusCode)
 	}
 	return nil
-}
-
-// stripURL unwraps *url.Error, which carries the full request URL.
-//
-// ValidateConfig rejects credentials in the userinfo, but plenty of receivers
-// (Slack, Discord, Mattermost) put the token in the path instead — and this
-// error is what lands in the delivery log for the whole retention window.
-// Keeping only the cause loses nothing worth reading.
-func stripURL(err error) error {
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) && urlErr.Err != nil {
-		return fmt.Errorf("%s: %w", urlErr.Op, urlErr.Err)
-	}
-	return err
 }
 
 // Sign produces the X-Announce-Signature value. The timestamp is part of the
