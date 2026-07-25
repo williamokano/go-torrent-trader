@@ -228,6 +228,13 @@ func (stubChatConnector) Deliver(context.Context, connector.Instance, connector.
 	return nil
 }
 
+// stubStatusProvider stands in for the ConnectorManager.
+type stubStatusProvider struct {
+	statuses map[int64]connector.ManagerStatus
+}
+
+func (s *stubStatusProvider) Status() map[int64]connector.ManagerStatus { return s.statuses }
+
 // --- harness ---
 
 type connectorAdminHarness struct {
@@ -235,6 +242,7 @@ type connectorAdminHarness struct {
 	sessions service.SessionStore
 	repo     *stubConnectorRepo
 	hook     *stubWebhookConnector
+	status   *stubStatusProvider
 	admin    string
 	member   string
 }
@@ -253,17 +261,19 @@ func setupConnectorAdmin(t *testing.T) *connectorAdminHarness {
 	registry.Register(stubChatConnector{})
 
 	repo := newStubConnectorRepo()
-	svc := service.NewConnectorService(repo, newStubConnectorDeliveryRepo(), registry, "https://tracker.test")
+	svc := service.NewConnectorService(repo, newStubConnectorDeliveryRepo(), registry, bus, "https://tracker.test")
 
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(),
 		&testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL,
 		service.DefaultRefreshTokenTTL, groupStore, bus)
 
+	status := &stubStatusProvider{statuses: map[int64]connector.ManagerStatus{}}
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:      authSvc,
 		SessionStore:     sessions,
 		AdminService:     service.NewAdminService(userRepo, groupStore, bus),
 		ConnectorService: svc,
+		ConnectorStatus:  status,
 	})
 
 	return &connectorAdminHarness{
@@ -271,6 +281,7 @@ func setupConnectorAdmin(t *testing.T) *connectorAdminHarness {
 		sessions: sessions,
 		repo:     repo,
 		hook:     hook,
+		status:   status,
 		admin:    createSessionWithGroup(sessions, 6001, 1),
 		member:   createSessionWithGroup(sessions, 6002, 5),
 	}
@@ -320,6 +331,7 @@ func TestConnectorRoutesRejectNonAdmin(t *testing.T) {
 		{http.MethodDelete, "/api/v1/admin/connectors/1"},
 		{http.MethodPost, "/api/v1/admin/connectors/1/test"},
 		{http.MethodGet, "/api/v1/admin/connectors/1/deliveries"},
+		{http.MethodGet, "/api/v1/admin/connectors/status"},
 	}
 	for _, c := range cases {
 		rec := doGroupRequest(t, h.router, h.member, c.method, c.path, map[string]interface{}{})
@@ -573,6 +585,66 @@ func TestConnectorDeliveriesPagination(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "s3cr3t") {
 		t.Fatalf("delivery log leaked the secret: %s", rec.Body.String())
+	}
+}
+
+// The status endpoint reports what THIS node is doing, which is why a standby
+// honestly answers not_owner rather than guessing about the cluster.
+func TestConnectorStatusReportsManagerState(t *testing.T) {
+	h := setupConnectorAdmin(t)
+	h.status.statuses[3] = connector.ManagerStatus{
+		State:     connector.StateConnected,
+		Since:     time.Now(),
+		LastError: "",
+	}
+	h.status.statuses[4] = connector.ManagerStatus{
+		State:     connector.StateError,
+		LastError: "connection refused",
+	}
+
+	rec := doGroupRequest(t, h.router, h.admin, http.MethodGet, "/api/v1/admin/connectors/status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Statuses map[string]connector.ManagerStatus `json:"statuses"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Statuses["3"].State != connector.StateConnected {
+		t.Fatalf("instance 3 = %+v, want connected", resp.Statuses["3"])
+	}
+	if resp.Statuses["4"].LastError != "connection refused" {
+		t.Fatalf("instance 4 = %+v, want the error surfaced", resp.Statuses["4"])
+	}
+}
+
+// "status" must not be parsed as an instance ID.
+func TestConnectorStatusRouteIsNotShadowedByTheIDRoute(t *testing.T) {
+	h := setupConnectorAdmin(t)
+
+	rec := doGroupRequest(t, h.router, h.admin, http.MethodGet, "/api/v1/admin/connectors/status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — the {id} route probably swallowed it", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "invalid connector ID") {
+		t.Fatal("the {id} route handled /status")
+	}
+}
+
+// A deployment with no persistent connectors has no manager at all.
+func TestConnectorStatusWithoutAManagerIsEmpty(t *testing.T) {
+	h := setupConnectorAdmin(t)
+	h.status.statuses = nil
+
+	rec := doGroupRequest(t, h.router, h.admin, http.MethodGet, "/api/v1/admin/connectors/status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"statuses":{}`) {
+		t.Fatalf("body = %s, want an empty status map", rec.Body.String())
 	}
 }
 

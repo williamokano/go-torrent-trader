@@ -61,16 +61,66 @@ interface Category {
   name: string;
 }
 
+/** One IRC target channel, optionally narrowed to some categories. */
+interface IrcChannel {
+  name: string;
+  categories?: number[];
+}
+
 const DELIVERIES_PER_PAGE = 25;
 
 /** Which config keys each kind treats as write-only credentials. */
 const SECRET_FIELDS: Record<string, string[]> = {
   webhook: ["hmac_secret"],
+  irc: ["sasl_pass", "nickserv_pass"],
 };
 
 const KIND_LABELS: Record<string, string> = {
   chat: "Shoutbox",
   webhook: "Webhook",
+  irc: "IRC",
+};
+
+/** How often the IRC connection status is refreshed while the page is open. */
+const STATUS_POLL_MS = 10_000;
+
+/** One instance's lifecycle state on the node that served the request. */
+interface ManagerStatus {
+  state: string;
+  since?: string;
+  last_error?: string;
+}
+
+/**
+ * Maps a connection state onto a badge. Anything that means "not currently
+ * announcing" is red, because that is the question an admin is asking — a
+ * standby node reporting not_owner is healthy for the cluster but is not
+ * delivering from here.
+ */
+function stateBadgeClass(state: string): string {
+  switch (state) {
+    case "connected":
+      return "admin-badge admin-badge--ok";
+    case "connecting":
+    case "acquiring":
+    case "reconnecting":
+      return "admin-badge admin-badge--warn";
+    case "error":
+    case "not_owner":
+      return "admin-badge admin-badge--danger";
+    default:
+      return "admin-badge admin-badge--muted";
+  }
+}
+
+const STATE_LABELS: Record<string, string> = {
+  connected: "connected",
+  connecting: "connecting",
+  acquiring: "acquiring",
+  reconnecting: "reconnecting",
+  not_owner: "another node",
+  stopped: "stopped",
+  error: "error",
 };
 
 function kindLabel(kind: string): string {
@@ -103,12 +153,28 @@ interface FormState {
   clearSecrets: Record<string, boolean>;
 }
 
+/**
+ * Defaults a kind needs in its config from the start.
+ *
+ * A field that only defaults at render time looks filled in but submits
+ * nothing, so the admin sees "6697" in the Port box and a validation error
+ * saying the port is 0.
+ */
+function defaultConfig(kind: string): Record<string, unknown> {
+  switch (kind) {
+    case "irc":
+      return { port: 6697, tls: true, channels: [] };
+    default:
+      return {};
+  }
+}
+
 function emptyForm(kind: string): FormState {
   return {
     kind,
     name: "",
     enabled: true,
-    config: {},
+    config: defaultConfig(kind),
     filters: {},
     secrets: {},
     clearSecrets: {},
@@ -156,6 +222,7 @@ export function AdminConnectorsPage() {
   const [deliveriesTotal, setDeliveriesTotal] = useState(0);
   const deliveriesRequestRef = useRef(0);
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, ManagerStatus>>({});
 
   const fetchConnectors = useCallback(
     async (showLoading = true) => {
@@ -206,6 +273,31 @@ export function AdminConnectorsPage() {
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
+
+  const fetchStatuses = useCallback(async () => {
+    try {
+      const token = getAccessToken();
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/connectors/status`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setStatuses(data.statuses ?? {});
+    } catch {
+      // Status is a nicety on top of the list; a failed poll just leaves the
+      // previous badge in place rather than nagging the admin.
+    }
+  }, []);
+
+  // Only poll while there is a connection-holding instance to report on.
+  const hasPersistent = connectors.some((c) => c.kind === "irc");
+  useEffect(() => {
+    if (!hasPersistent) return;
+    fetchStatuses();
+    const timer = setInterval(fetchStatuses, STATUS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [hasPersistent, fetchStatuses]);
 
   /** Kinds that can still be created: a singleton already in use is spent. */
   function availableKinds(): string[] {
@@ -529,6 +621,85 @@ export function AdminConnectorsPage() {
     );
   }
 
+  /**
+   * Channel rows, each optionally narrowed to some categories — one connection
+   * can feed #movies and #tv from the same instance, which is why this routing
+   * lives in the config rather than in the instance-level filters.
+   */
+  function renderChannelsEditor() {
+    const channels = (form.config.channels as IrcChannel[]) ?? [];
+
+    function writeChannels(next: IrcChannel[]) {
+      setConfigField("channels", next);
+    }
+
+    return (
+      <div className="admin-connectors__channels">
+        <span className="form-label">Channels</span>
+        {channels.map((channel, index) => (
+          <div className="admin-connectors__channel-row" key={index}>
+            <Input
+              label="Channel"
+              placeholder="#announce"
+              value={channel.name}
+              onChange={(e) =>
+                writeChannels(
+                  channels.map((c, i) =>
+                    i === index ? { ...c, name: e.target.value } : c,
+                  ),
+                )
+              }
+            />
+            <Select
+              label="Categories (empty = all)"
+              multiple
+              size={Math.min(4, Math.max(2, categories.length))}
+              options={categories.map((category) => ({
+                value: String(category.id),
+                label: category.name,
+              }))}
+              value={(channel.categories ?? []).map(String)}
+              onChange={(e) =>
+                writeChannels(
+                  channels.map((c, i) =>
+                    i === index
+                      ? {
+                          ...c,
+                          categories: Array.from(
+                            e.target.selectedOptions,
+                            (option) => Number(option.value),
+                          ),
+                        }
+                      : c,
+                  ),
+                )
+              }
+            />
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost admin-btn--sm"
+              aria-label={`Remove channel ${channel.name || index + 1}`}
+              onClick={() =>
+                writeChannels(channels.filter((_, i) => i !== index))
+              }
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="admin-btn admin-btn--ghost admin-btn--sm"
+          onClick={() =>
+            writeChannels([...channels, { name: "", categories: [] }])
+          }
+        >
+          Add channel
+        </button>
+      </div>
+    );
+  }
+
   function renderKindFields() {
     switch (form.kind) {
       case "chat":
@@ -540,6 +711,51 @@ export function AdminConnectorsPage() {
             value={(form.config.template as string) ?? ""}
             onChange={(e) => setConfigField("template", e.target.value)}
           />
+        );
+      case "irc":
+        return (
+          <>
+            <Input
+              label="Server"
+              placeholder="irc.libera.chat"
+              value={(form.config.server as string) ?? ""}
+              onChange={(e) => setConfigField("server", e.target.value)}
+            />
+            <Input
+              label="Port"
+              type="number"
+              min={1}
+              max={65535}
+              value={String(form.config.port ?? 6697)}
+              onChange={(e) => setConfigField("port", Number(e.target.value))}
+            />
+            <Checkbox
+              label="Use TLS"
+              checked={(form.config.tls as boolean) ?? false}
+              onChange={(e) => setConfigField("tls", e.target.checked)}
+            />
+            <Input
+              label="Nick"
+              placeholder="announcebot"
+              value={(form.config.nick as string) ?? ""}
+              onChange={(e) => setConfigField("nick", e.target.value)}
+            />
+            <Input
+              label="SASL username"
+              value={(form.config.sasl_user as string) ?? ""}
+              onChange={(e) => setConfigField("sasl_user", e.target.value)}
+            />
+            {renderSecretField("sasl_pass", "SASL password")}
+            {renderSecretField("nickserv_pass", "NickServ password")}
+            {renderChannelsEditor()}
+            <Textarea
+              label="Message template"
+              rows={2}
+              placeholder="[{{.Category}}] {{.Name}} [{{.SizeHuman}}] — {{.URL}}"
+              value={(form.config.template as string) ?? ""}
+              onChange={(e) => setConfigField("template", e.target.value)}
+            />
+          </>
         );
       case "webhook":
         return (
@@ -621,7 +837,27 @@ export function AdminConnectorsPage() {
                 {connectors.map((connector) => (
                   <tr key={connector.id}>
                     <td className="admin-table__name">{connector.name}</td>
-                    <td className="admin-muted">{kindLabel(connector.kind)}</td>
+                    <td className="admin-muted">
+                      {kindLabel(connector.kind)}
+                      {statuses[String(connector.id)] && (
+                        <>
+                          {" "}
+                          <span
+                            className={stateBadgeClass(
+                              statuses[String(connector.id)].state,
+                            )}
+                            title={
+                              statuses[String(connector.id)].last_error ||
+                              undefined
+                            }
+                          >
+                            {STATE_LABELS[
+                              statuses[String(connector.id)].state
+                            ] ?? statuses[String(connector.id)].state}
+                          </span>
+                        </>
+                      )}
+                    </td>
                     <td className="admin-table__toggle">
                       <input
                         type="checkbox"
@@ -777,7 +1013,7 @@ export function AdminConnectorsPage() {
               setForm((prev) => ({
                 ...prev,
                 kind: e.target.value,
-                config: {},
+                config: defaultConfig(e.target.value),
                 secrets: {},
                 clearSecrets: {},
               }))

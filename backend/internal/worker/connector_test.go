@@ -890,3 +890,102 @@ func TestDrainTreatsClaimFailureAsNotOwned(t *testing.T) {
 		t.Fatal("a failed claim must not be treated as ownership")
 	}
 }
+
+// --- "not ready" (BE-10.2) ---
+
+// A reconnecting IRC client is not a delivery failure. Counting it against the
+// five-attempt budget would let a routine reconnect dead-letter a whole queue of
+// perfectly good announcements.
+func TestDrainNotReadyReschedulesWithoutBurningAnAttempt(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: still connecting", connector.ErrNotReady)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+
+	before := time.Now()
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.Attempts != 0 {
+		t.Fatalf("attempts = %d, want 0: not-ready must not consume the retry budget", stored.Attempts)
+	}
+	if stored.Status != model.DeliveryPending {
+		t.Fatalf("status = %q, want it left pending", stored.Status)
+	}
+	if stored.NextAttemptAt == nil {
+		t.Fatal("next_attempt_at must be set so the row comes back")
+	}
+	// Jittered, so assert the window rather than an exact value.
+	gap := stored.NextAttemptAt.Sub(before)
+	if gap < connectorNotReadyRetry || gap > connectorNotReadyRetry+connectorNotReadyJitter+time.Second {
+		t.Fatalf("next attempt in %v, want between %v and %v",
+			gap, connectorNotReadyRetry, connectorNotReadyRetry+connectorNotReadyJitter)
+	}
+	if len(h.enqueuer.calls) != 1 {
+		t.Fatalf("queued %d follow-ups, want 1", len(h.enqueuer.calls))
+	}
+	if d := h.enqueuer.calls[0].delay; d < connectorNotReadyRetry || d > connectorNotReadyRetry+connectorNotReadyJitter {
+		t.Fatalf("follow-up delay = %v, want it inside the jitter window", d)
+	}
+}
+
+// The delivery log is the only record of why a row has been struggling, so a
+// spell of "not ready" must not erase the real failure that preceded it.
+func TestDrainNotReadyKeepsThePreviousFailureReason(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: still connecting", connector.ErrNotReady)
+	}
+	row := h.deliveries.add(1, announcementN(1), 2)
+	previous := "webhook returned 500"
+	row.LastError = &previous
+
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.LastError == nil || *stored.LastError != previous {
+		t.Fatalf("last_error = %v, want the earlier failure preserved", stored.LastError)
+	}
+	if stored.Attempts != 2 {
+		t.Fatalf("attempts = %d, want the existing count untouched", stored.Attempts)
+	}
+}
+
+// A row with no creation time must be treated as new, not as two thousand years
+// old — the latter dead-letters it on the first not-ready.
+func TestDrainNotReadyToleratesAZeroCreatedAt(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: still connecting", connector.ErrNotReady)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+	row.CreatedAt = time.Time{}
+
+	h.run(t)
+
+	if got := h.deliveries.rows[row.ID].Status; got != model.DeliveryPending {
+		t.Fatalf("status = %q, want it rescheduled rather than dead-lettered", got)
+	}
+}
+
+// "Not ready" must not mean "never": a destination that has been down for a long
+// time is a real failure and has to stop being retried.
+func TestDrainNotReadyGivesUpOnAnOldDelivery(t *testing.T) {
+	h := newDrainHarness(t, `{}`)
+	h.conn.deliverFn = func(connector.Announcement) error {
+		return fmt.Errorf("%w: still connecting", connector.ErrNotReady)
+	}
+	row := h.deliveries.add(1, announcementN(1), 0)
+	row.CreatedAt = time.Now().Add(-2 * connectorNotReadyMaxAge)
+
+	h.run(t)
+
+	stored := h.deliveries.rows[row.ID]
+	if stored.Status != model.DeliveryFailed {
+		t.Fatalf("status = %q, want failed once it has waited past the cap", stored.Status)
+	}
+	if stored.NextAttemptAt != nil {
+		t.Fatal("a dead-lettered row must not be scheduled again")
+	}
+}

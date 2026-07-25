@@ -147,7 +147,7 @@ func fullRouterDeps(t *testing.T) *Deps {
 		DashboardRepo: &stubDashboardRepo{},
 		BackupService: &backupManagerStub{},
 		ConnectorService: service.NewConnectorService(nopConnectorRepo{}, nopConnectorDeliveryRepo{},
-			connector.NewRegistry(), "http://localhost"),
+			connector.NewRegistry(), bus, "http://localhost"),
 		UserRepo:   users,
 		StatsCache: service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
 	}

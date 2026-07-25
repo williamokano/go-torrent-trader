@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -45,6 +46,7 @@ type ConnectorService struct {
 	repo       repository.ConnectorRepository
 	deliveries repository.ConnectorDeliveryRepository
 	registry   *connector.Registry
+	eventBus   event.Bus
 	baseURL    string
 }
 
@@ -57,14 +59,33 @@ func NewConnectorService(
 	repo repository.ConnectorRepository,
 	deliveries repository.ConnectorDeliveryRepository,
 	registry *connector.Registry,
+	bus event.Bus,
 	baseURL string,
 ) *ConnectorService {
 	return &ConnectorService{
 		repo:       repo,
 		deliveries: deliveries,
 		registry:   registry,
+		eventBus:   bus,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 	}
+}
+
+// announceConfigChange tells the ConnectorManager to reconcile.
+//
+// Persistent connectors (IRC) hold a connection that has to be started, stopped
+// or restarted when an admin edits an instance; without this the manager would
+// have to poll, and an edit would take up to a minute to take effect.
+func (s *ConnectorService) announceConfigChange(ctx context.Context, c *model.NotificationConnector, deleted bool) {
+	if s.eventBus == nil {
+		return
+	}
+	s.eventBus.Publish(ctx, &event.ConnectorConfigChangedEvent{
+		Base:       event.NewBase(event.ConnectorConfigChanged, event.Actor{}),
+		InstanceID: c.ID,
+		Kind:       c.Kind,
+		Deleted:    deleted,
+	})
 }
 
 // ConnectorInput is an admin create/update submission.
@@ -153,6 +174,7 @@ func (s *ConnectorService) Create(ctx context.Context, in ConnectorInput) (*Conn
 	if err := s.repo.Create(ctx, c); err != nil {
 		return nil, fmt.Errorf("create connector: %w", err)
 	}
+	s.announceConfigChange(ctx, c, false)
 
 	return s.view(c, nil), nil
 }
@@ -193,6 +215,7 @@ func (s *ConnectorService) Update(ctx context.Context, id int64, in ConnectorInp
 		}
 		return nil, fmt.Errorf("update connector: %w", err)
 	}
+	s.announceConfigChange(ctx, existing, false)
 
 	return s.view(existing, nil), nil
 }
@@ -231,12 +254,19 @@ func (s *ConnectorService) Get(ctx context.Context, id int64) (*ConnectorView, e
 
 // Delete removes an instance. Its delivery rows go with it (ON DELETE CASCADE).
 func (s *ConnectorService) Delete(ctx context.Context, id int64) error {
+	// Read it first so the change event can name the kind, which is what tells
+	// the manager whether a connection needs stopping.
+	existing, err := s.get(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := s.repo.Delete(ctx, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrConnectorNotFound
 		}
 		return fmt.Errorf("delete connector: %w", err)
 	}
+	s.announceConfigChange(ctx, existing, true)
 	return nil
 }
 

@@ -1,8 +1,9 @@
 # External Notification Connectors — Design
 
-**Status:** Phase 1 implemented (BE-10.1 — the connector seam, Chat and Webhook
-connectors, delivery pipeline and admin CRUD). Phases 2–4 in progress; phase 5
-(per-user relay) remains future work. Implementation plan: `docs/plans/BE-10.md`.
+**Status:** Phases 1–2 implemented (BE-10.1 — the connector seam, Chat and
+Webhook connectors, delivery pipeline and admin CRUD; BE-10.2 — IRC, the
+persistent-connector lifecycle and advisory-lock leader election). Phases 3–4 in
+progress; phase 5 (per-user relay) remains future work. Implementation plan: `docs/plans/BE-10.md`.
 Where this document and the plan differ, the plan's §1 records the decision.
 
 **Relates to:** `docs/EXTENSIBILITY.md` (reaction-side plugins), `docs/TRACKER_MODS.md`
@@ -20,6 +21,12 @@ Two things the implementation settled that this document left open:
   program reads, so `Connector.Coalescable()` decides. Machine-read kinds spend
   their whole rate budget on individual deliveries and defer the rest to the
   next window instead.
+- **"Not ready" is a third delivery outcome**, alongside success and failure.
+  A connector that is mid-reconnect, or running on a node that does not own the
+  connection, returns `connector.ErrNotReady`; the delivery is rescheduled
+  without consuming a retry attempt, bounded to 15 minutes. Leader election is
+  the Postgres advisory-lock variant, with a 10s ownership re-check that stops
+  the client the moment ownership cannot be proven.
 
 ## 1. Motivation
 

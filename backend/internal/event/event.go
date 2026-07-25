@@ -68,6 +68,7 @@ const (
 	TorrentModerationMsg    Type = "torrent_moderation_message"
 	TorrentModerated        Type = "torrent_moderated"
 	TorrentPublished        Type = "torrent_published"
+	ConnectorConfigChanged  Type = "connector_config_changed"
 	UserMentioned           Type = "user_mentioned"
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
@@ -272,6 +273,20 @@ type TorrentPublishedEvent struct {
 	Freeleech    bool      `json:"freeleech"`
 	Silver       bool      `json:"silver"`
 	PublishedAt  time.Time `json:"published_at"`
+}
+
+// ConnectorConfigChangedEvent fires when a notification connector instance is
+// created, edited, toggled or deleted (BE-10.2).
+//
+// It exists so the ConnectorManager can reconcile long-lived connections (IRC)
+// the moment an admin changes something, instead of polling for it. The event is
+// never persisted and never reaches the activity log — the admin action that
+// caused it is what deserves an audit entry, not the reconciliation.
+type ConnectorConfigChangedEvent struct {
+	Base
+	InstanceID int64  `json:"instance_id"`
+	Kind       string `json:"kind"`
+	Deleted    bool   `json:"deleted"`
 }
 
 type InviteCreatedEvent struct {
