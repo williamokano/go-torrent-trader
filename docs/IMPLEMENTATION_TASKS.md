@@ -7,6 +7,8 @@
 > Stories are organized by project area: Infrastructure, Backend, Frontend, Migration Tool.
 > See `ARCHITECTURE.md` for monorepo structure and conventions.
 > See `NOT_PORTING.md` for features explicitly excluded.
+> See `PROPOSED_FEATURES.md` for ideas raised but **not yet specified** — they
+> move here as stories once their open questions are answered.
 
 ## Development Standards
 
