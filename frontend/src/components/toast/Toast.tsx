@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ToastContext } from "./ToastContext";
 import "@/components/toast/toast.css";
@@ -23,25 +23,51 @@ export function ToastProvider({
 }: ToastProviderProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const counterRef = useRef(0);
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
 
-  const removeToast = useCallback((id: string) => {
-    setToasts((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, exiting: true } : t)),
-    );
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 300);
+  // Auto-dismiss timers outlive the provider unless they are cancelled: a toast
+  // raised just before the user navigates away would still fire, setting state
+  // on a tree that is gone. React no longer warns about that, so it stays
+  // invisible in the browser — but under a test runner the timer lands after
+  // the DOM has been torn down and takes the whole suite down with a
+  // "window is not defined" that names an unrelated file.
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    const timer = setTimeout(() => {
+      timersRef.current.delete(timer);
+      fn();
+    }, ms);
+    timersRef.current.add(timer);
   }, []);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
+
+  const removeToast = useCallback(
+    (id: string) => {
+      setToasts((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, exiting: true } : t)),
+      );
+      schedule(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 300);
+    },
+    [schedule],
+  );
 
   const addToast = useCallback(
     (type: ToastType, message: string) => {
       const id = `toast-${++counterRef.current}`;
       setToasts((prev) => [...prev, { id, type, message }]);
-      setTimeout(() => {
+      schedule(() => {
         removeToast(id);
       }, duration);
     },
-    [duration, removeToast],
+    [duration, removeToast, schedule],
   );
 
   const success = useCallback(

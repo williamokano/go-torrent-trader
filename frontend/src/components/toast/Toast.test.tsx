@@ -73,4 +73,31 @@ describe("Toast", () => {
 
     expect(screen.queryByText("Temporary message")).not.toBeInTheDocument();
   });
+
+  // A pending auto-dismiss must not outlive the provider. In the browser it
+  // would set state on an unmounted tree — silent since React 18, so nothing
+  // would ever point at it. Under a test runner the same timer lands after the
+  // DOM is torn down and fails the whole suite with "window is not defined",
+  // attributed to whichever file happened to be running.
+  it("cancels pending timers when the provider unmounts", () => {
+    function TestComponent() {
+      const toast = useToast();
+      return <button onClick={() => toast.info("Pending")}>Add Info</button>;
+    }
+
+    const { unmount } = render(
+      <ToastProvider duration={3000}>
+        <TestComponent />
+      </ToastProvider>,
+    );
+
+    act(() => {
+      screen.getByText("Add Info").click();
+    });
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
