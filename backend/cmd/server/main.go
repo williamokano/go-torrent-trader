@@ -14,6 +14,10 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/chat"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/httpguard"
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector/webhook"
 	"github.com/williamokano/go-torrent-trader/backend/internal/database"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
@@ -266,6 +270,27 @@ func run() int {
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
 
+	// External notification connectors (BE-10). The registry is fixed at compile
+	// time; adding a destination means adding a package and one Register call.
+	connectorRegistry := connector.NewRegistry()
+	connectorRegistry.Register(chat.New(chatService, chatHub.Broadcast))
+	// The outbound HTTP client re-reads the allow-private setting per dial, so
+	// an admin flipping it takes effect without a restart.
+	connectorHTTPClient := httpguard.NewClient(func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return siteSettingsService.GetBool(ctx, service.SettingConnectorsAllowPrivateNetworks, false)
+	}, 10*time.Second)
+	connectorRegistry.Register(webhook.New(connectorHTTPClient))
+
+	connectorRepo := postgres.NewConnectorRepo(db)
+	connectorDeliveryRepo := postgres.NewConnectorDeliveryRepo(db)
+	connectorService := service.NewConnectorService(connectorRepo, connectorDeliveryRepo,
+		connectorRegistry, siteSettingsService, cfg.Site.BaseURL)
+	connectorEnqueuer := worker.NewAsynqConnectorEnqueuer(asynqClient)
+	listener.RegisterConnectorDispatcher(eventBus, connectorRepo, connectorDeliveryRepo,
+		siteSettingsService, connectorEnqueuer, cfg.Site.BaseURL)
+
 	// Wire PM notification listener — pushes real-time unread count via WebSocket.
 	listener.RegisterPMNotificationListener(eventBus, messageRepo, chatHub.SendToUser)
 
@@ -319,6 +344,7 @@ func run() int {
 		PromotionService:          promotionService,
 		BonusService:              bonusService,
 		InviteDistributionService: inviteDistributionService,
+		ConnectorService:          connectorService,
 		RSSConfig: &handler.RSSConfig{
 			SiteName: cfg.Site.Name,
 			BaseURL:  cfg.Site.BaseURL,
@@ -354,6 +380,14 @@ func run() int {
 
 		NotificationRepo:      notificationRepo,
 		NotificationRetention: cfg.Worker.NotificationRetention,
+
+		ConnectorRegistry:     connectorRegistry,
+		ConnectorRepo:         connectorRepo,
+		ConnectorDeliveryRepo: connectorDeliveryRepo,
+		ConnectorEnqueuer:     connectorEnqueuer,
+		// Read once at boot, like NotificationRetention. Changing the setting
+		// takes effect on the next restart.
+		ConnectorDeliveryRetention: connectorDeliveryRetention(siteSettingsService),
 	}
 
 	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)
@@ -439,6 +473,15 @@ func run() int {
 
 	slog.Info("server stopped")
 	return 0
+}
+
+// connectorDeliveryRetention reads how long delivery-log rows are kept. A
+// non-positive value disables pruning, so it is passed straight through.
+func connectorDeliveryRetention(settings *service.SiteSettingsService) time.Duration {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	days := settings.GetInt(ctx, service.SettingConnectorDeliveryRetentionDays, 30)
+	return time.Duration(days) * 24 * time.Hour
 }
 
 func main() {

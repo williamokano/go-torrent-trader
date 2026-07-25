@@ -50,6 +50,7 @@ type Deps struct {
 	InviteDistributionService *service.InviteDistributionService
 	BackupService             BackupManager
 	RSSConfig                 *RSSConfig
+	ConnectorService          *service.ConnectorService
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -524,6 +525,18 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Post("/backups", backups.HandleCreateBackup)
 						r.Get("/backups/{name}/download", backups.HandleDownloadBackup)
 						r.Delete("/backups/{name}", backups.HandleDeleteBackup)
+					}
+
+					// External notification connectors (BE-10)
+					if deps.ConnectorService != nil {
+						connectors := NewConnectorHandler(deps.ConnectorService)
+						r.Get("/connectors", connectors.HandleList)
+						r.Post("/connectors", connectors.HandleCreate)
+						r.Get("/connectors/{id}", connectors.HandleGet)
+						r.Put("/connectors/{id}", connectors.HandleUpdate)
+						r.Delete("/connectors/{id}", connectors.HandleDelete)
+						r.Post("/connectors/{id}/test", connectors.HandleTestSend)
+						r.Get("/connectors/{id}/deliveries", connectors.HandleDeliveries)
 					}
 
 					// Forum admin management endpoints

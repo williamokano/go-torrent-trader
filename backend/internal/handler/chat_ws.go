@@ -217,6 +217,16 @@ func (h *ChatHub) Run() {
 	}
 }
 
+// Broadcast pushes a pre-marshaled payload to every connected chat client.
+//
+// It exists so the chat notification connector — which runs on the worker side —
+// can reach WS clients without importing the hub's internals. That works because
+// the HTTP server and the worker share a process (see main.go), the same
+// assumption the existing SendToUser bridge already relies on.
+func (h *ChatHub) Broadcast(payload []byte) {
+	h.broadcast <- ChatBroadcast{Data: payload}
+}
+
 // SendToUser sends a payload to all connected clients belonging to the given user.
 func (h *ChatHub) SendToUser(userID int64, payload []byte) {
 	h.mu.RLock()
@@ -598,6 +608,7 @@ func chatMessagePayload(msg *model.ChatMessage) map[string]interface{} {
 		"user_id":    msg.UserID,
 		"username":   msg.Username,
 		"message":    msg.Message,
+		"system":     msg.System,
 		"created_at": msg.CreatedAt.Format(time.RFC3339),
 	}
 }

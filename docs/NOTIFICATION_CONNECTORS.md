@@ -1,6 +1,9 @@
 # External Notification Connectors — Design
 
-**Status:** design only, not implemented. Stored for later.
+**Status:** Phase 1 implemented (BE-10.1 — the connector seam, Chat and Webhook
+connectors, delivery pipeline and admin CRUD). Phases 2–4 in progress; phase 5
+(per-user relay) remains future work. Implementation plan: `docs/plans/BE-10.md`.
+Where this document and the plan differ, the plan's §1 records the decision.
 **Relates to:** `docs/EXTENSIBILITY.md` (reaction-side plugins), `docs/TRACKER_MODS.md`
 ("IRC / Discord announce bot"), `docs/FUTURE_WORK.md` (Real-Time Stats Push / SSE).
 

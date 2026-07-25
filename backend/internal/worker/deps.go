@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
+	"github.com/williamokano/go-torrent-trader/backend/internal/listener"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -35,4 +37,16 @@ type WorkerDeps struct {
 	// NotificationRetention is how long read notifications are kept before the
 	// maintenance job purges them. Zero or negative disables the purge.
 	NotificationRetention time.Duration
+
+	// External notification connectors (BE-10). All nil-checked: a deployment
+	// without them simply has no drain handler work to do.
+	ConnectorRegistry     *connector.Registry
+	ConnectorRepo         repository.ConnectorRepository
+	ConnectorDeliveryRepo repository.ConnectorDeliveryRepository
+	// ConnectorEnqueuer lets the drain handler schedule its own follow-up run
+	// (backoff, rate-limit window, leftover batch).
+	ConnectorEnqueuer listener.DrainEnqueuer
+	// ConnectorDeliveryRetention is how long delivery-log rows are kept.
+	// Zero or negative disables pruning.
+	ConnectorDeliveryRetention time.Duration
 }

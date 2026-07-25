@@ -578,4 +578,47 @@ describe("Chat", () => {
     expect(container.querySelector("h1")).not.toBeInTheDocument();
     expect(container.textContent).toContain("not a heading in chat");
   });
+  // BE-10: the chat connector posts authorless announcements. They must not be
+  // rendered as if a user said them.
+  test("renders a system message without user actions", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "admin",
+      isStaff: true,
+      isAdmin: true,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0];
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "message",
+        id: 7,
+        user_id: 0,
+        username: "System",
+        message: "New torrent: Some.Release-GROUP",
+        system: true,
+        created_at: new Date().toISOString(),
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        screen.getByText("New torrent: Some.Release-GROUP"),
+      ).toBeInTheDocument();
+    });
+
+    const label = screen.getByText("System");
+    expect(label).toHaveClass("chat__message-system-label");
+    // No profile link and no per-message delete: there is no user behind it.
+    expect(label.tagName).not.toBe("A");
+    expect(screen.queryByTitle("Delete message")).toBeNull();
+  });
 });

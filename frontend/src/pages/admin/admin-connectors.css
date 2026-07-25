@@ -1,0 +1,41 @@
+/* Page-specific styles for the admin connectors page. Surface primitives come
+   from admin-ui.css. */
+
+.admin-connectors__actions {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}
+
+.admin-connectors__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* A write-only credential field plus its "clear" checkbox read as one control. */
+.admin-connectors__secret {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.admin-connectors__log {
+  margin-top: var(--space-md);
+}
+
+.admin-connectors__log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+/* Delivery errors can be long; keep them from stretching the table. */
+.admin-connectors__error {
+  max-width: 28rem;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}

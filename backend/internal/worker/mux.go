@@ -17,5 +17,6 @@ func NewMux(deps *WorkerDeps) *asynq.ServeMux {
 	mux.HandleFunc(TaskBonusAward, NewBonusAwardHandler(deps))
 	mux.HandleFunc(TaskInviteDistribution, NewInviteDistributionHandler(deps))
 	mux.HandleFunc(TaskDigest, NewDigestHandler(deps))
+	mux.HandleFunc(TaskConnectorDrain, NewConnectorDrainHandler(deps))
 	return mux
 }

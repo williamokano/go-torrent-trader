@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/zeebo/bencode"
 
@@ -348,6 +350,20 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 		TorrentID:   torrent.ID,
 		TorrentName: torrent.Name,
 	})
+
+	// With moderation off the upload is public the moment it lands, so this is
+	// also its publish point. Re-fetch so the event carries the JOIN-resolved
+	// category name the announcement renderers need — the model built above only
+	// has the IDs. A failed re-fetch loses the announcement, not the upload.
+	if torrent.ModerationStatus == model.ModerationApproved {
+		published, err := s.torrents.GetByID(ctx, torrent.ID)
+		if err != nil {
+			slog.Error("torrent: failed to re-fetch auto-approved torrent for publish event",
+				"torrent_id", torrent.ID, "error", err)
+		} else {
+			s.publishPublished(ctx, published, uploaderID)
+		}
+	}
 
 	return torrent, nil
 }
@@ -735,7 +751,45 @@ func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID i
 		return nil, fmt.Errorf("approve torrent: %w", err)
 	}
 	s.publishModerated(ctx, torrent, userID, model.ModerationApproved)
-	return s.torrents.GetByID(ctx, torrentID)
+	published, err := s.torrents.GetByID(ctx, torrentID)
+	if err != nil {
+		return nil, err
+	}
+	// Approval is the other publish point. ErrNotPending above already blocks a
+	// second approval, so this cannot double-emit; a rejected torrent later
+	// approved is a legitimate first publish.
+	s.publishPublished(ctx, published, userID)
+	return published, nil
+}
+
+// publishPublished emits the canonical TorrentPublished event that external
+// notification connectors (BE-10) subscribe to. The torrent must be a
+// JOIN-resolved read (GetByID), so CategoryName and UploaderName are populated.
+//
+// An anonymous torrent's uploader name is dropped here, at the source, rather
+// than by each renderer: the event never carries it, so no listener, stored
+// payload or connector output downstream can leak it even by mistake.
+func (s *TorrentService) publishPublished(ctx context.Context, torrent *model.Torrent, actorID int64) {
+	uploaderName := torrent.UploaderName
+	if torrent.Anonymous {
+		uploaderName = ""
+	}
+	s.eventBus.Publish(ctx, &event.TorrentPublishedEvent{
+		Base:         event.NewBase(event.TorrentPublished, s.actorFromUserID(ctx, actorID)),
+		TorrentID:    torrent.ID,
+		Name:         torrent.Name,
+		InfoHashHex:  hex.EncodeToString(torrent.InfoHash),
+		CategoryID:   torrent.CategoryID,
+		CategoryName: torrent.CategoryName,
+		Size:         torrent.Size,
+		FileCount:    torrent.FileCount,
+		UploaderID:   torrent.UploaderID,
+		UploaderName: uploaderName,
+		Anonymous:    torrent.Anonymous,
+		Freeleech:    torrent.Free,
+		Silver:       torrent.Silver,
+		PublishedAt:  time.Now(),
+	})
 }
 
 // publishModerated emits a TorrentModeratedEvent so the uploader is notified of an

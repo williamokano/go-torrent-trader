@@ -117,3 +117,90 @@ func TestMaintenanceSkipsNotificationPurgeWhenRepoNil(t *testing.T) {
 		t.Fatalf("maintenance handler returned error: %v", err)
 	}
 }
+
+// --- connector delivery log (BE-10.1) --------------------------------------
+
+// dueDeliveryRepo reports a fixed set of instances with due work and records the
+// prune cutoffs it was asked for.
+type dueDeliveryRepo struct {
+	fakeDeliveryRepo
+	due    []int64
+	dueErr error
+}
+
+func (r *dueDeliveryRepo) InstancesWithDue(context.Context, time.Time) ([]int64, error) {
+	return r.due, r.dueErr
+}
+
+func TestMaintenancePrunesConnectorDeliveriesPastRetention(t *testing.T) {
+	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo()}
+	deps := &WorkerDeps{
+		ConnectorDeliveryRepo:      deliveries,
+		ConnectorDeliveryRetention: 30 * 24 * time.Hour,
+	}
+
+	before := time.Now()
+	if err := NewMaintenanceHandler(deps)(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance: %v", err)
+	}
+
+	if len(deliveries.deleted) != 1 {
+		t.Fatalf("pruned %d times, want 1", len(deliveries.deleted))
+	}
+	cutoff := deliveries.deleted[0]
+	want := before.Add(-30 * 24 * time.Hour)
+	if cutoff.Sub(want) > time.Minute || want.Sub(cutoff) > time.Minute {
+		t.Fatalf("cutoff = %v, want about %v", cutoff, want)
+	}
+}
+
+// A misconfigured zero would set the cutoff to now and wipe the whole log.
+func TestMaintenanceSkipsConnectorPruneWhenRetentionNonPositive(t *testing.T) {
+	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo()}
+	deps := &WorkerDeps{ConnectorDeliveryRepo: deliveries, ConnectorDeliveryRetention: 0}
+
+	if err := NewMaintenanceHandler(deps)(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance: %v", err)
+	}
+	if len(deliveries.deleted) != 0 {
+		t.Fatal("a non-positive retention must disable pruning entirely")
+	}
+}
+
+// The safety net for work stranded between the delivery row being written and
+// its drain being queued — a crash, or Redis being briefly unavailable.
+func TestMaintenanceReEnqueuesInstancesWithDueDeliveries(t *testing.T) {
+	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo(), due: []int64{3, 7}}
+	enqueuer := &fakeEnqueuer{}
+	deps := &WorkerDeps{ConnectorDeliveryRepo: deliveries, ConnectorEnqueuer: enqueuer}
+
+	if err := NewMaintenanceHandler(deps)(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance: %v", err)
+	}
+
+	if len(enqueuer.calls) != 2 {
+		t.Fatalf("queued %d drains, want 2", len(enqueuer.calls))
+	}
+	if enqueuer.calls[0].instanceID != 3 || enqueuer.calls[1].instanceID != 7 {
+		t.Fatalf("queued %+v, want instances 3 and 7", enqueuer.calls)
+	}
+}
+
+func TestMaintenanceToleratesDueLookupFailure(t *testing.T) {
+	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo(), dueErr: errors.New("database down")}
+	enqueuer := &fakeEnqueuer{}
+	deps := &WorkerDeps{ConnectorDeliveryRepo: deliveries, ConnectorEnqueuer: enqueuer}
+
+	if err := NewMaintenanceHandler(deps)(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance must survive a failed sweep: %v", err)
+	}
+	if len(enqueuer.calls) != 0 {
+		t.Fatal("nothing should be queued when the sweep query failed")
+	}
+}
+
+func TestMaintenanceSkipsConnectorStepsWhenUnwired(t *testing.T) {
+	if err := NewMaintenanceHandler(&WorkerDeps{ConnectorDeliveryRetention: time.Hour})(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance: %v", err)
+	}
+}

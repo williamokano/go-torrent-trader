@@ -78,6 +78,35 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 			}
 		}
 
+		// 6. Prune the connector delivery log. Same non-positive guard as above:
+		// a misconfigured zero would set the cutoff to now and wipe the log.
+		if deps.ConnectorDeliveryRepo != nil && deps.ConnectorDeliveryRetention > 0 {
+			cutoff := time.Now().Add(-deps.ConnectorDeliveryRetention)
+			if purged, err := deps.ConnectorDeliveryRepo.DeleteOld(ctx, cutoff); err != nil {
+				slog.Error("maintenance: failed to purge old connector deliveries", "error", err)
+			} else if purged > 0 {
+				slog.Info("maintenance: purged old connector deliveries", "count", purged, "cutoff", cutoff)
+			}
+		}
+
+		// 7. Re-enqueue drains for instances with work that is due. This is the
+		// safety net for anything stranded between the delivery row being
+		// written and its drain being queued — a crash, or a Redis blip while
+		// the dispatcher was enqueuing.
+		if deps.ConnectorDeliveryRepo != nil && deps.ConnectorEnqueuer != nil {
+			ids, err := deps.ConnectorDeliveryRepo.InstancesWithDue(ctx, time.Now())
+			if err != nil {
+				slog.Error("maintenance: failed to list connector instances with due deliveries", "error", err)
+			} else {
+				for _, id := range ids {
+					if err := deps.ConnectorEnqueuer.EnqueueConnectorDrain(ctx, id, 0); err != nil {
+						slog.Error("maintenance: failed to enqueue connector drain",
+							"instance_id", id, "error", err)
+					}
+				}
+			}
+		}
+
 		return nil
 	}
 }

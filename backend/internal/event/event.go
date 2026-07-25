@@ -67,6 +67,7 @@ const (
 	TorrentCommented        Type = "torrent_commented"
 	TorrentModerationMsg    Type = "torrent_moderation_message"
 	TorrentModerated        Type = "torrent_moderated"
+	TorrentPublished        Type = "torrent_published"
 	UserMentioned           Type = "user_mentioned"
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
@@ -240,6 +241,37 @@ type TorrentModeratedEvent struct {
 	TorrentName string `json:"torrent_name"`
 	UploaderID  int64  `json:"uploader_id"`
 	Decision    string `json:"decision"` // "approved" | "rejected"
+}
+
+// TorrentPublishedEvent is the single canonical "this torrent is now public"
+// signal, emitted at exactly two points: approval of a pending torrent, and an
+// upload that auto-approves because moderation is off. External notification
+// connectors (BE-10) subscribe to this and nothing else — they never hook into
+// the moderation flow's internals, so a new publish path only has to emit here.
+//
+// UploaderName is deliberately empty whenever Anonymous is true: the redaction
+// happens at the emitter so no downstream consumer can leak the real uploader,
+// even by accident. Renderers print "Anonymous".
+//
+// This event is intentionally NOT subscribed by the activity log: the log
+// already records torrent_uploaded and torrent_moderated for the same
+// transitions, and keeping it out means the payload is never serialized into
+// activity_logs.metadata at all.
+type TorrentPublishedEvent struct {
+	Base
+	TorrentID    int64     `json:"torrent_id"`
+	Name         string    `json:"name"`
+	InfoHashHex  string    `json:"info_hash_hex"`
+	CategoryID   int64     `json:"category_id"`
+	CategoryName string    `json:"category_name"`
+	Size         int64     `json:"size"`
+	FileCount    int       `json:"file_count"`
+	UploaderID   int64     `json:"uploader_id"`
+	UploaderName string    `json:"uploader_name"`
+	Anonymous    bool      `json:"anonymous"`
+	Freeleech    bool      `json:"freeleech"`
+	Silver       bool      `json:"silver"`
+	PublishedAt  time.Time `json:"published_at"`
 }
 
 type InviteCreatedEvent struct {

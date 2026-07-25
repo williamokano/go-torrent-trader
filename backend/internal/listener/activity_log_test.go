@@ -316,3 +316,24 @@ func TestListener_BackupDownloaded(t *testing.T) {
 		t.Errorf("unexpected message: %s", repo.logs[0].Message)
 	}
 }
+
+// TorrentPublished is deliberately not logged: the activity log already records
+// torrent_uploaded and torrent_moderated for the same two transitions, so a
+// third row per publish would be pure noise. Keeping the event out also means
+// its payload — which carries the anonymous flag — is never serialized into
+// activity_logs.metadata at all.
+func TestListener_TorrentPublishedIsNotLogged(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.TorrentPublishedEvent{
+		Base:         event.NewBase(event.TorrentPublished, event.Actor{ID: 9, Username: "mod"}),
+		TorrentID:    42,
+		Name:         "Some.Release-GROUP",
+		UploaderID:   5,
+		UploaderName: "alice",
+	})
+
+	if len(repo.logs) != 0 {
+		t.Fatalf("torrent_published wrote %d activity log entries, want 0", len(repo.logs))
+	}
+}

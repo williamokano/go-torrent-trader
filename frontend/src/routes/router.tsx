@@ -59,6 +59,7 @@ import { ForumSearchPage } from "@/pages/ForumSearchPage";
 import { AdminForumsPage } from "@/pages/admin/AdminForumsPage";
 import { AdminCheatFlagsPage } from "@/pages/admin/AdminCheatFlagsPage";
 import { AdminBackupsPage } from "@/pages/admin/AdminBackupsPage";
+import { AdminConnectorsPage } from "@/pages/admin/AdminConnectorsPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 
 export const router = createBrowserRouter([
@@ -210,6 +211,7 @@ export const router = createBrowserRouter([
           { path: "cheat-flags", element: <AdminCheatFlagsPage /> },
           { path: "forums", element: <AdminForumsPage /> },
           { path: "backups", element: <AdminBackupsPage /> },
+          { path: "connectors", element: <AdminConnectorsPage /> },
         ],
       },
       {
