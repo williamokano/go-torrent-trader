@@ -42,6 +42,24 @@ This document records technology decisions made for the project. All decisions a
 
 **Decision:** None currently — no OpenAPI spec generation. Frontend API client is hand-written using openapi-fetch with typed routes.
 
+### 10a. Time and Timezones
+
+**Decision:** The server is **UTC, always**. There is no site timezone setting and
+no per-user timezone preference. Every timestamp is stored as `TIMESTAMPTZ` and
+served in UTC; the browser formats it into the reader's local time, which is what
+the frontend already does throughout.
+
+Original TorrentTrader had both a site timezone and a per-user timezone. That
+parity is **deliberately not ported**. For anything scheduled — a freeleech
+window, a contest, a double-bonus weekend — the maintainer decides what "the
+weekend" means for their community and configures the window in UTC. On a site
+with a global membership there is no correct per-user answer, and making the
+schedule depend on a user-controlled field opens an obvious abuse door: a member
+could shift their own timezone to enter or extend a window.
+
+Display stays local because that is a pure rendering concern with no accounting
+consequence. Scheduling stays UTC because it has one.
+
 ### 10. Rate Limiting
 
 **Decision:** In-memory (`golang.org/x/time/rate`) — per-instance, sufficient for single-node deployment. WebSocket has additional per-client rate limiting (10 msgs/10s).

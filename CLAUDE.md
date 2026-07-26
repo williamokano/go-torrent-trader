@@ -137,6 +137,7 @@ Read these before starting work on an unfamiliar area:
 - `docs/IMPLEMENTATION_TASKS.md` — **living backlog** — mark tasks DONE here when completing work
 - `docs/FULL_FEATURE_DOCUMENTATION.md` — original TorrentTrader feature specs (porting reference)
 - `docs/OPEN_QUESTIONS.md` — architecture decision log (all decisions finalized)
+- `docs/PROPOSED_FEATURES.md` — proposed but **not yet specified** features, with their open questions. Upstream of the backlog: an item moves into IMPLEMENTATION_TASKS.md as a story once its questions are answered, and is deleted here
 - `tasks/todo.md` — session resume context (not the source of truth — use IMPLEMENTATION_TASKS.md)
 
 ## Project Structure
