@@ -468,3 +468,75 @@ func decideEverything(t *testing.T, path string) {
 		t.Fatalf("writing the mapping: %v", err)
 	}
 }
+
+// The pre-flight's whole purpose is answering "will this run?" before the first
+// write, and target drift was printed and then **exited 0** — so a cutover script
+// written as `migrate validate && migrate run` sailed straight past a database
+// whose migrations had never been run, and died partway through a table with a
+// message about one column, having already written half the members.
+//
+// TestValidateRejectsATargetWithoutTheSchema did not catch it because a *totally
+// empty* database fails earlier and elsewhere, in connect.go's "no tables" check.
+// The gap was the partially-migrated target: real tables, one column short. That is
+// also the likelier accident, since it is what an interrupted or outdated migration
+// leaves behind.
+func TestValidateRejectsAPartiallyMigratedTarget(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	db, err := sql.Open("postgres", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("connecting to the target: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Drop a column the migration writes to, exactly as a target predating
+	// 067_add_torrent_moderation.sql would lack it. Nullable with no default, so
+	// putting it back is faithful.
+	if _, err := db.Exec(`ALTER TABLE torrents DROP COLUMN IF EXISTS approved_by`); err != nil {
+		t.Fatalf("dropping the column: %v", err)
+	}
+	// Its own connection, because the deferred Close above runs *before*
+	// t.Cleanup — the first version of this test used `db` here, failed to restore
+	// the column, and left the shared target broken for every test after it.
+	t.Cleanup(func() {
+		conn, err := sql.Open("postgres", testenv.Target(t))
+		if err != nil {
+			t.Fatalf("reconnecting to restore approved_by: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		if _, err := conn.Exec(
+			`ALTER TABLE torrents ADD COLUMN IF NOT EXISTS approved_by BIGINT REFERENCES users(id) ON DELETE SET NULL`,
+		); err != nil {
+			t.Fatalf("restoring approved_by: %v", err)
+		}
+	})
+
+	out, err := execute(t, "validate", "--source", legacyDSN(t), "--target", testenv.Target(t))
+
+	if err == nil {
+		t.Fatalf("validate passed against a target missing a column the migration "+
+			"writes to, so `validate && run` would proceed into a half-written table:\n%s", out)
+	}
+	// The report still has to name the column, or a non-zero exit tells the
+	// operator only that something is wrong.
+	if !strings.Contains(out, "approved_by") {
+		t.Errorf("the output does not name the missing column:\n%s", out)
+	}
+	if !strings.Contains(out, "Run the backend's migrations") {
+		t.Errorf("the output does not say how to fix it:\n%s", out)
+	}
+}
+
+// And a target that is fully migrated still passes, so the check above is not
+// simply failing for everyone.
+func TestValidateAcceptsAFullyMigratedTarget(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	out, err := execute(t, "validate", "--source", legacyDSN(t), "--target", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("validate failed against a fully migrated target: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "The schema is what this tool expects.") {
+		t.Errorf("the output does not confirm the target schema:\n%s", out)
+	}
+}

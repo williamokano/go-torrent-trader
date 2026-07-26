@@ -263,3 +263,79 @@ func TestProblemsSortErrorsFirst(t *testing.T) {
 		}
 	}
 }
+
+// Two source columns claiming one target column produces an INSERT PostgreSQL
+// refuses outright — `column "x" specified more than once` — and the pre-flight
+// used to call that mapping "usable against both databases". Finding it mid-cutover
+// is precisely what this check exists to prevent, and nothing detected it: every
+// mapped target column was verified to *exist*, never to be unique.
+//
+// The realistic route in is a hand edit. An operator settling a mod column picks
+// the target that reads right without noticing a stock column already maps there.
+func TestValidateRejectsTwoColumnsMappedToOneTarget(t *testing.T) {
+	source := corpusSchema()
+	doc := Build(source, "server")
+
+	// Both now write users.username, the shape a hand edit produces when the
+	// operator picks a target that reads right without checking what already
+	// claims it.
+	decide(&doc, "users", "passkey", Rule{Action: ActionMap, Target: "username"})
+
+	ps := Validate(doc, source, target.PostgreSQL())
+	if ps.Count(Fatal) == 0 {
+		t.Fatalf("a mapping with two columns writing users.username was accepted:%s", messages(ps))
+	}
+
+	var found bool
+	for _, p := range ps {
+		if p.Severity == Fatal && strings.Contains(p.Message, "cannot take two source columns") {
+			found = true
+			// The other column has to be named, or the operator has to diff the
+			// whole file to find the pair.
+			if !strings.Contains(p.Message, "username") && !strings.Contains(p.Message, "passkey") {
+				t.Errorf("the problem does not name the column it collides with: %s", p)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no problem explains the duplicate target:%s", messages(ps))
+	}
+}
+
+// The ordinary mapping must stay clean, or the check above would be rejecting
+// every migration rather than the broken ones.
+func TestTheGeneratedMappingHasNoDuplicateTargets(t *testing.T) {
+	source := corpusSchema()
+	doc := Build(source, "server")
+
+	ps := Validate(doc, source, target.PostgreSQL())
+	for _, p := range ps {
+		if strings.Contains(p.Message, "cannot take two source columns") {
+			t.Errorf("the generated mapping collides with itself: %s", p)
+		}
+	}
+}
+
+// The loader ignores YAML keys it does not recognise, so a typo'd `taget:` leaves
+// the rule mapped with an empty target. The only check for that lived in the
+// target-side pass, which runs solely when --target is given — so
+// `migrate validate --source ... --mapping mapping.yaml`, the documented
+// mapping-only form, reported "Usable" and never mentioned the mistake.
+func TestValidateRejectsAMappedColumnWithNoTargetWithoutATargetDatabase(t *testing.T) {
+	source := corpusSchema()
+	doc := Build(source, "server")
+	decide(&doc, "users", "passkey", Rule{Action: ActionMap, Target: ""})
+
+	// No target database, exactly as the mapping-only invocation runs.
+	ps := Validate(doc, source, target.Schema{})
+
+	var found bool
+	for _, p := range ps {
+		if p.Severity == Fatal && strings.Contains(p.Message, "names no target column") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a column mapped to nothing was accepted without --target:%s", messages(ps))
+	}
+}

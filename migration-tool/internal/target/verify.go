@@ -105,6 +105,27 @@ func NonEmpty(counts map[string]int64) []string {
 // answer has to be reviewable — a topological sort silently picks one of many
 // valid orders, and the one thing that must not happen is torrents landing
 // before the members that own them.
+//
+// Two things this ordering does NOT solve, both tracked on #240, because no table
+// ordering can and the writer that consumes this list is not the place to hide them:
+//
+//   - Four of these tables reference themselves: users.invited_by,
+//     categories.parent_id, messages.parent_id and forum_posts.reply_to_post_id.
+//     Foreign keys fire at end-of-statement, so ordering *within* one multi-row
+//     INSERT is safe — but across batches it is not. Legacy user 12 invited by user
+//     900, at a batch size of 500, puts the parent in a later batch than the child
+//     and the first batch fails. Needs deferred constraints, or a NULL-then-backfill
+//     second pass.
+//   - Five entries here are also in Seeded — groups, categories, forum_categories,
+//     countries, languages, and now forums — which the same package documents as
+//     tables where keeping legacy ids collides. Writing them at all needs an
+//     upsert/merge/skip decision that does not exist yet, so a run that reaches
+//     them collides on the first batch.
+//
+// Cross-table order *is* correct as declared: every REFERENCES in
+// backend/migrations was checked against this list. forums.last_post_id and
+// forum_topics.last_post_id are deliberately not foreign keys, which is what keeps
+// forum_posts being written after both from breaking.
 func DeclaredTables() []string {
 	return []string{
 		"groups",

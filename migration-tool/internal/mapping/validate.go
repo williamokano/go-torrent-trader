@@ -195,6 +195,21 @@ func checkDecisions(doc Document) Problems {
 			continue
 		}
 		for _, c := range t.Columns {
+			// A mapped column with no target names nowhere to write. The loader
+			// ignores keys it does not recognise, so `taget:` parses to an empty
+			// target — and the only check for that lived in checkAgainstTarget,
+			// which runs solely when --target is passed. The documented
+			// mapping-only invocation therefore answered "Usable" and never
+			// mentioned the typo. Checked here because this function runs either way.
+			if c.Rule.Action == ActionMap && c.Rule.Target == "" {
+				ps = append(ps, Problem{
+					Severity: Fatal,
+					Table:    t.Name,
+					Column:   c.Name,
+					Message:  "mapped, but names no target column — check the spelling of the `target:` key",
+				})
+				continue
+			}
 			if !c.Rule.Action.NeedsDecision() {
 				continue
 			}
@@ -269,6 +284,13 @@ func checkAgainstTarget(doc Document, tgt target.Schema) Problems {
 			continue
 		}
 
+		// Two source columns claiming one target column is a mapping the operator
+		// hand-edited into an INSERT that cannot run: PostgreSQL rejects
+		// `column "x" specified more than once` on the first batch. Caught here
+		// because that is the point of a pre-flight — mid-cutover is where it was
+		// being found.
+		claimedBy := map[string]string{}
+
 		for _, c := range t.Columns {
 			if c.Rule.Action != ActionMap {
 				continue
@@ -290,7 +312,20 @@ func checkAgainstTarget(doc Document, tgt target.Schema) Problems {
 					Message: fmt.Sprintf("maps to %s.%s, which the target database does not have",
 						table, c.Rule.Target),
 				})
+				continue
 			}
+			if first, taken := claimedBy[c.Rule.Target]; taken {
+				ps = append(ps, Problem{
+					Severity: Fatal,
+					Table:    t.Name,
+					Column:   c.Name,
+					Message: fmt.Sprintf("also maps to %s.%s, which %q already writes to — "+
+						"one target column cannot take two source columns",
+						table, c.Rule.Target, first),
+				})
+				continue
+			}
+			claimedBy[c.Rule.Target] = c.Name
 		}
 	}
 	return ps

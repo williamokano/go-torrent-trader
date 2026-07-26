@@ -204,8 +204,12 @@ func TestWriterPerBatchKeepsCommittedBatches(t *testing.T) {
 	t.Fatal("inserting a duplicate primary key did not fail")
 }
 
-// A failed batch must not be resent by the Close on the way out, which would
-// turn one error into two.
+// A failed batch must not be resent by the Close on the way out, which would turn
+// one error into two — but Close must still *report* that the batch was lost.
+//
+// It used to return nil, which is the one answer this type must never give: the
+// doc tells callers to check Close's error, so a nil after a dropped batch reads as
+// a clean finish and the caller records a table that silently lost rows.
 func TestWriterDoesNotResendAFailedBatch(t *testing.T) {
 	db := openTarget(t)
 	table := scratch(t, db, "id BIGINT PRIMARY KEY")
@@ -222,12 +226,62 @@ func TestWriterDoesNotResendAFailedBatch(t *testing.T) {
 		t.Fatal("a batch with a duplicate key succeeded")
 	}
 
-	// Close reports nothing further: the failed rows were dropped, not kept.
-	if err := w.Close(ctx); err != nil {
-		t.Errorf("Close after a failed batch: %v", err)
+	// The rows were dropped rather than resent — the table stays empty — and Close
+	// surfaces the original failure rather than a second copy of it.
+	err = w.Close(ctx)
+	if err == nil {
+		t.Fatal("Close returned nil after a batch was lost, which is indistinguishable " +
+			"from a clean finish")
+	}
+	if !strings.Contains(err.Error(), "duplicate key") {
+		t.Errorf("Close error = %v, want it to carry the original failure", err)
 	}
 	if got := countRows(t, db, table); got != 0 {
 		t.Errorf("%d rows in the table, want 0", got)
+	}
+	if got := w.Written(); got != 0 {
+		t.Errorf("Written() = %d after a failed batch, want 0 — a resume offset "+
+			"computed from this would skip those rows permanently", got)
+	}
+}
+
+// TxPerTable's contract is that a failure leaves no partial table. A caller that
+// logs one bad row and keeps going must not be able to defeat that: before the
+// writer became sticky, the rollback nil'd the transaction, the next Append opened
+// a fresh one, and Close committed everything after the failure — a partial table
+// in the mode chosen to make partial tables impossible, reported as success.
+func TestTxPerTableStaysAllOrNothingAfterAFailedBatch(t *testing.T) {
+	db := openTarget(t)
+	table := scratch(t, db, "id BIGINT PRIMARY KEY")
+	ctx := context.Background()
+
+	w, err := db.NewWriter(table, []string{"id"}, target.WriterOptions{
+		BatchSize: 2,
+		TxMode:    target.TxPerTable,
+	})
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	if err := w.Append(ctx, 1); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if err := w.Append(ctx, 1); err == nil {
+		t.Fatal("a batch with a duplicate key succeeded")
+	}
+
+	// The log-and-continue loop: rows that would have been perfectly insertable.
+	for _, id := range []int64{10, 11, 12, 13} {
+		if err := w.Append(ctx, id); err == nil {
+			t.Errorf("Append(%d) succeeded after a failed batch; the writer must be "+
+				"finished, or these rows land in a table the caller believes rolled back", id)
+		}
+	}
+
+	if err := w.Close(ctx); err == nil {
+		t.Error("Close returned nil after a failed batch in TxPerTable")
+	}
+	if got := countRows(t, db, table); got != 0 {
+		t.Errorf("%d rows committed in TxPerTable after a failure, want 0", got)
 	}
 }
 

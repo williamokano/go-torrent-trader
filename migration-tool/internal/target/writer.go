@@ -61,6 +61,14 @@ type Writer struct {
 	written   int64
 
 	tx *sql.Tx // held open only in TxPerTable
+
+	// failed is sticky. Once a batch has failed, this writer is finished: the
+	// rollback nils tx, so without it the next Append would open a *fresh*
+	// transaction and Close would commit it — leaving a partial table in
+	// TxPerTable, the one mode whose contract is that partial tables cannot
+	// happen, and returning nil from Close while doing so. A caller that logs and
+	// continues past one bad row is the ordinary way to hit that.
+	failed error
 }
 
 // NewWriter builds a Writer for a table and a fixed column list. Every row
@@ -107,6 +115,9 @@ func (w *Writer) Written() int64 { return w.written }
 // Append adds one row, flushing when the batch is full. The values must match
 // the writer's columns in number and order.
 func (w *Writer) Append(ctx context.Context, values ...any) error {
+	if w.failed != nil {
+		return w.failed
+	}
 	if len(values) != len(w.columns) {
 		return fmt.Errorf("%s: %d values for %d columns", w.table, len(values), len(w.columns))
 	}
@@ -122,6 +133,9 @@ func (w *Writer) Append(ctx context.Context, values ...any) error {
 
 // Flush sends any buffered rows.
 func (w *Writer) Flush(ctx context.Context) error {
+	if w.failed != nil {
+		return w.failed
+	}
 	if w.rows == 0 {
 		return nil
 	}
@@ -134,6 +148,12 @@ func (w *Writer) Flush(ctx context.Context) error {
 // checked — in TxPerTable everything written is still uncommitted until it
 // returns.
 func (w *Writer) Close(ctx context.Context) error {
+	// Reported rather than swallowed. The doc tells callers to check Close's
+	// error, and a nil from here after a lost batch is indistinguishable from a
+	// clean finish — which is the worst answer this type can give.
+	if w.failed != nil {
+		return errors.Join(w.failed, w.rollback())
+	}
 	if err := w.Flush(ctx); err != nil {
 		return errors.Join(err, w.rollback())
 	}
@@ -179,17 +199,23 @@ func (w *Writer) flush(ctx context.Context, query string) error {
 		return err
 	}
 	if _, err := exec.ExecContext(ctx, query, args...); err != nil {
-		return errors.Join(fmt.Errorf("inserting %d rows into %s: %w", rows, w.table, err), w.rollback())
+		w.failed = fmt.Errorf("inserting %d rows into %s: %w", rows, w.table, err)
+		return errors.Join(w.failed, w.rollback())
 	}
-	w.written += int64(rows)
 
 	if w.txMode == TxPerBatch && w.tx != nil {
 		tx := w.tx
 		w.tx = nil
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("committing a batch of %s: %w", w.table, err)
+			w.failed = fmt.Errorf("committing a batch of %s: %w", w.table, err)
+			return w.failed
 		}
 	}
+	// Counted only once the rows are actually durable. Incrementing before the
+	// commit meant a connection dropped at commit time reported 1000 written with
+	// 500 on disk — and #166 computing a resume offset from that would skip the
+	// difference permanently.
+	w.written += int64(rows)
 	return nil
 }
 

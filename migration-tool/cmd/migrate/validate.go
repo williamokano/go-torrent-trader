@@ -52,7 +52,7 @@ var validateCmd = &cobra.Command{
 			// The target and the mapping are checked after the source, so a
 			// source that is obviously wrong is reported first rather than
 			// buried under consequences of itself.
-			tgt, err := checkTarget(cmd)
+			tgt, targetBroken, err := checkTarget(cmd)
 			if err != nil {
 				return err
 			}
@@ -64,6 +64,12 @@ var validateCmd = &cobra.Command{
 			switch {
 			case report.Blocking():
 				return errSchemaDiffers
+			// Before this, target drift was printed and then the process exited 0,
+			// so `migrate validate && migrate run` sailed past a database whose
+			// migrations had never been run and died partway through a table —
+			// which is exactly the failure the pre-flight exists to move earlier.
+			case targetBroken:
+				return errTargetSchemaMissing
 			case mappingFatal:
 				return errMappingUnusable
 			case validateStrict && !report.Clean():
@@ -78,27 +84,35 @@ var validateCmd = &cobra.Command{
 // errMappingUnusable is returned when the mapping cannot drive a run.
 var errMappingUnusable = errors.New("the mapping cannot be used as it stands")
 
+// errTargetSchemaMissing is returned when the target database lacks something the
+// migration writes to.
+var errTargetSchemaMissing = errors.New("the target database does not have the schema this tool writes into")
+
 // checkTarget verifies the target database has the schema this tool writes
 // into, when one was given. It returns the live schema so the mapping check can
 // reuse it rather than connecting twice.
-func checkTarget(cmd *cobra.Command) (target.Schema, error) {
+// The bool reports whether the target is unusable as it stands. It is separate
+// from the error, which covers only failures to connect, read or print: a target
+// missing columns is a finding to report alongside every other finding, not a
+// reason to stop the pass and hide the rest.
+func checkTarget(cmd *cobra.Command) (target.Schema, bool, error) {
 	cfg, err := config.LoadFromFlags(cmd)
 	if err != nil {
-		return target.Schema{}, err
+		return target.Schema{}, false, err
 	}
 	if cfg.TargetDSN == "" {
-		return target.Schema{}, nil
+		return target.Schema{}, false, nil
 	}
 
 	db, err := target.Open(cmd.Context(), cfg.TargetDSN)
 	if err != nil {
-		return target.Schema{}, err
+		return target.Schema{}, false, err
 	}
 	defer func() { _ = db.Close() }()
 
 	live, err := db.Schema(cmd.Context())
 	if err != nil {
-		return target.Schema{}, err
+		return target.Schema{}, false, err
 	}
 
 	p := newPrinter(cmd.OutOrStdout())
@@ -106,7 +120,7 @@ func checkTarget(cmd *cobra.Command) (target.Schema, error) {
 	problems := target.Verify(live)
 	if len(problems) == 0 {
 		p.println("  The schema is what this tool expects.")
-		return live, p.errf("the target report")
+		return live, false, p.errf("the target report")
 	}
 
 	p.printf("  %d things the migration writes to are not there:\n", len(problems))
@@ -114,7 +128,7 @@ func checkTarget(cmd *cobra.Command) (target.Schema, error) {
 		p.printf("    %s\n", problem)
 	}
 	p.println("  Run the backend's migrations against this database first.")
-	return live, p.errf("the target report")
+	return live, true, p.errf("the target report")
 }
 
 // checkMapping validates the mapping file, when one was given, and reports
