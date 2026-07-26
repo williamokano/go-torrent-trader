@@ -210,7 +210,7 @@ func (h *ForumHandler) HandleCreateTopic(w http.ResponseWriter, r *http.Request)
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"topic": topicResponse(topic),
-		"post":  postResponse(post, true),
+		"post":  postResponse(post, perms.IsStaff()),
 	})
 }
 
@@ -245,7 +245,7 @@ func (h *ForumHandler) HandleCreatePost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"post": postResponse(post, true),
+		"post": postResponse(post, perms.IsStaff()),
 	})
 }
 
@@ -332,7 +332,7 @@ func (h *ForumHandler) HandleEditPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"post": postResponse(post, true),
+		"post": postResponse(post, perms.IsStaff()),
 	})
 }
 

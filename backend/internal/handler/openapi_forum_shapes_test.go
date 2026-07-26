@@ -152,6 +152,15 @@ func assertSameKeys(t *testing.T, schema string, body map[string]interface{}, op
 		if present[key] {
 			t.Errorf("%q is declared omitted from this shape but the response emits it — "+
 				"drop the omits() for it", key)
+			continue
+		}
+		// An exemption for a property the schema does not document is inert: it
+		// exempts nothing, and a typo in the key you meant to exempt reads
+		// exactly like a working one. Without this, omits("dleted_by") passes
+		// while the field it was meant to cover goes unguarded.
+		if !inSchema[key] {
+			t.Errorf("omits(%q) names a property schema %s does not document — "+
+				"the exemption is inert; fix the spelling or drop it", key, schema)
 		}
 	}
 }
@@ -168,7 +177,7 @@ func wireKeys(t *testing.T, v interface{}) []string {
 	t.Helper()
 
 	rt := reflect.TypeOf(v)
-	for rt.Kind() == reflect.Ptr {
+	for rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 	if rt.Kind() != reflect.Struct {

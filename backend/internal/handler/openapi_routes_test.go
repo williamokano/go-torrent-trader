@@ -283,6 +283,52 @@ func TestServiceLayerStaffRoutesAreInternal(t *testing.T) {
 	}
 }
 
+// The other direction, and the reason it exists: the list above is only half a
+// contract. It catches a staff-only route being published, but nothing stopped
+// the three author-callable routes from being *withheld* — which is the state
+// this document shipped in, and the mistake is quieter, because a route missing
+// from the published contract produces no error anywhere. It just tells
+// integrators a member cannot do something they can.
+//
+// The comment on TestServiceLayerStaffRoutesAreInternal explains why lock,
+// rename and delete-topic are absent from that list. A comment cannot fail a
+// build, so this asserts it. Each entry names the permission that makes it
+// member-callable, so a future reader can check the claim against the service
+// rather than trusting this list the way the old hand-typed schema list was
+// trusted.
+func TestAuthorCallableModerationRoutesArePublic(t *testing.T) {
+	// service/forum.go admits the topic's author for each of these; the first
+	// two inside ownerGracePeriod (30 minutes), the rename with no time limit.
+	authorCallable := map[string]string{
+		"POST /api/v1/forums/topics/{id}/lock": "LockTopic admits the author within ownerGracePeriod",
+		"DELETE /api/v1/forums/topics/{id}":    "DeleteTopic admits the author within ownerGracePeriod",
+		"PUT /api/v1/forums/topics/{id}/title": "RenameTopic admits the author with no time limit",
+	}
+
+	documented := specOperations(t, fullSpecPath)
+	public := specOperations(t, publicSpecPath)
+	routes := registeredRoutes(t)
+
+	for key, why := range authorCallable {
+		if _, ok := routes[key]; !ok {
+			t.Errorf("%q is no longer a registered route — update this list to match router.go", key)
+			continue
+		}
+		op, ok := documented[key]
+		if !ok {
+			t.Errorf("%s is member-callable (%s) but is not documented at all", key, why)
+			continue
+		}
+		if op.Audience != openapi.AudiencePublic {
+			t.Errorf("%s is member-callable (%s) but documented as %q — withholding it tells "+
+				"integrators a member cannot do something they can", key, why, op.Audience)
+		}
+		if _, ok := public[key]; !ok {
+			t.Errorf("%s is member-callable (%s) but is missing from %s", key, why, publicSpecPath)
+		}
+	}
+}
+
 // --- the generated document -------------------------------------------------
 
 // The checked-in public document must be exactly what the generator produces
