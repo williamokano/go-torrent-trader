@@ -13,11 +13,15 @@ import (
 // never drift apart.
 //
 // System messages have a NULL user_id (there is no system user row), so the JOIN
-// has to be a LEFT JOIN and the username has to be synthesised. Reading user_id
-// straight into an int64 would fail on those rows, hence the NullInt64 hop in
-// scanChatMessages.
+// has to be a LEFT JOIN. Both user_id and username come back NULL on those rows,
+// hence the NullInt64/NullString hops in scanChatMessages.
+//
+// The system label is deliberately *not* synthesised here: it is an operator
+// setting now, and a copy in SQL would be a second source of truth that no
+// amount of cache invalidation could reach. ChatService fills it in on the way
+// out.
 const chatMessageColumns = `cm.id, cm.user_id,
-	CASE WHEN cm.system THEN 'System' ELSE COALESCE(u.username, 'Unknown') END AS username,
+	CASE WHEN cm.system THEN NULL ELSE COALESCE(u.username, 'Unknown') END AS username,
 	cm.message, cm.system, cm.created_at`
 
 const chatMessageJoins = `FROM chat_messages cm LEFT JOIN users u ON u.id = cm.user_id`
@@ -79,13 +83,15 @@ func scanChatMessages(rows *sql.Rows) ([]model.ChatMessage, error) {
 	var msgs []model.ChatMessage
 	for rows.Next() {
 		var (
-			m      model.ChatMessage
-			userID sql.NullInt64
+			m        model.ChatMessage
+			userID   sql.NullInt64
+			username sql.NullString
 		)
-		if err := rows.Scan(&m.ID, &userID, &m.Username, &m.Message, &m.System, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &userID, &username, &m.Message, &m.System, &m.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat message: %w", err)
 		}
-		m.UserID = userID.Int64 // NULL (system message) reads back as 0
+		m.UserID = userID.Int64      // NULL (system message) reads back as 0
+		m.Username = username.String // NULL (system message) reads back as ""
 		msgs = append(msgs, m)
 	}
 	if err := rows.Err(); err != nil {

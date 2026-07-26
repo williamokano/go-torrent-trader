@@ -8,7 +8,8 @@ import (
 )
 
 // A system message has no author row: user_id goes in as NULL and reads back as
-// 0, with the username synthesised by the query rather than resolved by a JOIN.
+// 0, and the username reads back empty — the JOIN has nothing to resolve and the
+// label is ChatService's job, not the query's.
 func TestChatMessageRepoSystemMessageRoundTrip(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
@@ -57,8 +58,12 @@ func TestChatMessageRepoSystemMessageRoundTrip(t *testing.T) {
 	if got.UserID != 0 {
 		t.Fatalf("user_id = %d, want 0 for a NULL author", got.UserID)
 	}
-	if got.Username != model.SystemChatUsername {
-		t.Fatalf("username = %q, want %q", got.Username, model.SystemChatUsername)
+	// The label is an operator setting now, so the repository must hand the
+	// system row back unlabelled and let ChatService name it. A username
+	// synthesised in SQL would be a second source of truth that no setting
+	// change could reach.
+	if got.Username != "" {
+		t.Fatalf("username = %q, want empty (ChatService supplies the label)", got.Username)
 	}
 
 	// The regular message must still resolve its author through the JOIN.
@@ -74,5 +79,21 @@ func TestChatMessageRepoSystemMessageRoundTrip(t *testing.T) {
 	}
 	if len(before) != 1 || before[0].System {
 		t.Fatalf("ListBefore = %+v, want only the earlier user message", before)
+	}
+
+	// Staff can delete an announcement (BE-10.7). DeleteByUserID can never
+	// reach one — a system row's user_id is NULL — so this is the only path,
+	// and it must not be filtered out by the `system` flag.
+	if err := repo.Delete(ctx, system.ID); err != nil {
+		t.Fatalf("Delete(system message): %v", err)
+	}
+	remaining, err := repo.ListRecent(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecent after delete: %v", err)
+	}
+	for _, m := range remaining {
+		if m.System {
+			t.Fatal("system message survived Delete")
+		}
 	}
 }

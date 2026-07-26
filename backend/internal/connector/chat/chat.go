@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
@@ -17,7 +18,13 @@ import (
 )
 
 // DefaultTemplate is the line posted when an instance sets no template.
-const DefaultTemplate = connector.DefaultTemplate
+//
+// It differs from connector.DefaultTemplate — which still trails a bare URL —
+// because the shoutbox renders Markdown: the torrent name itself is the link,
+// so the line reads as a sentence instead of ending in a wall of URL. The
+// shared default stays as it is for IRC and for Announcement.Body, where
+// Markdown is noise.
+const DefaultTemplate = "New torrent: {{.Link}} — {{.Category}}, {{.SizeHuman}}"
 
 // CoalescedTemplate stands in for a batch the rate limit could not post
 // individually. It intentionally references no per-torrent field: the summary
@@ -76,7 +83,12 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 		return err
 	}
 
+	// Substituted here rather than left to RenderTemplate, whose empty-template
+	// fallback is the shared default meant for plain-text destinations.
 	tmpl := cfg.Template
+	if strings.TrimSpace(tmpl) == "" {
+		tmpl = DefaultTemplate
+	}
 	if a.Coalesced > 0 {
 		tmpl = CoalescedTemplate
 	}
@@ -98,11 +110,15 @@ func (c *Connector) Deliver(ctx context.Context, inst connector.Instance, a conn
 	// Mirrors handler.chatMessagePayload plus the system flag. It is duplicated
 	// rather than imported because handler depends on service, and a connector
 	// reaching back into the HTTP layer would invert the dependency.
+	//
+	// The username comes from the message the service just returned rather than
+	// from a constant here: the label is an operator setting, and a copy in this
+	// payload would show one name live and a different one after a reload.
 	payload, err := json.Marshal(map[string]any{
 		"type":       "message",
 		"id":         msg.ID,
 		"user_id":    int64(0),
-		"username":   model.SystemChatUsername,
+		"username":   msg.Username,
 		"message":    msg.Message,
 		"system":     true,
 		"created_at": msg.CreatedAt.Format(time.RFC3339),

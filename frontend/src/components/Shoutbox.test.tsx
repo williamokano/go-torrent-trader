@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "@/components/toast";
@@ -116,14 +117,16 @@ describe("Shoutbox", () => {
   });
 
   // A system announcement has no author, so it must not offer a profile link or
-  // moderation actions that would target a nonexistent user.
+  // moderation actions that would target a nonexistent user. The label is
+  // whatever the API sent — it is an operator setting, so a hardcoded "System"
+  // here would pass while the real page showed the wrong name.
   test("renders a system message without user actions", async () => {
     renderShoutbox();
 
     await deliver({
       id: 7,
       user_id: 0,
-      username: "System",
+      username: "Tracker Bot",
       message: "New torrent: Some.Release-GROUP",
       system: true,
       created_at: new Date().toISOString(),
@@ -135,9 +138,89 @@ describe("Shoutbox", () => {
       ).toBeInTheDocument();
     });
 
-    const label = screen.getByText("System");
+    const label = screen.getByText("Tracker Bot");
     expect(label.tagName).not.toBe("A");
     expect(label).toHaveClass("shoutbox__message-system-label");
+  });
+
+  // Staff must be able to remove an announcement: a mis-worded or duplicated
+  // connector line would otherwise sit in the shoutbox forever, and the bulk
+  // "delete this user's messages" path cannot reach it either (system rows have
+  // no user_id).
+  test("lets staff delete a system message", async () => {
+    renderShoutbox();
+
+    await deliver({
+      id: 9,
+      user_id: 0,
+      username: "Tracker Bot",
+      message: "New torrent: Oops.Wrong.One",
+      system: true,
+      created_at: new Date().toISOString(),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByTitle("Delete message")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTitle("Delete message"));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/admin/chat/messages/9",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
+  // The point of the {{.Link}} template field: the connector sends Markdown and
+  // the shoutbox has to turn it into a real link, otherwise the announcement
+  // reads as literal brackets and parentheses.
+  test("renders the announcement's Markdown link as a link", async () => {
+    renderShoutbox();
+
+    await deliver({
+      id: 13,
+      user_id: 0,
+      username: "Tracker Bot",
+      message:
+        "New torrent: [\\[SubsPlease\\] Show - 01](https://tracker.test/torrent/7) — Anime, 1.20 GiB",
+      system: true,
+      created_at: new Date().toISOString(),
+    });
+
+    const link = await screen.findByRole("link", {
+      name: "[SubsPlease] Show - 01",
+    });
+    expect(link).toHaveAttribute("href", "https://tracker.test/torrent/7");
+    // The escaped brackets are part of the label, not leftover Markdown.
+    expect(screen.queryByText(/\\\[SubsPlease/)).toBeNull();
+  });
+
+  test("hides the delete action from non-staff", async () => {
+    mockAuth.user = {
+      id: 5,
+      username: "member",
+      isStaff: false,
+      isAdmin: false,
+    };
+    renderShoutbox();
+
+    await deliver({
+      id: 11,
+      user_id: 0,
+      username: "Tracker Bot",
+      message: "New torrent: Members.Cannot.Delete",
+      system: true,
+      created_at: new Date().toISOString(),
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        screen.getByText("New torrent: Members.Cannot.Delete"),
+      ).toBeInTheDocument();
+    });
     expect(screen.queryByTitle("Delete message")).toBeNull();
   });
 });

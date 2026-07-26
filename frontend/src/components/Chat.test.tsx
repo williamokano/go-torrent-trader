@@ -602,7 +602,7 @@ describe("Chat", () => {
         type: "message",
         id: 7,
         user_id: 0,
-        username: "System",
+        username: "Tracker Bot",
         message: "New torrent: Some.Release-GROUP",
         system: true,
         created_at: new Date().toISOString(),
@@ -615,10 +615,56 @@ describe("Chat", () => {
       ).toBeInTheDocument();
     });
 
-    const label = screen.getByText("System");
+    // The label is whatever the API sent: it is an operator setting, so
+    // asserting a hardcoded "System" would pass while the page showed the
+    // wrong name.
+    const label = screen.getByText("Tracker Bot");
     expect(label).toHaveClass("chat__message-system-label");
-    // No profile link and no per-message delete: there is no user behind it.
+    // No profile link: there is no user behind it. The message itself is still
+    // deletable — see below.
     expect(label.tagName).not.toBe("A");
-    expect(screen.queryByTitle("Delete message")).toBeNull();
+  });
+
+  test("lets staff delete a system message", async () => {
+    mockAuth.user = {
+      id: 1,
+      username: "admin",
+      isStaff: true,
+      isAdmin: true,
+    };
+    mockAuth.isAuthenticated = true;
+
+    renderChat();
+    fireEvent.click(screen.getByText("Shoutbox"));
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    MockWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({
+        type: "message",
+        id: 9,
+        user_id: 0,
+        username: "Tracker Bot",
+        message: "New torrent: Oops.Wrong.One",
+        system: true,
+        created_at: new Date().toISOString(),
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByTitle("Delete message")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle("Delete message"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/admin/chat/messages/9",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
   });
 });

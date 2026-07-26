@@ -32,6 +32,50 @@ type ChatService struct {
 	mutes    repository.ChatMuteRepository
 	users    repository.UserRepository
 	eventBus event.Bus
+	// siteSettings supplies the system display name. A constructor parameter
+	// rather than a setter — the sibling services use setters only because they
+	// are built before site settings exists, which chat is not. Dropping the
+	// single wiring line in main.go (excluded from coverage) would otherwise
+	// revert every operator's configured label to the default with nothing red.
+	//
+	// Nil is tolerated so a test that does not care about the label can pass
+	// nil: the built-in default is the right answer for a display name, unlike
+	// a permission check where absent must mean "no".
+	siteSettings *SiteSettingsService
+}
+
+// systemName is the label every system message is stamped with on its way out
+// of this service — the one place that decides it, so a live WebSocket line and
+// the same line after a reload can never disagree.
+func (s *ChatService) systemName(ctx context.Context) string {
+	if s.siteSettings == nil {
+		return model.SystemChatUsername
+	}
+	return s.siteSettings.SystemChatName(ctx)
+}
+
+// labelSystemMessages fills in the author label on the system rows of a page.
+// The repository returns them blank; authored rows keep their JOINed username.
+func (s *ChatService) labelSystemMessages(ctx context.Context, msgs []model.ChatMessage) []model.ChatMessage {
+	var (
+		name string
+		// Tracked separately from name being non-empty: an empty label should
+		// still be resolved only once, not re-queried for every system row on
+		// the page.
+		resolved bool
+	)
+	for i := range msgs {
+		if !msgs[i].System {
+			continue
+		}
+		if !resolved {
+			// Resolved lazily and once per page: a page with no system messages
+			// should not pay for a settings read at all.
+			name, resolved = s.systemName(ctx), true
+		}
+		msgs[i].Username = name
+	}
+	return msgs
 }
 
 // NewChatService creates a new ChatService.
@@ -40,12 +84,14 @@ func NewChatService(
 	mutes repository.ChatMuteRepository,
 	users repository.UserRepository,
 	bus event.Bus,
+	siteSettings *SiteSettingsService,
 ) *ChatService {
 	return &ChatService{
-		messages: messages,
-		mutes:    mutes,
-		users:    users,
-		eventBus: bus,
+		messages:     messages,
+		mutes:        mutes,
+		users:        users,
+		eventBus:     bus,
+		siteSettings: siteSettings,
 	}
 }
 
@@ -118,7 +164,7 @@ func (s *ChatService) SendSystemMessage(ctx context.Context, message string) (*m
 	if err := s.messages.Create(ctx, msg); err != nil {
 		return nil, fmt.Errorf("create system chat message: %w", err)
 	}
-	msg.Username = model.SystemChatUsername
+	msg.Username = s.systemName(ctx)
 
 	return msg, nil
 }
@@ -131,7 +177,11 @@ func (s *ChatService) ListRecent(ctx context.Context, limit int) ([]model.ChatMe
 	if limit > maxChatLimit {
 		limit = maxChatLimit
 	}
-	return s.messages.ListRecent(ctx, limit)
+	msgs, err := s.messages.ListRecent(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	return s.labelSystemMessages(ctx, msgs), nil
 }
 
 // ListHistory returns chat messages older than the given ID for pagination.
@@ -142,7 +192,11 @@ func (s *ChatService) ListHistory(ctx context.Context, beforeID int64, limit int
 	if limit > maxChatLimit {
 		limit = maxChatLimit
 	}
-	return s.messages.ListBefore(ctx, beforeID, limit)
+	msgs, err := s.messages.ListBefore(ctx, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return s.labelSystemMessages(ctx, msgs), nil
 }
 
 // DeleteMessage removes a chat message. Only staff may delete.

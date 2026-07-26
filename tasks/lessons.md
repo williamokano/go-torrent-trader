@@ -98,6 +98,36 @@ worktrees, which check out *committed* content: anything uncommitted in the main
 working directory is not there, so anchors taken from "what I remember writing" are
 unreliable by construction.
 
+## `git checkout --` restores from the index, not from what you were just editing
+
+Mid-review I mutated a file to prove a test would catch the bug, then undid the
+mutation with `git checkout -- <file>`. The index held a snapshot staged *before*
+the fix, so the "undo" silently reverted the fix as well — the escaping and
+length-bound work vanished, and the tests went green again because the mutation
+and the fix were removed together. It only surfaced because the restored file was
+echoed back.
+
+**Rule:** to undo a deliberate mutation, restore from a copy taken immediately
+before it (`cp file /tmp/…` then `cp` back), never from git. `git checkout --`
+means "make this match the index", which is only the same thing when the index is
+current — and during a staged pre-push review it usually is not.
+
+## Release a lock with `defer`, never with a trailing call
+
+The first cut of the settings cache was `Lock()` … work … `Unlock()`. Operator
+correction: always `Lock(); defer Unlock()`, so an early return or a panic in the
+middle cannot leave the mutex held and wedge every later reader.
+
+The one place this needs care is a read-then-write path — an `RWMutex` is not
+reentrant, so a deferred `RUnlock` still in scope when the same goroutine reaches
+`Lock()` deadlocks. The fix is not to drop the defer but to give each critical
+section its own small method (`cacheLookup` / `cacheStore`), which is clearer
+anyway.
+
+**Rule:** every `Lock`/`RLock` is followed by `defer Unlock`/`RUnlock` on the
+next line. If that would hold the lock too long, extract the critical section
+into its own function rather than unlocking by hand.
+
 ## Clean up worktrees when the branch merges
 
 Five agent worktrees from 2026-07-19 were still on disk on 2026-07-25, holding

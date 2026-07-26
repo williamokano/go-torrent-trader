@@ -31,6 +31,7 @@ var templateFieldDocs = map[string]string{
 	"Size":      "Size in bytes, unformatted — use SizeHuman unless you need the raw number",
 	"SizeHuman": "Size with binary units",
 	"URL":       "Link to the torrent page",
+	"Link":      "The torrent name as a Markdown link to its page, shortened if very long — renders as a clickable name in the shoutbox and on Discord. Use Name and URL instead on IRC, Telegram and webhooks, which do not render Markdown",
 	"Uploader":  `Uploader's name, or "` + AnonymousUploader + `" for an anonymous upload`,
 	"Freeleech": "true or false — usually used as {{if .Freeleech}}…{{end}}",
 	"FileCount": "Number of files in the torrent",
