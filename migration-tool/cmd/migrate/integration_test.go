@@ -1,85 +1,29 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	"gopkg.in/yaml.v3"
+
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/testenv"
 )
 
-// The commands, end to end, against a real legacy database. The internal
-// packages are tested on their own; what is only provable here is that the
-// flags, the output writers and the pipeline are wired to each other.
+// The commands, end to end, against the legacy corpus. The internal packages
+// are tested on their own; what is only provable here is that the flags, the
+// output writers and the pipeline are wired to each other.
 //
 // Run with -short to skip when Docker is unavailable.
 
-const containerStartTimeout = 3 * time.Minute
-
-var (
-	sharedOnce sync.Once
-	sharedDSN  string
-	sharedErr  error
-	sharedStop func()
-)
-
-func startLegacyContainer() {
-	ctx, cancel := context.WithTimeout(context.Background(), containerStartTimeout)
-	defer cancel()
-
-	container, err := tcmysql.Run(ctx,
-		"mysql:8.0",
-		tcmysql.WithDatabase("torrenttrader"),
-		tcmysql.WithUsername("tt"),
-		tcmysql.WithPassword("tt-secret"),
-		tcmysql.WithScripts(filepath.Join("..", "..", "internal", "source", "testdata", "legacy.sql")),
-	)
-	if err != nil {
-		sharedErr = fmt.Errorf("starting MySQL: %w", err)
-		return
-	}
-	sharedStop = func() {
-		if err := testcontainers.TerminateContainer(container); err != nil {
-			log.Printf("terminating MySQL container: %v", err)
-		}
-	}
-
-	dsn, err := container.ConnectionString(ctx)
-	if err != nil {
-		sharedErr = fmt.Errorf("building connection string: %w", err)
-		return
-	}
-	sharedDSN = dsn
-}
-
 func TestMain(m *testing.M) {
 	code := m.Run()
-	if sharedStop != nil {
-		sharedStop()
-	}
+	testenv.Cleanup()
 	os.Exit(code)
 }
 
-func legacyDSN(t *testing.T) string {
-	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping: needs Docker")
-	}
-
-	sharedOnce.Do(startLegacyContainer)
-	if sharedErr != nil {
-		t.Fatal(sharedErr)
-	}
-	return sharedDSN
-}
+func legacyDSN(t *testing.T) string { return testenv.Legacy(t) }
 
 func TestDiscoverListsTables(t *testing.T) {
 	noDatabaseConfigured(t)

@@ -220,10 +220,13 @@ func torrentsPlan() TablePlan {
 		Target:  "torrents",
 		Comment: "info_hash is the one column that cannot be got wrong: the target stores the 20 raw bytes where the legacy schema stores 40 hex characters, and a torrent whose hash does not survive stops announcing.",
 		Derived: map[string]string{
-			"silver":            "false — no legacy equivalent",
-			"files":             "the legacy files table, grouped by torrent into one JSONB document",
-			"moderation_status": "approved for a visible torrent, rejected for a banned one",
-			"search_vector":     "maintained by the backend; leave it to the trigger rather than writing it",
+			"silver":                "false — no legacy equivalent",
+			"files":                 "the legacy files table, grouped by torrent into one JSONB document",
+			"moderation_status":     "approved for a visible torrent, rejected for a banned one",
+			"search_vector":         "maintained by the backend; leave it to the trigger rather than writing it",
+			"approved_at":           "created_at for a visible torrent — anything already live on the old site counts as approved",
+			"approved_by":           "NULL — the legacy schema records no approver",
+			"assigned_moderator_id": "NULL — nothing arrives in a moderation queue",
 		},
 		Columns: map[string]Rule{
 			"id":              mapTo("id", "", "Kept: peers, comments and completions all refer to it."),

@@ -30,7 +30,9 @@ migration-tool/
 │   ├── source/          # Source DB connector (MySQL) and schema reader
 │   ├── compare/         # Baseline diff
 │   ├── mapping/         # Mapping plan and YAML generation
-│   ├── target/          # Target DB connector (PostgreSQL) — planned
+│   ├── target/          # The PostgreSQL schema this tool writes into
+│   ├── testenv/         # Test-only: MySQL from the corpus, PostgreSQL from
+│   │                    # the backend's migrations, and golden-file support
 │   ├── transform/       # Data transformation logic — planned
 │   └── verify/          # Verification logic — planned
 ├── Dockerfile           # Multi-stage build
@@ -262,14 +264,69 @@ task migration-tool:build
 task migration-tool:test
 ```
 
-The `internal/source` and `cmd/migrate` packages start a real MySQL 8 container
-through testcontainers and load `internal/source/testdata/legacy.sql` into it —
-a stock TorrentTrader schema with a few mods bolted on, which is what an
-operator's database actually looks like. This is where the baseline is checked
-against a real server, since MySQL 8 reports several of the reference
-document's types differently from the way it writes them.
+Use `go test -short ./...` to skip the containers when Docker is unavailable.
 
-Use `go test -short ./...` to skip the container when Docker is unavailable.
+## The verification harness
+
+`internal/testenv` builds the two databases the tests run against:
+
+- **MySQL**, loaded with the legacy corpus at
+  `internal/testenv/testdata/legacy.sql`
+- **PostgreSQL**, built by running the backend's own goose migrations, so the
+  target schema is the real one rather than a transcription that drifts
+
+Both are real servers rather than fakes, because what is most likely to be
+wrong here is not the logic but the assumptions about what a server does: how
+MySQL 8 reports a type it was given in 2008, whether a legacy zero date
+survives the trip, what PostgreSQL does with a foreign key MyISAM never
+enforced. A fake agrees with whatever its author believed, which is the thing
+under test.
+
+### The corpus is adversarial, not large
+
+A million clean rows prove less than fifty awkward ones — migrations do not
+fail on ordinary data. The corpus carries, each on a commented row:
+
+| | |
+|---|---|
+| `'0000-00-00 00:00:00'` | MyISAM accepts it; PostgreSQL rejects it outright |
+| `invited_by = 0` | the legacy "nobody" sentinel meeting a real foreign key |
+| a 27-character username | against the target's `varchar(20)` |
+| latin1 high bytes | `Café`, `Größe`, `Amélie` — the only proof the text is converted rather than copied |
+| a malformed `info_hash` | not 40 hex characters, so it cannot become 20 bytes |
+| orphans | a peer whose member was deleted, a completion whose torrent was |
+| a duplicate passkey | UNIQUE in the target, unconstrained in MyISAM |
+| a dangling `class` | pointing at a group that no longer exists |
+| unclosed and nested BBCode | what fifteen years of hand-typed markup looks like |
+| a torrent with no file rows | and another with several |
+
+Strict mode is off for the load, which is how such rows came to exist in the
+first place — MySQL 8 would otherwise refuse half of them.
+
+### Golden files
+
+`cmd/migrate/testdata/*.golden.*` hold what an operator actually reads: the
+generated mapping, and the `validate` report.
+
+They exist because counts cannot see a wrong value. A mapping that quietly
+starts sending passkeys somewhere else still produces the right number of
+entries. The golden files put the output itself in the pull request, so
+changing what an operator is told has to be read and agreed with by somebody.
+
+```bash
+go test ./cmd/migrate -update   # regenerate, then read the diff
+```
+
+### Checking the target declaration
+
+`internal/target/target_live_test.go` applies the backend's migrations to a real
+PostgreSQL and reads back `information_schema`, rather than parsing the
+migration SQL. That distinction earned its keep immediately: the parser it
+replaced missed three columns added by a single multi-column `ALTER TABLE`.
+
+`.github/workflows/migration-tool.yml` therefore triggers on
+`backend/migrations/**` as well as `migration-tool/**`. Without that path a
+backend schema change could not fail the check that exists to catch it.
 
 ### Docker
 ```bash

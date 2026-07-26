@@ -1,0 +1,49 @@
+Source: tt:***@localhost:3306/torrenttrader
+
+Text encoding: latin1
+  latin1 is not Unicode, and the target stores UTF-8.
+  The migration must convert this text rather than copy its bytes. Reading
+  the source with the wrong charset is what turns accented usernames and
+  non-English forum posts into mojibake, and it is not noticed for weeks.
+
+Missing tables
+  - announce
+  - bans
+  - blocks
+  - censor
+  - countries
+  - email_bans
+  - faq
+  - forum_readposts
+  - guests
+  - languages
+  - log
+  - news
+  - pollanswers
+  - polls
+  - ratings
+  - reports
+  - rules
+  - sqlerr
+  - stylesheets
+  - tasks
+  - teams
+  - torrentlang
+  - warnings
+
+Tables not in TorrentTrader 3.0
+  bonus_log
+  These are mods, or another application sharing the database.
+
+Table users
+  + added column seedbonus
+  + added column karma
+
+Columns not checked
+  categories, comments, files, forumcats, shoutbox
+  The reference schema names these tables but does not document their
+  columns, so only their presence was verified. `migrate mapping` lists
+  their columns for review.
+
+Result: usable. Generate a mapping with `migrate mapping` and review it
+before running the migration.

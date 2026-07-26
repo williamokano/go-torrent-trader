@@ -2,23 +2,17 @@ package source_test
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/testcontainers/testcontainers-go"
-	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/baseline"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/compare"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/mapping"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/source"
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/testenv"
 )
 
 // These tests run against a real MySQL server, because the thing most likely to
@@ -28,68 +22,13 @@ import (
 //
 // Run with -short to skip when Docker is unavailable.
 
-const containerStartTimeout = 3 * time.Minute
-
-// The container is shared by every test in the package and started on first
-// use. Nothing here writes to the database, so one server serves them all —
-// and starting MySQL costs more than the tests do.
-var (
-	sharedOnce sync.Once
-	sharedDSN  string
-	sharedErr  error
-	sharedStop func()
-)
-
-func startLegacyContainer() {
-	ctx, cancel := context.WithTimeout(context.Background(), containerStartTimeout)
-	defer cancel()
-
-	container, err := tcmysql.Run(ctx,
-		"mysql:8.0",
-		tcmysql.WithDatabase("torrenttrader"),
-		tcmysql.WithUsername("tt"),
-		tcmysql.WithPassword("tt-secret"),
-		tcmysql.WithScripts("testdata/legacy.sql"),
-	)
-	if err != nil {
-		sharedErr = fmt.Errorf("starting MySQL: %w", err)
-		return
-	}
-	sharedStop = func() {
-		if err := testcontainers.TerminateContainer(container); err != nil {
-			log.Printf("terminating MySQL container: %v", err)
-		}
-	}
-
-	dsn, err := container.ConnectionString(ctx, "parseTime=true")
-	if err != nil {
-		sharedErr = fmt.Errorf("building connection string: %w", err)
-		return
-	}
-	sharedDSN = dsn
-}
-
 func TestMain(m *testing.M) {
 	code := m.Run()
-	if sharedStop != nil {
-		sharedStop()
-	}
+	testenv.Cleanup()
 	os.Exit(code)
 }
 
-// legacyDSN returns a DSN for a MySQL server loaded with testdata/legacy.sql.
-func legacyDSN(t *testing.T) string {
-	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping: needs Docker")
-	}
-
-	sharedOnce.Do(startLegacyContainer)
-	if sharedErr != nil {
-		t.Fatal(sharedErr)
-	}
-	return sharedDSN
-}
+func legacyDSN(t *testing.T) string { return testenv.Legacy(t) }
 
 func openLegacy(t *testing.T) *source.DB {
 	t.Helper()
@@ -150,8 +89,8 @@ func TestSchemaReadsTablesAndColumns(t *testing.T) {
 	}
 
 	users, _ := s.Table("users")
-	if got := len(users.Columns); got != 45 {
-		t.Errorf("users has %d columns, want 45 (43 stock plus 2 mods)", got)
+	if got := len(users.Columns); got != testenv.UserColumns {
+		t.Errorf("users has %d columns, want %d (43 stock plus 2 mods)", got, testenv.UserColumns)
 	}
 
 	// Columns come back in ordinal order, which is what makes the generated
@@ -227,7 +166,11 @@ func TestCountRows(t *testing.T) {
 	db := openLegacy(t)
 	ctx := context.Background()
 
-	for table, want := range map[string]int64{"users": 3, "torrents": 2, "peers": 1, "completed": 0} {
+	for table, want := range map[string]int64{
+		"users":    testenv.CorpusUsers,
+		"torrents": testenv.CorpusTorrents,
+		"peers":    testenv.CorpusPeers,
+	} {
 		got, err := db.CountRows(ctx, table)
 		if err != nil {
 			t.Fatalf("CountRows(%s): %v", table, err)
@@ -256,7 +199,7 @@ func TestCountRowsRefusesAHostileTableName(t *testing.T) {
 	}
 
 	// The point of the exercise: users is still there.
-	if n, err := db.CountRows(ctx, "users"); err != nil || n != 3 {
+	if n, err := db.CountRows(ctx, "users"); err != nil || n != testenv.CorpusUsers {
 		t.Fatalf("users did not survive: count=%d err=%v", n, err)
 	}
 }

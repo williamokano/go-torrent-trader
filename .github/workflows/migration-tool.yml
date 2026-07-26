@@ -1,11 +1,22 @@
 name: Migration Tool CI
+# backend/migrations is in the trigger paths on purpose. The tool declares the
+# target schema itself — Shared Nothing forbids importing the backend's — and a
+# test checks that declaration against the migrations applied to a real
+# PostgreSQL. Without this path, a backend schema change could not fail the
+# check that exists to catch it, which is the same as not having the check.
 on:
   push:
     branches: [main]
-    paths: ['migration-tool/**', '.github/workflows/migration-tool.yml']
+    paths:
+      - 'migration-tool/**'
+      - 'backend/migrations/**'
+      - '.github/workflows/migration-tool.yml'
   pull_request:
     branches: [main]
-    paths: ['migration-tool/**', '.github/workflows/migration-tool.yml']
+    paths:
+      - 'migration-tool/**'
+      - 'backend/migrations/**'
+      - '.github/workflows/migration-tool.yml'
 
 permissions:
   contents: read
