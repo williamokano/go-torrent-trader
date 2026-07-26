@@ -6,12 +6,18 @@
 // nothing checks drifts from the real schema silently, and three mapping rules
 // in this package's first version named target columns that did not exist.
 //
-// So the declaration below is checked. target_live_test.go reads
-// backend/migrations when they are present and fails if this disagrees with
-// them, which keeps the module standalone without letting it quietly rot.
+// So the declaration below is checked. target_live_test.go applies the
+// backend's own migrations to a real PostgreSQL and fails if this disagrees
+// with the result, which keeps the module standalone without letting it
+// quietly rot. Reading the migrations rather than the database they produce
+// would answer a slightly different question, and did so wrongly: the parser
+// it replaced missed three columns added by one multi-column ALTER TABLE.
 package target
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Schema is the target's tables and their columns.
 type Schema struct {
@@ -45,16 +51,8 @@ func (s Schema) Tables() []string {
 	for name := range s.tables {
 		names = append(names, name)
 	}
-	sortStrings(names)
+	sort.Strings(names)
 	return names
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 // Seeded names the tables the target ships with rows already in them, and what

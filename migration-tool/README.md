@@ -6,6 +6,9 @@ CLI tool for migrating data from a legacy TorrentTrader 3.x MySQL database to th
 
 - **Go 1.23** with [Cobra](https://github.com/spf13/cobra) CLI framework
 - [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) for the source database
+- [lib/pq](https://github.com/lib/pq) for the target, and
+  [goose](https://github.com/pressly/goose) in tests to build the target schema
+  from the backend's own migrations
 - [yaml.v3](https://gopkg.in/yaml.v3) for the mapping file, which is generated with
   its comments intact
 
@@ -30,7 +33,8 @@ migration-tool/
 │   ├── source/          # Source DB connector (MySQL) and schema reader
 │   ├── compare/         # Baseline diff
 │   ├── mapping/         # Mapping plan and YAML generation
-│   ├── target/          # The PostgreSQL schema this tool writes into
+│   ├── target/          # PostgreSQL: schema declaration, connection, checks
+│   │                    # and the batched writer
 │   ├── testenv/         # Test-only: MySQL from the corpus, PostgreSQL from
 │   │                    # the backend's migrations, and golden-file support
 │   ├── transform/       # Data transformation logic — planned
@@ -44,7 +48,7 @@ migration-tool/
 | Command | Description | Status |
 |---------|-------------|--------|
 | `discover` | List tables, engines, row counts and column counts; describe one table with `--table` | Implemented |
-| `validate` | Compare the source schema against the TorrentTrader 3.0 baseline and report what differs | Implemented |
+| `validate` | Pre-flight: compare the source against the baseline, check the target has the schema this tool writes into, and check a mapping file against both | Implemented |
 | `mapping` | Generate the reviewable YAML column mapping | Implemented |
 | `run` | Execute the migration from source to target | Not implemented — fails rather than exiting 0 |
 | `verify` | Verify migrated data integrity and completeness | Not implemented — fails rather than exiting 0 |
@@ -62,6 +66,8 @@ could do.
 | `discover` | `--table <name>` | Describe one table's columns and print its `SHOW CREATE TABLE` |
 | `discover` | `--ddl` | Dump `SHOW CREATE TABLE` for every table |
 | `validate` | `--strict` | Fail on any difference from the stock schema, not just blocking ones |
+| `validate` | `--target <dsn>` | Also check the target database has the schema this tool writes into |
+| `validate` | `--mapping <path>` | Also check a mapping file against the source and, with `--target`, the target |
 | `mapping` | `--out <path>` | Where to write the mapping (default `mapping.yaml`; `-` for stdout) |
 | `mapping` | `--force` | Overwrite an existing mapping file |
 
@@ -136,11 +142,13 @@ It does not move data yet.
   the mapping records them per column. Copying those bytes across unconverted
   is what turns accented usernames into mojibake
 - Mapping file generation, with the reasoning for each decision kept as comments
+- Reading a mapping back, so a hand-edited file is checked rather than trusted
+- PostgreSQL target connector, schema check, and a batched writer with
+  per-batch or per-table transactions
 - Integration tests against a real MySQL 8 server via testcontainers
 
 ### Planned
 
-- PostgreSQL target connector and writer
 - Data transformers (users, torrents, forums, comments, etc.)
 - BBCode to Markdown converter
 - Resumable migration with progress tracking
@@ -226,6 +234,63 @@ Six tables are marked required, meaning the migration cannot run without them:
 optional table is reported and not treated as fatal — an install that dropped
 polls years ago still migrates.
 
+## The pre-flight check
+
+`validate` is what an operator runs before a cutover. Given all three
+connections it answers, in one pass and in seconds, the questions that
+otherwise get answered halfway through a million rows:
+
+```bash
+migrate validate \
+  --source  "mysql://root:password@old-host:3306/torrenttrader" \
+  --target  "postgres://tt:password@new-host:5432/torrenttrader?sslmode=disable" \
+  --mapping mapping.yaml
+```
+
+- **Is this a TorrentTrader database, and what has been done to it?** Missing
+  tables, mod-added tables and columns, changed types, and the character set the
+  text is stored in.
+- **Does the target have the schema this tool writes into?** The ordinary
+  failure is pointing at a database whose migrations were never run, which
+  otherwise dies partway with a message about one column, having already
+  written half the members.
+- **Does the mapping fit both databases?** Every column it reads must exist in
+  the source, every column it writes must exist in the target, every transform
+  must be one that was written, and every `custom` or `review` entry must have
+  been decided. All of them are reported at once: fixing a mapping one error per
+  run, each run needing two database connections, is not a reasonable thing to
+  ask of somebody mid-cutover.
+
+A mapping that has drifted from its source — generated before a mod was added,
+or against a different install — is caught in both directions. A column the
+mapping reads that the database has lost is fatal; so is a column the database
+has that the mapping has never heard of, because deciding silently that it does
+not matter is exactly the failure the mapping exists to prevent.
+
+## The writer
+
+`internal/target` inserts in batches. Sending rows one at a time is the
+difference between a migration that takes minutes and one that takes hours: the
+cost is round trips, not inserts.
+
+Two transaction modes, because the right answer differs by table:
+
+| Mode | |
+|---|---|
+| `TxPerBatch` | Commits every batch. A failure leaves earlier batches committed, which is what makes a run resumable and a half-finished run visible |
+| `TxPerTable` | Commits once at the end. A failure rolls the whole table back, so the target never holds a partial table, at the cost of a long-lived transaction |
+
+The batch size is clamped rather than obeyed: PostgreSQL refuses more than
+65535 bind parameters in one statement, so a 40-column table cannot take 2000
+rows at once however large the configured batch. An operator asking for a bigger
+batch wants speed, not an error about a limit they had no way to know.
+
+`DeclaredTables` fixes the order tables are written in, so a table always
+follows what it refers to. It is written down rather than derived from foreign
+keys, because a topological sort silently picks one of many valid orders and the
+one thing that must not happen is torrents landing before the members that own
+them.
+
 ## What the target knows
 
 `internal/target` declares the PostgreSQL tables and columns the mapping writes
@@ -238,9 +303,12 @@ mapping named three target columns that were wrong, including a `forums`
 permission column it claimed did not exist. So `internal/target` is checked two
 ways:
 
-- `target_live_test.go` replays `backend/migrations` and fails if the
-  declaration disagrees with them. It skips when those files are absent, so the
-  module still builds standalone
+- `target_live_test.go` applies the backend's own migrations to a real
+  PostgreSQL and fails if the declaration disagrees with the result. It skips
+  when those files are absent, so the module still builds standalone. Reading
+  the migration SQL instead would answer a slightly different question, and did
+  so wrongly: the parser it replaced missed three columns added by a single
+  multi-column `ALTER TABLE`
 - `internal/mapping/target_test.go` fails if a rule names a target column that
   does not exist, or if any target column has neither a rule nor a `derived`
   note — which is what stops a column being dropped by accident

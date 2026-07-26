@@ -8,25 +8,6 @@ import (
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/baseline"
 )
 
-// knownTransforms is every transform a rule is allowed to name. A rule naming
-// anything else is a typo that would reach an operator as a mapping nobody can
-// execute.
-func knownTransforms() []string {
-	return []string{
-		TransformYesNoToBool,
-		TransformYesNoToBoolInverted,
-		TransformZeroOneToBool,
-		TransformPositiveToBool,
-		TransformHexToBytea,
-		TransformTextToBytea,
-		TransformTextToInet,
-		TransformLegacyHash,
-		TransformBBCodeToMarkdown,
-		TransformClassToGroupID,
-		TransformSlugify,
-	}
-}
-
 // Every documented baseline column needs a rule. Without this, adding a column
 // to the baseline silently produces a mapping that tells the operator to review
 // something the tool already knows the answer to.
@@ -69,7 +50,7 @@ func TestPlanRulesNameRealColumns(t *testing.T) {
 }
 
 func TestEveryRuleIsWellFormed(t *testing.T) {
-	transforms := knownTransforms()
+	transforms := KnownTransforms()
 
 	for table, tp := range Plan() {
 		for column, rule := range tp.Columns {
