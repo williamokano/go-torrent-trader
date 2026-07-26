@@ -707,6 +707,58 @@ func TestBulkModerateAcceptsAModeratorAndStillRefusesTheBan(t *testing.T) {
 	}
 }
 
+// Delete is admin-only, and this is the assertion that pins it. Ban and unban
+// were already refused to a moderator by EditTorrent, so before this gate the
+// one irreversible action was the most loosely held of the three: a moderator
+// could erase a hundred uploads through the entry point that refuses them a
+// single ban. The route is RequireAdmin, so no real request could reach it —
+// which is exactly why it needed a test rather than a comment. Mounting the
+// handler under RequireStaff would otherwise hand every moderator mass-delete
+// with nothing going red.
+func TestBulkDeleteIsRefusedForAModerator(t *testing.T) {
+	torrents := threeTorrents()
+	svc := service.NewTorrentService(nil, torrents, newStubUserRepo(&model.User{ID: 9}),
+		&stubStorage{}, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"},
+		event.NewInMemoryBus(), nil)
+
+	results, err := svc.BulkModerate(context.Background(), service.BulkActionDelete,
+		[]int64{1, 2, 3}, 9, model.Permissions{Level: 50, IsModerator: true})
+
+	if !errors.Is(err, service.ErrForbidden) {
+		t.Errorf("err = %v, want ErrForbidden — delete must require admin, not staff", err)
+	}
+	if results != nil {
+		t.Errorf("results = %+v, want nil — the batch is refused as a whole, since "+
+			"authorisation to bulk-delete is a fact about the caller, not about a torrent", results)
+	}
+	if len(torrents.deleted) != 0 {
+		t.Errorf("a moderator deleted %d torrents", len(torrents.deleted))
+	}
+}
+
+// The same call as an admin, so the refusal above is not passing merely because
+// bulk delete is broken for everyone.
+func TestBulkDeleteIsAllowedForAnAdmin(t *testing.T) {
+	torrents := threeTorrents()
+	svc := service.NewTorrentService(nil, torrents, newStubUserRepo(&model.User{ID: 1}),
+		&stubStorage{}, service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"},
+		event.NewInMemoryBus(), nil)
+
+	results, err := svc.BulkModerate(context.Background(), service.BulkActionDelete,
+		[]int64{1, 2, 3}, 1, model.Permissions{Level: 100, IsAdmin: true})
+	if err != nil {
+		t.Fatalf("BulkModerate as admin: %v", err)
+	}
+	for _, r := range results {
+		if r.Status != service.BulkStatusOK {
+			t.Errorf("torrent %d: status = %q, want ok", r.ID, r.Status)
+		}
+	}
+	if len(torrents.deleted) != 3 {
+		t.Errorf("deleted %d torrents, want 3", len(torrents.deleted))
+	}
+}
+
 // --- pagination echo ---
 
 // The response echoes what the listing actually used. It previously echoed the raw

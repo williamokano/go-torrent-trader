@@ -669,6 +669,22 @@ func (s *TorrentService) BulkModerate(
 		return nil, ErrForbidden
 	}
 
+	// Delete needs admin, not merely staff. Ban and unban are already admin-only
+	// (EditTorrent refuses the flag to a moderator), so gating delete at IsStaff
+	// left the one irreversible action as the most loosely held: a moderator could
+	// erase a hundred uploads through the same entry point that refuses them a
+	// single ban. The route is RequireAdmin today, so this changes nothing a real
+	// request can reach — it is here so that mounting this handler under
+	// RequireStaff cannot silently hand every moderator mass-delete.
+	//
+	// Refused for the whole batch rather than per torrent: whether a caller may
+	// bulk-delete is a fact about the caller and the action, not about any
+	// particular torrent. Ban reports per torrent only because it borrows
+	// EditTorrent's own check.
+	if action == BulkActionDelete && !perms.IsAdmin {
+		return nil, ErrForbidden
+	}
+
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("%w: no torrent ids given", ErrInvalidTorrent)
 	}

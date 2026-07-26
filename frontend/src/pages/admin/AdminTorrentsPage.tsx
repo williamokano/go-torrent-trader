@@ -90,17 +90,29 @@ export function AdminTorrentsPage() {
   const [working, setWorking] = useState(false);
 
   const queryIsHash = INFO_HASH_RE.test(query.trim());
+  // The backend takes `name=` to mean "search the name even though this parses as
+  // a hash". Without a way to reach it, a release genuinely titled like a SHA1 —
+  // or a git commit id — was unfindable by name through this page, which is the
+  // opposite of the escape hatch's purpose. In the URL rather than in state so a
+  // bookmarked or shared lookup keeps meaning what it meant.
+  const forceNameSearch = searchParams.get("by") === "name";
+  // One flag for both the request and the controls, so they cannot disagree.
+  const hashLookup = queryIsHash && !forceNameSearch;
 
   const fetchTorrents = useCallback(async () => {
     setLoading(true);
     setError(null);
     const token = getAccessToken();
     const params = new URLSearchParams();
-    if (query) params.set("search", query);
+    if (query) {
+      // `name=` forces the name branch; `search=` lets the backend route a
+      // 40-hex-character term to the hash.
+      params.set(forceNameSearch ? "name" : "search", query);
+    }
     // A hash identifies exactly one torrent, so conjoining a status predicate with
     // it can only ever hide the answer. A takedown notice looked up with Status left
     // on "Banned" would report "not on this tracker" for a torrent that is.
-    if (status && !queryIsHash) {
+    if (status && !hashLookup) {
       params.set("banned", status === "banned" ? "true" : "false");
     }
     params.set("page", String(page));
@@ -128,7 +140,7 @@ export function AdminTorrentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, status, page, queryIsHash]);
+  }, [query, status, page, hashLookup, forceNameSearch]);
 
   useEffect(() => {
     fetchTorrents();
@@ -167,6 +179,20 @@ export function AdminTorrentsPage() {
         next.set("status", val);
       } else {
         next.delete("status");
+      }
+      next.delete("page");
+    });
+  };
+
+  // Switches a hash-shaped term between the hash lookup and the name search.
+  // Resets pagination: the two searches return unrelated result sets, so page 3
+  // of one is meaningless in the other.
+  const toggleSearchField = () => {
+    updateParams((next) => {
+      if (forceNameSearch) {
+        next.delete("by");
+      } else {
+        next.set("by", "name");
       }
       next.delete("page");
     });
@@ -286,15 +312,46 @@ export function AdminTorrentsPage() {
             onChange={handleSearchChange}
           />
           {searchLooksLikeHash && (
-            <p className="admin-muted admin-hint">Looking up by info hash.</p>
+            <p className="admin-muted admin-hint">
+              {forceNameSearch ? (
+                <>
+                  Searching by name.{" "}
+                  <button
+                    type="button"
+                    className="admin-linkbtn"
+                    onClick={toggleSearchField}
+                  >
+                    Look up by info hash instead
+                  </button>
+                </>
+              ) : (
+                <>
+                  Looking up by info hash
+                  {status && ", ignoring the status filter"}.{" "}
+                  <button
+                    type="button"
+                    className="admin-linkbtn"
+                    onClick={toggleSearchField}
+                  >
+                    Search by name instead
+                  </button>
+                </>
+              )}
+            </p>
           )}
         </div>
         <Select
           label="Status"
-          value={status}
+          // Disabled rather than merely ignored. Rendering "Banned" as the
+          // selected value while the request deliberately drops it is the same
+          // UI-says-one-thing-query-does-another defect this page fixed for an
+          // unrecognised ?status= — an operator would read an Active row as
+          // proof the torrent is banned.
+          disabled={hashLookup}
+          value={hashLookup ? "" : status}
           onChange={handleStatusChange}
           options={[
-            { value: "", label: "All" },
+            { value: "", label: hashLookup ? "Not applied" : "All" },
             { value: "active", label: "Not banned" },
             { value: "banned", label: "Banned" },
           ]}

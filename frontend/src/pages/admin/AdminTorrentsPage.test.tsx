@@ -497,6 +497,87 @@ describe("AdminTorrentsPage", () => {
     expect(screen.getByLabelText("Status")).toHaveValue("");
   });
 
+  // The request already dropped the status predicate during a hash lookup, but the
+  // Select went on rendering "Banned" as selected. An operator would then read an
+  // Active row as proof the torrent is banned — the same
+  // UI-says-one-thing-query-does-another defect this page fixed for ?status=, one
+  // line away. The control has to show that it is not being applied.
+  test("the status control shows it is not applied during a hash lookup", async () => {
+    mockApi({ torrents: [torrentRow()] });
+    render(
+      <ToastProvider>
+        <MemoryRouter
+          initialEntries={[`/admin/torrents?q=${HASH_A}&status=banned`]}
+        >
+          <AdminTorrentsPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastListingURL()).toContain("search=" + HASH_A);
+    });
+    const select = screen.getByLabelText("Status");
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue("");
+    expect(screen.getByText(/ignoring the status filter/i)).toBeInTheDocument();
+  });
+
+  // The backend's `name=` escape hatch had no route to it from the only client:
+  // the page sent `search=` and nothing else, so a release genuinely titled like a
+  // SHA1 was permanently unfindable by name here — the opposite of what the escape
+  // hatch is for.
+  test("a hash-shaped term can be searched by name instead", async () => {
+    mockApi({ torrents: [torrentRow()] });
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={[`/admin/torrents?q=${HASH_A}`]}>
+          <AdminTorrentsPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastListingURL()).toContain("search=" + HASH_A);
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /search by name instead/i }),
+    );
+
+    await waitFor(() => {
+      expect(lastListingURL()).toContain("name=" + HASH_A);
+    });
+    // `search=` would let the backend route it straight back to the hash.
+    expect(lastListingURL()).not.toContain("search=");
+    // And the status filter is available again, because a name search can return many rows.
+    expect(screen.getByLabelText("Status")).not.toBeDisabled();
+  });
+
+  test("a forced name search can be switched back to the hash lookup", async () => {
+    mockApi({ torrents: [torrentRow()] });
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={[`/admin/torrents?q=${HASH_A}&by=name`]}>
+          <AdminTorrentsPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastListingURL()).toContain("name=" + HASH_A);
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /look up by info hash instead/i }),
+    );
+
+    await waitFor(() => {
+      expect(lastListingURL()).toContain("search=" + HASH_A);
+    });
+    expect(lastListingURL()).not.toContain("name=");
+  });
+
   test("deleting a single torrent still works", async () => {
     mockApi({ torrents: [torrentRow()] });
     renderPage();
