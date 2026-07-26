@@ -635,6 +635,26 @@ func (s *TorrentService) RequestReseed(ctx context.Context, torrentID, userID in
 		return ErrDuplicateReseedRequest
 	}
 
+	// Security: verify the torrent has no seeds (reseed is meaningless otherwise).
+	// The frontend guard can be bypassed with a direct API call.
+	if torrent.Seeders > 0 {
+		return errors.New("torrent has active seeders, reseed is not needed")
+	}
+
+	// Security: reject reseed on banned or hidden torrents.
+	if torrent.Banned || !torrent.Visible {
+		return ErrForbidden
+	}
+
+	// Security: check requester is not disabled.
+	requester, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get requester: %w", err)
+	}
+	if !requester.Enabled {
+		return ErrForbidden
+	}
+
 	req := &model.ReseedRequest{
 		TorrentID:   torrentID,
 		RequesterID: userID,
