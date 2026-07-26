@@ -147,14 +147,26 @@ export function TorrentDetailPage() {
         },
       );
 
-      if (response.status === 409) {
-        setReseedRequested(true);
-        toast.error("You have already requested a reseed for this torrent");
-        return;
-      }
-
       if (!response.ok) {
         const data = await response.json().catch(() => null);
+        const code = data?.error?.code;
+
+        // Two different rejections share 409, so branch on the code rather than
+        // the status. Reporting "you already asked" to someone whose torrent just
+        // picked up a seeder is both wrong and dead-ends them, because it also
+        // disables the button.
+        if (code === "duplicate_reseed_request") {
+          setReseedRequested(true);
+          toast.error("You have already requested a reseed for this torrent");
+          return;
+        }
+        if (code === "torrent_has_seeders") {
+          toast.error(
+            "This torrent has seeders now, so it no longer needs a reseed",
+          );
+          return;
+        }
+
         const message =
           data?.error?.message ?? `Reseed request failed (${response.status})`;
         throw new Error(message);

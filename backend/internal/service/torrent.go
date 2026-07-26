@@ -29,6 +29,7 @@ var (
 	ErrInvalidTorrent         = errors.New("invalid torrent file")
 	ErrForbidden              = errors.New("forbidden")
 	ErrDuplicateReseedRequest = errors.New("you have already requested a reseed for this torrent")
+	ErrTorrentHasSeeders      = errors.New("this torrent has seeders, so it does not need a reseed")
 	// ErrModerationUnavailable is returned when a moderation action is attempted
 	// but the moderation repository was never wired (e.g. in a minimal test setup).
 	ErrModerationUnavailable = errors.New("moderation is unavailable")
@@ -624,6 +625,19 @@ func (s *TorrentService) RequestReseed(ctx context.Context, torrentID, userID in
 	torrent, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
 		return ErrTorrentNotFound
+	}
+
+	// Eligibility is enforced here rather than only in the UI. The button is
+	// hidden client-side when a torrent has seeders, but that is an affordance,
+	// not a guard: a direct POST reached this far and always succeeded, and every
+	// accepted request emails the uploader. Checked before the duplicate lookup so
+	// an ineligible torrent reports why it is ineligible rather than reporting
+	// "you already asked" on the second attempt.
+	if torrent.Banned || !torrent.Visible || torrent.ModerationRestricted() {
+		return ErrForbidden
+	}
+	if torrent.Seeders > 0 {
+		return ErrTorrentHasSeeders
 	}
 
 	// Check for duplicate request

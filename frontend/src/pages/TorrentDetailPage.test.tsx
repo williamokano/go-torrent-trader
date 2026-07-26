@@ -638,3 +638,82 @@ describe("TorrentDetailPage", () => {
     });
   });
 });
+
+describe("TorrentDetailPage reseed rejections", () => {
+  // Both rejections are 409, so the page has to read the error code. Reporting
+  // "you already asked" to someone whose torrent just picked up a seeder is wrong
+  // and also disables the button, leaving them nothing to do.
+  function renderDeadTorrentAndClickReseed(body: unknown, status = 409) {
+    mockGET.mockResolvedValue({
+      data: { torrent: { ...FAKE_TORRENT, seeders: 0 } },
+      error: undefined,
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/reseed") && init?.method === "POST") {
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (url.includes("/rating")) {
+        return Promise.resolve(new Response(EMPTY_RATING, { status: 200 }));
+      }
+      if (url.includes("/comments")) {
+        return Promise.resolve(new Response(EMPTY_COMMENTS, { status: 200 }));
+      }
+      return Promise.resolve(new Response(null, { status: 200 }));
+    });
+    return renderDetailPage();
+  }
+
+  test("a torrent that gained seeders says so, and leaves the button usable", async () => {
+    renderDeadTorrentAndClickReseed({
+      error: { code: "torrent_has_seeders", message: "has seeders" },
+    });
+
+    const button = await screen.findByRole("button", {
+      name: "Request Reseed",
+    });
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "This torrent has seeders now, so it no longer needs a reseed",
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(
+        "You have already requested a reseed for this torrent",
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Request Reseed" }),
+    ).toBeEnabled();
+  });
+
+  test("a genuine duplicate still reports itself and disables the button", async () => {
+    renderDeadTorrentAndClickReseed({
+      error: { code: "duplicate_reseed_request", message: "already asked" },
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Request Reseed" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "You have already requested a reseed for this torrent",
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: "Reseed Requested" }),
+    ).toBeDisabled();
+  });
+});
