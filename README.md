@@ -1,141 +1,99 @@
-# TorrentTrader 3.0
+# TorrentTrader
 
-A modern rewrite of the classic TorrentTrader private tracker. Go backend, React frontend, standalone migration tool.
+**A private BitTorrent tracker you run yourself.** Go backend, React frontend, one
+`docker compose up`.
 
-## Prerequisites
+TorrentTrader is a ground-up rewrite of the classic PHP tracker of the same name —
+the software a lot of small communities were built on in the 2000s, and which has
+not aged well. This is that idea rebuilt: the same shape of community, without the
+PHP, the Smarty templates, or the decade of unmaintained mods.
 
-- **Go** 1.24+
-- **Node.js** 22+
-- **Docker** (for infrastructure services)
-- **Taskfile** ([install](https://taskfile.dev/installation/))
+It is **open source and free of charge.** Fork it, change it, run it for your own
+community — that is the point of the project, not a concession. Contributions back
+are genuinely appreciated, but nobody owes them.
 
-Install Taskfile:
+---
 
-```bash
-# macOS
-brew install go-task
+## What you get
 
-# Other platforms: https://taskfile.dev/installation/
-```
+A complete private tracker, not a starting point you have to finish.
 
-## Quickstart (Development)
+**The tracker itself** — HTTP announce and scrape, passkey-authenticated, with
+per-user ratio accounting, freeleech and half-credit torrents, configurable peer
+limits and wait times, and an append-only announce log. Cheat detection runs off the
+announce path and files flags into a staff queue: impossible upload speeds, upload
+with no downloaders, and `left` values that disagree with what was transferred.
 
-```bash
-# Clone the repo
-git clone <repo-url> && cd go-torrent-trader
+**Content** — uploads with per-category metadata schemas, full-text search,
+comments and ratings, an RSS builder, a live release stream, and staff moderation
+with a claim/approve/reject queue. Members can request a reseed on a dead torrent.
 
-# Copy environment config
-cp .env.example .env
+**A community, not just a file list** — forums with categories, moderation, edit
+history and search; a WebSocket shoutbox; private messages with threads, drafts and
+templates; `@mentions` that notify; news posts; and notifications delivered in-app,
+pushed over WebSocket, and batched into email digests.
 
-# Install dev tools (golangci-lint, air)
-task tools
+**Membership that manages itself** — invite trees with optional automatic
+distribution, classes with per-capability permissions, automatic promotion and
+demotion on ratio and seeding thresholds, warnings that escalate to restrictions and
+bans on their own, per-user privilege revocation, and IP and email ban lists.
 
-# Install frontend dependencies
-task frontend:install
+**An economy** — bonus points earned by seeding, an append-only ledger of every
+movement, and a store that spends them.
 
-# Start infrastructure (Postgres, Redis, MinIO, Mailpit)
-task dev:up
+**Operations** — an admin panel over every one of those systems, an activity log
+that separates public entries from staff-only ones, database backups, and outbound
+connectors that announce new uploads to Discord, Telegram, IRC, a webhook, the
+shoutbox, or a live SSE feed — each with its own filters and message template.
 
-# Start backend + frontend with hot reload
-task dev
+**Nearly all of it can be switched off.** Roughly forty settings decide what your
+site actually is. Do not want an economy? Turn bonus points off. Do not want
+automatic promotions, or an anti-cheat system, or outbound announcements? Off, off,
+off — from the admin panel, without a deploy.
 
-# Backend: http://localhost:8080
-# Frontend: http://localhost:5173
-# Mailpit UI: http://localhost:8025
-# MinIO Console: http://localhost:9001
-```
-
-## Project Structure
-
-```
-go-torrent-trader/
-├── backend/          # Go API server (Chi router, goose migrations, pgx)
-├── frontend/         # React SPA (Vite, TypeScript, React Router)
-├── migration-tool/   # Standalone Go CLI for legacy DB migration (Cobra)
-├── docs/             # Architecture docs, implementation tasks
-└── Taskfile.yml      # Build orchestration
-```
-
-## Available Tasks
-
-| Command | Description |
-|---|---|
-| `task build` | Build all projects |
-| `task test` | Run all tests |
-| `task lint` | Lint all projects |
-| `task dev` | Start full dev environment (infra + backend + frontend) |
-| `task dev:up` / `task dev:down` | Start/stop infrastructure services |
-| `task tools` | Install dev tools (golangci-lint, air) |
-| `task docker:build` | Build all Docker images |
-| `task generate` | Run code generation (API client types) |
-
-Run `task --list` for the full list.
-
-## Configuration
-
-All configuration is via environment variables. See `.env.example` for available options.
-
-## Frontend Configuration
-
-The frontend uses **runtime configuration** so the same Docker image works across environments (dev, staging, production) without rebuilding.
-
-### How it works
-
-The frontend loads `/config.js` before the app starts. This file provides configuration like the API URL and site name.
-
-### Docker deployment
-
-The Docker entrypoint generates `config.js` from environment variables on container startup:
+## Run it
 
 ```bash
-docker run -e API_URL=https://api.mytracker.com -e SITE_NAME="My Tracker" \
-  williamokano/torrenttrader-frontend:latest
-```
-
-Available env vars for the frontend container:
-
-| Variable | Default | Description |
-|---|---|---|
-| `API_URL` | `http://localhost:8080` | Backend API base URL |
-| `SITE_NAME` | `TorrentTrader` | Site display name |
-
-### Local development (without Docker)
-
-When running `task frontend:dev`, Vite serves `public/config.js` which contains development defaults. Edit `frontend/public/config.js` to change them.
-
-### Static hosting (without Docker)
-
-After `npm run build`, the `dist/` folder contains everything needed. Edit `dist/config.js` before deploying to set your production values:
-
-```js
-window.__CONFIG__ = {
-  API_URL: "https://api.mytracker.com",
-  SITE_NAME: "My Tracker",
-};
-```
-
-## Docker Deployment
-
-### Portainer Stack
-
-Use `docker-compose.stack.yml` for a complete production deployment via Portainer:
-
-```bash
+git clone https://github.com/williamokano/go-torrent-trader.git
+cd go-torrent-trader
+cp .env.example .env      # then edit it
 docker compose -f docker-compose.stack.yml up -d
 ```
 
-Required environment variables (no defaults):
+Full instructions, including reverse proxy and first-admin setup, are on the
+**[project site](https://williamokano.github.io/go-torrent-trader/)**.
 
-| Variable | Description |
-|---|---|
-| `POSTGRES_PASSWORD` | Database password |
-| `MINIO_ROOT_PASSWORD` | MinIO admin password |
-| `S3_SECRET_KEY` | S3 storage secret (same as MinIO password) |
+## Use the API directly
 
-See `docker-compose.stack.yml` for all available configuration options.
+The web UI is one client, not a privileged one. Everything it does goes through a
+documented REST API, and members are welcome to build their own tools against it —
+`backend/api/openapi.public.yaml` is the published contract. Administrative
+endpoints are deliberately kept out of that document; they exist, they are readable
+in the source, but they are not advertised as a stable interface.
 
-### Build Docker images locally
+The tracker also speaks the parts of the BitTorrent protocol you would expect, and
+exposes a passkey-authenticated RSS feed for clients that want to watch for new
+releases.
 
-```bash
-task docker:build
-```
+## Migrating from the old TorrentTrader
+
+`migration-tool/` is a standalone CLI that reads a legacy TorrentTrader 3.x MySQL
+database and writes it into this one — users with their passwords intact, torrents
+with their info hashes byte-for-byte, forums with BBCode converted to Markdown, and
+live peers so your swarms survive the cutover. It is **still being built**; see the
+[migration issues](https://github.com/williamokano/go-torrent-trader/issues?q=is%3Aissue+label%3Aarea%3Amigration-tool).
+
+## Contributing
+
+Work is tracked in [GitHub Issues](https://github.com/williamokano/go-torrent-trader/issues).
+Setup, architecture, testing and the conventions this project holds itself to are in
+**[DEVELOPMENT.md](DEVELOPMENT.md)**.
+
+Forking and running your own modified version is explicitly encouraged — you do not
+need permission and you do not need to contribute anything back. If you do want to
+send something upstream, an issue first is usually the fastest route.
+
+## Status
+
+The tracker is feature-complete and stable. The migration tool is not yet finished.
+Current work is visible in the issue tracker; nothing is hidden in a spreadsheet.

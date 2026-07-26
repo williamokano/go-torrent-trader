@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Configure — TorrentTrader</title>
+    <meta
+      name="description"
+      content="Every TorrentTrader setting: what each subsystem does, how to switch it off, and what the defaults are."
+    />
+    <link rel="stylesheet" href="assets/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='7' height='7' x='1' y='1' fill='%231d4ed8'/><rect width='7' height='7' x='8' y='8' fill='%23d97706'/></svg>"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="wrap">
+        <a class="brand" href="index.html"
+          ><span class="dot"></span>TorrentTrader</a
+        >
+        <nav>
+          <a href="index.html">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="configure.html" aria-current="page">Configure</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="hero">
+        <div class="wrap">
+          <p class="eyebrow">Configure</p>
+          <h1>Decide what your site actually is</h1>
+          <p class="lede">
+            Most of TorrentTrader can be switched off. Every setting below lives in
+            <strong>Admin → Settings</strong> and takes effect immediately — no
+            restart, no deploy, no editing a file on the server.
+          </p>
+        </div>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Two kinds of configuration</p>
+          <h2>Settings and environment</h2>
+          <p>
+            <strong>Settings</strong> are the ones on this page. They are stored in
+            the database, changed from the admin panel, and are about how your
+            community behaves.
+          </p>
+          <p>
+            <strong>Environment variables</strong> are set in
+            <code>stack.env</code> before the server starts — database credentials,
+            SMTP, storage, your site name and URL. Those are on the
+            <a href="install.html">install page</a>. If you find yourself wanting to
+            restart the server to change a rule, you are probably looking in the
+            wrong place.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Who gets in</p>
+          <h2>Registration</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>registration_mode</code></td>
+                <td>invite only</td>
+                <td>
+                  <code>open</code> lets anyone sign up;
+                  <code>invite_only</code> requires an invite from an existing
+                  member. Invites are the private-tracker default for a reason —
+                  they make the invite tree a moderation tool.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">The tracker itself</p>
+          <h2>Peers and wait times</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>tracker_max_peers_per_torrent</code></td>
+                <td>—</td>
+                <td>
+                  Caps how many peers one torrent may hold. Protects the tracker
+                  from a single enormous swarm.
+                </td>
+              </tr>
+              <tr>
+                <td><code>tracker_max_peers_per_user</code></td>
+                <td>—</td>
+                <td>
+                  Caps concurrent connections per member — the usual defence
+                  against one account being shared around.
+                </td>
+              </tr>
+              <tr>
+                <td><code>wait_time_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Makes new torrents unavailable to low-ratio members for a period,
+                  so the people who seed get first access.
+                </td>
+              </tr>
+              <tr>
+                <td><code>wait_time_tiers</code></td>
+                <td>—</td>
+                <td>How long each ratio band waits.</td>
+              </tr>
+              <tr>
+                <td><code>wait_time_bypass_ratio</code></td>
+                <td>—</td>
+                <td>The ratio above which a member never waits.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Cheating</p>
+          <h2>Detection</h2>
+          <p>
+            Checks run off the announce path, so they never slow a client down, and
+            everything they find lands in one staff queue rather than several.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>cheat_detection_enabled</code></td>
+                <td>on</td>
+                <td>The master switch for all three checks below.</td>
+              </tr>
+              <tr>
+                <td><code>cheat_max_upload_speed_mb_s</code></td>
+                <td>100</td>
+                <td>
+                  Flags a member reporting an upload rate no real connection could
+                  produce.
+                </td>
+              </tr>
+              <tr>
+                <td><code>cheat_left_mismatch_tolerance_pct</code></td>
+                <td>—</td>
+                <td>
+                  Flags a client whose reported remaining bytes disagree with what
+                  it says it transferred.
+                </td>
+              </tr>
+              <tr>
+                <td><code>cheat_flag_cooldown_hours</code></td>
+                <td>6</td>
+                <td>
+                  Stops one misbehaving client from filling the queue with the same
+                  flag repeatedly.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="small">
+            A third check — upload reported while nobody was downloading — needs no
+            configuration.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Membership</p>
+          <h2>Promotion, invites and warnings</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>promotion_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Promotes and demotes members between classes automatically on
+                  ratio and seeding thresholds you define per class. Staff classes
+                  are never touched.
+                </td>
+              </tr>
+              <tr>
+                <td><code>promotion_interval_days</code></td>
+                <td>—</td>
+                <td>How often the engine runs.</td>
+              </tr>
+              <tr>
+                <td><code>promotion_seed_window_days</code></td>
+                <td>—</td>
+                <td>How far back seeding history counts.</td>
+              </tr>
+              <tr>
+                <td><code>invite_distribution_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Hands out invites to eligible classes on a schedule, up to each
+                  member's ceiling, instead of doing it by hand.
+                </td>
+              </tr>
+              <tr>
+                <td><code>invite_distribution_interval_days</code></td>
+                <td>—</td>
+                <td>How often invites are granted.</td>
+              </tr>
+              <tr>
+                <td><code>warning_escalation_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Escalates repeat warnings into a restriction and then a ban
+                  without staff having to track counts.
+                </td>
+              </tr>
+              <tr>
+                <td><code>warning_count_restrict</code></td>
+                <td>—</td>
+                <td>Warnings before a privilege is restricted.</td>
+              </tr>
+              <tr>
+                <td><code>warning_count_ban</code></td>
+                <td>—</td>
+                <td>Warnings before an account is banned.</td>
+              </tr>
+              <tr>
+                <td><code>warning_restrict_type</code></td>
+                <td>—</td>
+                <td>Which privilege the restriction removes.</td>
+              </tr>
+              <tr>
+                <td><code>warning_restrict_days</code></td>
+                <td>—</td>
+                <td>How long it lasts.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Economy</p>
+          <h2>Bonus points</h2>
+          <p>
+            Off by default. Turn it on only if you want members earning points for
+            seeding and spending them in a store — plenty of communities are
+            happier without one.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>bonus_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Awards points hourly and reveals the store. Every movement is
+                  written to a ledger, so a balance can always be explained.
+                </td>
+              </tr>
+              <tr>
+                <td><code>bonus_points_per_seeding_torrent</code></td>
+                <td>1</td>
+                <td>Points per seeding torrent, per award run.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Moderation and chat</p>
+          <h2>Uploads and the shoutbox</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>moderation_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Holds new uploads in a queue for staff approval instead of
+                  publishing them immediately.
+                </td>
+              </tr>
+              <tr>
+                <td><code>moderation_public_visibility</code></td>
+                <td>—</td>
+                <td>Whether members can see what is waiting in the queue.</td>
+              </tr>
+              <tr>
+                <td><code>chat_rate_limit_max</code></td>
+                <td>—</td>
+                <td>Messages allowed inside the window.</td>
+              </tr>
+              <tr>
+                <td><code>chat_rate_limit_window</code></td>
+                <td>—</td>
+                <td>Length of that window.</td>
+              </tr>
+              <tr>
+                <td><code>chat_rate_limit_message</code></td>
+                <td>—</td>
+                <td>What a member sees when they hit it.</td>
+              </tr>
+              <tr>
+                <td><code>chat_spam_strike_count</code></td>
+                <td>—</td>
+                <td>Strikes before an automatic mute.</td>
+              </tr>
+              <tr>
+                <td><code>chat_strike_reset_seconds</code></td>
+                <td>—</td>
+                <td>How quickly strikes decay.</td>
+              </tr>
+              <tr>
+                <td><code>chat_spam_mute_minutes</code></td>
+                <td>—</td>
+                <td>How long the automatic mute lasts.</td>
+              </tr>
+              <tr>
+                <td><code>chat_spam_mute_message</code></td>
+                <td>—</td>
+                <td>What the muted member is told.</td>
+              </tr>
+              <tr>
+                <td><code>chat_system_display_name</code></td>
+                <td>—</td>
+                <td>
+                  The author name on automated shoutbox posts, such as new-upload
+                  announcements.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Outbound</p>
+          <h2>Announcements to other services</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>connectors_enabled</code></td>
+                <td>off</td>
+                <td>
+                  The master switch for pushing new uploads to Discord, Telegram,
+                  IRC, a webhook, the shoutbox or a live feed. Each destination is
+                  configured separately with its own filters and template, so you
+                  can announce films to one channel and music to another.
+                </td>
+              </tr>
+              <tr>
+                <td><code>connectors_allow_private_networks</code></td>
+                <td>off</td>
+                <td>
+                  Permits webhooks pointing at private addresses. Leave it off
+                  unless you are deliberately posting to something on your own
+                  network — it exists to stop a webhook being used to probe your
+                  internal services.
+                </td>
+              </tr>
+              <tr>
+                <td><code>connector_delivery_retention_days</code></td>
+                <td>30</td>
+                <td>How long delivery history is kept for troubleshooting.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Data</p>
+          <h2>The announce log</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>announce_log_enabled</code></td>
+                <td>on</td>
+                <td>
+                  Records every announce with its transfer deltas. This is what
+                  makes accurate seeding statistics and better cheat detection
+                  possible later.
+                </td>
+              </tr>
+              <tr>
+                <td><code>announce_log_retention_days</code></td>
+                <td>90</td>
+                <td>How long those records are kept.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="note">
+            <p>
+              <strong>Know what you are storing.</strong> The announce log contains
+              IP addresses and peer identifiers. If your community is somewhere
+              with data protection obligations, that is personal data and the
+              retention window is a decision you should make deliberately rather
+              than leave at the default.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="ethos">
+        <div class="wrap">
+          <p class="eyebrow">Not enough knobs?</p>
+          <h2>Then change it</h2>
+          <p>
+            TorrentTrader is open source and free of charge. If a setting you want
+            does not exist, the code is right there — fork it and add it. Running a
+            modified version is the spirit of this project, not an edge case.
+          </p>
+          <p>
+            And if the setting seems generally useful, an issue describing what you
+            needed is genuinely valuable, whether or not you write the code
+            yourself.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn"
+              href="https://github.com/williamokano/go-torrent-trader/issues"
+              >Suggest a setting</a
+            >
+            <a class="btn ghost" href="install.html">Back to install</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <hr class="rule-strip" data-strip="60" />
+
+    <footer class="site">
+      <div class="wrap">
+        <p class="small">
+          TorrentTrader — open source, free of charge, yours to modify.
+        </p>
+        <nav>
+          <a href="index.html">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="assets/site.js"></script>
+  </body>
+</html>

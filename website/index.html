@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TorrentTrader — a private BitTorrent tracker you run yourself</title>
+    <meta
+      name="description"
+      content="An open source private BitTorrent tracker. Go backend, React frontend, one docker compose up. Free to use, fork and modify."
+    />
+    <link rel="stylesheet" href="assets/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='7' height='7' x='1' y='1' fill='%231d4ed8'/><rect width='7' height='7' x='8' y='8' fill='%23d97706'/></svg>"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="wrap">
+        <a class="brand" href="index.html"
+          ><span class="dot"></span>TorrentTrader</a
+        >
+        <nav>
+          <a href="index.html" aria-current="page">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="configure.html">Configure</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <p class="eyebrow">Self-hosted · Open source · No licence fee</p>
+            <h1>A private tracker that is yours, not rented.</h1>
+            <p class="lede">
+              TorrentTrader is a complete private BitTorrent tracker — announce,
+              ratio accounting, forums, invites, moderation and an admin panel —
+              that you run on your own machine. It is free, the source is public,
+              and forking it to build something else is the point rather than a
+              loophole.
+            </p>
+            <div class="cta-row">
+              <a class="btn" href="install.html">Run it</a>
+              <a
+                class="btn ghost"
+                href="https://github.com/williamokano/go-torrent-trader"
+                >Read the source</a
+              >
+            </div>
+          </div>
+
+          <figure class="swarm">
+            <ul class="pieces" data-pieces="216" data-free="9" aria-hidden="true"></ul>
+            <figcaption>
+              <span class="key"
+                ><i style="background: var(--accent)"></i> transferred</span
+              >
+              <span class="key"
+                ><i style="background: var(--signal)"></i> freeleech</span
+              >
+              <span class="key"><i style="background: var(--rule)"></i> missing</span>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">What it is</p>
+          <h2>The classic tracker, rebuilt properly</h2>
+          <p>
+            A lot of small communities were built on the original PHP
+            TorrentTrader. It worked, then it stopped being maintained, and what
+            was left was a decade of hand-applied mods on top of code nobody wanted
+            to touch. This is that idea rewritten from nothing: a Go backend, a
+            React frontend, and a real test suite.
+          </p>
+          <p>
+            It is finished software, not a foundation you have to complete. The
+            list below is what ships today, not a roadmap.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Included</p>
+          <div class="cols">
+            <div class="block">
+              <span class="tag">Tracker</span>
+              <h3>Announce and scrape</h3>
+              <p>
+                Passkey-authenticated HTTP announce with per-user ratio
+                accounting, freeleech and half-credit torrents, configurable peer
+                limits and download wait times, and an append-only announce log.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Anti-cheat</span>
+              <h3>Detection that files itself</h3>
+              <p>
+                Impossible upload speeds, upload reported with no downloaders, and
+                <code>left</code> values that disagree with the transfer — each
+                raises a flag into one staff queue, off the announce hot path.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Content</span>
+              <h3>Uploads and discovery</h3>
+              <p>
+                Per-category metadata schemas, full-text search, comments and
+                ratings, an RSS builder, a live release stream, and a moderation
+                queue staff can claim from.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Community</span>
+              <h3>Forums, chat, messages</h3>
+              <p>
+                Forums with moderation and edit history, a WebSocket shoutbox,
+                private messages with threads, drafts and templates, and
+                <code>@mentions</code> that notify the right person.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Membership</span>
+              <h3>It runs itself</h3>
+              <p>
+                Invite trees with optional automatic distribution, classes with
+                per-capability permissions, promotion and demotion on ratio and
+                seeding thresholds, and warnings that escalate to restrictions and
+                bans without staff intervention.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Economy</span>
+              <h3>Bonus points</h3>
+              <p>
+                Points earned by seeding, an append-only ledger recording every
+                movement, and a store that spends them. Off by default — switch it
+                on only if you want one.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Announcements</span>
+              <h3>Tell people what landed</h3>
+              <p>
+                New uploads can be pushed to Discord, Telegram, IRC, a webhook, the
+                shoutbox, or a live feed — each with its own category filters, size
+                floor and message template.
+              </p>
+            </div>
+            <div class="block">
+              <span class="tag">Operations</span>
+              <h3>An admin panel over all of it</h3>
+              <p>
+                Every system above has a screen. Plus an activity log that keeps
+                staff-only entries away from members, database backups, and roughly
+                forty settings you can change without a deploy.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Your site, your rules</p>
+          <h2>Turn off the parts you do not want</h2>
+          <p>
+            Not every community wants an economy, or automatic promotions, or
+            outbound announcements. Almost every subsystem here has a switch in the
+            admin panel, and turning one off removes it from the site rather than
+            leaving a dead menu item.
+          </p>
+          <p>
+            <a href="configure.html">See every setting</a>, including what each one
+            defaults to.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">For people who script things</p>
+          <h2>The web UI is just one client</h2>
+          <p>
+            Everything the interface does goes through a documented REST API, and
+            members are welcome to build their own tools against it. The published
+            contract is an OpenAPI document describing the member-facing surface;
+            administrative endpoints are deliberately kept out of it.
+          </p>
+          <p>
+            The tracker also exposes a passkey-authenticated RSS feed, so a client
+            can watch for new releases without anyone writing code at all.
+          </p>
+        </div>
+      </section>
+
+      <section class="ethos">
+        <div class="wrap">
+          <p class="eyebrow">The deal</p>
+          <h2>Free, open, and yours to change</h2>
+          <p>
+            <strong>It costs nothing.</strong> There is no paid tier, no hosted
+            edition, no feature held back for a licence. Download it and run it.
+          </p>
+          <p>
+            <strong>Forking is encouraged.</strong> Take it, rename it, rip out
+            half of it, build the tracker your community actually wants. You do not
+            need permission and you do not owe anything back. Communities are
+            different from each other, and a project that expects everyone to run
+            the same thing is not serving them.
+          </p>
+          <p>
+            <strong>Contributions are genuinely appreciated.</strong> Bug reports,
+            fixes, features, documentation, a translation, a note that something is
+            confusing — all of it makes the project better for the next person. An
+            issue is usually the fastest way to start.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn"
+              href="https://github.com/williamokano/go-torrent-trader/issues"
+              >Open an issue</a
+            >
+            <a
+              class="btn ghost"
+              href="https://github.com/williamokano/go-torrent-trader/blob/main/DEVELOPMENT.md"
+              >Contributor guide</a
+            >
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <hr class="rule-strip" data-strip="60" />
+
+    <footer class="site">
+      <div class="wrap">
+        <p class="small">
+          TorrentTrader — open source, free of charge, yours to modify.
+        </p>
+        <nav>
+          <a href="install.html">Install</a>
+          <a href="configure.html">Configure</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+          <a href="https://github.com/williamokano/go-torrent-trader/issues"
+            >Issues</a
+          >
+        </nav>
+      </div>
+    </footer>
+
+    <script src="assets/site.js"></script>
+  </body>
+</html>
