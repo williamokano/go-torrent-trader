@@ -124,33 +124,68 @@ func fullRouterDeps(t *testing.T) *Deps {
 	statsRDB := redis.NewClient(&redis.Options{Addr: statsRedis.Addr()})
 	t.Cleanup(func() { _ = statsRDB.Close() })
 
+	// /api/v1/categories is registered off a raw *sql.DB rather than a service,
+	// so it needs a handle even though nothing here queries it.
+	categoriesDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = categoriesDB.Close() })
+
+	messages := newStubMessageRepo()
+
 	return &Deps{
+		DB: categoriesDB,
 		AuthService: service.NewAuthService(users, sessions,
 			testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost", bus),
 		SessionStore:        sessions,
 		UserService:         service.NewUserService(users, sessions, groups, &stubPeerRepo{}, &stubTorrentRepo{}),
+		MemberService:       service.NewMemberService(users, groups),
 		TorrentService:      torrentSvc,
+		TrackerService:      service.NewTrackerService(users, &stubTorrentRepo{}, &stubPeerRepo{}),
 		AdminService:        service.NewAdminService(users, groups, bus),
 		ReportService:       service.NewReportService(newStubReportRepo(), &stubTorrentRepo{}, users, bus),
-		WarningService:      service.NewWarningService(newStubWarningRepo(), users, newStubMessageRepo(), bus),
+		CommentService:      service.NewCommentService(nopCommentRepo{}, nopRatingRepo{}, &stubTorrentRepo{}, users, bus),
+		InviteService:       service.NewInviteService(nopInviteRepo{}, users, bus),
+		WarningService:      service.NewWarningService(newStubWarningRepo(), users, messages, bus),
 		SiteSettingsService: settingsSvc,
 		BanService:          service.NewBanService(&stubBanRepo{}, bus),
 		CategoryService:     service.NewCategoryService(&stubCategoryRepo{}),
+		MetadataAuditService: service.NewMetadataAuditService(nopMetadataAuditRepo{},
+			&stubCategoryRepo{}),
 		RestrictionService:  service.NewRestrictionService(newStubRestrictionRepo(), users, bus),
 		NewsService:         service.NewNewsService(newStubNewsRepo(), users, bus),
 		ActivityLogService:  service.NewActivityLogService(&stubActivityLogRepo{}),
+		MessageService:      service.NewMessageService(messages, users, bus),
+		SavedMessageService: service.NewSavedMessageService(newStubSavedMessageRepo(), users, messages),
 		ChatService:         chatSvc,
 		ChatHub:             NewChatHub(chatSvc, sessions, settingsSvc, bus, nil),
 		ForumService: service.NewForumService(nil, &stubForumCategoryRepo{}, &stubForumRepo{},
 			newStubForumTopicRepo(), newStubForumPostRepo(), users, groups, bus),
+		NotificationService: newNotifService(&notifDeps{
+			store:  &notifStoreStub{},
+			prefs:  &notifPrefStub{},
+			digest: &notifDigestPrefStub{},
+			subs:   &topicSubStub{},
+			topics: &topicLookupStub{},
+			forums: &forumLookupStub{},
+		}),
+		PromotionService: service.NewPromotionService(nopPromotionRepo{}, groups, settingsSvc),
+		BonusService:     service.NewBonusService(nopBonusRepo{}, settingsSvc),
+		InviteDistributionService: service.NewInviteDistributionService(nopInviteDistributionRepo{},
+			groups, users, settingsSvc, bus),
 		CheatFlagRepo: &stubCheatFlagRepo{},
 		DashboardRepo: &stubDashboardRepo{},
 		BackupService: &backupManagerStub{},
 		ConnectorService: service.NewConnectorService(nopConnectorRepo{}, nopConnectorDeliveryRepo{},
 			connector.NewRegistry(), bus, "http://localhost"),
-		AnnounceHub: NewAnnounceHub(sessions, &stubFeedAccess{allowed: true}),
-		UserRepo:    users,
-		StatsCache:  service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
+		AnnounceHub:         NewAnnounceHub(sessions, &stubFeedAccess{allowed: true}),
+		PeerRepo:            &stubPeerRepo{},
+		UserRepo:            users,
+		CategoryRepo:        &stubCategoryRepo{},
+		TransferHistoryRepo: &mockTransferHistoryRepo{},
+		RSSConfig:           &RSSConfig{SiteName: "test", BaseURL: "http://localhost", ApiURL: "http://localhost:8080"},
+		StatsCache:          service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
 	}
 }
 

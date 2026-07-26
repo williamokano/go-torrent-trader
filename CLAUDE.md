@@ -1,5 +1,38 @@
 # go-torrent-trader Development Guidelines
 
+## Where work lives: GitHub Issues, not Markdown
+
+**Decided 2026-07-26. This overrides any instruction elsewhere in this repository
+that tells you to record work in a document.**
+
+GitHub Issues is the source of truth for everything to be done — features, bugs,
+chores, proposals, spikes. Do **not** add new items to `docs/IMPLEMENTATION_TASKS.md`,
+`docs/PROPOSED_FEATURES.md`, `docs/FUTURE_WORK.md` or `tasks/todo.md`. Open an issue
+and reference it from the pull request (`Closes #N`).
+
+**Why.** Task state in Markdown drifts, silently, and this project has paid for it.
+A story sat marked `[DONE]` over three acceptance criteria that were never
+implemented and an endpoint shipped with no authorization check. Two of the most-cited
+architecture decisions described a JWT and a rate limiter that no one ever wrote, and
+one of them had spawned a "required" production secret that nothing reads. None of
+that survives in an issue tracker: an issue has one state, it closes from the PR that
+does the work, and a merge cannot quietly rewrite it.
+
+**Reference documents stay as files, and stay authoritative.** They describe what the
+system *is* and *why*, not what to do next. Read these before working in an unfamiliar
+area — they are listed again under Key References with what each is for:
+
+- `docs/ARCHITECTURE.md` — layering, boundaries, conventions
+- `docs/OPEN_QUESTIONS.md` — the decision log
+- `docs/NOT_PORTING.md` — what was deliberately dropped, and why. Check it before
+  "adding" something; it may have been declined on purpose
+- `docs/FULL_FEATURE_DOCUMENTATION.md` — the original TorrentTrader spec
+- `tasks/lessons.md` — mistakes already made once, written as rules
+
+**The existing task documents are being drained into issues.** Until that finishes,
+treat them as historical context: read them, cite them, migrate from them — never
+append to them.
+
 ## Agent Development Flow
 
 ```
@@ -8,6 +41,8 @@ Receive task → Create branch → Evaluate alternatives → Agree on approach �
 
 ### 1. Receive Task
 
+- **Work starts from a GitHub issue.** If there isn't one, open one first — that is
+  where scope, acceptance criteria and discussion live
 - Understand requirements, acceptance criteria, and scope
 - Check Pre-Task Checks (cross-repo deps, manual steps, code dwarfing, duplicates)
 
@@ -24,7 +59,7 @@ cd ../go-torrent-trader-<branch-name>
 
 Clean up after merge:
 ```bash
-cd /Users/williamokano/Workspace/Personal/go-torrent-trader
+cd <repo-root>   # e.g. ~/Workspace/Personal/go-torrent-trader
 git worktree remove ../go-torrent-trader-<branch-name>
 ```
 
@@ -51,12 +86,13 @@ The spec should cover:
 ### 4. Implement
 
 - **Features ship in BE+FE pairs** — every feature must include both backend and frontend in the same PR. A backend endpoint without its corresponding UI (or vice versa) is not considered complete. No half-shipped features.
+- **Every new endpoint is documented and classified in the same PR** — add it to `backend/api/openapi.yaml` with an `x-audience: public | internal` marker, then run `task generate` to refresh `backend/api/openapi.public.yaml` and the frontend types. The public document is what third-party integrators build against; the full one includes admin routes and is not published as a contract. A guard test walks the real router and fails the build on an unclassified route, so this is enforced, not merely expected. Never add a route to the undocumented-debt ledger — that list may only shrink.
 - **Tests are mandatory** — every feature or fix must include tests
 - **Coverage** — 80% is the target; **CI currently gates at the `COVERAGE_FLOOR` in `.github/workflows/backend.yml` (80%)**. Run `task backend:coverage` to check against the floor locally and get a line-by-line HTML report. `cmd/server` (bootstrap) and `internal/testutil` (test helpers) are excluded from the denominator via `COVERAGE_EXCLUDE`. The floor ratchets up as coverage improves — raise it when you raise coverage, and never lower it to turn a red build green. New code must not decrease overall coverage
 - **Repository tests need Docker** — `internal/repository/postgres` spins a real Postgres via testcontainers (`TestMain` in `main_test.go`), applies the real goose migrations to it, and tears it down. This means **a migration that cannot apply to a clean database fails the build** — which is how the broken 039 was caught. Use `go test -short` to skip the container when Docker is unavailable
-- **Mark the story as DONE in `docs/IMPLEMENTATION_TASKS.md`** — every PR must update the backlog
-- **Update affected stories** — when implementation reveals new insights, update related stories in the same PR
-- **Continuously refine the backlog** — findings during implementation feed back into upcoming stories
+- **Close the issue from the PR** — put `Closes #N` in the PR description so the work and its record land together. Do not mark anything DONE in `docs/IMPLEMENTATION_TASKS.md`; that file is historical
+- **Update affected issues** — when implementation reveals something that changes another issue's scope, comment on it in the same session rather than trusting memory
+- **File what you find** — a gap discovered mid-implementation becomes a new issue, not a TODO comment or a line in a document
 
 ### 5. Post-Implementation Review
 
@@ -137,14 +173,28 @@ Read these before starting work on an unfamiliar area:
 - `docs/IMPLEMENTATION_TASKS.md` — **living backlog** — mark tasks DONE here when completing work
 - `docs/FULL_FEATURE_DOCUMENTATION.md` — original TorrentTrader feature specs (porting reference)
 - `docs/OPEN_QUESTIONS.md` — architecture decision log (all decisions finalized)
+- `docs/NOT_PORTING.md` — original features deliberately dropped, with rationale. Check before "adding" something: it may have been declined already
 - `docs/PROPOSED_FEATURES.md` — proposed but **not yet specified** features, with their open questions. Upstream of the backlog: an item moves into IMPLEMENTATION_TASKS.md as a story once its questions are answered, and is deleted here
+- `docs/FUTURE_WORK.md` — deferred stories, with what remains
+- `docs/TRACKER_MODS.md` — classic private-tracker mods mapped to where each would land in this codebase
+- `docs/NOTIFICATION_CONNECTORS.md` — connector framework design (BE-10)
+- `docs/EXTENSIBILITY.md` — exploratory notes on a plugin story
 - `tasks/todo.md` — session resume context (not the source of truth — use IMPLEMENTATION_TASKS.md)
+- `tasks/lessons.md` — **read at session start.** Mistakes already made once, written as rules. Cheaper than rediscovering them
+
+**When a doc disagrees with the code, the code wins — and fix the doc in that same PR.**
+A stale doc is not harmless: it gets cited in review and it shapes the next design. The
+2026-07-26 alignment pass found a decision log describing a JWT that never existed, a
+required deployment secret nothing read, and a backlog story marked DONE whose endpoint
+shipped unguarded.
 
 ## Project Structure
 
-- `backend/` — Go 1.24, Chi router, goose migrations, pgx, minio-go
+- `backend/` — Go 1.25, Chi router, goose migrations, pgx, minio-go. API contract in `backend/api/`
 - `frontend/` — React 19, Vite 6, TypeScript 5.7, React Router 7
 - `migration-tool/` — Go 1.23, Cobra CLI (TorrentTrader data migration)
+- `docs/` — architecture, decision log, backlog, and the porting reference (see Key References)
+- `tasks/` — `todo.md` session context and `lessons.md` accumulated rules
 - `Taskfile.yml` — build orchestration (use `task --list` to see available tasks)
 
 ## Key Conventions

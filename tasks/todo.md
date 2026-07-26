@@ -8,53 +8,125 @@ Keep it short. A session's detail belongs in its PR description and in the story
 "Delivered" bullets; what belongs here is only what a future session cannot
 reconstruct from the repository.
 
-Last verified against the code: **2026-07-25**, at `3412060`.
+Last verified against the code: **2026-07-26**, at `1f4ef57` plus uncommitted work
+(see "In flight" below).
 
 ---
 
 ## Where things stand
 
-- `main` is clean, no open PRs, no unmerged branches.
-- Backend coverage **82.3%**, CI floor **80.0** (`COVERAGE_FLOOR` in
-  `.github/workflows/backend.yml`). `cmd/server` and `internal/testutil` are excluded
-  from the denominator.
-- Frontend: 862 tests, lint clean (3 long-standing `exhaustive-deps` warnings that
-  predate this work), Prettier clean.
-- Latest release: **v0.24.0**. Note `release.yml` applies the `latest` Docker tag to
-  whatever tag it builds, so re-running it against an older tag moves `latest`
+- **`main` has substantial uncommitted work in the working directory** — the
+  documentation alignment pass and BE-11.1. Nothing is committed or pushed. No
+  branches, no worktrees, no open PRs.
+- Backend coverage **82.9%**, CI floor **80.0** (`COVERAGE_FLOOR` in
+  `.github/workflows/backend.yml`). `cmd/server`, `internal/testutil`,
+  `cmd/backfill-mentions/main.go` and `cmd/openapi-public/` are excluded from the
+  denominator.
+- Frontend: 868 tests, lint clean (the same 3 long-standing `exhaustive-deps`
+  warnings), Prettier clean, `tsc --noEmit` clean.
+- Latest release: **v0.24.0**, which is `e966c13` (BE-10.4 / PR #144) — PRs #145,
+  #146 and #147 are **not** in it. Note `release.yml` applies the `latest` Docker tag
+  to whatever tag it builds, so re-running it against an older tag moves `latest`
   backwards.
+
+## In flight (uncommitted, 2026-07-26)
+
+**A documentation alignment pass plus BE-11.1.** Every doc was checked against the
+code; the docs had been describing a system that partly did not exist. Highlights:
+
+- Decision 4 claimed **JWT** access tokens. There is no JWT anywhere — tokens are
+  opaque hex resolved against Redis. The `JWT_SECRET` this spawned was documented as a
+  **required** deployment variable and read by no code; removed from the README, both
+  env examples and the Portainer stack.
+- Decision 10 claimed a `golang.org/x/time/rate` middleware. It does not exist;
+  limiting is per-surface only. Anything treating "requests are rate limited" as an
+  existing guarantee (notably PF-20) must build it.
+- `ARCHITECTURE.md` and decision 9 flatly contradicted each other on OpenAPI. Resolved
+  by BE-11.1 — two specs now, full and public.
+- `BE-3.9` was marked DONE with three unshipped criteria, and **its endpoint is
+  unguarded** (see below).
+- `sqlc`, Mailhog, and a feature-based frontend structure were all documented and none
+  exist.
 
 ## What is actually left
 
-**The migration tool is the only real block of unbuilt work.** MT-0.2 through MT-2.3
-(11 stories) are a ~320-line Cobra skeleton: `run`, `discover`, `verify`, `rollback`
-and `validate` are all `// TODO`. Nothing depends on it, so it is schedulable
-whenever.
+**Highest priority: `POST /api/v1/torrents/{id}/reseed` has no server-side guard.**
+No seeder check, no banned check, no visibility check — the "0 seeders only" rule
+lives only in `TorrentDetailPage.tsx`. Any authenticated user can POST it against any
+torrent, and each one emails that torrent's uploader. This is a code fix, tracked as a
+Known-gap note on BE-3.9 and as finding 1 in `docs/PROPOSED_FEATURES.md`.
 
-Everything else in the backlog is DONE, DEFERRED or REMOVED. Deferred work lives in
-`docs/FUTURE_WORK.md` — currently BE-2.5 (UDP tracker), BE-9.4 (real-time stats push)
-and FE-7.1–7.3 (theme switching).
+**BE-11.2 — OpenAPI coverage.** 152 of 189 routes are in the debt ledger at
+`backend/internal/handler/openapi_undocumented.go`. The ledger may only shrink, and a
+guard test enforces that. Prerequisite for PF-27 (site CLI).
+
+**The migration tool.** MT-0.2 through MT-2.3 (11 stories) are a ~320-line Cobra
+skeleton: `run`, `discover`, `verify`, `rollback` and `validate` are all `// TODO`.
+Nothing depends on it.
+
+**Two open `[BUG]` stories:** `BE-10.8` (audit-log chat message deletions — note this
+ID is used twice; this is the audit-log one, not `can_feed`) and `FE-4.6` (a spoiler
+inside a link splits the row).
+
+Deferred work lives in `docs/FUTURE_WORK.md` — BE-2.5 (UDP tracker), BE-9.4
+(real-time stats push), FE-7.1–7.3 (theme switching), announce-log retention, and the
+remaining bonus-economy pieces.
 
 Open by decision rather than by neglect: **live feeds are not access-scoped per
-feed.** `can_feed` is one privilege across every feed (BE-10.8). Per-feed gating was
-considered and deliberately not built.
+feed.** `can_feed` is one privilege across every feed. Per-feed gating was considered
+and deliberately not built.
+
+## Scope decision, 2026-07-26
+
+**Teams and reputation are back in scope.** Both were cut from `NOT_PORTING.md` for
+the initial release; with the port feature-complete and stable, the operator
+reinstated them. §4 and §14 moved to that file's "Reinstated" section, keeping their
+numbers so `§N` citations elsewhere still resolve.
+
+This unblocks roughly a third of `PROPOSED_FEATURES.md`: PF-3 (reputation ledger) is
+the most depended-upon proposal in the document — PF-4, PF-5, PF-10, PF-12, PF-18 and
+PF-1 all get cheap once it exists — and PF-2 (teams) is what PF-6 team rooms and PF-14
+team colours attach to.
+
+Three decisions still gate their dependents: **D3** multiplier stacking, **D4** the
+privacy opt-out model, **D5** the membership-based access model shared by team forums
+and chat rooms. None of the three is large, but each wants deciding once rather than
+per-feature. PF-25's *public* health page is deliberately still open and is a
+different kind of question — that gating was a standing privacy posture, not an MVP
+scope cut.
 
 ## Known bugs / tech debt
 
-Nothing outstanding. Every bug this file used to track — FE-BUG-1, BE-8.19,
-BE-STATS-1, BE-STATS-3 — is closed or superseded; see the backlog.
-
-Two traps worth knowing before touching adjacent code, both recorded in
-[`lessons.md`](lessons.md):
-
-- `UserRepo.Create` writes every column from the struct, so a new
-  `NOT NULL DEFAULT` column silently reads `false` for anything created through Go
-  unless the constructor sets it explicitly.
-- The `latest` Docker tag, above.
+- **The unguarded reseed endpoint**, above. The one genuine correctness issue known.
+- **`task generate` was broken in two ways and is now fixed** — worth knowing because
+  nothing in CI runs it, so it can rot again. `frontend/src/api/schema.d.ts` had been
+  hand-edited despite its DO-NOT-EDIT header (two fields existed in the backend and in
+  the types but never in the spec), and the generator's output failed
+  `npm run format:check`. Both fixed; if you add a response field, put it in
+  `backend/api/openapi.yaml`, never in the generated file.
+- Three traps worth knowing before touching adjacent code, all in
+  [`lessons.md`](lessons.md):
+  - `UserRepo.Create` writes every column from the struct, so a new
+    `NOT NULL DEFAULT` column silently reads `false` for anything created through Go
+    unless the constructor sets it explicitly.
+  - A generated artifact that is not verified in CI will be hand-edited eventually.
+  - The `latest` Docker tag, above.
 
 ---
 
 ## Recent work
+
+**Docs alignment + BE-11.1 — published API contract** (2026-07-26, uncommitted). Two
+OpenAPI documents: `backend/api/openapi.yaml` (full, hand-maintained, every operation
+marked `x-audience`) and the generated `backend/api/openapi.public.yaml`, which is the
+one meant for publication. Guard tests walk the real router and fail the build on an
+unclassified route. See BE-11.1's Delivered bullets — and note the split had to be
+per-operation, not per-path-prefix, because six forum moderation endpoints are
+staff-only while sitting on member paths.
+
+**BE-10.7 — shoutbox announcements** (`9de90a6`, PR after v0.24.0). Deletable,
+readable, named and linked system messages in the shoutbox. Filed the two open `[BUG]`
+stories listed above.
 
 **BE-10 — External Notification Connectors** (2026-07-25). Announce a new torrent
 anywhere: shoutbox, webhook, IRC, live feed, Discord, Telegram. Design in

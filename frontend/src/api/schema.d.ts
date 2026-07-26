@@ -21,6 +21,50 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/announce": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * BitTorrent announce
+     * @description The tracker announce endpoint, spoken by BitTorrent clients rather than by browsers. It is not a JSON API: the response is a bencoded dictionary served as text/plain, and every failure — including an invalid passkey — is reported as HTTP 200 with a bencoded `{"failure reason": "..."}` body, because that is what clients understand.
+     *
+     *     Authentication is the member's 32-character hex passkey, carried in the query string. The passkey is baked into the announce URL of every .torrent file downloaded from the site, so clients send it without the user ever seeing it.
+     */
+    get: operations["trackerAnnounce"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/scrape": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * BitTorrent scrape
+     * @description Swarm counts for one or more torrents, bencoded. Repeat `info_hash` to scrape several at once; hashes that are not 20 bytes after decoding are ignored rather than rejected.
+     *
+     *     Unlike /announce this takes no passkey — it reports only aggregate seeder, leecher and completion counts, which say nothing about who is in the swarm.
+     */
+    get: operations["trackerScrape"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/stats": {
     parameters: {
       query?: never;
@@ -183,7 +227,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/users/{id}": {
+  "/api/v1/users/{username}": {
     parameters: {
       query?: never;
       header?: never;
@@ -192,7 +236,7 @@ export interface paths {
     };
     /**
      * Get a user's profile
-     * @description Returns a user's public profile. If the authenticated user is viewing their own profile, private fields (email, passkey, invites, warned, last_login) are also included.
+     * @description Returns a user's public profile, looked up by username. If the authenticated user is viewing their own profile, private fields (email, passkey, invites, warned, last_login) are also included.
      */
     get: operations["getUserProfile"];
     put?: never;
@@ -313,10 +357,252 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Download .torrent file with personalized announce URL */
+    /**
+     * Download .torrent file with personalized announce URL
+     * @description Returns the .torrent file with the caller's own passkey substituted into its announce URL.
+     *
+     *     Authentication is by bearer token and the caller needs the `download` capability. A `passkey` query parameter is NOT accepted here — see the note on GET /api/v1/rss, whose enclosure URLs are built as though it were.
+     */
     get: operations["downloadTorrent"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/rss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * RSS feed of the newest torrents
+     * @description An RSS 2.0 feed of the most recently uploaded torrents, authenticated by passkey rather than by bearer token so that feed readers and automation can subscribe to a plain URL.
+     *
+     *     KNOWN LIMITATION — the `<enclosure url="...">` of each item points at `/api/v1/torrents/{id}/download?passkey=...`, but that endpoint does not accept a passkey: it requires a bearer token and the `download` capability. Following an enclosure URL therefore returns 401 unless the client is already carrying a session. Use the enclosure only to identify the torrent, and fetch the .torrent file with an authenticated request.
+     */
+    get: operations["getRSSFeed"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/announce-stream": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Live announcement stream (default feed)
+     * @description Server-sent events carrying new-torrent announcements as they happen, for the default feed. Equivalent to GET /api/v1/announce-stream/{slug} with the default slug; it predates multiple feeds and is kept so an already-open page reconnects rather than failing forever.
+     */
+    get: operations["announceStreamDefault"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/announce-stream/{slug}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Live announcement stream
+     * @description Server-sent events carrying new-torrent announcements for one feed, as they happen. Each frame is an `announcement` event whose data is the rendered announcement; comment lines are sent periodically as heartbeats.
+     *
+     *     Authentication is a `token` query parameter holding an access token, because EventSource cannot set an Authorization header. Access additionally requires the `can_feed` privilege, checked live on every connect, so a revoked privilege bites at the next reconnect. A member may hold a limited number of concurrent streams across all feeds; past that the connection is refused with 429.
+     *
+     *     An unrecognised but well-formed slug opens a stream that simply stays quiet — feeds are admin-configurable and the hub does not race their edits.
+     */
+    get: operations["announceStream"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}/moderation/approve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Approve a torrent awaiting moderation
+     * @description Approves a torrent in the moderation queue. Authorization happens in the service layer: staff may approve any pending torrent, and an uploader holding the self-approve privilege may approve their own.
+     */
+    post: operations["approveTorrent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}/moderation/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Read the moderation thread for a torrent
+     * @description The discussion between the moderators and the uploader about a submitted torrent. Readable by staff and by the torrent's own uploader — the uploader needs to see why their upload was held.
+     */
+    get: operations["listModerationMessages"];
+    put?: never;
+    /**
+     * Post to the moderation thread for a torrent
+     * @description Adds a message to the moderation discussion. Writable by staff and by the torrent's own uploader.
+     */
+    post: operations["postModerationMessage"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/reports": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Submit a report
+     * @description Submit a report about a torrent. One report per user per torrent is enforced.
+     *     Requires authentication.
+     */
+    post: operations["createReport"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/reports": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List reports (admin only)
+     * @description Returns a paginated list of reports. Only accessible by administrators (group_id=1).
+     */
+    get: operations["listReports"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/reports/{id}/resolve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Resolve a report (admin only)
+     * @description Marks a report as resolved. Only accessible by administrators (group_id=1).
+     */
+    put: operations["resolveReport"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}/comments": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List comments for a torrent */
+    get: operations["listComments"];
+    put?: never;
+    /** Add a comment to a torrent */
+    post: operations["createComment"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/comments/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Edit a comment
+     * @description Only the comment author or an admin (group_id=1) may edit.
+     */
+    put: operations["editComment"];
+    post?: never;
+    /**
+     * Delete a comment
+     * @description Only admins (group_id=1) may delete comments.
+     */
+    delete: operations["deleteComment"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/torrents/{id}/rating": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get rating statistics for a torrent
+     * @description Returns average rating, total count, and the authenticated user's rating if any.
+     */
+    get: operations["getRatingStats"];
+    put?: never;
+    /**
+     * Rate a torrent (1-5 scale, upsert)
+     * @description One vote per user per torrent. Re-submitting updates the existing rating.
+     */
+    post: operations["rateTorrent"];
     delete?: never;
     options?: never;
     head?: never;
@@ -337,8 +623,6 @@ export interface components {
       email: string;
       /** @example mysecurepassword */
       password: string;
-      /** Optional invite code for invite-only registration */
-      invite_code?: string;
     };
     LoginRequest: {
       /** @example johndoe */
@@ -364,8 +648,8 @@ export interface components {
     AuthResponse: {
       user?: components["schemas"]["UserProfile"];
       tokens?: components["schemas"]["AuthTokens"];
+      /** @description Present and true on registration when the site requires email confirmation before the account can be used. Omitted otherwise, so treat absence as false. */
       email_confirmation_required?: boolean;
-      message?: string;
     };
     /** @description Profile visible to any authenticated user */
     PublicProfile: {
@@ -459,8 +743,8 @@ export interface components {
       category_id?: number;
       /** @description Name of the category (resolved via JOIN) */
       category_name?: string;
-      /** @description Image URL for the category (resolved via JOIN) */
-      category_image_url?: string | null;
+      /** @description Icon for the category, resolved via the same JOIN. May be empty. */
+      category_image_url?: string;
       /** Format: int64 */
       uploader_id?: number;
       anonymous?: boolean;
@@ -547,6 +831,86 @@ export interface components {
       /** @description Reason for deleting the torrent */
       reason: string;
     };
+    CreateReportRequest: {
+      /**
+       * Format: int64
+       * @description ID of the torrent being reported (optional for general reports)
+       */
+      torrent_id?: number;
+      /** @description Reason for the report */
+      reason: string;
+    };
+    Report: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      reporter_id?: number;
+      /** Format: int64 */
+      torrent_id?: number | null;
+      reason?: string;
+      resolved?: boolean;
+      /** Format: int64 */
+      resolved_by?: number | null;
+      /** Format: date-time */
+      resolved_at?: string | null;
+      /** Format: date-time */
+      created_at?: string;
+    };
+    CreateCommentRequest: {
+      /**
+       * @description Comment text
+       * @example Great torrent, thanks!
+       */
+      body: string;
+    };
+    Comment: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      torrent_id?: number;
+      /** Format: int64 */
+      user_id?: number;
+      username?: string;
+      body?: string;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    RateRequest: {
+      /**
+       * @description Rating from 1 to 5
+       * @example 4
+       */
+      rating: number;
+    };
+    RatingStats: {
+      /**
+       * Format: double
+       * @description Average rating (0 if no ratings)
+       */
+      average?: number;
+      /** @description Total number of ratings */
+      count?: number;
+      /** @description The authenticated user's rating (omitted if not rated) */
+      user_rating?: number;
+    };
+    ModerationMessageRequest: {
+      /** @description The message to add to the moderation thread */
+      body: string;
+    };
+    ModerationMessage: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      torrent_id?: number;
+      /** Format: int64 */
+      author_id?: number;
+      author_username?: string;
+      body?: string;
+      /** Format: date-time */
+      created_at?: string;
+    };
     ErrorResponse: {
       error?: {
         code?: string;
@@ -554,8 +918,55 @@ export interface components {
       };
     };
   };
-  responses: never;
-  parameters: never;
+  responses: {
+    /** @description An open server-sent event stream */
+    AnnounceStream: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        /**
+         * @example retry: 5000
+         *
+         *     event: announcement
+         *     id: 42
+         *     data: {"name":"Some.Torrent","url":"https://example.org/torrent/1"}
+         */
+        "text/event-stream": string;
+      };
+    };
+    /** @description Missing, invalid or expired token */
+    StreamUnauthorized: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["ErrorResponse"];
+      };
+    };
+    /** @description The caller does not hold the can_feed privilege */
+    StreamForbidden: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["ErrorResponse"];
+      };
+    };
+    /** @description The caller already holds the maximum number of concurrent streams */
+    StreamTooMany: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["ErrorResponse"];
+      };
+    };
+  };
+  parameters: {
+    /** @description An access token, passed in the query string because EventSource cannot set an Authorization header. */
+    StreamToken: string;
+  };
   requestBodies: never;
   headers: never;
   pathItems: never;
@@ -585,6 +996,66 @@ export interface operations {
       };
     };
   };
+  trackerAnnounce: {
+    parameters: {
+      query: {
+        /** @description The member's 32-character hex passkey */
+        passkey: string;
+        /** @description The torrent's SHA1 info hash. Accepted either as the raw 20-byte binary value percent-encoded (what BitTorrent clients send) or as 40 hex characters. */
+        info_hash: string;
+        /** @description The client's 20-byte peer id, percent-encoded */
+        peer_id: string;
+        /** @description The port the client is listening on */
+        port: number;
+        /** @description Bytes uploaded this session */
+        uploaded?: number;
+        /** @description Bytes downloaded this session */
+        downloaded?: number;
+        /** @description Bytes left to download */
+        left?: number;
+        /** @description The announce event. Omitted (or empty) for a periodic announce. */
+        event?: "" | "started" | "stopped" | "completed";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A bencoded announce response, or a bencoded failure dictionary. Errors do not use HTTP status codes. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/plain": string;
+        };
+      };
+    };
+  };
+  trackerScrape: {
+    parameters: {
+      query: {
+        /** @description One or more raw 20-byte SHA1 info hashes, percent-encoded. Repeat the parameter to scrape multiple torrents. */
+        info_hash: string[];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A bencoded `{"files": {...}}` dictionary, or a bencoded failure dictionary when no usable info_hash was supplied. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/plain": string;
+        };
+      };
+    };
+  };
   getStats: {
     parameters: {
       query?: never;
@@ -603,6 +1074,15 @@ export interface operations {
           "application/json": {
             stats?: components["schemas"]["SiteStats"];
           };
+        };
+      };
+      /** @description Missing or invalid authorization header */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
         };
       };
       /** @description Internal server error */
@@ -949,7 +1429,8 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        id: number;
+        /** @description The member's username */
+        username: string;
       };
       cookie?: never;
     };
@@ -968,7 +1449,7 @@ export interface operations {
           };
         };
       };
-      /** @description Invalid user ID */
+      /** @description Missing username */
       400: {
         headers: {
           [name: string]: unknown;
@@ -1148,7 +1629,7 @@ export interface operations {
   listTorrents: {
     parameters: {
       query?: {
-        /** @description Search term for torrent name */
+        /** @description Search term for torrent name. Minimum 2 characters. Queries with 3+ characters use PostgreSQL full-text search (tsvector/GIN) with relevance ranking. Queries with exactly 2 characters fall back to case-insensitive substring matching (ILIKE). When full-text search is active and no explicit sort field is specified, results are ordered by relevance. */
         search?: string;
         /** @description Filter by category ID */
         cat?: number;
@@ -1480,6 +1961,780 @@ export interface operations {
         };
       };
       /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — the download capability is not held */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getRSSFeed: {
+    parameters: {
+      query: {
+        /** @description The member's 32-character hex passkey */
+        passkey: string;
+        /** @description How many torrents to include. Values above 100 are clamped to 100; values that are not a positive integer fall back to the default. */
+        limit?: number;
+        /** @description Restrict the feed to a single category ID */
+        cat?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description RSS 2.0 feed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/rss+xml": string;
+        };
+      };
+      /** @description Missing or invalid passkey */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  announceStreamDefault: {
+    parameters: {
+      query: {
+        /** @description An access token, passed in the query string because EventSource cannot set an Authorization header. */
+        token: components["parameters"]["StreamToken"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["AnnounceStream"];
+      401: components["responses"]["StreamUnauthorized"];
+      403: components["responses"]["StreamForbidden"];
+      429: components["responses"]["StreamTooMany"];
+    };
+  };
+  announceStream: {
+    parameters: {
+      query: {
+        /** @description An access token, passed in the query string because EventSource cannot set an Authorization header. */
+        token: components["parameters"]["StreamToken"];
+      };
+      header?: never;
+      path: {
+        /** @description The feed's slug, as listed by GET /api/v1/announce-feeds */
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["AnnounceStream"];
+      401: components["responses"]["StreamUnauthorized"];
+      403: components["responses"]["StreamForbidden"];
+      /** @description Malformed feed slug */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      429: components["responses"]["StreamTooMany"];
+    };
+  };
+  approveTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The approved torrent */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrent?: components["schemas"]["Torrent"];
+          };
+        };
+      };
+      /** @description Invalid torrent ID or the torrent is not awaiting approval */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — neither staff nor a self-approving uploader */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listModerationMessages: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The moderation thread, oldest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            messages?: components["schemas"]["ModerationMessage"][];
+          };
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — neither staff nor the uploader */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  postModerationMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ModerationMessageRequest"];
+      };
+    };
+    responses: {
+      /** @description Message posted */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            message?: components["schemas"]["ModerationMessage"];
+          };
+        };
+      };
+      /** @description Invalid request body or empty body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — neither staff nor the uploader */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  createReport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateReportRequest"];
+      };
+    };
+    responses: {
+      /** @description Report submitted successfully */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            report?: components["schemas"]["Report"];
+          };
+        };
+      };
+      /** @description Invalid request (missing reason) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Duplicate report (already reported this item) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listReports: {
+    parameters: {
+      query?: {
+        /** @description Filter by report status */
+        status?: "pending" | "resolved";
+        /** @description Page number */
+        page?: number;
+        /** @description Items per page */
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated list of reports */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            reports?: components["schemas"]["Report"][];
+            /** Format: int64 */
+            total?: number;
+            page?: number;
+            per_page?: number;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — administrator access required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  resolveReport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Report resolved */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageResponse"];
+        };
+      };
+      /** @description Invalid report ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — administrator access required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Report not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listComments: {
+    parameters: {
+      query?: {
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated list of comments */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            comments?: components["schemas"]["Comment"][];
+            /** Format: int64 */
+            total?: number;
+            page?: number;
+            per_page?: number;
+          };
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  createComment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateCommentRequest"];
+      };
+    };
+    responses: {
+      /** @description Comment created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            comment?: components["schemas"]["Comment"];
+          };
+        };
+      };
+      /** @description Invalid request body or empty body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  editComment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateCommentRequest"];
+      };
+    };
+    responses: {
+      /** @description Comment updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            comment?: components["schemas"]["Comment"];
+          };
+        };
+      };
+      /** @description Invalid request body or empty body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden - not author or admin */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Comment not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteComment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Comment deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden - admin only */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Comment not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getRatingStats: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Rating statistics */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RatingStats"];
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  rateTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RateRequest"];
+      };
+    };
+    responses: {
+      /** @description Rating submitted, returns updated stats */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RatingStats"];
+        };
+      };
+      /** @description Invalid rating (must be 1-5) */
       400: {
         headers: {
           [name: string]: unknown;

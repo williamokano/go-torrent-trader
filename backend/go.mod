@@ -21,6 +21,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/zeebo/bencode v1.0.0
 	golang.org/x/crypto v0.48.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -103,5 +104,4 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

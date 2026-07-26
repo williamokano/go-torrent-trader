@@ -414,9 +414,15 @@ describe("LiveReleasesPage feeds", () => {
     renderPage(["/live?feed=deleted-feed"]);
 
     expect(await screen.findByText(/no longer exists/)).toBeInTheDocument();
-    const latest =
-      MockEventSource.instances[MockEventSource.instances.length - 1];
-    expect(latest.url).toContain("/announce-stream/default?");
+    // Rendering the message and falling back to the default stream are two
+    // separate effects. Reading the latest EventSource the instant the message
+    // appears races the reconnect and sometimes catches the previous one, so
+    // settle on the stream rather than assuming the message implies it.
+    await waitFor(() => {
+      const latest =
+        MockEventSource.instances[MockEventSource.instances.length - 1];
+      expect(latest.url).toContain("/announce-stream/default?");
+    });
   });
 
   test("offers a picker once there is more than one feed", async () => {

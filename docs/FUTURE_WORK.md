@@ -2,6 +2,8 @@
 
 Items that are out of scope for the initial release but worth pursuing later. These are not tracked in `IMPLEMENTATION_TASKS.md` and should not be mentioned during regular task planning unless explicitly requested.
 
+Sections headed **— shipped** are kept as short pointers rather than deleted, so a reader who remembers an item from here is not left thinking it is still unbuilt; the work itself is recorded in `IMPLEMENTATION_TASKS.md`.
+
 ---
 
 ## UDP Tracker Protocol (BEP 15)
@@ -41,34 +43,30 @@ Push site stats (peer/torrent/user counts in the footer) to clients instead of p
 - Broadcast on the events that move the numbers (peer announce, torrent upload, user registration).
 - Graceful fallback to polling if the stream drops.
 
+**Update:** the transport is no longer hypothetical — BE-10.3 shipped an authenticated SSE hub for the live release feeds (`docs/NOTIFICATION_CONNECTORS.md`), so this would reuse an existing fan-out pattern rather than introduce one. The reasoning below is unchanged: the cost was never the plumbing.
+
 **Why deferred:** footer stats are low-stakes, eventually-consistent numbers, and they are already served from the Redis `StatsCache`, so the current polling reads a cache rather than the database — it is cheap. A dedicated WebSocket would add a second hub, per-client goroutines, and reconnect logic for data nobody watches second-by-second; that trade isn't worth it. **If fresher stats are ever wanted, the lever is lowering the `StatsCache` TTL, not changing transport** (polling faster than the TTL just returns the same cached value). SSE is the tasteful upgrade only if stats freshness ever becomes a real product concern.
 
 ---
 
-## Announce Event Log — Consumers & Retention
+## Announce Event Log — Retention & Maintenance
 
-The append-only `announce_events` log now captures every announce (BE-9.21), but nothing consumes it yet and nothing prunes it.
+The append-only `announce_events` log captures every announce (BE-9.21). **It is never pruned, so it grows without bound.** `announce_log_retention_days` (seeded at 90 by migration 052) is **advisory only** — the setting exists and is validated, but no job reads it and nothing deletes a row. The table also carries two indexes (`(user_id, announced_at DESC)` and `(announced_at)`), so the write amplification compounds. This is the maintenance half; the consumer-side proposal is `PROPOSED_FEATURES.md` PF-33, which depends on this work landing before anything queries the table over date ranges at page speed.
 
 **Key requirements:**
-- **Retention cleanup job.** Honour the existing `announce_log_retention_days` setting (currently advisory only — no deletion runs). Add a maintenance-worker pass that deletes rows older than the window. For scale, prefer native monthly partitioning (cheap `DROP` of old partitions) and/or a nightly rollup into a `user_period_stats(user_id, year_month, uploaded, downloaded)` table so raw rows can be expired aggressively while monthly aggregates are kept forever.
+- **Retention cleanup job.** Honour `announce_log_retention_days` — a maintenance-worker pass that deletes rows older than the window, of the same shape as the connector delivery-log prune that already runs (`ConnectorDeliveryRetention` in `internal/worker/maintenance.go`). For scale, prefer native monthly partitioning (cheap `DROP` of old partitions) and/or a nightly rollup into a `user_period_stats(user_id, year_month, uploaded, downloaded)` table so raw rows can be expired aggressively while monthly aggregates are kept forever.
 - **GDPR/LGPD data export.** A per-user export endpoint over `AnnounceEventRepository.ListByUser` (and the other personal-data tables). Note: `announce_events` stores IP + peer_id (personal data), so this store is also an erasure obligation — deletion already cascades on account removal, but export/retention must stay purpose-scoped.
-- **Announce-log bonus source / monthly campaigns.** The bonus economy now exists (BE-8.14) with an hourly *snapshot* source; the announce-log successor — actual seed-time from `SUM` over `announce_events` deltas, harder to game at cycle boundaries — plugs in as another `BonusSource`. Same for "top N uploaders this month" campaigns.
+- **Announce-log bonus source / monthly campaigns.** The bonus economy now exists (BE-8.14) with an hourly *snapshot* source; the announce-log successor — actual seed-time from `SUM` over `announce_events` deltas, harder to game at cycle boundaries — plugs in as another `BonusSource`. Same for "top N uploaders this month" campaigns. (The promotion engine already computes seed hours this way, so the SQL exists.)
 
-**Why deferred:** capture was the irreversible, near-free half (the deltas were already computed and discarded); the consumers are real features that can wait until wanted. See BE-9.21.
+**Why deferred:** capture was the irreversible, near-free half (the deltas were already computed and discarded); the consumers are real features that can wait until wanted. The retention job is the part that is not optional forever — it is maintenance the table needs regardless of whether any consumer is ever built. See BE-9.21.
 
 ---
 
-## Auto Invite Distribution
+## Auto Invite Distribution — shipped
 
-The class ladder now exists (BE-8.13), so invites — which are class-gated — can finally be handed out on merit automatically. This is the "capped weekly drip" designed earlier.
+**Shipped as BE-4.2** (migration 056, admin page FE-5.16): per-group `invite_distribution_rules` (ratio floor, downloaded-bytes range, and a per-user `max_invites` ceiling), `invite_distribution_runs` bookkeeping, the `invite_distribution_enabled` / `invite_distribution_interval_days` settings, a daily `30 5 * * *` job that grants +1 invite per cycle only while the balance is under the ceiling, and admin CRUD plus run-now. The invite tree the section wanted for accountability already existed (`users.invited_by`, migration 019).
 
-**Key requirements:**
-- **Cap-based drip, not unbounded accrual.** On a schedule (weekly), grant a small number of invites (e.g. 1) to each eligible user, but **only if they hold fewer than a cap** (e.g. 3 unused). The cap bounds total outstanding invites to ≈ (eligible users × cap) and stops the drip refilling until an invite is actually used — preventing hoarding/trading.
-- **Eligibility gates** (all configurable): class/level at or above a threshold (reuse the promotion ladder), ratio ≥ X with a minimum-downloaded floor, account age ≥ N days, active within N days (`last_access`), enabled/not-parked/not-restricted.
-- **Mechanics**: one set-based `UPDATE users SET invites = LEAST(invites + k, cap) WHERE invites < cap AND <eligibility>`, run from the maintenance worker; log the aggregate to the activity log. Remember the two gates already in the code: `groups.can_invite` (permission) **and** `users.invites > 0` (balance, decremented per invite) — the drip fills the balance; the permission is the group's.
-- **Optional accountability**: record who invited whom (invite tree) so easy invites don't degrade community quality — most trackers make the inviter partly responsible for invitees.
-
-**Why deferred / sequencing:** needed the merit ladder first (done). **Update:** the bonus-point economy foundation now exists (BE-8.14) — members already buy invites with points earned by seeding, which covers much of this drip's intent through a more abuse-resistant model. If the drip is still wanted, it becomes a small additive job alongside the store.
+Residue, if it is ever wanted: the eligibility gates that did **not** ship are account age ≥ N days and "active within N days" (`last_access`) — the shipped rules gate on group, ratio and downloaded range only.
 
 ---
 
@@ -84,18 +82,15 @@ The foundation shipped in BE-8.14/FE-5.14: balance + append-only ledger, hourly 
 
 ---
 
-## Editable User Privileges + Invite Capability
+## Editable User Privileges + Invite Capability — shipped
 
-**Observed:** a freshly created user cannot send invites, and the admin user-detail page shows the privilege flags (download/upload/chat/forum) but offers no way to edit them.
+**Observed at the time:** a freshly created user could not send invites, and the admin user-detail page showed the privilege flags but offered no way to edit them.
 
-**Root cause:** invite capability is **group-scoped** — `groups.can_invite` (`perms.CanInvite`, enforced at `backend/internal/middleware/auth.go:114`). The user model has per-user `can_download/can_upload/can_chat/can_forum` but **no** per-user `can_invite`. So a new user's ability to invite depends entirely on their group, and there is currently no admin UI to (a) edit the per-user privilege flags that *are* shown, or (b) grant invite rights.
+**Shipped across BE-8.12/8.15/8.16 and FE-5.10/5.15.** Both halves are closed:
+- **Group side** — `AdminGroupsPage` is full CRUD over groups including the capability checkboxes, so `groups.can_invite` (the permission gate, built from the group in `model.PermissionsFromGroup` and enforced by `middleware.RequireCapability` in `backend/internal/middleware/auth.go`) is editable per class. The seeded ladder grants it from Power User upward and withholds it from the default registration group — the "new user can't invite" symptom, now a deliberate, editable setting rather than an accident.
+- **User side** — a per-user `can_invite` column exists (migration 055) alongside `can_download/can_upload/can_chat`, and the user-detail Privileges panel suspends and restores each of them with a reason, an optional expiry and a restriction history table. BE-8.16 made those four columns writable only through a targeted `SetPrivilegeFlag`, so a full-row `Update` can no longer clobber a restriction.
 
-**Key requirements:**
-- Make the per-user privilege flags on the admin user-detail page editable (backend PATCH + frontend controls), not just display.
-- Decide the invite model and implement it: either surface/manage `can_invite` through **group management** (see the parallel `feat/admin-group-management` work — editing group permissions including `can_invite` is the natural home), or add a per-user `can_invite` override if per-user granularity is wanted. Prefer the group route unless a concrete need for per-user override emerges.
-- Ensure the default registration group's `can_invite` is set intentionally (a new user inheriting a group without invite rights is the surfaced symptom).
-
-**Why deferred:** flagged during testing; grouped with the group-management admin work since that is where invite permissions most naturally live.
+The model that settled: the **group** carries the capability, the **per-user flag** is a punitive override, and the two never drift.
 
 ---
 

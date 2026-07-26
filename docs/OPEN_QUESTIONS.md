@@ -2,6 +2,13 @@
 
 This document records technology decisions made for the project. All decisions are final unless revisited explicitly.
 
+> **Accuracy pass, 2026-07-26.** Decisions 4 (authentication), 9 (API documentation) and
+> 10 (rate limiting) described things the codebase never contained — a JWT, a generated
+> spec, and a global rate-limit middleware respectively. Each has been corrected against
+> the code, with the original wording and what actually shipped both recorded, so the
+> correction is auditable rather than silent. A decision log that disagrees with the source
+> is worse than no decision log: it gets cited.
+
 ---
 
 ## Backend
@@ -20,7 +27,20 @@ This document records technology decisions made for the project. All decisions a
 
 ### 4. Authentication
 
-**Decision:** Hybrid — short-lived JWT access tokens + Redis-backed sessions for revocation and persistence. `SessionStore` is an interface (memory for tests, Redis for production).
+**Decision:** Short-lived **opaque** access tokens + Redis-backed sessions for revocation
+and persistence. `SessionStore` is an interface (memory for tests, Redis for production).
+
+Access tokens are 64-character hex strings with a 1-hour TTL; refresh tokens are the same
+shape with a 30-day TTL and rotate on use. The token carries no claims — every request
+resolves it against Redis, which is what makes instant revocation possible.
+
+**Corrected 2026-07-26:** this decision previously read "short-lived **JWT** access
+tokens". No JWT was ever implemented — there is no JWT library in `go.mod` and no `jwt`
+reference anywhere in the backend. The `JWT_SECRET` environment variable that this wording
+produced was read by no code and has been removed from `.env.example`, `stack.env.example`,
+`docker-compose.stack.yml` and the README's required-variables table. Opaque-plus-Redis is
+the better fit for this project anyway: a stateless JWT cannot be revoked before it expires,
+which a tracker with bans and quick-ban tooling actually needs.
 
 ### 5. Background Job Processing
 
@@ -40,7 +60,52 @@ This document records technology decisions made for the project. All decisions a
 
 ### 9. API Documentation
 
-**Decision:** None currently — no OpenAPI spec generation. Frontend API client is hand-written using openapi-fetch with typed routes.
+**Decision:** **Two OpenAPI documents, one hand-maintained source.**
+
+- `backend/api/openapi.yaml` — the **full** spec. Every endpoint, including admin and
+  staff routes. This is the source of truth and the file humans edit. The frontend
+  generates its TypeScript types from it (`openapi-typescript` → `frontend/src/api/schema.d.ts`),
+  which is why it must include the admin surface.
+- `backend/api/openapi.public.yaml` — **generated** from the full spec by
+  `cmd/openapi-public`, containing only what a member or third-party integrator may call.
+  This is the document intended for publication.
+
+Every operation in the full spec carries an `x-audience: public | internal` extension.
+The generator drops `internal` operations, prunes the component schemas and security
+schemes they alone referenced, and strips the extension from its output. A guard test in
+`internal/handler` walks the real Chi router and fails the build when a registered route
+is neither documented nor listed in an explicit, shrinking debt ledger — so a new endpoint
+cannot be added without being classified.
+
+**Why two documents rather than one.** The web UI is a convenience, not the only client:
+members are welcome to drive the API directly or build their own tools against it. The
+administrative surface is deliberately not advertised as a supported interface. The project
+is open source and those routes are discoverable from the source — "findable in the code"
+and "published as a contract" are different commitments, and only the second one implies
+stability.
+
+**Corrected 2026-07-26:** this decision previously read "None currently — no OpenAPI spec
+generation", while `ARCHITECTURE.md` simultaneously claimed the spec was the source of truth
+and that API calls were never hand-written. Both were wrong. A hand-written spec existed and
+covered roughly 15% of the ~189 registered routes, and most frontend calls are raw `fetch`.
+See `IMPLEMENTATION_TASKS.md` for the story that closes the remaining gap.
+
+### 10. Rate Limiting
+
+**Decision:** Applied per-surface rather than as one global middleware.
+
+- **Login attempts** — capped in `service/auth.go` (5 failures per 15 minutes per IP).
+- **WebSocket chat** — per-client limiting (10 messages / 10 seconds) in `handler/chat_ws.go`,
+  plus the `chat_mutes` table and anti-spam settings for sustained abuse.
+- **Connectors** — per-instance `rate_per_min` with burst coalescing.
+- **Live feeds (SSE)** — a per-user concurrent stream cap.
+
+**Corrected 2026-07-26:** this decision previously read "In-memory (`golang.org/x/time/rate`)
+— per-instance". No such middleware exists: `internal/middleware/` contains only auth,
+activity, CORS and logging, and `golang.org/x/time` is an indirect dependency with no
+`rate.Limiter` usage. A general per-IP HTTP limiter remains **unbuilt**; see
+`docs/FUTURE_WORK.md`. Anything relying on "requests are rate limited" as an existing
+guarantee — notably any anti-abuse proposal — must treat it as work to do, not a given.
 
 ### 10a. Time and Timezones
 
@@ -59,10 +124,6 @@ could shift their own timezone to enter or extend a window.
 
 Display stays local because that is a pure rendering concern with no accounting
 consequence. Scheduling stays UTC because it has one.
-
-### 10. Rate Limiting
-
-**Decision:** In-memory (`golang.org/x/time/rate`) — per-instance, sufficient for single-node deployment. WebSocket has additional per-client rate limiting (10 msgs/10s).
 
 ---
 
