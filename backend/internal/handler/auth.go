@@ -94,14 +94,42 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 // HandleLogout handles POST /api/v1/auth/logout.
 // Must be behind RequireAuth middleware.
+// It authenticates itself rather than relying on RequireAuth, because the case that
+// most needs to revoke is the one RequireAuth rejects: an access token that has
+// already expired. Sessions live thirty days on their refresh token and one hour on
+// their access token, so behind RequireAuth there was a twenty-nine-day window in
+// which a session could be used but not revoked, and a client that correctly deleted
+// its local copy stranded a credential nobody could cancel (#231).
+//
+// Either credential is accepted. Possession of a refresh token already allows minting
+// access tokens at /auth/refresh, so accepting it here removes capability rather than
+// granting any — the same reason /auth/refresh itself needs no access token.
 func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
-	token, ok := middleware.AccessTokenFromContext(r.Context())
-	if !ok {
-		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
-		return
+	revoked := false
+
+	// The access token, when the middleware supplied one and it is still valid.
+	if token, ok := middleware.AccessTokenFromContext(r.Context()); ok && token != "" {
+		h.auth.Logout(token)
+		revoked = true
 	}
 
-	h.auth.Logout(token)
+	// A refresh token in the body, which is what a client has left once the access
+	// token has expired. An absent or malformed body is not an error: the header
+	// path above may already have done the work.
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+		if h.auth.LogoutByRefreshToken(body.RefreshToken) {
+			revoked = true
+		}
+	}
+
+	if !revoked {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized",
+			"send a valid access token, or a refresh_token in the body")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

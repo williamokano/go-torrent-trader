@@ -159,7 +159,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Logout and invalidate current session */
+    /**
+     * Logout and invalidate current session
+     * @description Revokes a session, identified by **either** credential.
+     *
+     *     Send the access token as a bearer token, or `refresh_token` in the body, or both. The refresh token is accepted because it is the credential a client still holds once the access token has expired: sessions live one hour on their access token and thirty days on their refresh token, so requiring the short-lived one left a window in which a session could be used at `/auth/refresh` but not revoked. Possession of a refresh token already allows minting access tokens, so accepting it here takes capability away rather than granting any.
+     *
+     *     Revoking removes both halves, so neither token works afterwards. Revoking an already-revoked session is not an error as long as one of the credentials sent was valid.
+     */
     post: operations["authLogout"];
     delete?: never;
     options?: never;
@@ -2130,7 +2137,14 @@ export interface operations {
       path?: never;
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody?: {
+      content: {
+        "application/json": {
+          /** @description The session's refresh token. Use this when the access token has expired, which is the case a client cannot otherwise recover from. */
+          refresh_token?: string;
+        };
+      };
+    };
     responses: {
       /** @description Session invalidated */
       204: {
@@ -2139,7 +2153,7 @@ export interface operations {
         };
         content?: never;
       };
-      /** @description Missing or invalid authorization header */
+      /** @description Neither credential was usable — no valid bearer token, and no valid `refresh_token` in the body. */
       401: {
         headers: {
           [name: string]: unknown;

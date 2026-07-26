@@ -153,10 +153,19 @@ func NewRouter(deps *Deps) chi.Router {
 					r.Get("/registration-mode", settingsHandler.HandleGetRegistrationMode)
 				}
 
+				// Logout takes OptionalAuth, not RequireAuth. The session it most
+				// needs to revoke is the one whose access token has expired, and
+				// RequireAuth rejects that with a 401 before the handler runs —
+				// leaving the refresh token alive for the rest of its thirty days
+				// with no way to cancel it (#231). With OptionalAuth a valid access
+				// token still reaches the handler through the context, and a caller
+				// holding only the refresh token can send it in the body. The
+				// handler refuses when neither is usable.
+				r.With(mw.OptionalAuth(validator)).Post("/logout", auth.HandleLogout)
+
 				// Protected auth endpoints
 				r.Group(func(r chi.Router) {
 					authMiddleware(r)
-					r.Post("/logout", auth.HandleLogout)
 					r.Get("/me", auth.HandleMe)
 				})
 			})

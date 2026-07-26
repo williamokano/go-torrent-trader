@@ -69,6 +69,17 @@ func (s *MemorySessionStore) Delete(accessToken string) {
 	}
 }
 
+// DeleteByRefreshToken revokes a session by its refresh token, which is the half
+// that outlives the access token (#231).
+func (s *MemorySessionStore) DeleteByRefreshToken(refreshToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.byRefreshToken[refreshToken]; ok {
+		delete(s.byAccessToken, sess.AccessToken)
+		delete(s.byRefreshToken, refreshToken)
+	}
+}
+
 func (s *MemorySessionStore) Rotate(oldRefreshToken string, newSession *service.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

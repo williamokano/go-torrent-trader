@@ -68,6 +68,17 @@ func (s *memorySessionStore) Delete(accessToken string) {
 	}
 }
 
+// Mirrors the production store: revoking by refresh token has to remove both keys,
+// or a test double would let a session survive the revocation it was asked for.
+func (s *memorySessionStore) DeleteByRefreshToken(refreshToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.byRefreshToken[refreshToken]; ok {
+		delete(s.byAccessToken, sess.AccessToken)
+		delete(s.byRefreshToken, refreshToken)
+	}
+}
+
 func (s *memorySessionStore) Rotate(oldRefreshToken string, newSession *Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

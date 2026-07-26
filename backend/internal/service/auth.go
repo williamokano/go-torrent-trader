@@ -489,6 +489,29 @@ func (s *AuthService) Logout(accessToken string) {
 	s.sessions.Delete(accessToken)
 }
 
+// LogoutByRefreshToken revokes the session a refresh token belongs to, and reports
+// whether it found one.
+//
+// This is the revocation path that still works after the first hour. Sessions are
+// identified by their access token, which lives an hour, while the refresh token
+// lives thirty days — so for the remaining twenty-nine days a session could be used
+// (via /auth/refresh) but not revoked, and a client that correctly deleted its local
+// copy on logout stranded a live credential nobody could see or cancel (#231).
+//
+// The bool is for the caller's response code, not for authorization: possession of
+// the refresh token is already enough to mint access tokens, so being allowed to
+// revoke it takes capability away rather than granting any.
+func (s *AuthService) LogoutByRefreshToken(refreshToken string) bool {
+	if refreshToken == "" {
+		return false
+	}
+	if s.sessions.GetByRefreshToken(refreshToken) == nil {
+		return false
+	}
+	s.sessions.DeleteByRefreshToken(refreshToken)
+	return true
+}
+
 // GetCurrentUser returns the user by ID.
 func (s *AuthService) GetCurrentUser(ctx context.Context, userID int64) (*model.User, error) {
 	user, err := s.users.GetByID(ctx, userID)
