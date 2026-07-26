@@ -510,8 +510,12 @@ func (s *TrackerService) handleAnnounce(
 // recordAnnounceEvent appends the current announce to the immutable
 // announce_events log when capture is enabled. It is best-effort: a logging
 // failure is logged but never breaks the announce. Every announce is recorded
-// (started, stopped, completed, and keep-alives), so the log doubles as a
-// "seen at this IP/time" trail alongside the ratio deltas.
+// (started, stopped, completed, and keep-alives), so the log carries the full
+// series of ratio deltas rather than only the session-ending ones.
+//
+// The client's IP is not recorded. It is needed to answer the announce — the peers
+// table keeps it while the peer is in the swarm — but the log's readers are all
+// byte accounting, so a months-long history of addresses was pure liability.
 func (s *TrackerService) recordAnnounceEvent(
 	ctx context.Context,
 	torrent *model.Torrent,
@@ -539,7 +543,6 @@ func (s *TrackerService) recordAnnounceEvent(
 		UserID:                 user.ID,
 		TorrentID:              &torrentID,
 		PeerID:                 req.PeerID,
-		IP:                     req.IP,
 		Port:                   req.Port,
 		Event:                  eventName,
 		Uploaded:               req.Uploaded,

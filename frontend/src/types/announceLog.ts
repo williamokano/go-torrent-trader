@@ -4,7 +4,7 @@ export interface AnnounceLogEntry {
   torrent_id: number | null;
   torrent_name: string;
   event: string;
-  ip: string;
+  /** The port the client listened on. There is no address: it is not retained. */
   port: number;
   /** Hex-encoded — the raw peer ID is arbitrary bytes. */
   peer_id: string;

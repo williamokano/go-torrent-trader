@@ -218,8 +218,8 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Get("/{id}/activity", activity.HandleUserActivity)
 						}
 
-						// The raw announce log and its CSV export (owner + staff
-						// only — it holds IP addresses and peer IDs). The settings
+						// The raw announce log (owner + staff only — the per-announce
+						// byte deltas say what a member seeds and when). The settings
 						// service is required, not optional: the response tells the
 						// member how long their announces are kept, and a listing
 						// that has to guess that would be worse than no listing.
@@ -228,7 +228,6 @@ func NewRouter(deps *Deps) chi.Router {
 							announceLog := NewAnnounceLogHandler(
 								deps.AnnounceEventRepo, deps.AnnounceRollupRepo, deps.SiteSettingsService)
 							r.Get("/{id}/announce-log", announceLog.HandleList)
-							r.Get("/{id}/announce-log/export", announceLog.HandleExport)
 						}
 
 						r.Put("/me/profile", users.HandleUpdateProfile)

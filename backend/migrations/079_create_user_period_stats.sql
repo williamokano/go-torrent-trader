@@ -2,8 +2,7 @@
 -- 052 created announce_events as an append-only log and left retention advisory:
 -- announce_log_retention_days was seeded and validated, and nothing read it. The
 -- table therefore grew without bound, with two indexes compounding the write
--- amplification, and the IP addresses and peer IDs it stores kept accumulating
--- past any purpose that justified collecting them.
+-- amplification, on the busiest write path the site has.
 --
 -- Pruning the raw log destroys the only record of what a member transferred in a
 -- given month, so the prune cannot ship alone. These two tables are what make it

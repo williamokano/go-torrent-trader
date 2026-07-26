@@ -297,7 +297,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     key: "announce_log_retention_days",
     label: "Announce Log Retention (days)",
     description:
-      "How many days of individual announce records to keep. A nightly job totals each day into permanent per-member monthly figures and then deletes raw rows past this window — so shortening it discards IP addresses and peer IDs sooner without losing anyone's transfer totals. Set to 0 to keep every raw announce forever. Default: 90.",
+      "How many days of individual announce records to keep. A nightly job totals each day into permanent per-member monthly figures and then deletes raw rows past this window — so shortening it reclaims disk without losing anyone's transfer totals. Set to 0 to keep every raw announce forever. Default: 90.",
     type: "number",
   },
   // Auto class promotion

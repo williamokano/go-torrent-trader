@@ -73,7 +73,7 @@ func createAnnounces(t *testing.T, db *sql.DB, userID, torrentID int64, specs ..
 	for i, s := range specs {
 		if err := repo.Create(context.Background(), &model.AnnounceEvent{
 			UserID: userID, TorrentID: &torrentID, PeerID: []byte("peer-aaaaaaaaaaaaaa"),
-			IP: "10.0.0.1", Port: 6881, Event: "announce",
+			Port: 6881, Event: "announce",
 			UploadedDelta: s.up, DownloadedDelta: s.down, CountedDownloadedDelta: s.counted,
 			Seeder: s.seeder, AnnouncedAt: s.at,
 		}); err != nil {
@@ -559,61 +559,6 @@ func TestAnnounceEventRepo_DeleteOlderThan(t *testing.T) {
 	}
 	if _, total, _ = repo.ListByUser(ctx, user.ID, 1, 25); total != 1 {
 		t.Errorf("a zero limit removed rows: %d left, want 1", total)
-	}
-}
-
-func TestAnnounceEventRepo_PageByUser(t *testing.T) {
-	db := requireDB(t)
-	resetTestData(t, db)
-	ctx := context.Background()
-
-	user := newUser(t, db)
-	other := newUser(t, db)
-	torrent := newTorrent(t, db, user.ID)
-
-	createAnnounces(t, db, user.ID, torrent.ID,
-		announceSpec{at: utc(2026, time.July, 1, 10, 0), up: 1},
-		announceSpec{at: utc(2026, time.July, 2, 10, 0), up: 2},
-		announceSpec{at: utc(2026, time.July, 3, 10, 0), up: 3},
-	)
-	createAnnounces(t, db, other.ID, torrent.ID,
-		announceSpec{at: utc(2026, time.July, 2, 11, 0), up: 999},
-	)
-
-	repo := NewAnnounceEventRepo(db)
-
-	first, err := repo.PageByUser(ctx, user.ID, 0, 2)
-	if err != nil {
-		t.Fatalf("PageByUser(first): %v", err)
-	}
-	if len(first) != 2 {
-		t.Fatalf("got %d rows, want 2", len(first))
-	}
-	// Ascending, oldest first — an export is a chronological walk.
-	if first[0].UploadedDelta != 1 || first[1].UploadedDelta != 2 {
-		t.Errorf("wrong order: %d then %d, want 1 then 2", first[0].UploadedDelta, first[1].UploadedDelta)
-	}
-
-	second, err := repo.PageByUser(ctx, user.ID, first[1].ID, 2)
-	if err != nil {
-		t.Fatalf("PageByUser(second): %v", err)
-	}
-	if len(second) != 1 {
-		t.Fatalf("got %d rows on the second page, want 1 (the other member's row must not leak)", len(second))
-	}
-	if second[0].UploadedDelta != 3 {
-		t.Errorf("second page = %d, want 3", second[0].UploadedDelta)
-	}
-	if second[0].TorrentName != torrent.Name {
-		t.Errorf("TorrentName = %q, want %q", second[0].TorrentName, torrent.Name)
-	}
-
-	empty, err := repo.PageByUser(ctx, user.ID, second[0].ID, 2)
-	if err != nil {
-		t.Fatalf("PageByUser(exhausted): %v", err)
-	}
-	if len(empty) != 0 {
-		t.Errorf("expected the walk to end, got %d rows", len(empty))
 	}
 }
 

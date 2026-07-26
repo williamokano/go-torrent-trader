@@ -665,8 +665,9 @@ paths:
         indefinitely). The monthly totals are aggregated before the prune runs and
         are kept permanently, so they still cover months whose raw rows are gone.
 
-        Readable by the member themselves and by staff only: the log contains IP
-        addresses and peer IDs.
+        Readable by the member themselves and by staff only: the per-announce byte
+        deltas say what a member is seeding and when they are online. The tracker
+        does not record announce IP addresses.
       tags: [users]
       security:
         - bearerAuth: []
@@ -718,60 +719,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/users/{id}/announce-log/export:
-    get:
-      operationId: exportUserAnnounceLog
-      x-audience: public
-      summary: Download a member's announce log as CSV
-      description: >
-        Streams every retained announce for this member as CSV, oldest first, with
-        one header row. Columns: `announced_at`, `torrent_id`, `torrent_name`,
-        `event`, `ip`, `port`, `peer_id` (hex), `uploaded`, `downloaded`,
-        `left_bytes`, `uploaded_delta`, `downloaded_delta`,
-        `counted_downloaded_delta`, `seeder`.
-
-        This is the member's own copy of the personal data the tracker holds about
-        their client. Same audience as the listing: the member, or staff.
-
-        The response is streamed, so a failure part-way through arrives as a
-        truncated body rather than an error status — the row count is the check.
-      tags: [users]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: The member's numeric ID
-      responses:
-        '200':
-          description: CSV export
-          content:
-            text/csv:
-              schema:
-                type: string
-        '400':
-          description: Invalid user ID
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Not the member and not staff
           content:
             application/json:
               schema:
@@ -2170,10 +2117,11 @@ components:
           type: string
           enum: [started, stopped, completed, announce]
           description: '"announce" for a periodic update carrying no event'
-        ip:
-          type: string
         port:
           type: integer
+          description: >
+            The port the client listened on. There is no companion address: the
+            tracker does not retain announce IPs.
         peer_id:
           type: string
           description: Hex-encoded — the raw value is arbitrary bytes

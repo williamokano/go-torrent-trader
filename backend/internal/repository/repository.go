@@ -132,11 +132,6 @@ type TransferHistoryWithTorrent struct {
 type AnnounceEventRepository interface {
 	Create(ctx context.Context, event *model.AnnounceEvent) error
 	ListByUser(ctx context.Context, userID int64, page, perPage int) ([]AnnounceEventWithTorrent, int64, error)
-	// PageByUser walks a member's log in chronological order by keyset, returning
-	// rows with id > afterID. The export walks the whole retained window, and
-	// OFFSET paging re-scans from the top on every page — for a heavy seeder with
-	// 90 days of announces that turns a linear walk quadratic.
-	PageByUser(ctx context.Context, userID int64, afterID int64, limit int) ([]AnnounceEventWithTorrent, error)
 	// DeleteOlderThan deletes at most limit rows announced before cutoff, and
 	// returns how many it deleted. Bounded rather than unbounded so the caller can
 	// prune in chunks: one DELETE over a year of accumulated announces would hold

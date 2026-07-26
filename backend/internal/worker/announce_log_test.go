@@ -33,10 +33,6 @@ func (m *mockAnnounceEventRepo) ListByUser(context.Context, int64, int, int) ([]
 	return nil, 0, nil
 }
 
-func (m *mockAnnounceEventRepo) PageByUser(context.Context, int64, int64, int) ([]repository.AnnounceEventWithTorrent, error) {
-	return nil, nil
-}
-
 func (m *mockAnnounceEventRepo) DeleteOlderThan(_ context.Context, cutoff time.Time, limit int) (int64, error) {
 	if m.deleteErr != nil {
 		m.calls = append(m.calls, deleteCall{cutoff: cutoff, limit: limit})

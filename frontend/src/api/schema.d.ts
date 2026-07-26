@@ -315,31 +315,9 @@ export interface paths {
      * Get a member's announce log and monthly transfer totals
      * @description Returns the raw announces the tracker recorded for this member, newest first, together with their per-month transfer totals.
      *     The raw rows are pruned once they pass the site's `announce_log_retention_days` window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
-     *     Readable by the member themselves and by staff only: the log contains IP addresses and peer IDs.
+     *     Readable by the member themselves and by staff only: the per-announce byte deltas say what a member is seeding and when they are online. The tracker does not record announce IP addresses.
      */
     get: operations["getUserAnnounceLog"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/users/{id}/announce-log/export": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Download a member's announce log as CSV
-     * @description Streams every retained announce for this member as CSV, oldest first, with one header row. Columns: `announced_at`, `torrent_id`, `torrent_name`, `event`, `ip`, `port`, `peer_id` (hex), `uploaded`, `downloaded`, `left_bytes`, `uploaded_delta`, `downloaded_delta`, `counted_downloaded_delta`, `seeder`.
-     *     This is the member's own copy of the personal data the tracker holds about their client. Same audience as the listing: the member, or staff.
-     *     The response is streamed, so a failure part-way through arrives as a truncated body rather than an error status — the row count is the check.
-     */
-    get: operations["exportUserAnnounceLog"];
     put?: never;
     post?: never;
     delete?: never;
@@ -784,7 +762,7 @@ export interface components {
        * @enum {string}
        */
       event?: "started" | "stopped" | "completed" | "announce";
-      ip?: string;
+      /** @description The port the client listened on. There is no companion address: the tracker does not retain announce IPs. */
       port?: number;
       /**
        * @description Hex-encoded — the raw value is arbitrary bytes
@@ -1823,56 +1801,6 @@ export interface operations {
       };
       /** @description Internal server error */
       500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  exportUserAnnounceLog: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description The member's numeric ID */
-        id: number;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description CSV export */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "text/csv": string;
-        };
-      };
-      /** @description Invalid user ID */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not authenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not the member and not staff */
-      403: {
         headers: {
           [name: string]: unknown;
         };

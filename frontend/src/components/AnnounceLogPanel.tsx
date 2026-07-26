@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { formatBytes, formatRatio, formatDate } from "@/utils/format";
-import { useToast } from "@/components/toast";
 import type { AnnounceLogEntry, AnnounceLogPeriod } from "@/types/announceLog";
 import "./announce-log.css";
 
@@ -21,13 +20,12 @@ const PER_PAGE = 25;
  * only for the site's retention window.
  *
  * Fetches its own data rather than sharing the profile page's activity state,
- * because it pages one list while showing an unpaged summary alongside it — and
- * because the CSV export it offers is the member's copy of their personal data,
- * which is worth keeping as one self-contained piece.
+ * because it pages one list while showing an unpaged summary alongside it.
+ *
+ * Read-only and on-screen by design: there is no bulk export, and the announces
+ * carry no IP addresses because the tracker does not retain them.
  */
 export function AnnounceLogPanel({ userId, isOwnLog }: AnnounceLogPanelProps) {
-  const toast = useToast();
-
   const [events, setEvents] = useState<AnnounceLogEntry[]>([]);
   const [monthly, setMonthly] = useState<AnnounceLogPeriod[]>([]);
   const [total, setTotal] = useState(0);
@@ -35,7 +33,6 @@ export function AnnounceLogPanel({ userId, isOwnLog }: AnnounceLogPanelProps) {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(
     async (targetPage: number) => {
@@ -69,60 +66,21 @@ export function AnnounceLogPanel({ userId, isOwnLog }: AnnounceLogPanelProps) {
     load(page);
   }, [load, page]);
 
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const token = getAccessToken();
-      const res = await fetch(
-        `${getConfig().API_URL}/api/v1/users/${userId}/announce-log/export`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-      );
-      if (!res.ok) {
-        toast.error("Failed to export the announce log");
-        return;
-      }
-      // Fetched rather than linked because the API is token-authenticated: a plain
-      // href would arrive without the Authorization header and be rejected.
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `announce-log-${userId}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      toast.error("Failed to export the announce log");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const totalPages = Math.ceil(total / PER_PAGE);
 
   return (
     <div className="announce-log">
-      <div className="announce-log__header">
-        <p className="announce-log__note">
-          {isOwnLog
-            ? "Every announce your client makes is recorded, including its IP address and peer ID."
-            : "Every announce this member's client makes is recorded, including its IP address and peer ID."}{" "}
-          {/* "up to", not "for": the nightly job deletes on a schedule, and rows
-              can outlive the window when it is behind or has not run. Promising an
-              exact age would be a claim the site cannot keep. */}
-          {retentionDays > 0
-            ? `Individual announces are kept for up to ${retentionDays} days; the monthly totals below are kept permanently.`
-            : "Individual announces are kept indefinitely on this site."}
-        </p>
-        <button
-          className="announce-log__export"
-          onClick={handleExport}
-          disabled={exporting}
-        >
-          {exporting ? "Preparing..." : "Download CSV"}
-        </button>
-      </div>
+      <p className="announce-log__note">
+        {isOwnLog
+          ? "Every announce your client makes is recorded: what it transferred, and when. No IP addresses are kept."
+          : "Every announce this member's client makes is recorded: what it transferred, and when. No IP addresses are kept."}{" "}
+        {/* "up to", not "for": the nightly job deletes on a schedule, and rows
+            can outlive the window when it is behind or has not run. Promising an
+            exact age would be a claim the site cannot keep. */}
+        {retentionDays > 0
+          ? `Individual announces are kept for up to ${retentionDays} days; the monthly totals below are kept permanently.`
+          : "Individual announces are kept indefinitely on this site."}
+      </p>
 
       {error ? (
         <p className="profile-activity__error">{error}</p>
@@ -175,7 +133,6 @@ export function AnnounceLogPanel({ userId, isOwnLog }: AnnounceLogPanelProps) {
                     <th>When</th>
                     <th>Torrent</th>
                     <th>Event</th>
-                    <th>From</th>
                     <th>Up</th>
                     <th>Down</th>
                     <th>Counted</th>
@@ -196,9 +153,6 @@ export function AnnounceLogPanel({ userId, isOwnLog }: AnnounceLogPanelProps) {
                         )}
                       </td>
                       <td>{e.event}</td>
-                      <td>
-                        {e.ip}:{e.port}
-                      </td>
                       <td>{formatBytes(e.uploaded_delta)}</td>
                       <td>{formatBytes(e.downloaded_delta)}</td>
                       <td>{formatBytes(e.counted_downloaded_delta)}</td>

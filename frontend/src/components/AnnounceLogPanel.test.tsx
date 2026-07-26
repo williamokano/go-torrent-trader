@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { AnnounceLogPanel } from "@/components/AnnounceLogPanel";
-import { ToastProvider } from "@/components/toast";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -13,7 +12,6 @@ const entry = {
   torrent_id: 7,
   torrent_name: "Some Release",
   event: "started",
-  ip: "203.0.113.9",
   port: 6881,
   peer_id: "2d7142ff",
   uploaded: 100,
@@ -52,13 +50,7 @@ function mockApi(
     retention_days: number;
   }> = {},
 ) {
-  mockFetch.mockImplementation((url: string) => {
-    if (url.includes("/export")) {
-      return Promise.resolve({
-        ok: true,
-        blob: async () => new Blob(["announced_at\n"]),
-      });
-    }
+  mockFetch.mockImplementation(() => {
     return Promise.resolve({
       ok: true,
       json: async () => ({
@@ -76,12 +68,10 @@ function mockApi(
 function renderPanel(props?: { userId?: number; isOwnLog?: boolean }) {
   return render(
     <MemoryRouter>
-      <ToastProvider>
-        <AnnounceLogPanel
-          userId={props?.userId ?? 42}
-          isOwnLog={props?.isOwnLog ?? true}
-        />
-      </ToastProvider>
+      <AnnounceLogPanel
+        userId={props?.userId ?? 42}
+        isOwnLog={props?.isOwnLog ?? true}
+      />
     </MemoryRouter>,
   );
 }
@@ -152,29 +142,21 @@ describe("AnnounceLogPanel", () => {
     });
   });
 
-  // The export must go through fetch with the bearer token, not a bare href — a
-  // link would arrive unauthenticated and 401.
-  test("downloads the CSV export through an authenticated fetch", async () => {
-    mockApi();
-    const createObjectURL = vi.fn(() => "blob:announce-log");
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+  // Two things this panel must not do, both of which it used to. The address check
+  // is against rendered output rather than the fixture, so it still fails if a
+  // future change starts displaying an `ip` that the API happens to send.
+  test("renders no addresses and offers no bulk download", async () => {
+    mockApi({ events: [{ ...entry, ip: "203.0.113.9" }] });
+    const { container } = renderPanel();
 
-    renderPanel({ userId: 7 });
     await waitFor(() => {
       expect(screen.getByText("2026-06")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Download CSV" }));
-
-    await waitFor(() => {
-      expect(createObjectURL).toHaveBeenCalled();
-    });
-    const exportCall = mockFetch.mock.calls.find((c) =>
-      String(c[0]).includes("/export"),
-    );
-    expect(exportCall?.[0]).toContain("/api/v1/users/7/announce-log/export");
-    expect(revokeObjectURL).toHaveBeenCalled();
+    expect(container.textContent).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+    expect(
+      screen.queryByRole("button", { name: /download|csv|export/i }),
+    ).not.toBeInTheDocument();
   });
 
   test("surfaces a failed load instead of rendering an empty log", async () => {

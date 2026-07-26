@@ -415,8 +415,9 @@ func TestSet_ChatSystemDisplayNameValidation(t *testing.T) {
 	})
 }
 
-// This setting decides how long IP addresses are kept and how much of the announce
-// log survives. Accepting a value the worker then reads as something else — via
+// This setting decides how much of the announce log survives, and therefore how
+// far back a ratio dispute can be checked. Accepting a value the worker then reads
+// as something else — via
 // GetInt's silent fallback, or via a duration overflow — means the admin page shows
 // one policy while the prune enforces another.
 func TestSet_AnnounceLogRetentionValidation(t *testing.T) {
