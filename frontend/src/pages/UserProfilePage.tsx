@@ -6,6 +6,7 @@ import { useAuth } from "@/features/auth";
 import { formatBytes, formatRatio, formatDate, timeAgo } from "@/utils/format";
 import { UsernameDisplay } from "@/components/UsernameDisplay";
 import { ActivityHistoryTable } from "@/components/ActivityHistoryTable";
+import { AnnounceLogPanel } from "@/components/AnnounceLogPanel";
 import type { ActivityItem } from "@/types/activity";
 import "./profile.css";
 
@@ -65,7 +66,7 @@ interface TorrentUpload {
   anonymous?: boolean;
 }
 
-type ActivityTab = "uploads" | "seeding" | "leeching" | "history";
+type ActivityTab = "uploads" | "seeding" | "leeching" | "history" | "announces";
 
 export function UserProfilePage() {
   const { username } = useParams<{ username: string }>();
@@ -227,6 +228,10 @@ export function UserProfilePage() {
     if (!profile) return;
     if (activeTab === "uploads") {
       fetchUploads(uploadsPage);
+    } else if (activeTab === "announces") {
+      // AnnounceLogPanel loads its own data: it pages one list while showing an
+      // unpaged monthly summary beside it, which the shared activity state here
+      // cannot represent.
     } else if (canViewPrivateActivity) {
       fetchActivity(activeTab, activityPage);
     }
@@ -531,12 +536,22 @@ export function UserProfilePage() {
               >
                 History
               </button>
+              <button
+                className={`profile-activity__tab ${activeTab === "announces" ? "profile-activity__tab--active" : ""}`}
+                onClick={() => handleTabChange("announces")}
+              >
+                Announce Log
+              </button>
             </>
           )}
         </div>
 
         <div className="profile-activity__content">
-          {tabError ? (
+          {/* Checked before tabError and tabLoading, which belong to the shared
+              activity fetch this tab does not use. */}
+          {activeTab === "announces" ? (
+            <AnnounceLogPanel userId={profile.id} isOwnLog={isOwnProfile} />
+          ) : tabError ? (
             <p className="profile-activity__error">{tabError}</p>
           ) : tabLoading ? (
             <p className="profile-activity__loading">Loading...</p>

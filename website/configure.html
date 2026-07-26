@@ -455,7 +455,14 @@
               <tr>
                 <td><code>announce_log_retention_days</code></td>
                 <td>90</td>
-                <td>How long those records are kept.</td>
+                <td>
+                  How long individual announce records are kept. A nightly job
+                  totals each day into permanent per-member monthly figures and
+                  then deletes the raw rows past this window, so shortening it
+                  discards IP addresses and peer identifiers sooner without
+                  losing anyone's transfer history. Set it to 0 to keep every
+                  raw announce indefinitely.
+                </td>
               </tr>
             </tbody>
           </table>
@@ -465,7 +472,9 @@
               IP addresses and peer identifiers. If your community is somewhere
               with data protection obligations, that is personal data and the
               retention window is a decision you should make deliberately rather
-              than leave at the default.
+              than leave at the default. Members can see and download their own
+              announce log from their profile, and the monthly totals stay
+              readable after the raw rows are gone.
             </p>
           </div>
         </div>

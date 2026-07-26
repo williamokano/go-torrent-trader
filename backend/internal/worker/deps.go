@@ -39,6 +39,24 @@ type WorkerDeps struct {
 	// maintenance job purges them. Zero or negative disables the purge.
 	NotificationRetention time.Duration
 
+	// Announce log housekeeping. Both repos nil-checked: without them the nightly
+	// job does nothing, which is the safe direction — it can only fail to prune,
+	// never fail to aggregate before pruning.
+	AnnounceEventRepo  repository.AnnounceEventRepository
+	AnnounceRollupRepo repository.AnnounceRollupRepository
+	// AnnounceLogRetention returns how long raw announce rows are kept. A func for
+	// the same reason as ConnectorDeliveryRetention below: it is an admin-editable
+	// site setting, and reading it once at boot would make an edit appear to work
+	// while doing nothing until the next restart. Non-positive disables pruning.
+	AnnounceLogRetention func() time.Duration
+	// AnnounceLogMinWindow returns the shortest window of raw announces that other
+	// features still need, regardless of what retention says — today, class
+	// promotion's seed-hours estimate, which gap-sums raw announces over
+	// promotion_seed_window_days. The prune takes the longer of the two, so
+	// shortening retention cannot silently switch a feature off. Zero, or a nil
+	// func, means nothing else depends on the raw rows.
+	AnnounceLogMinWindow func() time.Duration
+
 	// External notification connectors (BE-10). All nil-checked: a deployment
 	// without them simply has no drain handler work to do.
 	ConnectorRegistry     *connector.Registry

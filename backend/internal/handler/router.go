@@ -42,6 +42,8 @@ type Deps struct {
 	UserRepo                  repository.UserRepository
 	CategoryRepo              repository.CategoryRepository
 	TransferHistoryRepo       repository.TransferHistoryRepository
+	AnnounceEventRepo         repository.AnnounceEventRepository
+	AnnounceRollupRepo        repository.AnnounceRollupRepository
 	DashboardRepo             repository.DashboardRepository
 	CheatFlagRepo             repository.CheatFlagRepository
 	NotificationService       *service.NotificationService
@@ -214,6 +216,19 @@ func NewRouter(deps *Deps) chi.Router {
 						// User activity endpoint (seeding/leeching/history — owner + staff only)
 						if activity != nil {
 							r.Get("/{id}/activity", activity.HandleUserActivity)
+						}
+
+						// The raw announce log and its CSV export (owner + staff
+						// only — it holds IP addresses and peer IDs). The settings
+						// service is required, not optional: the response tells the
+						// member how long their announces are kept, and a listing
+						// that has to guess that would be worse than no listing.
+						if deps.AnnounceEventRepo != nil && deps.AnnounceRollupRepo != nil &&
+							deps.SiteSettingsService != nil {
+							announceLog := NewAnnounceLogHandler(
+								deps.AnnounceEventRepo, deps.AnnounceRollupRepo, deps.SiteSettingsService)
+							r.Get("/{id}/announce-log", announceLog.HandleList)
+							r.Get("/{id}/announce-log/export", announceLog.HandleExport)
 						}
 
 						r.Put("/me/profile", users.HandleUpdateProfile)

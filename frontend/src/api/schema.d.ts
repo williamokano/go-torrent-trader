@@ -304,6 +304,50 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/users/{id}/announce-log": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a member's announce log and monthly transfer totals
+     * @description Returns the raw announces the tracker recorded for this member, newest first, together with their per-month transfer totals.
+     *     The raw rows are pruned once they pass the site's `announce_log_retention_days` window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
+     *     Readable by the member themselves and by staff only: the log contains IP addresses and peer IDs.
+     */
+    get: operations["getUserAnnounceLog"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/{id}/announce-log/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Download a member's announce log as CSV
+     * @description Streams every retained announce for this member as CSV, oldest first, with one header row. Columns: `announced_at`, `torrent_id`, `torrent_name`, `event`, `ip`, `port`, `peer_id` (hex), `uploaded`, `downloaded`, `left_bytes`, `uploaded_delta`, `downloaded_delta`, `counted_downloaded_delta`, `seeder`.
+     *     This is the member's own copy of the personal data the tracker holds about their client. Same audience as the listing: the member, or staff.
+     *     The response is streamed, so a failure part-way through arrives as a truncated body rather than an error status — the row count is the check.
+     */
+    get: operations["exportUserAnnounceLog"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/torrents": {
     parameters: {
       query?: never;
@@ -723,6 +767,106 @@ export interface components {
       current_password: string;
       /** @description The new password */
       new_password: string;
+    };
+    /** @description One announce, exactly as the client reported it. Retained only for `announce_log_retention_days`. */
+    AnnounceLogEntry: {
+      /** Format: int64 */
+      id?: number;
+      /**
+       * Format: int64
+       * @description Null once the torrent has been deleted — the log outlives it
+       */
+      torrent_id?: number | null;
+      /** @description "Deleted Torrent" when the torrent is gone */
+      torrent_name?: string;
+      /**
+       * @description "announce" for a periodic update carrying no event
+       * @enum {string}
+       */
+      event?: "started" | "stopped" | "completed" | "announce";
+      ip?: string;
+      port?: number;
+      /**
+       * @description Hex-encoded — the raw value is arbitrary bytes
+       * @example 2d7142343535302d
+       */
+      peer_id?: string;
+      /**
+       * Format: int64
+       * @description Client-reported cumulative total for the session
+       */
+      uploaded?: number;
+      /**
+       * Format: int64
+       * @description Client-reported cumulative total for the session
+       */
+      downloaded?: number;
+      /** Format: int64 */
+      left_bytes?: number;
+      /**
+       * Format: int64
+       * @description Bytes uploaded since this peer's previous announce
+       */
+      uploaded_delta?: number;
+      /**
+       * Format: int64
+       * @description Raw, before any freeleech discount
+       */
+      downloaded_delta?: number;
+      /**
+       * Format: int64
+       * @description After freeleech discount — what counted toward ratio
+       */
+      counted_downloaded_delta?: number;
+      seeder?: boolean;
+      /** Format: date-time */
+      announced_at?: string;
+    };
+    /** @description One calendar month (UTC) of totals, aggregated from the raw log before it was pruned and kept permanently. */
+    AnnounceLogPeriod: {
+      /** @example 2026-07 */
+      year_month?: string;
+      /**
+       * Format: int64
+       * @description Sum of per-announce upload deltas for the month
+       */
+      uploaded?: number;
+      /**
+       * Format: int64
+       * @description Raw download total, before freeleech discounts
+       */
+      downloaded?: number;
+      /**
+       * Format: int64
+       * @description What counted toward ratio for the month
+       */
+      counted_downloaded?: number;
+      /** Format: int64 */
+      announces?: number;
+      /**
+       * Format: int64
+       * @description How many of those announces were made while seeding
+       */
+      seed_announces?: number;
+      /**
+       * Format: double
+       * @description uploaded / counted_downloaded. 0 when the month is empty, -1 when nothing counted against the member (an effectively infinite ratio).
+       */
+      ratio?: number;
+    };
+    AnnounceLogResponse: {
+      events?: components["schemas"]["AnnounceLogEntry"][];
+      /**
+       * Format: int64
+       * @description Total retained announces for this member
+       */
+      total?: number;
+      page?: number;
+      per_page?: number;
+      /** @description Monthly totals, newest month first, up to 120 months */
+      monthly?: components["schemas"]["AnnounceLogPeriod"][];
+      /** @description How many days of raw announces the site keeps. 0 means pruning is disabled and nothing is deleted. */
+      retention_days?: number;
     };
     Torrent: {
       /** Format: int64 */
@@ -1617,6 +1761,118 @@ export interface operations {
       };
       /** @description Internal server error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getUserAnnounceLog: {
+    parameters: {
+      query?: {
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path: {
+        /** @description The member's numeric ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Announce log page and monthly totals */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AnnounceLogResponse"];
+        };
+      };
+      /** @description Invalid user ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the member and not staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  exportUserAnnounceLog: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The member's numeric ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description CSV export */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/csv": string;
+        };
+      };
+      /** @description Invalid user ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the member and not staff */
+      403: {
         headers: {
           [name: string]: unknown;
         };

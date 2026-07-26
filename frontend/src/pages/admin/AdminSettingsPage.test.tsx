@@ -50,8 +50,14 @@ describe("AdminSettingsPage", () => {
     expect(
       await screen.findByText("Announce Log Retention (days)"),
     ).toBeInTheDocument();
+    // The description has to state that the window now deletes, and that the
+    // monthly totals survive it — an operator shortening this setting is deciding
+    // how long to keep IP addresses, and needs to know what it costs.
     expect(
-      screen.getByText(/no automatic deletion runs yet/i),
+      screen.getByText(/deletes raw rows past this window/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/without losing anyone's transfer totals/i),
     ).toBeInTheDocument();
 
     // The raw key must no longer surface as a label.

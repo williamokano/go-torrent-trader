@@ -107,6 +107,14 @@ const (
 // supposed to introduce.
 const maxSystemChatNameLength = 32
 
+// maxAnnounceLogRetentionDays is a century, which is not a real retention policy —
+// it is the point past which the value stops meaning anything. The worker turns
+// this setting into `days * 24h`, and int64 nanoseconds overflow above roughly
+// 106,751 days, wrapping to a negative duration that the prune reads as "pruning
+// disabled". A bound well inside that keeps the stored number and the behaviour in
+// agreement; 0 is the supported way to keep announces forever.
+const maxAnnounceLogRetentionDays = 36500
+
 // cachedSettingTTL bounds how stale a cached setting may get. Set evicts
 // immediately, which is exact within one process — this is the safety net for a
 // replica that did not serve the write and never sees the event.
@@ -186,6 +194,21 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 		// non-numeric input is rejected here.
 		if _, err := strconv.Atoi(value); err != nil {
 			return fmt.Errorf("%w: %s must be a whole number of days", ErrInvalidSetting, key)
+		}
+	case SettingAnnounceLogRetentionDays:
+		// Same shape as the connector retention above — zero disables pruning — but
+		// with an upper bound, because this one is converted to a time.Duration.
+		// Beyond roughly 106,751 days that multiplication overflows int64 into a
+		// negative value, which the prune reads as "disabled": a fat-fingered entry
+		// would turn pruning off while the admin page displayed the number they
+		// typed. Rejecting it is how the setting stops lying.
+		days, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("%w: %s must be a whole number of days", ErrInvalidSetting, key)
+		}
+		if days > maxAnnounceLogRetentionDays {
+			return fmt.Errorf("%w: %s cannot exceed %d days (use 0 to keep announces indefinitely)",
+				ErrInvalidSetting, key, maxAnnounceLogRetentionDays)
 		}
 	case SettingChatSystemDisplayName:
 		// Blank would render an announcement with no author at all, which reads
