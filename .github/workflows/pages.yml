@@ -2,15 +2,21 @@ name: Project site
 
 # Publishes website/ to GitHub Pages.
 #
-# This does nothing until Pages is enabled for the repository with "GitHub Actions"
-# as the source (Settings → Pages). Until then the deploy step fails harmlessly and
-# nothing is published.
+# Manual-only for now, deliberately. Two things must happen before the site should
+# go live:
+#
+#   1. Pages must be enabled with "GitHub Actions" as the source (Settings → Pages).
+#      Without it this job fails, which would put a red X on main for no reason.
+#   2. A LICENSE must be chosen. Every page of the site says the project is free to
+#      use and fork, and nothing currently grants that.
+#
+# Once both are done, add the push trigger back so the site tracks main:
+#
+#   push:
+#     branches: [main]
+#     paths: ['website/**', '.github/workflows/pages.yml']
+#
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'website/**'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:

@@ -86,8 +86,9 @@ live peers so your swarms survive the cutover. It is **still being built**; see 
 ## Contributing
 
 Work is tracked in [GitHub Issues](https://github.com/williamokano/go-torrent-trader/issues).
-Setup, architecture, testing and the conventions this project holds itself to are in
-**[DEVELOPMENT.md](DEVELOPMENT.md)**.
+**[CONTRIBUTING.md](CONTRIBUTING.md)** covers what a change needs before it can be
+merged; **[DEVELOPMENT.md](DEVELOPMENT.md)** covers setup, architecture and the
+conventions this project holds itself to.
 
 Forking and running your own modified version is explicitly encouraged — you do not
 need permission and you do not need to contribute anything back. If you do want to

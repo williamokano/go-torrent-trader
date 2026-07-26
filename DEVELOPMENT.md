@@ -128,6 +128,9 @@ leak, and a struct-writing insert that silently defeated a column default.
 
 ## Before you push
 
+The full merge checklist — tests, CI, coverage, documentation, the lot — is in
+[CONTRIBUTING.md](CONTRIBUTING.md). The commands below are the mechanical part of it.
+
 ```bash
 cd backend  && go build ./... && go test ./... && go vet ./... && golangci-lint run
 cd frontend && npm run build && npm test && npm run lint && npm run format:check
