@@ -13,6 +13,12 @@ import "sort"
 //   - warnings/restrictions: private moderation between staff and the user
 //   - invites: who holds/issues invites invites begging and social engineering;
 //     redeemed-event metadata also carries the invite token
+//   - chat deletions: same reasoning as warnings — moderation between staff and
+//     one member. Announcing "staff deleted 40 messages from X" to the whole site
+//     amplifies whatever was removed, which is the opposite of what deleting it
+//     was for. Note mutes and unmutes stay public deliberately: a mute is already
+//     evident to everyone in the room when the person stops being able to post,
+//     so hiding the log entry would conceal nothing.
 var staffOnlyTypes = map[Type]struct{}{
 	BackupCreated:      {},
 	BackupDeleted:      {},
@@ -37,6 +43,9 @@ var staffOnlyTypes = map[Type]struct{}{
 	InviteRedeemed:     {},
 	InviteRevoked:      {},
 	InviteAutoGranted:  {},
+
+	ChatMessageDeleted:      {},
+	ChatUserMessagesDeleted: {},
 	// Activity-log-only types written directly by the warning escalation
 	// listener (no corresponding bus event): they expose warning counts and
 	// thresholds. The escalation ban itself still surfaces publicly through
