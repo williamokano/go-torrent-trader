@@ -301,7 +301,11 @@ func (r *ForumPostRepo) ListEdits(ctx context.Context, postID int64) ([]model.Fo
 	}
 	defer func() { _ = rows.Close() }()
 
-	var edits []model.ForumPostEdit
+	// make, not nil: a nil slice marshals to JSON null, and an un-edited post is the
+	// overwhelmingly likely case for this endpoint — so a strictly-typed client broke
+	// on the happy path rather than an edge case. Every other forum collection ships
+	// [] already.
+	edits := make([]model.ForumPostEdit, 0)
 	for rows.Next() {
 		var e model.ForumPostEdit
 		var diff, oldBody, newBody, reason sql.NullString
