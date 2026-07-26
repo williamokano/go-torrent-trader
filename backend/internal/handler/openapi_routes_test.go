@@ -232,24 +232,32 @@ func TestEveryAdminRouteIsInternal(t *testing.T) {
 	t.Logf("checked %d admin routes", checked)
 }
 
-// These six are the reason x-audience is per-operation rather than derived from
-// the path. They are forum topic moderation: staff-only, but registered on
-// ordinary /api/v1/forums/... paths with no route-level guard, because the
-// service layer does the authorizing (see the "Moderation endpoints (staff only
-// enforced at service layer)" group in router.go).
+// These are the reason x-audience is per-operation rather than derived from the
+// path. They are forum moderation: staff-only, but registered on ordinary
+// /api/v1/forums/... paths with no route-level guard, because the service layer
+// does the authorizing (see the "Moderation endpoints (staff only enforced at
+// service layer)" group in router.go).
 //
 // A filter that published everything outside /api/v1/admin would publish every
-// one of them, and the document would tell any member that they can rename,
-// move, lock and pin other people's topics. Hard-coded rather than derived: the
-// point is that nothing about the route itself reveals the constraint.
+// one of them, and the document would tell any member that they can restore
+// other people's deleted posts and read the staff-only edit history. Hard-coded
+// rather than derived: the point is that nothing about the route itself reveals
+// the constraint.
+//
+// Note what is deliberately *absent*. Lock, delete-topic and rename are not on
+// this list even though they read as moderation, because none of them is
+// staff-only: LockTopic and DeleteTopic admit the topic's author inside a
+// 30-minute grace period, and RenameTopic admits the author with no time limit
+// at all. Adding them here would be wrong, and would publish a document that
+// understates what a member can do.
 func TestServiceLayerStaffRoutesAreInternal(t *testing.T) {
 	staffOnly := []string{
-		"POST /api/v1/forums/topics/{id}/lock",
 		"POST /api/v1/forums/topics/{id}/unlock",
 		"POST /api/v1/forums/topics/{id}/pin",
 		"POST /api/v1/forums/topics/{id}/unpin",
 		"POST /api/v1/forums/topics/{id}/move",
-		"PUT /api/v1/forums/topics/{id}/title",
+		"POST /api/v1/forums/posts/{id}/restore",
+		"GET /api/v1/forums/posts/{id}/edits",
 	}
 
 	documented := specOperations(t, fullSpecPath)

@@ -1512,6 +1512,968 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums:
+    get:
+      operationId: listForums
+      summary: List forum categories and their forums
+      description: >
+        Returns the forum index: categories in display order, each with the forums inside it. Forums the caller's group level cannot reach are omitted, so this is already filtered to what the member may open. A category left with no readable forums is dropped from the index entirely rather than returned empty, so every category here has at least one forum in it and the index a member sees may be shorter than the one an operator configured.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The forum index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ForumCategory'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/search:
+    get:
+      operationId: searchForumPosts
+      summary: Full-text search across forum posts
+      description: >
+        Searches post bodies. Results are restricted to forums the caller may read, so a search cannot be used to discover the contents of a forum above the member's level.
+
+        Each result carries `post_number` (the post's position in its topic) and the `page` that position falls on at 25 posts per page, so a client can link straight to the post rather than to the top of the topic.
+
+        `snippet` is HTML: the matched terms are wrapped in `<mark>` tags and everything else is escaped. It is safe to render as markup and wrong to display as plain text.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 200
+          description: >
+            The search terms, measured in runes. A `q` that passes those bounds but reduces to no usable search terms returns an empty 200, not a 400.
+
+        - name: forum_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: Restrict the search to one forum
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+      responses:
+        '200':
+          description: Matching posts, most relevant first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ForumSearchResult'
+                  total:
+                    type: integer
+                    format: int64
+                  page:
+                    type: integer
+                    description: >
+                      Echoes the value as **requested**, not as applied — a non-positive or unparseable `page` serves page 1 but is reported back verbatim (`0` for an unparseable one). Paginate from your own counter, not from this field. Tracked in #236.
+
+                  per_page:
+                    type: integer
+                    description: >
+                      Echoes the value as **requested**, not as applied. `per_page` is capped at 100 server-side, so `?per_page=500` returns 100 results and reports 500 here. Tracked in #236.
+
+        '400':
+          description: >
+            `q` was absent, shorter than 2 runes, longer than 200, or `forum_id` was not a positive number
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/{id}:
+    get:
+      operationId: getForum
+      summary: Get one forum
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The forum
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forum:
+                    $ref: '#/components/schemas/Forum'
+        '400':
+          description: Invalid forum ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The forum is above the caller's group level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Forum not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/{id}/topics:
+    get:
+      operationId: listForumTopics
+      summary: List topics in a forum
+      description: >
+        Pinned topics first, then by most recent activity. The response repeats the forum itself so a client can render a header without a second request, and carries `can_create_topic` — posting has its own level threshold (`min_post_level`), which can be higher than the one needed to read.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+      responses:
+        '200':
+          description: A page of topics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forum:
+                    $ref: '#/components/schemas/Forum'
+                  topics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ForumTopic'
+                  total:
+                    type: integer
+                    format: int64
+                  page:
+                    type: integer
+                    description: >
+                      Echoes the value as **requested**, not as applied. See #236.
+
+                  per_page:
+                    type: integer
+                    description: >
+                      Echoes the value as **requested**, not as applied; the server caps it at 100. See #236.
+
+                  can_create_topic:
+                    type: boolean
+                    description: >
+                      Whether the caller's group level reaches the forum's `min_post_level`. It is **only** a level check: it does not account for a revoked forum privilege, so a member whose posting has been suspended sees `true` here and still gets 403 from the create call. Tracked in #235.
+
+        '400':
+          description: Invalid forum ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The forum is above the caller's group level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Forum not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createForumTopic
+      summary: Start a topic
+      description: >
+        Creates the topic and its first post in one call, and returns both. The first post cannot be deleted on its own — deleting the topic is what removes it.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateForumTopicRequest'
+      responses:
+        '201':
+          description: >
+            The new topic and its first post, returned **as just written**. Unlike every other forum response, these two are not re-read after the insert, so the fields that come from joins are absent or zero-valued here: `username`, `forum_name`, `group_name` are empty strings, `avatar` is null, `user_created_at` is the zero time, `user_post_count` is 0, and `is_first_post` is `false` even though this post by definition opens the topic. Re-read the topic to get a fully populated shape. Tracked in #229; when that is fixed this caveat goes away.
+
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  topic:
+                    $ref: '#/components/schemas/ForumTopic'
+                  post:
+                    $ref: '#/components/schemas/ForumPost'
+        '400':
+          description: >
+            Invalid forum ID, unparseable body, an empty title or body, or a title longer than 200 runes
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            The caller's group level is below the forum's `min_post_level`, they cannot read the forum at all, or their forum privilege has been revoked (`can_forum`) — the last of these is the common case in practice and is not reflected in `can_create_topic`
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Forum not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/topics/{id}:
+    get:
+      operationId: getForumTopic
+      summary: Get a topic and a page of its posts
+      description: >
+        Reading a topic increments its view count.
+
+        Soft-deleted posts are still returned, with `is_deleted` true — a gap in the numbering would be more confusing than a placeholder. Their `body` and `mentioned_usernames` are blanked for anyone but staff, so a deleted post cannot be read through this endpoint by the member it was hidden from.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+      responses:
+        '200':
+          description: The topic and one page of posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  topic:
+                    $ref: '#/components/schemas/ForumTopic'
+                  posts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ForumPost'
+                  total:
+                    type: integer
+                    format: int64
+                  page:
+                    type: integer
+                    description: >
+                      Echoes the value as **requested**, not as applied. See #236.
+
+                  per_page:
+                    type: integer
+                    description: >
+                      Echoes the value as **requested**, not as applied; the server caps it at 100. See #236.
+
+                  can_moderate:
+                    type: boolean
+                    description: >
+                      True for staff who also pass the moderation hierarchy check — so it is not simply "is staff", and is false for a staff member outranked by the topic's author — and true for the topic's own author within the 30-minute grace period after creating it.
+
+                      It is **not** a single permission. An author who holds it by the grace period may lock and delete but not pin, unpin or move, which are staff-only regardless. Renaming is separate again: the author may rename their own topic with no time limit, so `can_moderate: false` does not mean rename is refused. Tracked in #235.
+
+        '400':
+          description: Invalid topic ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The topic's forum is above the caller's group level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Topic not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteForumTopic
+      summary: Delete a topic and every post in it
+      description: >
+        Published rather than internal because the author may delete their own topic within 30 minutes of creating it — a typo in a new thread does not need staff. After that window it is staff-only, and a staff member cannot delete a topic started by someone who outranks them.
+
+        The optional `reason` is recorded in the activity log.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForumModerationReason'
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          description: Invalid topic ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            Not the author inside the grace period, not staff, or staff outranked by the topic's author
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Topic not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/topics/{id}/posts:
+    post:
+      operationId: createForumPost
+      summary: Reply to a topic
+      description: >
+        `@mentions` in the body notify the members named, and the usernames that resolved come back in `mentioned_usernames`.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateForumPostRequest'
+      responses:
+        '201':
+          description: The new post
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post:
+                    $ref: '#/components/schemas/ForumPost'
+        '400':
+          description: >
+            Invalid topic ID, unparseable body, an empty body, or a `reply_to_post_id` that is not a post in this topic
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            The topic is locked and the caller is not staff, its forum is above the caller's level, or the caller's forum privilege has been revoked (`can_forum`) — the last of these is the common case in practice
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: >
+            The topic, or the forum it belongs to, was not found — the message names which
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/posts/{id}:
+    put:
+      operationId: editForumPost
+      summary: Edit a post
+      description: >
+        The author may edit their own post; staff may edit anyone's, and the optional `reason` is stored on the edit-history row for that case.
+
+        An edit whose body is identical to the current one is a no-op: it returns **200** with the post unchanged, writes no history row, and does not move `edited_at`.
+
+        Returns **409** only when another edit commits between *this request's* read of the post and its write — the comparison baseline is the body the server just read, not anything the client sent. This is **not** optimistic concurrency against the copy you are holding: there is no version, ETag or expected-body field to send, so a client editing from a body that is already stale overwrites the newer one and gets 200. Re-read the post immediately before submitting.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditForumPostRequest'
+      responses:
+        '200':
+          description: The edited post
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post:
+                    $ref: '#/components/schemas/ForumPost'
+        '400':
+          description: Invalid post ID, unparseable body, or an empty body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            Not the author and not staff; the caller's forum privilege has been revoked (`can_forum`); the topic is locked and the caller is not staff; or the post's forum is above the caller's group level
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: >
+            The post, its topic, or the forum they belong to was not found — the message names which
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: >
+            Another edit committed between this request's read and its write. Error code `edit_conflict`; reload and retry.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteForumPost
+      summary: Delete a post
+      description: >
+        A soft delete: the post keeps its place in the topic marked `is_deleted`, and staff can still read it and restore it. The author may delete their own post; staff may delete anyone's.
+
+        The first post of a topic cannot be deleted this way — delete the topic instead. That returns **400**, not 403: it is not a permission problem.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          description: Invalid post ID, or this is the topic's first post
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            Not the author and not staff; the caller's forum privilege has been revoked (`can_forum`); the topic is locked and the caller is not staff; or the post's forum is above the caller's group level
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: >
+            The post, its topic, or the forum they belong to was not found — the message names which
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/topics/{id}/lock:
+    post:
+      operationId: lockForumTopic
+      summary: Lock a topic
+      description: >
+        A locked topic can still be read; replies are refused with 403.
+
+        Published rather than internal for the same reason as deleting a topic: the author may lock their own topic within 30 minutes of creating it, without being staff. After that window it is staff-only and subject to the moderation hierarchy — a topic started by someone who outranks the caller cannot be locked by them.
+
+        Unlocking is staff-only with no such allowance, so an author who locks their own thread cannot reopen it.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForumModerationReason'
+      responses:
+        '200':
+          description: Locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumModerationResult'
+        '400':
+          description: Invalid topic ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            Not the author inside the 30-minute grace period, not staff, or staff outranked by the topic's author. An author within the window is also refused if their forum privilege has been revoked (`can_forum`).
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Topic not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/topics/{id}/title:
+    put:
+      operationId: renameForumTopic
+      summary: Rename a topic
+      description: >
+        Published rather than internal because this is not staff-only: the topic's author may rename their own topic, with **no** time limit — unlike locking and deleting, which the author may only do within 30 minutes of creating the topic. Staff may rename anyone's, subject to the moderation hierarchy.
+
+        An author cannot rename a locked topic; staff can. Note that `can_moderate` on the topic response does not describe this endpoint: it can be `false` while the author may still rename.
+
+        The optional `reason` is recorded in the activity log.
+
+      tags: [forums]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameForumTopicRequest'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumModerationResult'
+        '400':
+          description: >
+            Invalid topic ID, unparseable body, an empty title, or a title longer than 200 runes
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            Not the author and not staff; an author whose forum privilege has been revoked (`can_forum`) or whose topic is locked; or staff outranked by the topic's author
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Topic not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/topics/{id}/subscribe:
+    post:
+      operationId: subscribeToForumTopic
+      summary: Subscribe to a topic
+      description: >
+        Notifies the caller when someone replies. Subscribing re-checks forum access, so a subscription cannot be used to receive content from a forum the member has since lost access to.
+
+      tags: [forums, notifications]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Subscribed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumTopicSubscription'
+        '400':
+          description: Invalid topic ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The topic's forum is above the caller's group level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Topic not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: unsubscribeFromForumTopic
+      summary: Unsubscribe from a topic
+      description: >
+        Idempotent: unsubscribing when not subscribed succeeds. No forum access check — losing access must never leave a member unable to stop notifications.
+
+      tags: [forums, notifications]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Not subscribed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumTopicSubscription'
+        '400':
+          description: Invalid topic ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/forums/topics/{id}/subscription:
+    get:
+      operationId: getForumTopicSubscription
+      summary: Whether the caller is subscribed to a topic
+      tags: [forums, notifications]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The caller's subscription state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumTopicSubscription'
+        '400':
+          description: Invalid topic ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     bearerAuth:
@@ -1890,6 +2852,306 @@ components:
         reason:
           type: string
           description: Reason for the report
+    ForumCategory:
+      type: object
+      description: >
+        A heading in the forum index with the forums under it. Forums above the caller's group level are omitted, and a category whose every forum is above their level is not returned at all — so `forums` is never empty.
+
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        sort_order:
+          type: integer
+        forums:
+          type: array
+          items:
+            $ref: '#/components/schemas/Forum'
+    Forum:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        category_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        sort_order:
+          type: integer
+        topic_count:
+          type: integer
+        post_count:
+          type: integer
+        min_group_level:
+          type: integer
+          description: The group level needed to read this forum
+        min_post_level:
+          type: integer
+          description: >
+            The group level needed to post in it. Can be higher than `min_group_level`, which is how a read-only announcements forum is configured.
+
+        created_at:
+          type: string
+          format: date-time
+        last_post_at:
+          type: string
+          format: date-time
+          description: Absent when the forum has never been posted in
+        last_post_username:
+          type: string
+          description: Absent when the forum has never been posted in
+        last_post_topic_id:
+          type: integer
+          format: int64
+          description: Absent when the forum has never been posted in
+        last_post_topic_title:
+          type: string
+          description: Absent when the forum has never been posted in
+    ForumTopic:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        forum_id:
+          type: integer
+          format: int64
+        forum_name:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+          description: The member who started the topic
+        username:
+          type: string
+        title:
+          type: string
+        pinned:
+          type: boolean
+        locked:
+          type: boolean
+          description: A locked topic can still be read; replies are refused
+        post_count:
+          type: integer
+        view_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_post_at:
+          type: string
+          format: date-time
+          description: >
+            Points at the opening post from the moment the topic is created, so this is present on every topic — including one with no replies yet. It is not a "has replies" signal; compare `post_count` for that.
+
+        last_post_username:
+          type: string
+          description: >
+            Present on every topic, naming the author for a topic with no replies. Since the opening post cannot be soft-deleted, this always resolves.
+
+    ForumPost:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        topic_id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        avatar:
+          type: string
+          nullable: true
+          description: Null when the member has not set one
+        group_name:
+          type: string
+        body:
+          type: string
+          description: >
+            Markdown. **Empty string** on a soft-deleted post for anyone but staff — the post keeps its place in the topic but its content is withheld.
+
+        mentioned_usernames:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Members `@mentioned` in the body, as resolved when the post was last written **or edited** — an edit re-resolves them against the new body and replaces the stored list, so a mention removed by an edit disappears here. Empty array, not null, for a post with no mentions.
+
+            Null on a soft-deleted post for anyone but staff: who a hidden post named is as much of a disclosure as what it said.
+
+        created_at:
+          type: string
+          format: date-time
+        user_created_at:
+          type: string
+          format: date-time
+          description: When the post's author joined the site, for the post's byline
+        user_post_count:
+          type: integer
+          description: The author's total post count, for the byline
+        is_deleted:
+          type: boolean
+        is_first_post:
+          type: boolean
+          description: >
+            True for the post that opens the topic. It cannot be deleted on its own — deleting the topic is what removes it.
+
+        reply_to_post_id:
+          type: integer
+          format: int64
+          description: Absent unless this post replies to a specific other post
+        edited_at:
+          type: string
+          format: date-time
+          description: Absent if never edited
+        edited_by:
+          type: integer
+          format: int64
+          description: >
+            User ID of whoever last edited it — an id, not a username, so a client showing a name has to resolve it. Absent if never edited.
+
+        deleted_at:
+          type: string
+          format: date-time
+          description: Absent unless deleted
+        deleted_by:
+          type: integer
+          format: int64
+          description: >
+            User ID of whoever deleted it. Present for staff only — a member is told their post was removed, not by whom.
+
+    ForumSearchResult:
+      type: object
+      properties:
+        post_id:
+          type: integer
+          format: int64
+        topic_id:
+          type: integer
+          format: int64
+        topic_title:
+          type: string
+        forum_id:
+          type: integer
+          format: int64
+        forum_name:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        body:
+          type: string
+          description: The full post body
+        snippet:
+          type: string
+          description: >
+            **HTML, not plain text.** The matched terms are wrapped in `<mark>` tags and every other character is escaped, so it is safe to render as markup and will show visible tags if rendered as text.
+
+          example: "the <mark>seedbox</mark> guide everyone links to"
+        created_at:
+          type: string
+          format: date-time
+        post_number:
+          type: integer
+          description: The post's 1-based position within its topic
+        page:
+          type: integer
+          description: >
+            Which page of the topic `post_number` falls on at 25 posts per page, so a client can deep-link to the post rather than the top of the thread.
+
+    ForumTopicSubscription:
+      type: object
+      properties:
+        subscribed:
+          type: boolean
+    ForumModerationResult:
+      type: object
+      description: >
+        What the topic moderation endpoints return. Deliberately not the updated topic: the client already knows what it asked for, and re-reading the topic is a separate request it may not need.
+
+      properties:
+        message:
+          type: string
+          example: topic locked
+    ForumModerationReason:
+      type: object
+      description: >
+        The optional note recorded in the activity log alongside a moderation action. The whole body is optional — an unparseable or absent body is treated as no reason rather than as an error, so a client that sends nothing still works.
+
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Truncated to 500 characters if longer
+    CreateForumTopicRequest:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          description: >
+            Trimmed of surrounding whitespace, then rejected if empty or longer than 200 runes.
+
+        body:
+          type: string
+          description: Markdown, becomes the topic's first post
+    CreateForumPostRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          description: Markdown. `@mentions` notify the members named.
+        reply_to_post_id:
+          type: integer
+          format: int64
+          description: >
+            Marks this post as a reply to another one in the same topic. A post from a different topic is rejected.
+
+    EditForumPostRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+        reason:
+          type: string
+          maxLength: 500
+          description: >
+            Why the post was edited, stored on the edit-history row. Meant for a staff member editing someone else's post; truncated to 500 runes.
+
+    RenameForumTopicRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          description: >
+            Trimmed of surrounding whitespace, then rejected if empty or longer than 200 runes.
+
+        reason:
+          type: string
+          description: >
+            Recorded in the activity log. Unlike the reason on the other moderation endpoints this one is **not** capped or truncated — see #230. Do not rely on the absence of a limit; it is a bug rather than a guarantee.
+
     Report:
       type: object
       properties:

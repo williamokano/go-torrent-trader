@@ -288,29 +288,9 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Must match PER_PAGE in frontend/src/pages/ForumTopicViewPage.tsx and
-	// the default perPage in HandleGetTopic. Deep-link page numbers depend on this.
-	const topicPerPage = 25
 	items := make([]map[string]interface{}, 0, len(results))
 	for _, sr := range results {
-		resultPage := int(math.Ceil(float64(sr.PostNumber) / float64(topicPerPage)))
-		if resultPage < 1 {
-			resultPage = 1
-		}
-		items = append(items, map[string]interface{}{
-			"post_id":     sr.PostID,
-			"body":        sr.Body,
-			"topic_id":    sr.TopicID,
-			"topic_title": sr.TopicTitle,
-			"forum_id":    sr.ForumID,
-			"forum_name":  sr.ForumName,
-			"user_id":     sr.UserID,
-			"username":    sr.Username,
-			"created_at":  sr.CreatedAt,
-			"snippet":     sanitizeSnippet(sr.Snippet),
-			"post_number": sr.PostNumber,
-			"page":        resultPage,
-		})
+		items = append(items, searchResultResponse(sr))
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -679,6 +659,39 @@ func handleForumError(w http.ResponseWriter, err error) {
 	default:
 		slog.Error("unexpected forum error", "error", err)
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "an unexpected error occurred")
+	}
+}
+
+// topicPerPage must match PER_PAGE in frontend/src/pages/ForumTopicViewPage.tsx
+// and the default perPage in HandleGetTopic. A search hit's deep-link page
+// number is computed from it, so the three have to agree or the link lands on
+// the wrong page of the thread.
+const topicPerPage = 25
+
+// searchResultResponse builds one forum search hit.
+//
+// Lifted out of the loop in HandleSearchForum so openapi_forum_shapes_test.go
+// can pin its twelve keys to the ForumSearchResult schema. Search is the public
+// forum body most likely to be built against by someone outside this repo, and
+// it was the only one whose shape lived inline with no function to pin.
+func searchResultResponse(sr model.ForumSearchResult) map[string]interface{} {
+	page := int(math.Ceil(float64(sr.PostNumber) / float64(topicPerPage)))
+	if page < 1 {
+		page = 1
+	}
+	return map[string]interface{}{
+		"post_id":     sr.PostID,
+		"body":        sr.Body,
+		"topic_id":    sr.TopicID,
+		"topic_title": sr.TopicTitle,
+		"forum_id":    sr.ForumID,
+		"forum_name":  sr.ForumName,
+		"user_id":     sr.UserID,
+		"username":    sr.Username,
+		"created_at":  sr.CreatedAt,
+		"snippet":     sanitizeSnippet(sr.Snippet),
+		"post_number": sr.PostNumber,
+		"page":        page,
 	}
 }
 
