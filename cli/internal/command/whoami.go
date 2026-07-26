@@ -65,10 +65,11 @@ func newWhoamiCmd(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, _, err := g.authClient()
+			c, resolved, err := g.authClient()
 			if err != nil {
 				return err
 			}
+			warnIfPlaintext(cmd.ErrOrStderr(), resolved.URL)
 
 			var raw json.RawMessage
 			if err := c.Get(cmd.Context(), "/api/v1/auth/me", &raw); err != nil {

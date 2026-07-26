@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // what these tests observe.
 func isolate(t *testing.T) {
 	t.Helper()
-	t.Setenv(config.EnvConfigDir, t.TempDir())
+	t.Setenv(config.EnvConfigDir, privateTempDir(t))
 	t.Setenv(config.EnvProfile, "")
 	t.Setenv(config.EnvURL, "")
 	t.Setenv(config.EnvToken, "")
@@ -460,4 +461,17 @@ func TestProfileCompletionOffersConfiguredNames(t *testing.T) {
 	if len(names) != 2 || names[0] != "prod" || names[1] != "staging" {
 		t.Errorf("names = %v, want [prod staging] sorted", names)
 	}
+}
+
+// privateTempDir is t.TempDir() at the mode a real install has. t.TempDir()
+// inherits the umask (0775 with umask 002); ensureConfigDir creates the real
+// directory with an explicit MkdirAll(0700), and Load refuses a group-writable
+// one, so the fixture has to match reality rather than the build box's umask.
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("tightening temp config dir: %v", err)
+	}
+	return dir
 }

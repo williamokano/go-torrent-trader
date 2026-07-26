@@ -265,3 +265,39 @@ and the destructive command is where it will bite. When a test helper clears
 environment variables for isolation, make sure some test sets each one back — an
 isolation helper that neutralises the input under test turns the suite green for
 the wrong reason.
+
+## A guard that cannot be reached is not a guard — check the framework's order
+
+The CLI documented its exit codes as an interface: `2` for "bad flag, bad
+argument, unknown command". `tt profile lst` exited **0**, printed help, and a
+cron wrapper written as `tt profile lst || alert` never fired. The most likely
+operator error there is was reported as success.
+
+Two cobra details, each individually reasonable, combined into the hole:
+
+- `Command.Find` only consults `legacyArgs` when `Args` is nil, and `legacyArgs`
+  errors for an unknown subcommand of the **root** while returning nil for an
+  unknown subcommand of anything else. So grouping commands accepted anything.
+- `Command.execute` returns `flag.ErrHelp` for a command that is not `Runnable()`
+  **before** it calls `ValidateArgs`.
+
+The first fix — setting `Args` on the grouping commands — made it *worse*: it
+moved validation out of `Find` into `execute`, where the not-Runnable check
+short-circuited first, so the root's previously-working error disappeared too and
+`tt bogus` went from exit 1 to exit 0. The fix only worked once the grouping
+commands also got a `RunE`, which is what makes `ValidateArgs` reachable at all.
+
+**Rule:** when you add a validation hook a framework calls, verify *where in the
+framework's order it runs* before believing it fires — read the dispatch path, or
+assert against the built binary's exit code rather than against the hook. A
+handler installed on a branch that is never taken looks exactly like a handler
+that works. Related: the same PR's `mode&0o077` credential check can never pass on
+Windows, where Go synthesises the permission bits — a check whose condition is
+unsatisfiable on a platform you ship a binary for is the same failure wearing a
+different hat.
+
+**Corollary on scope:** the reviewer also flagged that a base URL with a path was
+accepted, producing `/api/v1/auth/me/api/v1/auth/me`. Rejecting paths turned
+`TestBaseURLWithAPathPrefixIsPreserved` red — a site served from a subdirectory is
+a supported deployment. A finding that is real is not automatically a finding you
+should act on; run the suite before believing a tightening is free.

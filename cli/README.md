@@ -80,6 +80,31 @@ somewhere other than the profile's own site, `tt` refuses to send the stored
 credential and tells you to pass one explicitly. A typo in a hostname should not
 hand your bearer token to whoever happens to answer.
 
+**`config.yaml` must not be writable by anyone else, and `tt` refuses to read it
+if it is.** The binding above compares the target against the profile's URL, so
+it is only worth what that file is worth: anyone who can rewrite `config.yaml`
+can repoint a profile at a host they control and collect the token on your next
+command, which `credentials.yaml` being `0600` does nothing to prevent — the
+token is read correctly and sent to the wrong place. The directory is checked
+too, since replacing a file only needs write access to the directory holding it.
+Being *readable* is fine; that file holds no secret.
+
+**A redirect is never followed to another origin.** Go's default policy drops the
+`Authorization` header only when the *hostname* changes — it ignores the scheme
+and the port. So a redirect to another port on the same host forwards your token
+to whatever is listening there, and an `https` → `http` redirect forwards it in
+cleartext, which is exactly what a reverse proxy missing `X-Forwarded-Proto`
+produces. Same-origin redirects are followed normally.
+
+**Plaintext `http://` to a remote host warns on stderr.** It is not refused —
+`http` against localhost or a private link is legitimate — but a full-account
+credential crossing the network in the clear should not be silent. Loopback is
+exempt, so the warning stays worth reading.
+
+On Windows the file-mode checks above are skipped, because the permission bits Go
+reports there are synthesised rather than real: every file would look
+world-readable and no `chmod` could fix it. `%AppData%` is already per-user.
+
 ## Output
 
 `--output table` (default), `json`, or `yaml`.

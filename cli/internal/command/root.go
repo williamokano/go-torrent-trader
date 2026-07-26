@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -80,6 +81,28 @@ func (g *globals) profileName(f *config.File, arg string) string {
 		return arg
 	}
 	return config.ProfileName(f, g.profile)
+}
+
+// warnIfPlaintext notes on stderr that a credential is about to cross an
+// unencrypted connection.
+//
+// Not an error: http is legitimate against localhost during development, and
+// against a host reachable only over a private link. But a bearer token that is
+// also the site's full-account credential going out in cleartext to a remote host
+// is worth one line, and silence reads as approval. Loopback is exempt because
+// warning there would train people to ignore it.
+//
+// stderr so it never corrupts `-o json` piped into jq.
+func warnIfPlaintext(w io.Writer, rawURL string) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "http" {
+		return
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return
+	}
+	_, _ = fmt.Fprintf(w, "tt: warning: %s is not https, so the token is sent in cleartext\n", rawURL)
 }
 
 // authClient builds a client for an endpoint that requires authentication.
@@ -171,13 +194,34 @@ func NewRoot(version string) *cobra.Command {
 }
 
 // tagArgumentErrors marks every command's argument-validation failure as a usage
-// error.
+// error, and gives grouping commands the argument check cobra does not.
 //
 // Cobra routes flag errors through SetFlagErrorFunc but returns argument errors
 // as plain values, so "too many arguments" would otherwise be indistinguishable
 // from a failed API call. Walking the tree here means a command added later is
 // classified correctly without its author having to remember.
+//
+// The second case is the one that matters, because its absence made `tt` report
+// success for a typo. When Args is nil cobra falls back to legacyArgs, which
+// returns an error for an unknown subcommand of the *root* and nil for an unknown
+// subcommand of anything else — so `tt profile lst` printed help and exited 0. A
+// cron wrapper written as `tt profile lst || alert` never fires. Root was wrong
+// too, in a smaller way: its error was real but untagged, so a mistyped command
+// exited 1 (general failure) where a mistyped *flag* exited 2.
+//
+// Handled here rather than by putting cobra.NoArgs on each grouping command,
+// because that relies on the author of the next one remembering — which is the
+// same fragility this function exists to remove.
+// Two cobra details make this fiddlier than it looks, and both were load-bearing
+// in the bug. Command.Find only consults legacyArgs when Args is nil, so setting
+// Args moves validation from Find into execute; and execute returns flag.ErrHelp
+// for a command that is not Runnable *before* it calls ValidateArgs. A grouping
+// command therefore needs both an Args check and a RunE, or the check is never
+// reached and the typo still exits 0.
 func tagArgumentErrors(cmd *cobra.Command) {
+	// Read before RunE is assigned below, or every group looks runnable.
+	runnable := cmd.Runnable()
+
 	if validate := cmd.Args; validate != nil {
 		cmd.Args = func(c *cobra.Command, args []string) error {
 			if err := validate(c, args); err != nil {
@@ -185,10 +229,50 @@ func tagArgumentErrors(cmd *cobra.Command) {
 			}
 			return nil
 		}
+	} else if cmd.HasSubCommands() {
+		// Groups subcommands, so a leftover argument is a mistyped one. Leaf
+		// commands keep nil Args and cobra's accept-anything default.
+		cmd.Args = func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
+			return usageError{fmt.Errorf("unknown command %q for %q%s",
+				args[0], c.CommandPath(), suggestionsFor(c, args[0]))}
+		}
 	}
+
+	if cmd.HasSubCommands() && !runnable {
+		// Makes ValidateArgs reachable. Only ever runs with no leftover
+		// arguments, since the check above rejects the rest, so it reproduces
+		// what cobra's non-runnable path did: show help and succeed.
+		cmd.RunE = func(c *cobra.Command, _ []string) error { return c.Help() }
+	}
+
 	for _, child := range cmd.Commands() {
 		tagArgumentErrors(child)
 	}
+}
+
+// suggestionsFor reproduces the "Did you mean this?" block cobra appends to its
+// own unknown-command error, which is unexported. Worth keeping: the whole point
+// of failing on a typo is helping the operator fix it.
+func suggestionsFor(cmd *cobra.Command, arg string) string {
+	if cmd.DisableSuggestions {
+		return ""
+	}
+	if cmd.SuggestionsMinimumDistance <= 0 {
+		cmd.SuggestionsMinimumDistance = 2
+	}
+	suggestions := cmd.SuggestionsFor(arg)
+	if len(suggestions) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\nDid you mean this?\n")
+	for _, s := range suggestions {
+		_, _ = fmt.Fprintf(&sb, "\t%v\n", s)
+	}
+	return sb.String()
 }
 
 // exitCode classifies a command failure.
@@ -216,6 +300,13 @@ func exitCode(err error) int {
 		}
 		// Any other status came from the site, so it answered: not a network
 		// problem, whatever else it is.
+		return ExitError
+	}
+
+	// Checked before net.Error, which *url.Error satisfies: a refused redirect
+	// means the site answered and answered wrongly, so reporting it as
+	// unreachable would have a cron wrapper retry an outage that is not happening.
+	if errors.Is(err, client.ErrRedirect) {
 		return ExitError
 	}
 

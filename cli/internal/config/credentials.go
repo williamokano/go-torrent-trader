@@ -143,11 +143,35 @@ func acquireLock(path string) (func(), error) {
 		if !errors.Is(err, os.ErrExist) {
 			return nil, fmt.Errorf("acquiring credential lock: %w", err)
 		}
+		// A lock older than any real critical section can only be debris from a
+		// killed process. Without this, one SIGKILL mid-write leaves every later
+		// `tt auth` command failing forever — on a CI image or a container, with
+		// nobody able to run the rm the error suggests. The whole guarded section
+		// is a read, a marshal and a rename, so a lock this old is not contended.
+		if stale, err := lockIsStale(path); err == nil && stale {
+			// Best effort: if another process wins the race to remove it, the
+			// next attempt simply takes the lock normally.
+			_ = os.Remove(path)
+			continue
+		}
 		time.Sleep(delay)
 	}
-	// A stale lock left by a killed process needs a human, and saying so beats
-	// silently overwriting whatever the other process was in the middle of.
 	return nil, fmt.Errorf("%w: remove %s if no other tt process is running", ErrLocked, path)
+}
+
+// staleLockAge is how old a lock file must be to count as abandoned. Generous
+// next to the microseconds the guarded write takes, so a live holder is never
+// mistaken for a dead one, and short next to how long an operator would spend
+// working out why tt stopped storing tokens.
+const staleLockAge = 30 * time.Second
+
+func lockIsStale(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		// Gone already, so the next O_EXCL attempt decides.
+		return false, err
+	}
+	return time.Since(info.ModTime()) > staleLockAge, nil
 }
 
 func loadCredentialFile() (*credentialFile, string, error) {
@@ -167,7 +191,7 @@ func loadCredentialFile() (*credentialFile, string, error) {
 	// Checked on every path that touches the file, not only on read: a write
 	// that quietly tightened the mode would repair the symptom and leave the
 	// user believing tokens were never exposed.
-	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+	if mode := info.Mode().Perm(); modeChecksSupported && mode&0o077 != 0 {
 		return nil, "", fmt.Errorf("%w: %s is %#o and its tokens should be treated as compromised. Rotate them, then run 'chmod 600 %s'",
 			ErrCredentialsTooOpen, path, mode, path)
 	}
@@ -200,7 +224,7 @@ func ensureConfigDir(dir string) error {
 	if err != nil {
 		return fmt.Errorf("inspecting config directory: %w", err)
 	}
-	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+	if mode := info.Mode().Perm(); modeChecksSupported && mode&0o077 != 0 {
 		if err := os.Chmod(dir, 0o700); err != nil {
 			return fmt.Errorf("tightening config directory %s from %#o: %w", dir, mode, err)
 		}

@@ -85,6 +85,9 @@ func Load() (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseIfOthersCanWrite(path); err != nil {
+		return nil, err
+	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return &File{Profiles: map[string]Profile{}}, nil
@@ -102,17 +105,116 @@ func Load() (*File, error) {
 	return &f, nil
 }
 
+// ErrConfigWritable reports that config.yaml, or the directory holding it, can be
+// modified by someone other than its owner.
+var ErrConfigWritable = errors.New("config file is writable by other users")
+
+// refuseIfOthersCanWrite rejects a profile document that group or others can
+// write, and the directory that holds it.
+//
+// ensureConfigDir already tightens the directory, but only on the paths that
+// write — so an operator who only ever runs `tt whoami` never triggers it, and
+// that is precisely the case where it matters. Anyone who can write config.yaml
+// can repoint a profile's URL at a host they control and collect the bearer token
+// on the next command, which the credential file's own 0600 does nothing to
+// prevent: the token is read correctly and then sent to the wrong place.
+//
+// Checked here rather than by binding each stored token to a URL recorded beside
+// it, because the URL is not the only thing worth protecting in that file, and a
+// writable config is a problem whether or not a token happens to be stored.
+//
+// Only the write bits are tested. Unlike credentials.yaml this file holds no
+// secret, so being readable is not a finding — mirroring the credential check
+// would reject the perfectly ordinary 0644.
+func refuseIfOthersCanWrite(path string) error {
+	if !modeChecksSupported {
+		return nil
+	}
+	for _, target := range []string{filepath.Dir(path), path} {
+		info, err := os.Stat(target)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // a fresh install has neither; Save creates both at 0700/0600
+		}
+		if err != nil {
+			return fmt.Errorf("inspecting %s: %w", target, err)
+		}
+		if mode := info.Mode().Perm(); mode&0o022 != 0 {
+			return fmt.Errorf("%w: %s is %#o, so another user could repoint a profile at "+
+				"a host they control and collect your token. Run 'chmod go-w %s'",
+				ErrConfigWritable, target, mode, target)
+		}
+	}
+	return nil
+}
+
 // Save writes the profile document, creating the config directory if needed.
+//
+// Locked for the same reason StoreCredential is: callers do load-mutate-save, and
+// without a lock two concurrent `tt profile set` invocations both read the old
+// document and the second rename wins — so a profile vanishes while both commands
+// report success. That was fixed for tokens and left unfixed for profiles, which
+// is the more likely race, since provisioning scripts add several profiles at once.
+//
+// The lock covers only this write. A caller that loaded before taking it can still
+// overwrite a change made in between; making that impossible needs the whole
+// load-mutate-save inside the lock, which is MutateSaved below.
 func (f *File) Save() error {
 	path, err := ConfigPath()
 	if err != nil {
 		return err
 	}
+	if err := ensureConfigDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	release, err := acquireLock(path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return f.write(path)
+}
+
+func (f *File) write(path string) error {
 	out, err := yaml.Marshal(f)
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 	return writeFilePrivate(path, out)
+}
+
+// MutateSaved applies a change to the profile document with the read and the
+// write under one lock, so concurrent callers serialise instead of losing each
+// other's edits.
+//
+// This is what `tt profile set` and `tt profile remove` need: Save alone still
+// writes a document that was read before the lock was held.
+//
+// The mutator may fail, so a command that has to check the document before
+// changing it — "does this profile exist?" — can do that check against the same
+// read the write is based on, and nothing is written when it returns an error.
+func MutateSaved(mutate func(*File) error) error {
+	path, err := ConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := ensureConfigDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	release, err := acquireLock(path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	f, err := Load()
+	if err != nil {
+		return err
+	}
+	if err := mutate(f); err != nil {
+		return err
+	}
+	return f.write(path)
 }
 
 // ProfileName resolves which profile an invocation is talking about.

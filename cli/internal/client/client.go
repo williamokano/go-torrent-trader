@@ -25,6 +25,17 @@ import (
 // without a token.
 var ErrNoCredentials = errors.New("no credentials configured")
 
+// ErrRedirect reports a redirect this client refused to follow.
+//
+// Deliberately not a network error: the site answered, and answered with a
+// redirect it should not have sent. Classifying it as unreachable would have a
+// cron wrapper retry "the outage" forever against a site that is up and
+// misconfigured.
+var ErrRedirect = errors.New("refused to follow redirect")
+
+// maxRedirects matches net/http's own default cap.
+const maxRedirects = 10
+
 // DefaultTimeout bounds a single API call.
 const DefaultTimeout = 30 * time.Second
 
@@ -79,9 +90,20 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 	if parsed.RawQuery != "" || parsed.ForceQuery {
 		return nil, fmt.Errorf("site URL %q must not contain a query string", baseURL)
 	}
-	if parsed.Fragment != "" {
+	// Fragment is "" for a trailing bare "#", so the parsed value alone misses
+	// "https://site/#" — which is accepted, drops the fragment client-side, and
+	// sends every request to "/" instead. A real SPA answers that with its shell
+	// and a 200, producing `invalid character '<'` rather than naming the bad URL.
+	// That is exactly the failure the check above exists to prevent, so match on
+	// the character.
+	if parsed.Fragment != "" || strings.Contains(baseURL, "#") {
 		return nil, fmt.Errorf("site URL %q must not contain a fragment", baseURL)
 	}
+	// A path is deliberately *not* rejected: a site served from a subdirectory is a
+	// supported deployment (TestBaseURLWithAPathPrefixIsPreserved). That does mean
+	// pasting an endpoint URL yields "/api/v1/auth/me/api/v1/auth/me", which reads
+	// badly — but there is no way to tell that apart from a legitimate subpath, and
+	// breaking real installs to improve one error message is the wrong trade.
 	if parsed.User != nil {
 		return nil, fmt.Errorf("site URL %q must not contain credentials: pass --token or set TT_TOKEN", baseURL)
 	}
@@ -94,7 +116,62 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 	for _, o := range opts {
 		o(c)
 	}
+	// After the options, so WithHTTPClient cannot leave a client that follows
+	// redirects across origins — including the one tests inject.
+	c.http.CheckRedirect = refuseCrossOriginRedirect
 	return c, nil
+}
+
+// refuseCrossOriginRedirect stops a redirect that would move the request to a
+// different scheme, host or port.
+//
+// net/http's default policy strips the Authorization header only when the target
+// *hostname* differs, ignoring both scheme and port. Two consequences, both
+// reachable without anything hostile:
+//
+//   - a redirect to another port on the same host forwards the bearer token, so
+//     any co-tenant process listening there collects a live credential;
+//   - an https->http redirect to the same host forwards it in cleartext, which is
+//     what a reverse proxy missing X-Forwarded-Proto produces — a routine
+//     misconfiguration that makes an app emit http:// redirects.
+//
+// A CLI talking to one site's API has no legitimate need to follow a redirect off
+// that origin, so this refuses rather than stripping the header: a request that
+// silently loses its credential comes back as a confusing 401, while this names
+// the problem. It applies whether or not a token is set, which also keeps a
+// 307/308 from replaying a login body to somewhere else.
+func refuseCrossOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("%w: stopped after %d redirects", ErrRedirect, maxRedirects)
+	}
+	origin := via[0].URL
+	if !sameOrigin(origin, req.URL) {
+		return fmt.Errorf("%w: %s redirected to %s, a different origin — a bearer token must not cross origins",
+			ErrRedirect, originOf(origin), originOf(req.URL))
+	}
+	return nil
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return a.Scheme == b.Scheme &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		portOf(a) == portOf(b)
+}
+
+// portOf resolves the effective port, so https://host and https://host:443 are
+// one origin rather than two.
+func portOf(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
+}
+
+func originOf(u *url.URL) string {
+	return u.Scheme + "://" + u.Host
 }
 
 // NewAuthenticated builds a client that carries a bearer token, refusing to

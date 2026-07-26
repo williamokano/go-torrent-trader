@@ -124,20 +124,23 @@ func newProfileSetCmd() *cobra.Command {
 				return usageError{err}
 			}
 
-			f, err := config.Load()
-			if err != nil {
+			// Read and write under one lock. Unlocked, two concurrent
+			// `tt profile set` calls both read the old document and the second
+			// write wins, so a profile disappears while both report success.
+			var stored string
+			if err := config.MutateSaved(func(f *config.File) error {
+				f.Profiles[name] = config.Profile{URL: strings.TrimRight(strings.TrimSpace(rawURL), "/")}
+				// The first profile created becomes the current one, so a fresh
+				// install does not need a second command to be usable.
+				if f.CurrentProfile == "" {
+					f.CurrentProfile = name
+				}
+				stored = f.Profiles[name].URL
+				return nil
+			}); err != nil {
 				return err
 			}
-			f.Profiles[name] = config.Profile{URL: strings.TrimRight(strings.TrimSpace(rawURL), "/")}
-			// The first profile created becomes the current one, so a fresh
-			// install does not need a second command to be usable.
-			if f.CurrentProfile == "" {
-				f.CurrentProfile = name
-			}
-			if err := f.Save(); err != nil {
-				return err
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Profile %q set to %s\n", name, f.Profiles[name].URL)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Profile %q set to %s\n", name, stored)
 			return err
 		},
 	}
@@ -154,18 +157,18 @@ func newProfileUseCmd() *cobra.Command {
 		ValidArgsFunction: completeProfileNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			f, err := config.Load()
-			if err != nil {
+			// Existence is checked against the same read the write is based on,
+			// so a profile removed concurrently cannot become the current one.
+			if err := config.MutateSaved(func(f *config.File) error {
+				if _, ok := f.Profiles[name]; !ok {
+					return usageError{fmt.Errorf("%w: %q", config.ErrNoProfile, name)}
+				}
+				f.CurrentProfile = name
+				return nil
+			}); err != nil {
 				return err
 			}
-			if _, ok := f.Profiles[name]; !ok {
-				return usageError{fmt.Errorf("%w: %q", config.ErrNoProfile, name)}
-			}
-			f.CurrentProfile = name
-			if err := f.Save(); err != nil {
-				return err
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Now using profile %q\n", name)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Now using profile %q\n", name)
 			return err
 		},
 	}
@@ -179,31 +182,32 @@ func newProfileRemoveCmd() *cobra.Command {
 		ValidArgsFunction: completeProfileNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			f, err := config.Load()
-			if err != nil {
-				return err
-			}
-			if _, ok := f.Profiles[name]; !ok {
-				return usageError{fmt.Errorf("%w: %q", config.ErrNoProfile, name)}
-			}
+			// Whole thing under the config lock, so a concurrent `profile set`
+			// cannot reinstate the profile between the check and the write.
+			var hadToken bool
+			if err := config.MutateSaved(func(f *config.File) error {
+				if _, ok := f.Profiles[name]; !ok {
+					return usageError{fmt.Errorf("%w: %q", config.ErrNoProfile, name)}
+				}
 
-			// Delete the credential first. If this ran after the config write and
-			// failed, the profile would already be gone from config.yaml while a
-			// live token stayed on disk — and `profile list` only walks config,
-			// so nothing would ever show it again.
-			hadToken, err := config.HasCredential(name)
-			if err != nil {
-				return err
-			}
-			if err := config.DeleteCredential(name); err != nil {
-				return err
-			}
+				// Delete the credential first. If this ran after the config write
+				// and failed, the profile would already be gone from config.yaml
+				// while a live token stayed on disk — and `profile list` only
+				// walks config, so nothing would ever show it again.
+				var err error
+				if hadToken, err = config.HasCredential(name); err != nil {
+					return err
+				}
+				if err := config.DeleteCredential(name); err != nil {
+					return err
+				}
 
-			delete(f.Profiles, name)
-			if f.CurrentProfile == name {
-				f.CurrentProfile = ""
-			}
-			if err := f.Save(); err != nil {
+				delete(f.Profiles, name)
+				if f.CurrentProfile == name {
+					f.CurrentProfile = ""
+				}
+				return nil
+			}); err != nil {
 				return err
 			}
 
@@ -211,7 +215,7 @@ func newProfileRemoveCmd() *cobra.Command {
 			if hadToken {
 				msg = fmt.Sprintf("Removed profile %q and its stored token\n", name)
 			}
-			_, err = fmt.Fprint(cmd.OutOrStdout(), msg)
+			_, err := fmt.Fprint(cmd.OutOrStdout(), msg)
 			return err
 		},
 	}

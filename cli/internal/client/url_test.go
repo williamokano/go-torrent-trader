@@ -20,6 +20,9 @@ func TestNewRejectsABaseURLThatIsNotASiteRoot(t *testing.T) {
 		{name: "query string", baseURL: "https://tracker.example.com/?utm=x", wantMsg: "query"},
 		{name: "bare question mark", baseURL: "https://tracker.example.com/?", wantMsg: "query"},
 		{name: "fragment", baseURL: "https://tracker.example.com/#section", wantMsg: "fragment"},
+		// url.Parse reports Fragment as "" for this, so the parsed value alone
+		// accepts it and then sends every request to "/".
+		{name: "bare hash", baseURL: "https://tracker.example.com/#", wantMsg: "fragment"},
 		{name: "embedded credentials", baseURL: "https://user:pass@tracker.example.com", wantMsg: "credentials"},
 	}
 	for _, tc := range tests {

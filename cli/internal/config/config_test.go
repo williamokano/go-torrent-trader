@@ -12,13 +12,30 @@ import (
 // or write the developer's real configuration.
 func isolate(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := privateTempDir(t)
 	t.Setenv(EnvConfigDir, dir)
 	// Resolve consults these; clear them so a developer's exported values do not
 	// leak into the expectations below.
 	t.Setenv(EnvProfile, "")
 	t.Setenv(EnvURL, "")
 	t.Setenv(EnvToken, "")
+	return dir
+}
+
+// privateTempDir is t.TempDir() at the mode a real install has.
+//
+// t.TempDir() inherits the umask, so on a developer or CI box with umask 002 it
+// is 0775 — group-writable. A real config directory is 0700, because
+// ensureConfigDir creates it with an explicit MkdirAll(0700). Load refuses a
+// group-writable directory, so leaving the test fixture loose would either fail
+// every test or, worse, tempt someone to weaken the check to match a mode no
+// install actually has.
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("tightening temp config dir: %v", err)
+	}
 	return dir
 }
 
