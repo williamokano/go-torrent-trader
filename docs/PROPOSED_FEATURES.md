@@ -13,9 +13,9 @@ Where an item overlaps something already built, that is called out: several of
 these are smaller than they look, and at least one is mostly built already.
 
 Numbering (`PF-n`) is stable so items can be referenced from discussion. PF-1 to
-PF-15 and PF-26 came from the operator; PF-16 to PF-25 were raised in review.
-PF-26 sits in Part B because it arrived later, not because it matters less — it
-is flagged as likely next.
+PF-15 and PF-26 to PF-28 came from the operator; PF-16 to PF-25 were raised in
+review. The later operator items sit in Part B because they arrived later, not
+because they matter less — PF-26 is flagged as likely next.
 
 ---
 
@@ -508,9 +508,15 @@ computed and stored per announce, a window closing cannot claw back credit alrea
 granted, and a window opening does not retroactively refund. That falls out of the
 existing design; it just needs to not be broken.
 
+**Timezone: decided — UTC.** See decision 10a in `OPEN_QUESTIONS.md`. Windows are
+configured and evaluated in UTC, and the maintainer decides what "the weekend"
+means for their community. Original TorrentTrader's site and per-user timezone
+settings are deliberately not ported: on a global membership there is no correct
+per-user answer, and a user-controlled timezone would let a member shift their own
+clock to enter or extend a freeleech window. Display remains browser-local, which
+is a rendering concern with no accounting consequence.
+
 **Open questions:**
-- Which timezone do windows and deadlines run in? "Weekend" is not a global
-  concept, and this needs a site timezone setting to be answerable.
 - Do rules and windows compose with `silver`, or does any freeleech grant simply
   win? (Today free already beats silver — the most generous reading. Extending
   that rule is probably right and is the simplest to explain to members.)
@@ -530,6 +536,115 @@ freeleech weekends as an example. This is that feature, specified. If PF-19 is
 built, freeleech should be its first modifier type rather than a parallel
 mechanism — double-upload and double-bonus windows want the same scheduler, the
 same timezone answer and the same "computed, not written" discipline.
+
+## PF-27: Site CLI
+
+*Operator proposal.* A fully-fledged CLI for administering the site from a
+terminal — with completion, help, and enough structure that it is pleasant rather
+than a `curl` wrapper.
+
+**Considered and set aside: an MCP server.** The original thought was an MCP
+server so agents could manage the site. The conclusion was that a CLI reaches the
+same goal and is useful for automation an MCP server is not — cron jobs, shell
+pipelines, CI, an operator on a box with no browser. Worth recording that an MCP
+server can still be layered on later and would be thin, because it would front the
+same commands.
+
+Everything here is already reachable over REST — the API is complete and is what
+the frontend uses. The argument for a CLI is ergonomics and automation, not
+capability.
+
+**Reuses:** `migration-tool/` is already a Cobra CLI in this monorepo (cobra
+v1.10.2), so the framework choice is made and the conventions exist — decision 16
+in `OPEN_QUESTIONS.md`. A site CLI is a sibling binary, not a new ecosystem.
+
+**Open questions:**
+- Does it live in the monorepo as a third Go module, or inside `backend/` as a
+  second `cmd/`? The migration tool is its own module, which is a precedent either
+  way depending on whether the CLI should share `internal/` types.
+- Is the CLI a thin REST client, or does it get direct database access for
+  break-glass operations? Thin-client is far safer and keeps one authorisation
+  path; direct access is what you want at 3am when the API is down. They are
+  different tools and probably should not be one binary.
+- Generated from the OpenAPI spec, or hand-written? Generated stays in sync for
+  free; hand-written gives the ergonomics that are the whole point.
+- Shipped how — in the release workflow, as a container, or `go install`?
+
+**Note on skills:** the operator raised the idea of shipping skills that teach an
+agent how to use it. That is downstream of the CLI existing and having stable
+command names, but it is a reason to treat the command surface as an interface
+worth designing rather than accreting.
+
+**Pairing:** once this exists, the "features ship in BE+FE pairs" rule in
+`CLAUDE.md` should be reconsidered as **BE+FE+CLI**, so the CLI does not
+immediately fall behind the web UI. Not adopted yet — there is no CLI to pair
+with, and a rule that cannot be followed is worse than no rule.
+
+## PF-28: API keys / personal access tokens
+
+*Operator proposal, explicitly a separate feature from PF-27.* Long-lived,
+non-expiring keys so automation does not have to hold a password or refresh a
+session.
+
+Recognised in the proposal as **extremely dangerous** on its own, hence
+fine-grained per-token permissions: a token that can only do the one thing the
+script needs.
+
+**What exists today.** `middleware.RequireAuth` extracts a Bearer token and hands
+it to a `SessionValidator`, which resolves a Redis-backed session (decision 4:
+short-lived JWT + Redis sessions for revocation). Authorisation downstream is the
+user's class and their group capability columns.
+
+**How much the middleware has to change depends entirely on the scope answer:**
+- **Coarse (token acts as the user).** Small: a second validator that resolves a
+  key to a user and produces the same context. Everything downstream is unchanged.
+  But a leaked key is then equivalent to a stolen session with no expiry — the
+  thing the proposal is worried about.
+- **Fine-grained (token carries its own permission set).** Larger: the context
+  needs to carry an *effective* permission set that is the intersection of the
+  user's capabilities and the token's grants, and **every** authorisation check
+  has to read that rather than the user's class directly. Miss one and the token
+  quietly has full rights there — which is exactly the failure mode the feature
+  exists to prevent, and it fails silently.
+
+The second is the one worth having, and it is the one that must fail closed at
+every check, not just at the middleware. There is precedent in this codebase: the
+`can_feed` work found handlers waving everyone through when the check was nil, and
+the lesson recorded from it was that a fail-closed guarantee belongs at every layer
+that can decide.
+
+**Open questions:**
+- Truly non-expiring, or expiring-with-renewal? Non-expiring is the ask; a
+  last-used timestamp plus an inactivity sweep is a middle ground that keeps the
+  ergonomics.
+- Are tokens revocable individually, and visible to the user in a management page?
+  (Both, surely — but that is UI work that comes with the feature.)
+- What is the permission vocabulary? This is the hard part, and it is the same
+  question as the RBAC discussion below.
+- Are token actions distinguishable in the activity log? They should be — "who did
+  this" is different from "which key did this".
+
+## Open architectural question: RBAC vs class/level parity
+
+Raised alongside PF-28 and recorded here because it does not belong to any single
+feature.
+
+The site currently authorises on **class/level plus group capability columns**
+(`can_upload`, `can_chat`, `can_feed`, …), which is what original TorrentTrader
+did and what this port deliberately mirrors. The observation is that **RBAC would
+be the better model** — and that PF-28's fine-grained tokens need a permission
+vocabulary that RBAC would supply naturally.
+
+The operator's position, recorded as stated: **not now.** The project is a port,
+and switching authorisation models would disrupt rules that are currently built on
+level. Worth revisiting only if parity can be preserved through configuration —
+i.e. classes become preset role bundles rather than a parallel mechanism.
+
+Flagged because several proposals lean on it: PF-1 (designer), PF-2 (team
+moderator), PF-6 (VIP), PF-15 (badges) and PF-28 (token scopes) each introduce
+something role-shaped. Each one added independently makes the eventual migration
+more expensive. No action proposed — just a note that the cost of deferring is not
+zero, and that it compounds.
 
 ---
 
@@ -624,11 +739,13 @@ Worth a shared "features" section on the settings page rather than eleven toggle
 scattered through the list.
 
 **Capability vs badge vs role.** PF-1 (designer), PF-2 (team membership, team
-moderator), PF-6 (VIP) and PF-15 (badges) each introduce something that looks like
-a role. The site currently has exactly one model: group capability columns
-(`can_upload`, `can_chat`, `can_feed`, …). Decide deliberately whether these new
-concepts extend that model or sit beside it — and keep badges decorative, so they
-never become an informal second permission system.
+moderator), PF-6 (VIP), PF-15 (badges) and PF-28 (token scopes) each introduce
+something that looks like a role. The site currently has exactly one model: group
+capability columns (`can_upload`, `can_chat`, `can_feed`, …). Decide deliberately
+whether these new concepts extend that model or sit beside it — and keep badges
+decorative, so they never become an informal second permission system. See the
+RBAC note above: deferring the model change is a reasonable call, but every
+role-shaped addition raises the eventual cost.
 
 **Privacy.** Reputation, leaderboards, follow feeds and public thanks lists all
 publish behaviour that is currently private. Some members will not want a public
