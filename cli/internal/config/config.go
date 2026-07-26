@@ -241,6 +241,24 @@ type Resolved struct {
 	// one. Commands requiring auth must reject empty rather than sending an
 	// anonymous request — see client.ErrNoCredentials.
 	Token string
+	// FromStore reports that Token came from credentials.yaml rather than a flag
+	// or the environment. Only a stored credential may be refreshed and
+	// rewritten: a token the caller passed in is theirs, and replacing it with a
+	// renewed session would be a surprise.
+	FromStore bool
+}
+
+// ResolveSite resolves only the URL for a named profile.
+//
+// Commands that establish a credential — login, logout — need to know where to
+// send the request but must not fail because no credential exists yet.
+func ResolveSite(f *File, name, urlOverride string) (Resolved, error) {
+	profile := f.Profiles[name]
+	url := normalizeURL(firstNonEmpty(urlOverride, os.Getenv(EnvURL), profile.URL))
+	if url == "" {
+		return Resolved{}, fmt.Errorf("%w: set --url, export %s, or run 'tt profile set %s --url ...'", ErrNoURL, EnvURL, name)
+	}
+	return Resolved{Profile: name, URL: url}, nil
 }
 
 // Override carries values supplied by flags, which win over everything else.
@@ -275,11 +293,13 @@ func Resolve(f *File, o Override) (Resolved, error) {
 	// A token supplied for this invocation is used as-is: the caller said where
 	// it should go.
 	token := strings.TrimSpace(firstNonEmpty(o.Token, os.Getenv(EnvToken)))
+	fromStore := false
 	if token == "" {
 		stored, err := LoadCredential(name)
 		if err != nil {
 			return Resolved{}, err
 		}
+		fromStore = stored != ""
 		// A stored token belongs to the site it was stored for. Sending it
 		// anywhere else — a typo in --url, a copy-pasted command, a hostile
 		// value in TT_URL — hands the credential to whoever answers that name.
@@ -291,7 +311,7 @@ func Resolve(f *File, o Override) (Resolved, error) {
 		token = stored
 	}
 
-	return Resolved{Profile: name, URL: url, Token: token}, nil
+	return Resolved{Profile: name, URL: url, Token: token, FromStore: fromStore}, nil
 }
 
 // normalizeURL trims a trailing slash so that a profile stored with one and a

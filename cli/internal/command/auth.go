@@ -30,6 +30,8 @@ func newAuthCmd(g *globals) *cobra.Command {
 			"sharing a credential.",
 	}
 	cmd.AddCommand(
+		newAuthLoginCmd(g),
+		newAuthLogoutCmd(g),
 		newAuthSetTokenCmd(g),
 		newAuthClearTokenCmd(g),
 	)
@@ -128,9 +130,24 @@ func readToken(cmd *cobra.Command, fromStdin bool) (string, error) {
 	}
 
 	// Not a terminal, or --stdin: read one line. Piping is the CI path.
-	line, err := bufio.NewReader(in).ReadString('\n')
+	return readLine(in)
+}
+
+// readLine reads a single line, treating EOF as the end of the value so a
+// here-string with no trailing newline works.
+func readLine(in io.Reader) (string, error) {
+	return readBufferedLine(bufio.NewReader(in))
+}
+
+// readBufferedLine reads one line from an already-buffered reader.
+//
+// Callers that read more than once must share the reader: a second
+// bufio.NewReader over the same stream would find the first one had already
+// buffered — and discarded — the input it needs.
+func readBufferedLine(in *bufio.Reader) (string, error) {
+	line, err := in.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("reading token from stdin: %w", err)
+		return "", fmt.Errorf("reading from stdin: %w", err)
 	}
 	return strings.TrimSpace(line), nil
 }

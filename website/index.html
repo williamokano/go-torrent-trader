@@ -221,8 +221,10 @@
             interface cannot — the point is that a cron job, a shell pipeline, or an
             operator on a box with no browser can use it. It keeps a named profile
             per site, holds tokens in a file only you can read, and prints either a
-            readable table or JSON for scripts to parse. It ships as a binary
-            alongside the server in each release.
+            readable table or JSON for scripts to parse. It logs in with your
+            username and password and renews its own token afterwards, so a
+            scheduled job keeps running without anyone typing a password into it.
+            It ships as a binary alongside the server in each release.
           </p>
         </div>
       </section>

@@ -25,13 +25,15 @@ with the version stamped in (`tt version`).
 
 ```bash
 tt profile set prod --url https://tracker.example.com
-tt auth set-token prod          # prompts, without echoing
+tt auth login prod              # prompts for username and password
 tt whoami
 ```
 
-To get a token, log in against the site — see [Authentication](#authentication)
-below, and read it before building anything scheduled, because today's token
-expires in an hour.
+The access token a login returns expires in an hour, so `tt` stores the refresh
+token alongside it and renews the access token by itself — that is what makes
+`tt` usable from cron rather than only at a terminal. See
+[Authentication](#authentication) for the non-interactive form and for what a
+login credential does and does not entitle you to.
 
 ## Configuration
 
@@ -41,7 +43,7 @@ overridable with `TT_CONFIG_DIR`:
 | File | Holds | Mode |
 | --- | --- | --- |
 | `config.yaml` | profile definitions — site URLs | `0600` |
-| `credentials.yaml` | one bearer token per profile | `0600`, enforced on read **and** write |
+| `credentials.yaml` | one credential per profile — bearer token, plus the refresh token and expiry when it came from a login | `0600`, enforced on read **and** write |
 
 They are separate on purpose: sharing your profiles with a colleague, or baking
 them into a CI image, should never mean sharing a token.
@@ -159,27 +161,68 @@ reader would expect.
 the server decide what it permits. It deliberately does **not** know whether that
 is a session access token or a scoped API key.
 
-Today a site issues a **session access token that expires after an hour**:
+### Logging in
 
 ```bash
-curl -sX POST https://tracker.example.com/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"you","password":"..."}' \
-  | jq -r .tokens.access_token
+tt auth login prod              # prompts for username and password
+tt auth logout prod             # revokes the session, then deletes the local file
 ```
 
-That is fine at a terminal and poor in a cron job. Long-lived scoped API keys are
-[#170](https://github.com/williamokano/go-torrent-trader/issues/170), and they are
-the real credential for this tool; when they land, `tt auth set-token` stores one
-with no change here.
+A site issues a **session access token that expires after an hour**, plus a
+30-day refresh token. `tt auth login` stores both and renews the access token by
+itself — before a request when the expiry says it is already spent, and once more
+in response to a `401` if the clock was wrong. Renewal rotates the refresh token,
+and the new pair is written back, so a scheduled job that runs weekly keeps
+working without anyone typing a password.
 
-**There is no `tt auth login`, and that is a decision worth flagging rather than
-assuming.** The site also issues a 30-day refresh token, and a login command could
-store that and refresh transparently — the web frontend already keeps one in
-`localStorage`, so a `0600` file would be no worse. The argument against is #211's:
-teaching everyone to script against a long-lived full-account credential is the
-habit scoped tokens exist to prevent, and it is easier not to start than to undo.
-That trade is the operator's call, not this PR's.
+For automation, do not type the password:
+
+```bash
+TT_PASSWORD=... tt auth login prod --username ci
+printf '%s' "$PASSWORD" | tt auth login prod --username ci --password-stdin
+```
+
+There is no `--password` flag on purpose: a password in `argv` is visible to
+every process on the box and lands in shell history.
+
+`tt auth logout` calls the server so the session is genuinely dead. Deleting the
+local file alone would leave a refresh token valid for its full 30 days — a
+credential nobody can see and nobody revoked. It renews an expired access token
+before revoking, because the server finds a session *from* its access token and
+gives up when that lookup fails: logging out the morning after logging in would
+otherwise revoke nothing while still deleting your only copy of the refresh
+token. That is a workaround in this client for a server-side gap —
+[#231](https://github.com/williamokano/go-torrent-trader/issues/231) — not a
+fix for it. `--local` skips the server call for
+when the site is unreachable and you only want the file gone; the local
+credential is removed either way, and a failed revocation is reported rather than
+hidden, because keeping a credential after the user asked to log out is the worse
+failure.
+
+### What a login credential is, and what it is not
+
+**A login carries every permission your account has.** That is the thing #211
+warned about, and it is still true: teaching a fleet of cron jobs to hold a
+full-account credential is the habit scoped keys exist to prevent. What changed
+the balance is that the alternative was not "no long-lived credential" — it was
+an hour-long token that made every scheduled use fail, so anyone who needed one
+was going to store a password in the job instead, which is strictly worse.
+
+Long-lived **scoped** API keys are
+[#170](https://github.com/williamokano/go-torrent-trader/issues/170), and they
+remain the right credential for automation: granted narrowly, revocable on their
+own, and not tied to a human's account. `tt` stores an opaque bearer token and
+lets the server decide what it permits, so when #170 lands, `tt auth set-token`
+accepts a key with no change here. Prefer one for anything scheduled as soon as
+they exist.
+
+A browser-based flow — `tt auth login` opening a page and catching the
+callback on `localhost` — was considered and rejected for now. It needs a new
+backend endpoint, an "authorise this CLI" page in the frontend, and a listener
+with CSRF state in the CLI, for a credential no longer-lived than this one; and
+it requires a browser, which contradicts the operator-on-a-box-with-no-browser
+case the tool exists for. It becomes the right answer alongside #170, where the
+thing being authorised is a scoped key rather than a full session.
 
 Two further design questions from
 [#211](https://github.com/williamokano/go-torrent-trader/issues/211) are **not**
