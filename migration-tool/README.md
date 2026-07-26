@@ -33,6 +33,7 @@ migration-tool/
 │   ├── source/          # Source DB connector (MySQL) and schema reader
 │   ├── compare/         # Baseline diff
 │   ├── mapping/         # Mapping plan and YAML generation
+│   ├── bbcode/          # BBCode to Markdown conversion
 │   ├── target/          # PostgreSQL: schema declaration, connection, checks
 │   │                    # and the batched writer
 │   ├── testenv/         # Test-only: MySQL from the corpus, PostgreSQL from
@@ -145,12 +146,12 @@ It does not move data yet.
 - Reading a mapping back, so a hand-edited file is checked rather than trusted
 - PostgreSQL target connector, schema check, and a batched writer with
   per-batch or per-table transactions
+- BBCode to Markdown conversion, for every piece of member-written text
 - Integration tests against a real MySQL 8 server via testcontainers
 
 ### Planned
 
 - Data transformers (users, torrents, forums, comments, etc.)
-- BBCode to Markdown converter
 - Resumable migration with progress tracking
 - Verification suite (row counts, data integrity checks)
 - Dry-run mode with diff output
@@ -219,6 +220,44 @@ control.
 
 The file records the server it came from as `host:port/database`, with no
 username and no password, because it is meant to be committed.
+
+## BBCode
+
+Every piece of member-written content in the legacy site is BBCode — torrent
+descriptions, forum posts, private messages, comments — and this project is
+Markdown-only. `internal/bbcode` converts it.
+
+It runs once, over text people wrote, with nobody to check the result. Two
+decisions follow from that.
+
+**Malformed markup passes through as written.** Fifteen years of hand-typed
+posts contain crossed tags, tags nobody closed, and square brackets that were
+never markup. A closing tag closes the nearest matching open tag and anything
+left open in between comes back as literal text, so `[quote][b]broken[/quote]`
+keeps its quote and hands back the `[b]`. A stray `[b]` somebody can see is a
+smaller loss than a post rearranged into something nobody typed.
+
+**Text that was never markup is escaped.** BBCode gave no meaning to `*` or `_`
+or `#`, so people typed them freely. Markdown gives all of them meaning:
+`2*3*4` becomes partly italic, `snake_case_name` loses its underscores, and
+`#1 release` becomes a heading. Text is escaped so it renders as it was
+written; URLs and the inside of `[code]` are not, because escaping them there
+would corrupt them instead.
+
+| BBCode | Markdown |
+|---|---|
+| `[b]` `[i]` `[s]` | `**` `*` `~~` |
+| `[u]` | `<u>` — Markdown has no underline, and dropping the tag loses the intent |
+| `[url=x]y[/url]` | `[y](x)`, with `javascript:` and `data:` targets defused |
+| `[img]x[/img]` | `![](x)` |
+| `[quote=who]` | `> **who wrote:**`, every line marked so blank lines do not end the quote |
+| `[code]` | a fence long enough to survive backticks in the content |
+| `[list]` `[*]` | `-`, or `1.` for `[list=1]` |
+| `[color]` `[size]` `[center]` | dropped, keeping the words |
+
+`Options.Preserve` returns the text untouched, for an operator who intends to
+render BBCode in the new site instead. The conversion is lossy in one direction
+and nothing can undo it afterwards, so that choice belongs to them.
 
 ## What the baseline knows
 
