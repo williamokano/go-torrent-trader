@@ -29,9 +29,12 @@ area — they are listed again under Key References with what each is for:
 - `docs/FULL_FEATURE_DOCUMENTATION.md` — the original TorrentTrader spec
 - `tasks/lessons.md` — mistakes already made once, written as rules
 
-**The existing task documents are being drained into issues.** Until that finishes,
-treat them as historical context: read them, cite them, migrate from them — never
-append to them.
+**The drain is complete.** Every real item from `docs/IMPLEMENTATION_TASKS.md`,
+`docs/PROPOSED_FEATURES.md` and `docs/FUTURE_WORK.md` now exists as an issue. Those
+files are kept only as history — the build log of the port and the reasoning behind
+the proposals. Read them for context and cite them freely; never append to them, and
+never treat a status marker in them as current. They can be deleted whenever they
+stop being useful.
 
 ## Agent Development Flow
 

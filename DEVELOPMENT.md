@@ -156,12 +156,16 @@ design.
 source of truth.** Milestones group workstreams; parent issues with sub-issues act
 as epics. Work starts from an issue, and the pull request closes it with `Closes #N`.
 
-Do not record work in Markdown. `docs/IMPLEMENTATION_TASKS.md` and
-`docs/PROPOSED_FEATURES.md` are frozen history from before this rule — they are
-useful context and are being drained into issues, but nothing new goes in them. Task
-state in a document drifts across branches and merges, and this project has been
-bitten by exactly that: a story sat marked done over three unimplemented criteria
-and an endpoint with no authorization check.
+Do not record work in Markdown. `docs/IMPLEMENTATION_TASKS.md`,
+`docs/PROPOSED_FEATURES.md` and `docs/FUTURE_WORK.md` are frozen history from before
+this rule. Every real item in them has been migrated to an issue; what remains is the
+build log of the port and the reasoning behind the proposals, which is worth reading
+and not worth updating.
+
+Task state in a document drifts across branches and merges, and this project has been
+bitten by exactly that: a story sat marked done over three unimplemented criteria and
+an endpoint with no authorization check, and two other stories were marked
+"deferred" for work that had quietly shipped elsewhere months earlier.
 
 ## Conventions
 
