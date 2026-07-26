@@ -98,25 +98,76 @@ func (s *ForumService) GetForum(ctx context.Context, forumID int64, perms model.
 	return forum, nil
 }
 
+// Pagination bounds for the forum listings. Exported because the handler applies
+// them before echoing them back, and the whole class of bug they fix comes from two
+// places deciding independently.
+const (
+	ForumDefaultPerPage = 25
+	ForumMaxPerPage     = 100
+)
+
+// ClampPagination resolves a requested page and size to the ones that will
+// actually be used.
+//
+// Callable from the handler on purpose. The clamp lived only in the service, so the
+// handler echoed its own unclamped locals: `?per_page=500` served 100 rows and
+// reported 500, and `?page=abc` served page 1 and reported 0 — the discarded
+// strconv.Atoi error leaving the local at its zero value. A client paginating off
+// the echoed values, which is what an echo is for, computed its next offset from
+// 500 and skipped 400 rows.
+//
+// The services still call this, so a caller that skips it is bounded anyway; the
+// point is that both layers now get the same answer from the same function.
+func ClampPagination(page, perPage int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = ForumDefaultPerPage
+	}
+	if perPage > ForumMaxPerPage {
+		perPage = ForumMaxPerPage
+	}
+	return page, perPage
+}
+
 func (s *ForumService) ListTopics(ctx context.Context, forumID int64, perms model.Permissions, page, perPage int) (*model.Forum, []model.ForumTopic, int64, error) {
 	forum, err := s.GetForum(ctx, forumID, perms)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	if page <= 0 {
-		page = 1
-	}
-	if perPage <= 0 {
-		perPage = 25
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
+	page, perPage = ClampPagination(page, perPage)
 	topics, total, err := s.topics.ListByForum(ctx, forumID, page, perPage)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("list topics: %w", err)
 	}
 	return forum, topics, total, nil
+}
+
+// CanCreateTopic reports whether a member may open a topic in a forum, answering
+// the same question CreateTopic will.
+//
+// It reads the member's own can_forum column rather than the one on Permissions,
+// and that distinction is the bug. can_forum exists on both `groups` and `users`
+// (001_create_groups.sql and 039_create_forums.sql); PermissionsFromGroup copies the
+// *class* flag, while CreateTopic checks the *member's*. So branching on
+// perms.CanForum would fix only half of this and still show an enabled compose
+// button to exactly the member the sanction was applied to — the same defect the
+// CanFeed comment in model/permissions.go declines to ship, for the same reason.
+//
+// The cost of getting this wrong is the worst ordering available: the member is
+// invited to write a topic and loses the work to a 403 on submit.
+func (s *ForumService) CanCreateTopic(ctx context.Context, userID int64, perms model.Permissions, forum *model.Forum) bool {
+	if forum == nil || perms.Level < forum.MinPostLevel {
+		return false
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		// Fail closed. Showing the button on a failed lookup re-creates the
+		// lose-your-work outcome this exists to prevent.
+		return false
+	}
+	return user.CanForum
 }
 
 // GetTopic returns a topic by ID with access check and debounced view count increment.
@@ -154,15 +205,7 @@ func (s *ForumService) shouldIncrementView(userID, topicID int64) bool {
 }
 
 func (s *ForumService) ListPosts(ctx context.Context, topicID int64, page, perPage int) ([]model.ForumPost, int64, error) {
-	if page <= 0 {
-		page = 1
-	}
-	if perPage <= 0 {
-		perPage = 25
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
+	page, perPage = ClampPagination(page, perPage)
 	return s.posts.ListByTopic(ctx, topicID, page, perPage)
 }
 
@@ -263,8 +306,35 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 			return nil, nil, fmt.Errorf("update forum last post: %w", err)
 		}
 	}
-	topic.PostCount = 1
-	topic.LastPostAt = &post.CreatedAt
+	// Re-read both rows, the way CreatePost already does. INSERT ... RETURNING
+	// gives back only the columns the table has, so the structs built from it carry
+	// empty strings for username, forum_name and group_name, a zero
+	// user_created_at, and — worst — is_first_post: false on the post that by
+	// definition opens the topic. A client keying off is_first_post to decide
+	// whether a post can be deleted on its own got the wrong answer from the create
+	// response, and the same row described itself differently depending on how it
+	// was fetched.
+	//
+	// A failed re-read is not worth failing the request over: the topic exists and
+	// the caller's write succeeded, so fall back to what was written rather than
+	// reporting an error for a row that is there.
+	createdTopic := &topic
+	if fresh, err := s.topics.GetByID(ctx, topic.ID); err == nil {
+		createdTopic = fresh
+	} else {
+		// Only reached on the fallback path, where the joins never ran.
+		createdTopic.PostCount = 1
+		createdTopic.LastPostAt = &post.CreatedAt
+	}
+
+	createdPost := &post
+	if fresh, err := s.posts.GetByID(ctx, post.ID); err == nil {
+		createdPost = fresh
+	}
+	// Set explicitly rather than read: is_first_post is not a column. HandleGetTopic
+	// derives it by comparing against GetFirstPostID, so a re-read alone leaves it
+	// false. The opening post of a brand-new topic is unambiguously the first one.
+	createdPost.IsFirstPost = true
 
 	actor := event.Actor{ID: userID, Username: user.Username}
 	if s.eventBus != nil {
@@ -287,7 +357,7 @@ func (s *ForumService) CreateTopic(ctx context.Context, forumID, userID int64, p
 			forumMentionLink(topic.ID, post.ID, 1), title, body)
 	}
 
-	return &topic, &post, nil
+	return createdTopic, createdPost, nil
 }
 
 // forumPostsPerPage must match the frontend PER_PAGE in ForumTopicViewPage.tsx
@@ -432,15 +502,7 @@ func (s *ForumService) Search(ctx context.Context, query string, perms model.Per
 	if utf8.RuneCountInString(query) > 200 {
 		return nil, 0, fmt.Errorf("%w: query too long", ErrInvalidSearch)
 	}
-	if page <= 0 {
-		page = 1
-	}
-	if perPage <= 0 {
-		perPage = 25
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
+	page, perPage = ClampPagination(page, perPage)
 	return s.posts.Search(ctx, query, forumID, perms.Level, page, perPage)
 }
 

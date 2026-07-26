@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -284,5 +285,47 @@ func TestForumPostRepoSoftDeleteMissingIsErrNoRows(t *testing.T) {
 	err := NewForumPostRepo(db).SoftDelete(context.Background(), 999999, 1)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("SoftDelete(unknown id): err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// #237. ListEdits declared its slice with `var edits []model.ForumPostEdit` and
+// appended to it, so a post with no edit history produced a nil slice and the
+// endpoint answered `{"edits": null}` rather than `{"edits": []}`.
+//
+// An un-edited post is the overwhelmingly likely case for this endpoint, so a
+// strictly-typed client broke on the happy path rather than on an edge case. Every
+// other forum collection ships `[]` already, which makes this an oversight rather
+// than a house style.
+//
+// Asserted against a real Postgres, because the distinction is entirely about what
+// the scan loop produces when it runs zero times.
+func TestForumPostRepoListEditsReturnsAnEmptySliceNotNil(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	f := newForumFixture(t, db)
+	postID := newPost(t, db, f.TopicID, f.UserID, "never edited")
+
+	edits, err := NewForumPostRepo(db).ListEdits(ctx, postID)
+	if err != nil {
+		t.Fatalf("ListEdits: %v", err)
+	}
+	if edits == nil {
+		t.Error("ListEdits returned nil for a post with no history, which marshals " +
+			"to JSON null; the endpoint must answer []")
+	}
+	if len(edits) != 0 {
+		t.Errorf("len(edits) = %d, want 0", len(edits))
+	}
+
+	// The distinction only matters because of what it serialises to, so assert that
+	// rather than trusting nil-ness to imply it.
+	encoded, err := json.Marshal(map[string]any{"edits": edits})
+	if err != nil {
+		t.Fatalf("marshalling: %v", err)
+	}
+	if got := string(encoded); got != `{"edits":[]}` {
+		t.Errorf("marshalled to %s, want {\"edits\":[]}", got)
 	}
 }

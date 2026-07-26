@@ -1618,7 +1618,7 @@ export interface components {
     RenameForumTopicRequest: {
       /** @description Trimmed of surrounding whitespace, then rejected if empty or longer than 200 runes. */
       title: string;
-      /** @description Recorded in the activity log. Unlike the reason on the other moderation endpoints this one is **not** capped or truncated — see #230. Do not rely on the absence of a limit; it is a bug rather than a guarantee. */
+      /** @description Recorded in the activity log, truncated to 500 runes like every other moderation reason. */
       reason?: string;
     };
     MoveForumTopicRequest: {
@@ -1627,7 +1627,7 @@ export interface components {
        * @description The destination forum. Must not be the topic's current forum.
        */
       forum_id: number;
-      /** @description Recorded in the activity log. Unlike the reason on the other moderation endpoints this one is **not** capped or truncated — see #230. Do not rely on the absence of a limit; it is a bug rather than a guarantee. */
+      /** @description Recorded in the activity log, truncated to 500 runes like every other moderation reason. */
       reason?: string;
     };
     Report: {
@@ -3928,9 +3928,9 @@ export interface operations {
             results?: components["schemas"]["ForumSearchResult"][];
             /** Format: int64 */
             total?: number;
-            /** @description Echoes the value as **requested**, not as applied — a non-positive or unparseable `page` serves page 1 but is reported back verbatim (`0` for an unparseable one). Paginate from your own counter, not from this field. Tracked in #236. */
+            /** @description The page actually served. A non-positive or unparseable `page` is resolved to 1, and this reports the resolved value, so paginating from this field is safe. */
             page?: number;
-            /** @description Echoes the value as **requested**, not as applied. `per_page` is capped at 100 server-side, so `?per_page=500` returns 100 results and reports 500 here. Tracked in #236. */
+            /** @description The page size actually used, after the cap of 100 and the default of 25 are applied — so `?per_page=500` returns 100 results and reports 100 here. */
             per_page?: number;
           };
         };
@@ -4058,11 +4058,11 @@ export interface operations {
             topics?: components["schemas"]["ForumTopic"][];
             /** Format: int64 */
             total?: number;
-            /** @description Echoes the value as **requested**, not as applied. See #236. */
+            /** @description The page actually served, after a non-positive or unparseable value is resolved to 1. */
             page?: number;
-            /** @description Echoes the value as **requested**, not as applied; the server caps it at 100. See #236. */
+            /** @description The page size actually used, after the cap of 100 and the default of 25 are applied. */
             per_page?: number;
-            /** @description Whether the caller's group level reaches the forum's `min_post_level`. It is **only** a level check: it does not account for a revoked forum privilege, so a member whose posting has been suspended sees `true` here and still gets 403 from the create call. Tracked in #235. */
+            /** @description Whether the caller may open a topic here. Answers the same question the create call does: the group level must reach the forum's `min_post_level` **and** the member's own forum privilege must not be revoked. False for an anonymous caller. */
             can_create_topic?: boolean;
           };
         };
@@ -4129,7 +4129,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description The new topic and its first post, returned **as just written**. Unlike every other forum response, these two are not re-read after the insert, so the fields that come from joins are absent or zero-valued here: `username`, `forum_name`, `group_name` are empty strings, `avatar` is null, `user_created_at` is the zero time, `user_post_count` is 0, and `is_first_post` is `false` even though this post by definition opens the topic. Re-read the topic to get a fully populated shape. Tracked in #229; when that is fixed this caveat goes away. */
+      /** @description The new topic and its first post, re-read after the insert so both carry the same fully populated shape any other endpoint returns — the byline fields (`username`, `forum_name`, `group_name`, `avatar`, `user_created_at`, `user_post_count`) are set, and `is_first_post` is `true` on the post that opens the topic. */
       201: {
         headers: {
           [name: string]: unknown;
@@ -4213,9 +4213,9 @@ export interface operations {
             posts?: components["schemas"]["ForumPost"][];
             /** Format: int64 */
             total?: number;
-            /** @description Echoes the value as **requested**, not as applied. See #236. */
+            /** @description The page actually served, after a non-positive or unparseable value is resolved to 1. */
             page?: number;
-            /** @description Echoes the value as **requested**, not as applied; the server caps it at 100. See #236. */
+            /** @description The page size actually used, after the cap of 100 and the default of 25 are applied. */
             per_page?: number;
             /**
              * @description True for staff who also pass the moderation hierarchy check — so it is not simply "is staff", and is false for a staff member outranked by the topic's author — and true for the topic's own author within the 30-minute grace period after creating it.
@@ -4644,8 +4644,8 @@ export interface operations {
         };
         content: {
           "application/json": {
-            /** @description Arrives as JSON `null`, not `[]`, for a post that has never been edited — which is the common case for this endpoint. Tracked in #237. */
-            edits?: components["schemas"]["ForumPostEdit"][] | null;
+            /** @description Newest first. An empty array for a post that has never been edited, which is the common case for this endpoint. */
+            edits?: components["schemas"]["ForumPostEdit"][];
           };
         };
       };

@@ -498,7 +498,19 @@ func TestCreateTopic_Transactional(t *testing.T) {
 	}
 	users := &mockForumUserRepo{user: &model.User{ID: userID, Username: "alice", CanForum: true}}
 
-	svc := NewForumService(db, nil, forums, nil, nil, users, nil, nil)
+	// CreateTopic re-reads both rows after the commit (#229), so these are no longer
+	// optional the way they were when it returned the INSERT ... RETURNING structs.
+	// The re-read is what supplies the join-backed byline fields.
+	topics := &mockForumTopicRepo{topicByID: map[int64]*model.ForumTopic{
+		100: {ID: 100, ForumID: forumID, UserID: userID, Title: "New Topic",
+			Username: "alice", ForumName: "General", PostCount: 1, LastPostAt: &now},
+	}}
+	posts := &mockForumPostRepo{postByID: map[int64]*model.ForumPost{
+		200: {ID: 200, TopicID: 100, UserID: userID, Body: "Hello world",
+			Username: "alice", GroupName: "User", UserCreatedAt: now, UserPostCount: 1},
+	}}
+
+	svc := NewForumService(db, nil, forums, topics, posts, users, nil, nil)
 
 	// Expect: BEGIN -> INSERT topic -> INSERT post -> UPDATE topic counts -> UPDATE forum counts -> COMMIT
 	mock.ExpectBegin()
@@ -531,6 +543,27 @@ func TestCreateTopic_Transactional(t *testing.T) {
 	if topic.Title != "New Topic" {
 		t.Errorf("expected topic.Title='New Topic', got %q", topic.Title)
 	}
+
+	// #229: the 201 body used to carry the structs built from INSERT ... RETURNING,
+	// so every join-backed field was empty and is_first_post was false on the post
+	// that by definition opens the topic. A client keying off is_first_post to decide
+	// whether a post can be deleted on its own got the wrong answer here, and the
+	// same row described itself differently depending on how it was fetched.
+	if topic.Username != "alice" || topic.ForumName != "General" {
+		t.Errorf("topic byline = %q/%q, want the re-read values — the response is "+
+			"built from INSERT ... RETURNING again", topic.Username, topic.ForumName)
+	}
+	if post.Username != "alice" || post.GroupName != "User" {
+		t.Errorf("post byline = %q/%q, want the re-read values", post.Username, post.GroupName)
+	}
+	if post.UserCreatedAt.IsZero() || post.UserPostCount == 0 {
+		t.Errorf("post user_created_at=%v user_post_count=%d, want the re-read values",
+			post.UserCreatedAt, post.UserPostCount)
+	}
+	if !post.IsFirstPost {
+		t.Error("is_first_post is false on the post that opens the topic")
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
 	}

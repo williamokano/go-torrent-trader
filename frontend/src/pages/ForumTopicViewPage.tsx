@@ -6,6 +6,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import type { components } from "@/api";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
@@ -58,23 +59,33 @@ interface PostData {
   user_post_count: number;
 }
 
-interface PostEditData {
-  id: number;
-  post_id: number;
-  edited_by: number;
-  old_body: string;
-  new_body: string;
-  created_at: string;
-  username?: string;
-  // Staff-only note left when a staff member edits on behalf of someone
-  // else. This endpoint is already staff-gated, so it's safe to render
-  // whenever present.
-  reason?: string;
-  // Set when the backend couldn't reconstruct this edit's before/after text
-  // from its stored diff (a corrupt row, or two edits racing against the
-  // same post). old_body/new_body are unreliable when this is set, so the
-  // UI shows a placeholder instead of blank or stale-looking content.
-  reconstruction_failed?: boolean;
+/**
+ * The generated type, not a hand-written copy of it.
+ *
+ * The copy this replaces declared `edited_by: number`, and the field is
+ * `*int64` with no `omitempty` on the model — so it is present and **null**
+ * whenever the editing account has since been deleted. Rendering
+ * `User #${edit.edited_by}` from a hand-written type that says null is
+ * impossible is how a page ends up displaying "User #null".
+ *
+ * Generating these types is the point of generating them; the forum pages were
+ * the largest remaining place where hand-written shapes shadowed the real ones.
+ */
+type PostEditData = components["schemas"]["ForumPostEdit"];
+
+/**
+ * Who to credit an edit to.
+ *
+ * `edited_by` is null when the editing account has since been deleted, so the
+ * previous `User #${edit.edited_by}` rendered the literal "User #null" — which the
+ * hand-written type claimed could not happen. `username` is absent in the same
+ * case, so both have to be handled together rather than one falling back to the
+ * other.
+ */
+function editorLabel(edit: PostEditData): string {
+  if (edit.username) return edit.username;
+  if (typeof edit.edited_by === "number") return `User #${edit.edited_by}`;
+  return "a deleted account";
 }
 
 const PER_PAGE = 25;
@@ -1171,11 +1182,8 @@ export function ForumTopicViewPage() {
                       marginBottom: "0.25rem",
                     }}
                   >
-                    Edited by{" "}
-                    <strong>
-                      {edit.username ?? `User #${edit.edited_by}`}
-                    </strong>{" "}
-                    {timeAgo(edit.created_at)}
+                    Edited by <strong>{editorLabel(edit)}</strong>{" "}
+                    {edit.created_at ? timeAgo(edit.created_at) : ""}
                   </div>
                   {edit.reason && (
                     <div

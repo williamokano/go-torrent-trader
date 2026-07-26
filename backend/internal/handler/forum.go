@@ -28,6 +28,24 @@ func NewForumHandler(forumSvc *service.ForumService) *ForumHandler {
 	return &ForumHandler{forumSvc: forumSvc}
 }
 
+// queryInt reads an integer query parameter, returning 0 when it is absent or
+// unparseable.
+//
+// 0 rather than a default, because ClampPagination turns it into one — and a
+// malformed value must land on the default rather than on itself. `?page=abc`
+// previously left the caller's local at 0 and echoed that back as the page served.
+func queryInt(r *http.Request, name string) int {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // HandleListForums handles GET /api/v1/forums — list all categories with forums.
 func (h *ForumHandler) HandleListForums(w http.ResponseWriter, r *http.Request) {
 	perms := middleware.PermissionsFromContext(r.Context())
@@ -88,14 +106,11 @@ func (h *ForumHandler) HandleListTopics(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	page := 1
-	perPage := 25
-	if p := r.URL.Query().Get("page"); p != "" {
-		page, _ = strconv.Atoi(p)
-	}
-	if pp := r.URL.Query().Get("per_page"); pp != "" {
-		perPage, _ = strconv.Atoi(pp)
-	}
+	// Clamped here as well as in the service, through the same function, so the
+	// values echoed below are the values the query ran with. Echoing the raw locals
+	// reported per_page: 500 for a 100-row page, and page: 0 for `?page=abc` —
+	// the discarded Atoi error leaves the local at zero.
+	page, perPage := service.ClampPagination(queryInt(r, "page"), queryInt(r, "per_page"))
 
 	forum, topics, total, err := h.forumSvc.ListTopics(r.Context(), forumID, perms, page, perPage)
 	if err != nil {
@@ -108,8 +123,11 @@ func (h *ForumHandler) HandleListTopics(w http.ResponseWriter, r *http.Request) 
 		items = append(items, topicResponse(&t))
 	}
 
-	_, isAuthenticated := middleware.UserIDFromContext(r.Context())
-	canCreateTopic := isAuthenticated && perms.Level >= forum.MinPostLevel
+	// Asks the service, which checks the member's own can_forum the way CreateTopic
+	// does. The level test alone showed an enabled compose button to a member whose
+	// forum posting had been revoked, who then lost the topic to a 403 on submit.
+	userID, isAuthenticated := middleware.UserIDFromContext(r.Context())
+	canCreateTopic := isAuthenticated && h.forumSvc.CanCreateTopic(r.Context(), userID, perms, forum)
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"forum":            forumResponse(forum),
@@ -132,14 +150,8 @@ func (h *ForumHandler) HandleGetTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := 1
-	perPage := 25
-	if p := r.URL.Query().Get("page"); p != "" {
-		page, _ = strconv.Atoi(p)
-	}
-	if pp := r.URL.Query().Get("per_page"); pp != "" {
-		perPage, _ = strconv.Atoi(pp)
-	}
+	// Same clamp the service applies, so the echoed values are the applied ones.
+	page, perPage := service.ClampPagination(queryInt(r, "page"), queryInt(r, "per_page"))
 
 	topic, err := h.forumSvc.GetTopic(r.Context(), topicID, userID, perms)
 	if err != nil {
@@ -269,14 +281,8 @@ func (h *ForumHandler) HandleSearchForum(w http.ResponseWriter, r *http.Request)
 		forumID = &id
 	}
 
-	page := 1
-	perPage := 25
-	if p := r.URL.Query().Get("page"); p != "" {
-		page, _ = strconv.Atoi(p)
-	}
-	if pp := r.URL.Query().Get("per_page"); pp != "" {
-		perPage, _ = strconv.Atoi(pp)
-	}
+	// Same clamp the service applies, so the echoed values are the applied ones.
+	page, perPage := service.ClampPagination(queryInt(r, "page"), queryInt(r, "per_page"))
 
 	results, total, err := h.forumSvc.Search(r.Context(), q, perms, forumID, page, perPage)
 	if err != nil {
@@ -549,7 +555,12 @@ func (h *ForumHandler) HandleRenameTopic(w http.ResponseWriter, r *http.Request)
 
 	actor := actorFromRequest(r)
 
-	if err := h.forumSvc.RenameTopic(r.Context(), topicID, userID, perms, body.Title, actor, body.Reason); err != nil {
+	// Truncated like every other moderation reason. Rename and move were the two
+	// paths that passed it through verbatim, so a staff member could write an
+	// unbounded string into an activity-log row on those endpoints and not the
+	// other four — and the cap exists precisely to keep those rows bounded.
+	if err := h.forumSvc.RenameTopic(r.Context(), topicID, userID, perms, body.Title, actor,
+		truncateReason(body.Reason)); err != nil {
 		handleForumError(w, err)
 		return
 	}
@@ -582,7 +593,8 @@ func (h *ForumHandler) HandleMoveTopic(w http.ResponseWriter, r *http.Request) {
 
 	actor := actorFromRequest(r)
 
-	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID, actor, body.Reason); err != nil {
+	if err := h.forumSvc.MoveTopic(r.Context(), topicID, perms, body.ForumID, actor,
+		truncateReason(body.Reason)); err != nil {
 		handleForumError(w, err)
 		return
 	}
