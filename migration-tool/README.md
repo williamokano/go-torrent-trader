@@ -5,6 +5,9 @@ CLI tool for migrating data from a legacy TorrentTrader 3.x MySQL database to th
 ## Tech Stack
 
 - **Go 1.23** with [Cobra](https://github.com/spf13/cobra) CLI framework
+- [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) for the source database
+- [yaml.v3](https://gopkg.in/yaml.v3) for the mapping file, which is generated with
+  its comments intact
 
 ## Project Structure
 
@@ -12,14 +15,21 @@ CLI tool for migrating data from a legacy TorrentTrader 3.x MySQL database to th
 migration-tool/
 ├── cmd/migrate/         # CLI entry point and command definitions
 │   ├── main.go          # Root command setup
-│   ├── discover.go      # Discover source tables
-│   ├── validate.go      # Validate source schema
-│   ├── run.go           # Execute migration
-│   ├── verify.go        # Verify migrated data
-│   └── rollback.go      # Rollback migration
+│   ├── source.go        # Shared "open the legacy database" plumbing
+│   ├── print.go         # Report writing
+│   ├── discover.go      # List tables, or describe one
+│   ├── validate.go      # Compare against the TorrentTrader 3.0 baseline
+│   ├── mapping.go       # Generate the column mapping file
+│   ├── run.go           # Execute migration — not implemented
+│   ├── verify.go        # Verify migrated data — not implemented
+│   └── rollback.go      # Rollback migration — not implemented
 ├── internal/
 │   ├── config/          # Configuration loading (flags + env vars)
-│   ├── source/          # Source DB connector (MySQL) — planned
+│   ├── schema/          # Schema model shared by the baseline and the reader
+│   ├── baseline/        # The TorrentTrader 3.0 schema, as shipped
+│   ├── source/          # Source DB connector (MySQL) and schema reader
+│   ├── compare/         # Baseline diff
+│   ├── mapping/         # Mapping plan and YAML generation
 │   ├── target/          # Target DB connector (PostgreSQL) — planned
 │   ├── transform/       # Data transformation logic — planned
 │   └── verify/          # Verification logic — planned
@@ -31,11 +41,26 @@ migration-tool/
 
 | Command | Description | Status |
 |---------|-------------|--------|
-| `discover` | List tables and row counts in the source database | Planned |
-| `validate` | Check source DB schema matches expected TorrentTrader format | Planned |
-| `run` | Execute the migration from source to target | Planned |
-| `verify` | Verify migrated data integrity and completeness | Planned |
-| `rollback` | Truncate target tables to undo a migration | Planned |
+| `discover` | List tables, engines, row counts and column counts; describe one table with `--table` | Implemented |
+| `validate` | Compare the source schema against the TorrentTrader 3.0 baseline and report what differs | Implemented |
+| `mapping` | Generate the reviewable YAML column mapping | Implemented |
+| `run` | Execute the migration from source to target | Not implemented — fails rather than exiting 0 |
+| `verify` | Verify migrated data integrity and completeness | Not implemented — fails rather than exiting 0 |
+| `rollback` | Truncate target tables to undo a migration | Not implemented — fails rather than exiting 0 |
+
+The three unimplemented commands exit non-zero and say so. A cutover script that
+read `migrate run` exiting 0 as "the migration ran" is the worst thing this tool
+could do.
+
+### Command flags
+
+| Command | Flag | Description |
+|---------|------|-------------|
+| `discover` | `--exact` | Count rows with `COUNT(*)` instead of the engine's estimate |
+| `discover` | `--table <name>` | Describe one table's columns and print its `SHOW CREATE TABLE` |
+| `validate` | `--strict` | Fail on any difference from the stock schema, not just blocking ones |
+| `mapping` | `--out <path>` | Where to write the mapping (default `mapping.yaml`; `-` for stdout) |
+| `mapping` | `--force` | Overwrite an existing mapping file |
 
 ## Configuration
 
@@ -45,47 +70,131 @@ Configuration via CLI flags with environment variable fallbacks.
 
 | Flag | Env Var | Required | Description |
 |------|---------|----------|-------------|
-| `--source` | `MIGRATION_SOURCE_DSN` | Yes | Source MySQL DSN |
-| `--target` | `MIGRATION_TARGET_DSN` | Yes | Target PostgreSQL DSN |
+| `--source` | `MIGRATION_SOURCE_DSN` | For `discover`, `validate`, `mapping` | Source MySQL DSN |
+| `--target` | `MIGRATION_TARGET_DSN` | For `run`, `verify`, `rollback` | Target PostgreSQL DSN |
 | `--log-level` | | No | `debug`, `info`, `warn`, `error` (default: `info`) |
 | `--dry-run` | | No | Preview changes without writing (default: `false`) |
+
+### Source DSN
+
+Both spellings are accepted:
+
+```
+mysql://user:password@host:3306/torrenttrader
+user:password@tcp(host:3306)/torrenttrader
+user:password@unix(/var/run/mysqld/mysqld.sock)/torrenttrader
+```
+
+The URL form percent-decodes the password, so a password containing `@`, `/` or
+`?` works if it is escaped (`p%40ss`). Query parameters are passed to the driver,
+so `?tls=skip-verify` and friends work. A database name is required either way.
+
+The password is never printed: logs and error messages show `user:***@host/db`.
 
 ### Example
 
 ```bash
-migration-tool run \
+migrate validate \
+  --source "mysql://root:password@localhost:3306/torrenttrader_legacy"
+
+migrate mapping \
   --source "mysql://root:password@localhost:3306/torrenttrader_legacy" \
-  --target "postgres://torrenttrader:password@localhost:5432/torrenttrader?sslmode=disable"
+  --out mapping.yaml
 ```
 
 Or via environment variables:
 
 ```bash
 export MIGRATION_SOURCE_DSN="mysql://root:password@localhost:3306/torrenttrader_legacy"
-export MIGRATION_TARGET_DSN="postgres://torrenttrader:password@localhost:5432/torrenttrader?sslmode=disable"
-migration-tool run
+migrate discover --exact
 ```
 
 ## Current State
 
-The CLI skeleton is complete with all commands registered and tested. The actual migration logic (database connectors, schema introspection, data transformation, and verification) is not yet implemented.
+The tool reads a legacy database and tells you what a migration would involve.
+It does not move data yet.
 
 ### Implemented
-- Root CLI with Cobra framework
-- 5 subcommand stubs
-- Persistent flags (source, target, log-level, dry-run)
-- Config loading from flags + env var fallback
-- Dockerfile with multi-stage build
-- Unit tests for CLI structure and config
+
+- MySQL connector, accepting both `mysql://user:pass@host:port/db` and the
+  driver's own `user:pass@tcp(host:port)/db` spelling
+- Schema discovery through `information_schema`, plus `SHOW CREATE TABLE`
+- The TorrentTrader 3.0 baseline schema, transcribed from
+  `docs/FULL_FEATURE_DOCUMENTATION.md` section 1
+- Comparison against that baseline: missing tables, mod-added tables and
+  columns, and type mismatches
+- Mapping file generation, with the reasoning for each decision kept as comments
+- Integration tests against a real MySQL 8 server via testcontainers
 
 ### Planned
-- MySQL source connector and schema reader
+
 - PostgreSQL target connector and writer
 - Data transformers (users, torrents, forums, comments, etc.)
 - BBCode to Markdown converter
 - Resumable migration with progress tracking
 - Verification suite (row counts, data integrity checks)
 - Dry-run mode with diff output
+
+## The mapping file
+
+`migrate mapping` writes a YAML file proposing where every column in *your*
+database should land. It is generated from the database in front of it rather
+than from the baseline, so a column some mod added ten years ago appears as an
+entry to decide on instead of going missing.
+
+Each column gets an action:
+
+| Action | Meaning |
+|--------|---------|
+| `map` | Copy to the target column, through `transform` where the types differ |
+| `derive` | The value reaches the target some other way — folded into another column, spread across a JSONB document, or turned into rows of another table |
+| `skip` | Deliberately not migrated. The comment says why |
+| `custom` | A mod added this column and only the operator knows what it is for |
+| `review` | A stock column this tool has no rule for yet |
+
+`custom` and `review` are the entries needing a decision; the command prints how
+many there are and where. The file is meant to be edited and kept in version
+control.
+
+```yaml
+    # Members keep their id and passkey, so existing .torrent files keep
+    # announcing and every foreign key in the dump resolves without a
+    # translation table.
+    users:
+        action: migrate
+        target: users
+        columns:
+            # Carried across as-is. The backend verifies the legacy scheme once
+            # and re-hashes to argon2id, so nobody is asked to reset a password.
+            password:
+                action: map
+                target: password_hash
+                transform: legacy_hash
+            # Reversed sense: forumbanned='yes' becomes can_forum=false.
+            forumbanned:
+                action: map
+                target: can_forum
+                transform: yes_no_to_bool_inverted
+            # Who's-online scratch state.
+            page:
+                action: skip
+            seedbonus:
+                action: custom
+```
+
+## What the baseline knows
+
+`internal/baseline` holds the 37 tables section 1.1 of the reference document
+lists. Nine of them — `users`, `groups`, `torrents`, `peers`, `completed`,
+`messages`, `forum_forums`, `forum_topics`, `forum_posts` — are the ones section
+1.2 breaks down, and only those have their columns checked. The rest are known
+by name, and the tool says so rather than reporting every column of a table it
+cannot describe as mod-added.
+
+Six tables are marked required, meaning the migration cannot run without them:
+`users`, `groups`, `torrents`, `peers`, `completed` and `categories`. A missing
+optional table is reported and not treated as fatal — an install that dropped
+polls years ago still migrates.
 
 ## Development
 
@@ -100,30 +209,62 @@ task migration-tool:build
 task migration-tool:test
 ```
 
+The `internal/source` and `cmd/migrate` packages start a real MySQL 8 container
+through testcontainers and load `internal/source/testdata/legacy.sql` into it —
+a stock TorrentTrader schema with a few mods bolted on, which is what an
+operator's database actually looks like. This is where the baseline is checked
+against a real server, since MySQL 8 reports several of the reference
+document's types differently from the way it writes them.
+
+Use `go test -short ./...` to skip the container when Docker is unavailable.
+
 ### Docker
 ```bash
 docker build -t torrenttrader-migration .
-docker run --rm \
-  -e MIGRATION_SOURCE_DSN="mysql://..." \
-  -e MIGRATION_TARGET_DSN="postgres://..." \
-  torrenttrader-migration run
+
+# Write a mapping into the current directory.
+docker run --rm -v "$PWD:/out" \
+  -e MIGRATION_SOURCE_DSN="mysql://user:password@host:3306/torrenttrader" \
+  torrenttrader-migration mapping --out /out/mapping.yaml
 ```
+
+The container runs as a non-root user, so the directory bound to `/out` has to
+be writable by it.
 
 ## Migration Scope
 
-The tool migrates from TorrentTrader 3.x (PHP/MySQL) to the new Go/PostgreSQL platform:
+The tool migrates from TorrentTrader 3.x (PHP/MySQL) to the new Go/PostgreSQL
+platform. Target tables are as named in `backend/migrations`; the generated
+mapping file is the authority on individual columns.
 
 | Data | Source (MySQL) | Target (PostgreSQL) |
 |------|---------------|-------------------|
-| Users | users table | users + groups |
-| Torrents | torrents table | torrents + categories |
-| Forums | forums, topics, posts | forums, forum_topics, forum_posts |
-| Comments | comments | comments + ratings |
-| Messages | messages | messages |
-| Peers | peers | peers |
-| Invites | invites | invites |
+| Members | `users`, `groups` | `users`, `groups` |
+| Torrents | `torrents`, `files` | `torrents` (file lists as JSONB) |
+| Categories | `categories` | `categories` |
+| Swarm | `peers` | `peers` |
+| Completions | `completed` | `transfer_history` |
+| Forums | `forumcats`, `forum_forums`, `forum_topics`, `forum_posts` | `forum_categories`, `forums`, `forum_topics`, `forum_posts` |
+| Comments and ratings | `comments`, `ratings` | `torrent_comments`, `torrent_ratings` |
+| Messages | `messages` | `messages` |
+| Shoutbox | `shoutbox` | `chat_messages` |
+| Bans | `bans`, `email_bans` | `banned_ips`, `banned_emails` |
 
-Password hashes are migrated as-is. The backend supports legacy hash verification (SHA1) with transparent re-hashing to Argon2id on next login.
+Two things must survive the cutover, and the mapping treats both as such:
+
+- **Passkeys.** Every `.torrent` file a member has already downloaded announces
+  with their passkey, so `users.passkey` is carried across unchanged.
+- **Info hashes.** The legacy schema stores 40 hex characters; the target stores
+  the 20 raw bytes the tracker compares against. A torrent whose hash does not
+  survive stops announcing.
+
+Password hashes are migrated as-is. The backend verifies the legacy scheme
+(SHA1/MD5/HMAC) once and re-hashes to Argon2id at that member's next login, so
+nobody is asked to reset a password.
+
+Features the port deliberately dropped — polls, the widget system, server-side
+themes, the word censor and others — have their tables marked `skip` with the
+reason. See `docs/NOT_PORTING.md`.
 
 ## Links
 

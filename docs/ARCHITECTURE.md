@@ -100,11 +100,19 @@ Additional components:
 
 ## Migration Tool Architecture
 
-The migration tool converts a legacy TorrentTrader 3.x MySQL database into the new PostgreSQL schema. It follows a **pipeline architecture**:
+The migration tool converts a legacy TorrentTrader 3.x MySQL database into the new PostgreSQL schema. It follows a **pipeline architecture**, preceded by a pre-flight stage that decides what the pipeline will do:
 
 ```
-Source Reader → Transformer → Target Writer
+Schema Reader → Baseline Diff → Mapping File        (pre-flight; built)
+Source Reader → Transformer   → Target Writer       (the migration; not built)
 ```
+
+**Pre-flight.** The tool reads the source schema through `information_schema`, compares it against the TorrentTrader 3.0 baseline in `internal/baseline`, and generates a YAML mapping file. The premise is that no two installs are alike after years of mods, so the tool reports what it found rather than assuming: the mapping is generated from the operator's actual database, so a mod-added column appears as an entry marked `custom` for a human to decide on rather than being silently dropped. The file carries the reasoning for each decision as comments, is meant to be edited, and is what a migration run is driven from.
+
+- `internal/baseline` is transcribed from `FULL_FEATURE_DOCUMENTATION.md` section 1. It holds all 37 tables that document lists, but only the nine it breaks down have their columns checked — the rest are known by name, and the diff says so rather than reporting their columns as mod-added.
+- Type comparison normalizes away differences in how a server reports a declaration (integer display widths, collations, the `BINARY` attribute) while keeping differences that change what a column can hold. This is checked against a real MySQL 8 server in the tool's tests, not assumed.
+
+**The migration itself is not built.** `run`, `verify` and `rollback` exist as commands that fail with "not implemented" rather than exiting zero, because a cutover script that reads success from a command that did nothing is worse than one that stops. When built:
 
 - Each table/entity type has its own transformer that handles schema differences, data cleaning, and type conversions.
 - **Resumable**: The tool checkpoints after each entity type completes, so a failed migration can be restarted without re-processing already-migrated data.

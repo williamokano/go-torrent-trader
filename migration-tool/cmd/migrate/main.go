@@ -18,7 +18,11 @@ func init() {
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Preview changes without writing")
 
-	rootCmd.AddCommand(discoverCmd, validateCmd, runCmd, verifyCmd, rollbackCmd)
+	rootCmd.AddCommand(discoverCmd, validateCmd, mappingCmd, runCmd, verifyCmd, rollbackCmd)
+
+	// A failed command has already explained itself; repeating the usage text
+	// after the error buries it.
+	rootCmd.SilenceUsage = true
 }
 
 func run() int {

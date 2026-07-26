@@ -15,6 +15,25 @@ type Config struct {
 	DryRun    bool
 }
 
+// RequireSource returns the source DSN, or an error naming both ways of
+// supplying it. Commands that read the legacy database call this instead of
+// letting an empty DSN fail somewhere less obvious.
+func (c *Config) RequireSource() (string, error) {
+	if c.SourceDSN == "" {
+		return "", fmt.Errorf("no source database: pass --source or set MIGRATION_SOURCE_DSN")
+	}
+	return c.SourceDSN, nil
+}
+
+// RequireTarget returns the target DSN, or an error naming both ways of
+// supplying it.
+func (c *Config) RequireTarget() (string, error) {
+	if c.TargetDSN == "" {
+		return "", fmt.Errorf("no target database: pass --target or set MIGRATION_TARGET_DSN")
+	}
+	return c.TargetDSN, nil
+}
+
 // LoadFromFlags reads configuration from cobra command flags, falling back to
 // environment variables for DSN values.
 func LoadFromFlags(cmd *cobra.Command) (*Config, error) {

@@ -7,12 +7,13 @@ import (
 )
 
 // runCmd executes the migration from source to target database.
+//
+// Not implemented. It fails rather than exiting zero: a cutover script that
+// reads success from a command that did nothing is worse than one that stops.
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the migration from source to target database",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("Running migration...")
-		// TODO: implement migration
-		return nil
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return fmt.Errorf("`run` is not implemented yet — it needs writing to PostgreSQL, the entity transformers, and the resumable run")
 	},
 }
