@@ -42,6 +42,43 @@ describe("MarkdownRenderer", () => {
       expect(details?.hasAttribute("open")).toBe(false);
     });
 
+    // A release named `Show !!secret ending!! 01` used to rewrite the link label,
+    // producing <a>Show </a><details>…</details><a> 01</a> — a block-level widget
+    // inside what the shoutbox renders as a single row, with the link torn into
+    // three pieces. Escaping cannot fix it from the caller's side: the plugin runs
+    // on the mdast after escapes have resolved.
+    it("leaves !! alone inside a link label", () => {
+      const { container } = render(
+        <MarkdownRenderer content="[Show !!secret ending!! 01](https://example.com/t/1)" />,
+      );
+
+      const links = container.querySelectorAll("a");
+      expect(links).toHaveLength(1);
+      expect(links[0].textContent).toBe("Show !!secret ending!! 01");
+      expect(container.querySelector("details")).toBeNull();
+    });
+
+    it("still renders a spoiler alongside a link in the same paragraph", () => {
+      const { container } = render(
+        <MarkdownRenderer content="see [the page](https://example.com) and !!the twist!!" />,
+      );
+
+      expect(container.querySelectorAll("a")).toHaveLength(1);
+      expect(container.querySelector("details")?.textContent).toContain(
+        "the twist",
+      );
+    });
+
+    it("still allows a link inside a spoiler", () => {
+      const { container } = render(
+        <MarkdownRenderer content="!!it is [here](https://example.com)!!" />,
+      );
+
+      const details = container.querySelector("details");
+      expect(details).toBeInTheDocument();
+      expect(details?.querySelector("a")?.textContent).toBe("here");
+    });
+
     it("keeps inline markdown inside the spoiler", () => {
       const { container } = render(
         <MarkdownRenderer content="!!**Ending**: he dies!!" />,
