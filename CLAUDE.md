@@ -1,5 +1,38 @@
 # go-torrent-trader Development Guidelines
 
+## Where work lives: GitHub Issues, not Markdown
+
+**Decided 2026-07-26. This overrides any instruction elsewhere in this repository
+that tells you to record work in a document.**
+
+GitHub Issues is the source of truth for everything to be done — features, bugs,
+chores, proposals, spikes. Do **not** add new items to `docs/IMPLEMENTATION_TASKS.md`,
+`docs/PROPOSED_FEATURES.md`, `docs/FUTURE_WORK.md` or `tasks/todo.md`. Open an issue
+and reference it from the pull request (`Closes #N`).
+
+**Why.** Task state in Markdown drifts, silently, and this project has paid for it.
+A story sat marked `[DONE]` over three acceptance criteria that were never
+implemented and an endpoint shipped with no authorization check. Two of the most-cited
+architecture decisions described a JWT and a rate limiter that no one ever wrote, and
+one of them had spawned a "required" production secret that nothing reads. None of
+that survives in an issue tracker: an issue has one state, it closes from the PR that
+does the work, and a merge cannot quietly rewrite it.
+
+**Reference documents stay as files, and stay authoritative.** They describe what the
+system *is* and *why*, not what to do next. Read these before working in an unfamiliar
+area — they are listed again under Key References with what each is for:
+
+- `docs/ARCHITECTURE.md` — layering, boundaries, conventions
+- `docs/OPEN_QUESTIONS.md` — the decision log
+- `docs/NOT_PORTING.md` — what was deliberately dropped, and why. Check it before
+  "adding" something; it may have been declined on purpose
+- `docs/FULL_FEATURE_DOCUMENTATION.md` — the original TorrentTrader spec
+- `tasks/lessons.md` — mistakes already made once, written as rules
+
+**The existing task documents are being drained into issues.** Until that finishes,
+treat them as historical context: read them, cite them, migrate from them — never
+append to them.
+
 ## Agent Development Flow
 
 ```
@@ -8,6 +41,8 @@ Receive task → Create branch → Evaluate alternatives → Agree on approach �
 
 ### 1. Receive Task
 
+- **Work starts from a GitHub issue.** If there isn't one, open one first — that is
+  where scope, acceptance criteria and discussion live
 - Understand requirements, acceptance criteria, and scope
 - Check Pre-Task Checks (cross-repo deps, manual steps, code dwarfing, duplicates)
 
@@ -55,9 +90,9 @@ The spec should cover:
 - **Tests are mandatory** — every feature or fix must include tests
 - **Coverage** — 80% is the target; **CI currently gates at the `COVERAGE_FLOOR` in `.github/workflows/backend.yml` (80%)**. Run `task backend:coverage` to check against the floor locally and get a line-by-line HTML report. `cmd/server` (bootstrap) and `internal/testutil` (test helpers) are excluded from the denominator via `COVERAGE_EXCLUDE`. The floor ratchets up as coverage improves — raise it when you raise coverage, and never lower it to turn a red build green. New code must not decrease overall coverage
 - **Repository tests need Docker** — `internal/repository/postgres` spins a real Postgres via testcontainers (`TestMain` in `main_test.go`), applies the real goose migrations to it, and tears it down. This means **a migration that cannot apply to a clean database fails the build** — which is how the broken 039 was caught. Use `go test -short` to skip the container when Docker is unavailable
-- **Mark the story as DONE in `docs/IMPLEMENTATION_TASKS.md`** — every PR must update the backlog
-- **Update affected stories** — when implementation reveals new insights, update related stories in the same PR
-- **Continuously refine the backlog** — findings during implementation feed back into upcoming stories
+- **Close the issue from the PR** — put `Closes #N` in the PR description so the work and its record land together. Do not mark anything DONE in `docs/IMPLEMENTATION_TASKS.md`; that file is historical
+- **Update affected issues** — when implementation reveals something that changes another issue's scope, comment on it in the same session rather than trusting memory
+- **File what you find** — a gap discovered mid-implementation becomes a new issue, not a TODO comment or a line in a document
 
 ### 5. Post-Implementation Review
 

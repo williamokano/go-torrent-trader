@@ -1,5 +1,21 @@
 # Reimplementation Task Breakdown (Monorepo)
 
+> ## ⚠️ Frozen — this file no longer receives new work
+>
+> **As of 2026-07-26, GitHub Issues is the source of truth for tasks.** Do not add
+> stories here, and do not change a story's status here. Open an issue instead and
+> close it from the PR that does the work.
+>
+> This file stays as **history**: it records what was built, what shipped partially,
+> and the reasoning behind ~190 stories. That is worth keeping and worth reading. It
+> is being drained into issues; entries that still represent unbuilt work will move,
+> and the rest remains as the port's build log.
+>
+> Why the change: status in Markdown drifts across branches and merges. This document
+> carried a story marked `[DONE]` over three unshipped acceptance criteria and an
+> endpoint with no authorization check — for months, because nothing re-checks a
+> checkbox. See `CLAUDE.md` for the full rule.
+
 > Each story is independently implementable and testable.
 > Stories are ordered within each epic by dependency (build bottom-up).
 > Estimates are T-shirt sizes: S (1-2 days), M (3-5 days), L (1-2 weeks).

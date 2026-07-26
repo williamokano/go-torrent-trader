@@ -1,5 +1,17 @@
 # Proposed Features
 
+> ## ⚠️ Frozen — new proposals go to GitHub Issues
+>
+> **As of 2026-07-26, GitHub Issues is the source of truth for work**, including
+> proposals. Do not add a PF item here. Open an issue, and use the analysis below as
+> the model for what a good one contains: what it is in plain language, what already
+> exists that it can reuse, what it depends on, and the questions still open.
+>
+> This document stays as **the reasoning behind the ideas** — the verification pass,
+> the dependency graph, and the shared machinery several items assume are all worth
+> keeping in one place rather than scattered across issue comments. It is being
+> drained into issues item by item. See `CLAUDE.md` for the full rule.
+
 A staging area for features that have been **proposed but not specified**. Nothing
 here is committed work.
 
