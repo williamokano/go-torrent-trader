@@ -263,6 +263,91 @@ tracker.example.com {
 
       <section>
         <div class="wrap">
+          <p class="eyebrow">Coming from TorrentTrader 3.x</p>
+          <h2>Reading your old database</h2>
+          <p>
+            If you already run a PHP TorrentTrader, the migration tool reads its
+            MySQL database and works out where everything should go. It does not
+            write anything yet — moving the data is still being built — but the
+            three commands below tell you what a move would involve, which is
+            worth knowing before you plan one.
+          </p>
+          <table>
+            <tr>
+              <th scope="row"><code>discover</code></th>
+              <td>
+                Lists the tables in your old database with their row counts, so
+                you know the size of the job. <code>--table users</code> prints
+                one table's columns and the exact DDL your server reports.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><code>validate</code></th>
+              <td>
+                Compares your schema against a stock TorrentTrader 3.0 and
+                reports what differs — tables you have dropped, tables and
+                columns your mods added, and columns whose type has changed. It
+                also tells you what character set your text is stored in, which
+                matters: an older install is usually <code>latin1</code>, the
+                new tracker stores UTF-8, and text copied across without being
+                converted comes out as mojibake. Differences are expected; it
+                only fails when something the migration actually reads is
+                genuinely missing.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><code>mapping</code></th>
+              <td>
+                Writes a YAML file proposing where every one of your columns
+                should land in the new schema, with the reasoning kept as
+                comments next to each decision. Columns your mods added come
+                through marked <code>custom</code> for you to decide on.
+              </td>
+            </tr>
+          </table>
+          <p>
+            The mapping file is meant to be read and edited. No two
+            TorrentTrader installs are alike after a few years of mods, so the
+            tool reports what it found rather than assuming, and the file is
+            yours to correct before anything is written. Keep it in version
+            control alongside the rest of your deployment.
+          </p>
+          <pre><code>task migration-tool:build
+
+./migration-tool/migrate mapping \
+  --source "mysql://user:password@your-old-host:3306/torrenttrader" \
+  --out mapping.yaml</code></pre>
+          <p>
+            Released binaries for Linux, macOS and Windows are attached to every
+            <a href="https://github.com/williamokano/go-torrent-trader/releases"
+              >release</a
+            >
+            if you would rather not build it. The tool only ever reads from the
+            old database.
+          </p>
+          <div class="note">
+            <p>
+              <strong>Passwords will not carry over yet.</strong> The tracker
+              currently verifies only its own password format, so a hash brought
+              across from an older install cannot be checked and the member
+              cannot log in. Plan on everyone resetting their password after a
+              migration until that is fixed — it is
+              <a
+                href="https://github.com/williamokano/go-torrent-trader/issues/228"
+                >tracked as issue 228</a
+              >, and this page will say otherwise when it is true.
+            </p>
+          </div>
+          <p>
+            Passkeys are a different matter: those are copied exactly, so the
+            <code>.torrent</code> files your members already have keep
+            announcing and nobody has to re-download anything.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
           <p class="eyebrow">Keeping it running</p>
           <h2>Backups</h2>
           <p>

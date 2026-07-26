@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,15 @@ func newTestCmd() *cobra.Command {
 	cmd.Flags().String("log-level", "info", "Log level")
 	cmd.Flags().Bool("dry-run", false, "Dry run")
 	return cmd
+}
+
+// setFlag sets a flag or fails the test, so a typo in a flag name shows up as a
+// failure rather than as a silently unset value.
+func setFlag(t *testing.T, cmd *cobra.Command, name, value string) {
+	t.Helper()
+	if err := cmd.Flags().Set(name, value); err != nil {
+		t.Fatalf("setting --%s: %v", name, err)
+	}
 }
 
 func TestLoadFromFlagsDefaults(t *testing.T) {
@@ -33,10 +43,10 @@ func TestLoadFromFlagsDefaults(t *testing.T) {
 
 func TestLoadFromFlagsWithValues(t *testing.T) {
 	cmd := newTestCmd()
-	cmd.Flags().Set("source", "mysql://root@localhost/legacy")
-	cmd.Flags().Set("target", "postgres://localhost/new")
-	cmd.Flags().Set("log-level", "debug")
-	cmd.Flags().Set("dry-run", "true")
+	setFlag(t, cmd, "source", "mysql://root@localhost/legacy")
+	setFlag(t, cmd, "target", "postgres://localhost/new")
+	setFlag(t, cmd, "log-level", "debug")
+	setFlag(t, cmd, "dry-run", "true")
 
 	cfg, err := LoadFromFlags(cmd)
 	if err != nil {
@@ -72,5 +82,47 @@ func TestLoadFromFlagsEnvFallback(t *testing.T) {
 	}
 	if cfg.TargetDSN != "postgres://env@localhost/tgt" {
 		t.Errorf("expected TargetDSN from env, got %s", cfg.TargetDSN)
+	}
+}
+
+func TestRequireSource(t *testing.T) {
+	if _, err := (&Config{}).RequireSource(); err == nil {
+		t.Error("RequireSource with no DSN returned no error")
+	} else {
+		for _, want := range []string{"--source", "MIGRATION_SOURCE_DSN"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error does not mention %s: %v", want, err)
+			}
+		}
+	}
+
+	cfg := &Config{SourceDSN: "mysql://root@localhost/legacy"}
+	got, err := cfg.RequireSource()
+	if err != nil {
+		t.Fatalf("RequireSource returned %v", err)
+	}
+	if got != cfg.SourceDSN {
+		t.Errorf("RequireSource() = %q, want %q", got, cfg.SourceDSN)
+	}
+}
+
+func TestRequireTarget(t *testing.T) {
+	if _, err := (&Config{}).RequireTarget(); err == nil {
+		t.Error("RequireTarget with no DSN returned no error")
+	} else {
+		for _, want := range []string{"--target", "MIGRATION_TARGET_DSN"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error does not mention %s: %v", want, err)
+			}
+		}
+	}
+
+	cfg := &Config{TargetDSN: "postgres://localhost/new"}
+	got, err := cfg.RequireTarget()
+	if err != nil {
+		t.Fatalf("RequireTarget returned %v", err)
+	}
+	if got != cfg.TargetDSN {
+		t.Errorf("RequireTarget() = %q, want %q", got, cfg.TargetDSN)
 	}
 }

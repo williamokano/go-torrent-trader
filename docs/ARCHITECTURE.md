@@ -100,11 +100,24 @@ Additional components:
 
 ## Migration Tool Architecture
 
-The migration tool converts a legacy TorrentTrader 3.x MySQL database into the new PostgreSQL schema. It follows a **pipeline architecture**:
+The migration tool converts a legacy TorrentTrader 3.x MySQL database into the new PostgreSQL schema. It follows a **pipeline architecture**, preceded by a pre-flight stage that decides what the pipeline will do:
 
 ```
-Source Reader → Transformer → Target Writer
+Schema Reader → Baseline Diff → Mapping File        (pre-flight; built)
+Source Reader → Transformer   → Target Writer       (the migration; not built)
 ```
+
+**Pre-flight.** The tool reads the source schema through `information_schema`, compares it against the TorrentTrader 3.0 baseline in `internal/baseline`, and generates a YAML mapping file. The premise is that no two installs are alike after years of mods, so the tool reports what it found rather than assuming: the mapping is generated from the operator's actual database, so a mod-added column appears as an entry marked `custom` for a human to decide on rather than being silently dropped. The file carries the reasoning for each decision as comments, is meant to be edited, and is what a migration run is driven from.
+
+- `internal/baseline` is transcribed from `FULL_FEATURE_DOCUMENTATION.md` section 1. It holds all 37 tables that document lists, but only the nine it breaks down have their columns checked — the rest are known by name, and the diff says so rather than reporting their columns as mod-added.
+- `internal/target` declares the PostgreSQL side, because Shared Nothing forbids importing it. A declaration nothing checks drifts, so a test replays `backend/migrations` and fails if the two disagree, and a second test fails if a mapping rule names a target column that does not exist or if a target column has neither a rule nor a note saying where its value comes from. Both were written after the first version of the mapping named three target columns wrongly.
+- Type comparison normalizes away differences in how a server reports a declaration (integer display widths, collations, the `BINARY` attribute) while keeping differences that change what a column can hold. This is checked against a real MySQL 8 server in the tool's tests, not assumed.
+- A difference is not automatically a failure. Only a missing required table, or a missing column a transformer actually reads, stops a run: the mapping skips 35 baseline columns outright, and an install that dropped one years ago migrates perfectly.
+- Character sets are read and reported. A stock 2008 TorrentTrader is `latin1` and the target is UTF-8, so the text has to be converted rather than copied — a failure that is silent at the time and discovered weeks later.
+
+**Verification.** `internal/testenv` stands up both databases for the tests: MySQL loaded with a fixed legacy corpus, and PostgreSQL built by running the backend's own goose migrations. The corpus is deliberately adversarial rather than large — zero dates, orphaned foreign keys, latin1 high bytes, a malformed info hash, an over-long username — because a migration does not fail on ordinary data. What the operator reads is captured in golden files (`cmd/migrate/testdata/`), so a change to the generated mapping or the validation report lands in review as text somebody has to agree with, which row counts alone cannot achieve. When `verify` (#165) exists, CI will run the operator's own command against the corpus rather than asserting correctness some separate way — otherwise the one thing depended on at 3am would be the one thing never exercised. Tracked in #225.
+
+**The migration itself is not built.** `run`, `verify` and `rollback` exist as commands that fail with "not implemented" rather than exiting zero, because a cutover script that reads success from a command that did nothing is worse than one that stops. When built:
 
 - Each table/entity type has its own transformer that handles schema differences, data cleaning, and type conversions.
 - **Resumable**: The tool checkpoints after each entity type completes, so a failed migration can be restarted without re-processing already-migrated data.
