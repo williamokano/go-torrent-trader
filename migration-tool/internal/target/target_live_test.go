@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -152,8 +153,74 @@ func TestSeededTablesReallyShipWithRows(t *testing.T) {
 		}
 		if n == 0 {
 			t.Errorf("%s is recorded as seeded (%s) but the migrations leave it empty", table, note)
+			continue
+		}
+		// The count in the note is printed into the operator's mapping file, so a
+		// wrong one is a wrong instruction rather than an untidy comment. `groups`
+		// said 6 and had 7 — the Uploader group arrived in a later migration and
+		// nothing here was watching.
+		if want, ok := leadingCount(note); ok && want != n {
+			t.Errorf("%s holds %d rows but Seeded says %q", table, n, note)
 		}
 	}
+}
+
+// The direction that was missing, and the reason `forums` was absent from Seeded
+// for as long as it was: the loop above only asks "does every table we declared
+// as seeded have rows?", which cannot notice a seeded table nobody declared.
+//
+// 039_create_forums.sql seeds 6 forums. Because the mapping keeps legacy ids so
+// foreign keys resolve, that meant a legacy install with forum ids starting at 1
+// aborted the forum load on a primary key collision — and one whose ids started
+// above 6 finished "successfully" with 6 phantom stock forums and a BIGSERIAL that
+// had never advanced, so the first forum created after cutover collided too.
+//
+// Any table the migrations populate has to be declared here, whether or not the
+// mapping currently writes to it: the next rule that starts writing to it inherits
+// the collision, and the warning is generated from this map.
+func TestEverySeededTargetTableIsDeclaredAsSeeded(t *testing.T) {
+	if _, err := testenv.MigrationsDir(); errors.Is(err, testenv.ErrNoMigrations) {
+		t.Skip("skipping: backend/migrations is not present")
+	}
+
+	db, err := sql.Open("postgres", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("opening the target database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, table := range target.PostgreSQL().Tables() {
+		var n int
+		// #nosec G202 -- table comes from this package's own declaration.
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + pq(table)).Scan(&n); err != nil {
+			t.Errorf("counting %s: %v", table, err)
+			continue
+		}
+		if n == 0 {
+			continue
+		}
+		if _, declared := target.Seeded[table]; !declared {
+			t.Errorf("the migrations leave %d rows in %s, but it is not in target.Seeded — "+
+				"a mapping that keeps legacy ids will collide with them, and nothing "+
+				"warns the operator", n, table)
+		}
+	}
+}
+
+// leadingCount reads the row count off the front of a Seeded note ("6 rows, ...").
+func leadingCount(note string) (int, bool) {
+	end := 0
+	for end < len(note) && note[end] >= '0' && note[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(note[:end])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // pq quotes a PostgreSQL identifier. The names come from a constant map in this

@@ -129,7 +129,7 @@ It does not move data yet.
   `docs/FULL_FEATURE_DOCUMENTATION.md` section 1
 - Comparison against that baseline: missing tables, mod-added tables and
   columns, and type mismatches. A column the migration does not read is
-  reported when it is missing but does not stop a run — 36 baseline columns
+  reported when it is missing but does not stop a run — 35 baseline columns
   are skipped outright, and an install that dropped one migrates fine
 - Character set reporting. A stock 2008 TorrentTrader is `latin1` throughout
   and the target stores UTF-8, so `validate` names the encodings it found and
@@ -238,7 +238,7 @@ mapping named three target columns that were wrong, including a `forums`
 permission column it claimed did not exist. So `internal/target` is checked two
 ways:
 
-- `target_drift_test.go` replays `backend/migrations` and fails if the
+- `target_live_test.go` replays `backend/migrations` and fails if the
   declaration disagrees with them. It skips when those files are absent, so the
   module still builds standalone
 - `internal/mapping/target_test.go` fails if a rule names a target column that

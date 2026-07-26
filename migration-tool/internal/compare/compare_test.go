@@ -253,7 +253,7 @@ func dropColumn(s schema.Schema, table, column string) schema.Schema {
 	return s
 }
 
-// The regression this package was written wrong for once: 36 baseline columns
+// The regression this package was written wrong for once: 35 baseline columns
 // are skipped by the plan, and an install that dropped one used to be told its
 // database could not be migrated.
 func TestDroppingASkippedColumnDoesNotBlock(t *testing.T) {

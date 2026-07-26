@@ -6,7 +6,7 @@
 // nothing checks drifts from the real schema silently, and three mapping rules
 // in this package's first version named target columns that did not exist.
 //
-// So the declaration below is checked. target_drift_test.go reads
+// So the declaration below is checked. target_live_test.go reads
 // backend/migrations when they are present and fails if this disagrees with
 // them, which keeps the module standalone without letting it quietly rot.
 package target
@@ -66,11 +66,20 @@ func sortStrings(s []string) {
 // insert does not advance the BIGSERIAL sequence, so the first row the running
 // site creates afterwards collides too.
 var Seeded = map[string]string{
-	"groups":           "6 rows, with name and slug UNIQUE",
+	// 6 from 001_create_groups.sql plus Uploader from
+	// 070_add_can_self_approve_and_uploader_group.sql. The count is printed into
+	// the operator's mapping file, so it being wrong is not cosmetic.
+	"groups":           "7 rows, with name and slug UNIQUE",
 	"categories":       "20 rows at explicit ids 1-20, plus subcategories",
 	"forum_categories": "3 rows",
-	"countries":        "25 rows, with code UNIQUE",
-	"languages":        "20 rows, with code UNIQUE",
+	// Was missing, and it is the one that bites: 039_create_forums.sql seeds 6
+	// forums at ids 1-6, so a legacy install whose forum ids start at 1 collides
+	// on the first batch — and one whose ids start above 6 "succeeds" while
+	// leaving 6 phantom stock forums and an unadvanced BIGSERIAL, so the first
+	// forum created after cutover collides too.
+	"forums":    "6 rows at ids 1-6 (Announcements, General Discussion, Torrent Requests, Torrent Talk, Help & Support, Bug Reports)",
+	"countries": "25 rows, with code UNIQUE",
+	"languages": "20 rows, with code UNIQUE",
 }
 
 // PostgreSQL returns the target schema. Only the tables the mapping targets are

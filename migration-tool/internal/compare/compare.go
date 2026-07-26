@@ -7,7 +7,7 @@
 // run — a required table that is absent, and an absent column the migration
 // actually reads — because those are the cases where it has nothing to read.
 //
-// The second half of that matters. The mapping skips 36 baseline columns
+// The second half of that matters. The mapping skips 35 baseline columns
 // outright: age, gender, signature, the timezone offset, the who's-online
 // scratch field. An install that dropped one years ago migrates perfectly, and
 // an earlier version of this package refused to run over it.

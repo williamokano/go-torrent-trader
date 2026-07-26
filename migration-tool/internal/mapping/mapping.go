@@ -204,7 +204,8 @@ func Build(found schema.Schema, server string) Document {
 			c := Column{
 				Name: fc.Name,
 				Type: fc.Type,
-				Rule: resolveRule(tp, planned, base, ft.Name, fc.Name),
+				Rule: reconcileTransformWithType(
+					resolveRule(tp, planned, base, ft.Name, fc.Name), fc.Type),
 			}
 			if fc.Charset != "" && !schema.IsUTF8(fc.Charset) {
 				c.Charset = fc.Charset
@@ -245,6 +246,52 @@ func lookupRule(tp TablePlan, column string) (Rule, bool) {
 		}
 	}
 	return Rule{}, false
+}
+
+// reconcileTransformWithType corrects a planned transform against the type the
+// column actually has.
+//
+// The plan is static, so it encodes stock TorrentTrader's types. The mapping is
+// supposed to be generated from the database in front of it — that is the whole
+// argument for reading the operator's schema rather than a reference one — but
+// nothing consulted the column type, so a transform stayed as planned however the
+// column had been redefined.
+//
+// info_hash is the case that matters and the reason this exists. Stock stores it
+// as 40 hex characters, so the plan says hex_to_bytea; several mods changed it to
+// binary(20) to halve the index, and those columns already hold the 20 raw bytes.
+// Decoding them as hex either aborts on the first non-hex byte or writes 20 bytes
+// of garbage into a BYTEA NOT NULL UNIQUE column — after which every torrent on
+// the site stops announcing and there is no way back from the target side.
+//
+// Corrected rather than flagged for review, because the right answer is not a
+// judgement call once the type is known: bytes go across as bytes. The note says
+// the type differed from stock so the change is visible in the diff rather than
+// silent, since the operator is the one who has to trust this file.
+func reconcileTransformWithType(r Rule, columnType string) Rule {
+	if r.Transform != TransformHexToBytea || !isBinaryType(columnType) {
+		return r
+	}
+	r.Transform = TransformTextToBytea
+	r.Comment = strings.TrimSpace(r.Comment + " Your column is " + columnType +
+		", not the hex text a stock install has, so the bytes are carried across " +
+		"verbatim instead of being hex-decoded. Check that it really holds 20 raw " +
+		"bytes per hash before the run.")
+	return r
+}
+
+// isBinaryType reports whether a MySQL column type stores raw bytes rather than
+// text. Length and attributes may follow, so this matches the leading word.
+func isBinaryType(columnType string) bool {
+	t := strings.ToLower(strings.TrimSpace(columnType))
+	if i := strings.IndexAny(t, "( "); i >= 0 {
+		t = t[:i]
+	}
+	switch t {
+	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
+		return true
+	}
+	return false
 }
 
 func resolveRule(tp TablePlan, planned bool, base baseline.Schema, table, column string) Rule {

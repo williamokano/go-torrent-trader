@@ -151,3 +151,132 @@ func TestSeededTargetsWarnAboutCollisions(t *testing.T) {
 		}
 	}
 }
+
+// forums.min_group_level and forums.min_post_level are compared directly against
+// groups.level, and the two are mapped by different rules that never mention each
+// other. That is a silent authorization change waiting to happen: the forum levels
+// carry the legacy class numbers, groups.level defaults to the legacy group_id, and
+// the groups comment offers "merge into the seeded row" as an equally-blessed
+// option — where the seeded groups sit at levels 10-100. Take that option without
+// renumbering the forums and a staff forum at minclassread=5 becomes readable by an
+// ordinary member at level 20. Nothing about the migrated site looks wrong.
+//
+// Neither rule can be checked for correctness by a test, because the right answer
+// depends on a choice the operator makes. What can be checked is that both rules
+// tell them the choice exists and that the two must agree — so the coupling cannot
+// be dropped from either side without this failing.
+func TestTheForumLevelAndGroupLevelRulesWarnAboutEachOther(t *testing.T) {
+	plans := Plan()
+
+	forums, ok := plans["forum_forums"]
+	if !ok {
+		t.Fatal("no plan for forum_forums")
+	}
+	groups, ok := plans["groups"]
+	if !ok {
+		t.Fatal("no plan for groups")
+	}
+
+	// Each side has to name the other's column, so a reader of either comment can
+	// find the coupling without already knowing about it.
+	for _, want := range []string{"groups.level", "minclassread"} {
+		if !strings.Contains(forums.Comment, want) {
+			t.Errorf("the forums comment does not mention %q, so an operator merging "+
+				"groups into the seeded rows has no way to learn that every forum's "+
+				"level silently changed meaning", want)
+		}
+	}
+	for _, want := range []string{"min_group_level", "level"} {
+		if !strings.Contains(groups.Comment, want) {
+			t.Errorf("the groups comment does not mention %q, so the option to merge "+
+				"is offered without saying what it invalidates", want)
+		}
+	}
+	// And both must actually say a private forum can open up, since that is the
+	// consequence rather than a detail of the mechanism.
+	if !strings.Contains(forums.Comment, "20") || !strings.Contains(groups.Comment, "20") {
+		t.Error("neither comment gives the concrete outcome (a level-5 staff forum " +
+			"readable at level 20); an abstract warning about scales does not land")
+	}
+}
+
+// The mapping is generated from the operator's database, so a transform has to
+// reflect the type the column actually has — not the type stock TorrentTrader has.
+//
+// info_hash is the case that matters. Several mods changed it to binary(20) to
+// halve the index, and those columns already hold the 20 raw bytes. Emitting
+// hex_to_bytea for them decodes bytes that are not hex: #158 either aborts or
+// writes garbage into a BYTEA NOT NULL UNIQUE column, and every torrent on the
+// site stops announcing with no recovery from the target side.
+func TestABinaryInfoHashIsNotHexDecoded(t *testing.T) {
+	for _, tc := range []struct {
+		columnType string
+		want       string
+	}{
+		// Stock: 40 hex characters, so decode them.
+		{columnType: "varchar(40)", want: TransformHexToBytea},
+		{columnType: "char(40)", want: TransformHexToBytea},
+		// Modded: already raw bytes, so carry them across.
+		{columnType: "binary(20)", want: TransformTextToBytea},
+		{columnType: "BINARY(20)", want: TransformTextToBytea},
+		{columnType: "varbinary(20)", want: TransformTextToBytea},
+		{columnType: "blob", want: TransformTextToBytea},
+		{columnType: "tinyblob", want: TransformTextToBytea},
+	} {
+		t.Run(tc.columnType, func(t *testing.T) {
+			got := reconcileTransformWithType(
+				Rule{Action: ActionMap, Target: "info_hash", Transform: TransformHexToBytea},
+				tc.columnType)
+			if got.Transform != tc.want {
+				t.Errorf("a %s column got transform %q, want %q",
+					tc.columnType, got.Transform, tc.want)
+			}
+			// A silent correction is nearly as bad as no correction: the operator
+			// has to audit this file, so a departure from the stock plan must say so.
+			if tc.want == TransformTextToBytea && !strings.Contains(got.Comment, tc.columnType) {
+				t.Errorf("comment = %q, want it to name the actual column type", got.Comment)
+			}
+		})
+	}
+}
+
+// Only hex_to_bytea is reconciled. A binary column that was never going to be
+// hex-decoded must be left exactly as planned, or this would quietly rewrite
+// transforms it knows nothing about.
+func TestReconcilingATransformTouchesNothingElse(t *testing.T) {
+	for _, transform := range []string{
+		TransformTextToBytea, TransformTextToInet, TransformYesNoToBool, "",
+	} {
+		in := Rule{Action: ActionMap, Target: "x", Transform: transform, Comment: "original"}
+		got := reconcileTransformWithType(in, "binary(20)")
+		if got != in {
+			t.Errorf("transform %q on a binary column changed to %+v, want it untouched",
+				transform, got)
+		}
+	}
+}
+
+// The number of skipped baseline columns is cited in compare.go, the README and
+// docs/ARCHITECTURE.md as the reason a dropped column does not block a migration.
+// It was cited as 36 and is 35 — `grep -c 'skip('` counts the helper's own
+// definition. A number in prose that nothing checks drifts, and lessons.md is
+// explicit that a cited number becomes the basis of the next design, so it is
+// derived from the plan here instead of being trusted.
+func TestTheSkippedColumnCountMatchesWhatTheDocsClaim(t *testing.T) {
+	const documented = 35 // compare.go, migration-tool/README.md, docs/ARCHITECTURE.md
+
+	skipped := 0
+	for _, tp := range Plan() {
+		for _, r := range tp.Columns {
+			if r.Action == ActionSkip {
+				skipped++
+			}
+		}
+	}
+
+	if skipped != documented {
+		t.Errorf("the plan skips %d baseline columns but compare.go, the README and "+
+			"docs/ARCHITECTURE.md all say %d — update the three citations together",
+			skipped, documented)
+	}
+}
