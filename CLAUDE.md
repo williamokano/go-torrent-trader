@@ -29,9 +29,12 @@ area — they are listed again under Key References with what each is for:
 - `docs/FULL_FEATURE_DOCUMENTATION.md` — the original TorrentTrader spec
 - `tasks/lessons.md` — mistakes already made once, written as rules
 
-**The existing task documents are being drained into issues.** Until that finishes,
-treat them as historical context: read them, cite them, migrate from them — never
-append to them.
+**The drain is complete.** Every real item from `docs/IMPLEMENTATION_TASKS.md`,
+`docs/PROPOSED_FEATURES.md` and `docs/FUTURE_WORK.md` now exists as an issue. Those
+files are kept only as history — the build log of the port and the reasoning behind
+the proposals. Read them for context and cite them freely; never append to them, and
+never treat a status marker in them as current. They can be deleted whenever they
+stop being useful.
 
 ## Agent Development Flow
 
@@ -87,6 +90,7 @@ The spec should cover:
 
 - **Features ship in BE+FE pairs** — every feature must include both backend and frontend in the same PR. A backend endpoint without its corresponding UI (or vice versa) is not considered complete. No half-shipped features.
 - **Every new endpoint is documented and classified in the same PR** — add it to `backend/api/openapi.yaml` with an `x-audience: public | internal` marker, then run `task generate` to refresh `backend/api/openapi.public.yaml` and the frontend types. The public document is what third-party integrators build against; the full one includes admin routes and is not published as a contract. A guard test walks the real router and fails the build on an unclassified route, so this is enforced, not merely expected. Never add a route to the undocumented-debt ledger — that list may only shrink.
+- **Every user-visible feature updates the public site in the same PR** — `website/` is the project's front door, published to GitHub Pages. If you shipped something a member or an operator would notice, it belongs there: a new capability goes in the feature list on `index.html`, a new setting goes in the table on `configure.html`, anything that changes how the site is deployed goes in `install.html`. A feature nobody knows about may as well not exist, and a site that lags the software is worse than no site because people plan around it. Match the existing voice: plain description of what the thing does, no marketing adjectives, and keep the open-source framing — free of charge, forking encouraged, contributions appreciated.
 - **Tests are mandatory** — every feature or fix must include tests
 - **Coverage** — 80% is the target; **CI currently gates at the `COVERAGE_FLOOR` in `.github/workflows/backend.yml` (80%)**. Run `task backend:coverage` to check against the floor locally and get a line-by-line HTML report. `cmd/server` (bootstrap) and `internal/testutil` (test helpers) are excluded from the denominator via `COVERAGE_EXCLUDE`. The floor ratchets up as coverage improves — raise it when you raise coverage, and never lower it to turn a red build green. New code must not decrease overall coverage
 - **Repository tests need Docker** — `internal/repository/postgres` spins a real Postgres via testcontainers (`TestMain` in `main_test.go`), applies the real goose migrations to it, and tears it down. This means **a migration that cannot apply to a clean database fails the build** — which is how the broken 039 was caught. Use `go test -short` to skip the container when Docker is unavailable

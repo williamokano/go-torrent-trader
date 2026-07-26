@@ -1,0 +1,53 @@
+name: Project site
+
+# Publishes website/ to GitHub Pages.
+#
+# Manual-only for now, deliberately. Two things must happen before the site should
+# go live:
+#
+#   1. Pages must be enabled with "GitHub Actions" as the source (Settings → Pages).
+#      Without it this job fails, which would put a red X on main for no reason.
+#   2. A LICENSE must be chosen. Every page of the site says the project is free to
+#      use and fork, and nothing currently grants that.
+#
+# Once both are done, add the push trigger back so the site tracks main:
+#
+#   push:
+#     branches: [main]
+#     paths: ['website/**', '.github/workflows/pages.yml']
+#
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a running publish — a half-deployed site is worse than a late one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check the pages exist
+        # A typo in a path would otherwise publish a 404 with a green tick.
+        run: |
+          for page in index.html install.html configure.html assets/style.css assets/site.js; do
+            test -f "website/$page" || { echo "::error::website/$page is missing"; exit 1; }
+          done
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: website
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Install — TorrentTrader</title>
+    <meta
+      name="description"
+      content="How to run TorrentTrader: Docker stack, environment variables, first administrator, and reverse proxy notes."
+    />
+    <link rel="stylesheet" href="assets/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='7' height='7' x='1' y='1' fill='%231d4ed8'/><rect width='7' height='7' x='8' y='8' fill='%23d97706'/></svg>"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="wrap">
+        <a class="brand" href="index.html"
+          ><span class="dot"></span>TorrentTrader</a
+        >
+        <nav>
+          <a href="index.html">Overview</a>
+          <a href="install.html" aria-current="page">Install</a>
+          <a href="configure.html">Configure</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="hero">
+        <div class="wrap">
+          <p class="eyebrow">Install</p>
+          <h1>Running your own tracker</h1>
+          <p class="lede">
+            One Docker stack brings up the tracker, the database, Redis and object
+            storage. You need a machine, a domain, and about ten minutes.
+          </p>
+        </div>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Before you start</p>
+          <h2>What you need</h2>
+          <table>
+            <tr>
+              <th scope="row">Machine</th>
+              <td>
+                Any Linux host with Docker and Docker Compose. A small VPS is
+                enough to start — the tracker is a Go binary and the database is
+                the part that grows.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Domain</th>
+              <td>
+                A hostname pointing at the machine. BitTorrent clients will
+                announce to it, so it needs to be reachable from the internet.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">TLS</th>
+              <td>
+                A reverse proxy terminating HTTPS. Caddy or nginx both work; see
+                the note at the bottom.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">SMTP</th>
+              <td>
+                Optional but recommended — used for email confirmation, password
+                resets and notification digests.
+              </td>
+            </tr>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Docker</p>
+          <h2>The quick path</h2>
+
+          <ol class="steps">
+            <li>
+              <h3>Get the code</h3>
+              <pre><code>git clone https://github.com/williamokano/go-torrent-trader.git
+cd go-torrent-trader</code></pre>
+            </li>
+            <li>
+              <h3>Write your configuration</h3>
+              <p>
+                Copy the example and fill in the required values. Everything else
+                has a sensible default.
+              </p>
+              <pre><code>cp stack.env.example stack.env
+$EDITOR stack.env</code></pre>
+              <table>
+                <tr>
+                  <th scope="row"><code>POSTGRES_PASSWORD</code></th>
+                  <td>Database password. No default — set it.</td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>MINIO_ROOT_PASSWORD</code></th>
+                  <td>
+                    Object storage password, minimum eight characters. Torrent
+                    files live here.
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>S3_SECRET_KEY</code></th>
+                  <td>Same value as the MinIO password.</td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>SITE_NAME</code></th>
+                  <td>What your community is called.</td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>SITE_BASE_URL</code></th>
+                  <td>
+                    Your public URL. This is what ends up in announce URLs and
+                    emails, so it must be the real one.
+                  </td>
+                </tr>
+              </table>
+              <div class="note">
+                <p>
+                  <strong>Generate real passwords.</strong>
+                  <code>openssl rand -hex 32</code> produces something suitable.
+                  The example file ships with obvious placeholders precisely so a
+                  half-configured stack is easy to spot.
+                </p>
+              </div>
+            </li>
+            <li>
+              <h3>Bring it up</h3>
+              <pre><code>docker compose -f docker-compose.stack.yml up -d</code></pre>
+              <p>
+                Database migrations run automatically on start, so there is no
+                separate setup step. Watch the logs with
+                <code>docker compose -f docker-compose.stack.yml logs -f</code>.
+              </p>
+            </li>
+            <li>
+              <h3>Create the first account</h3>
+              <p>
+                Register through the web interface. The first account is an
+                ordinary member, so promote it to administrator directly in the
+                database — this is the only step that needs psql:
+              </p>
+              <pre><code>docker compose -f docker-compose.stack.yml exec postgres \
+  psql -U torrenttrader -d torrenttrader \
+  -c "UPDATE users SET group_id = (SELECT id FROM groups WHERE slug = 'administrator') WHERE username = 'YOUR_USERNAME';"</code></pre>
+              <p>Log out and back in, and the admin panel appears.</p>
+            </li>
+            <li>
+              <h3>Decide who can join</h3>
+              <p>
+                Registration is invite-only by default. Change it in
+                <strong>Admin → Settings</strong> if you want an open sign-up, or
+                leave it closed and hand out invites.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">From source</p>
+          <h2>Running it for development</h2>
+          <p>
+            If you want to change the code rather than just run it, the repository
+            has a task runner that starts everything with hot reload.
+          </p>
+          <pre><code>cp .env.example .env
+task tools              # golangci-lint, air
+task frontend:install
+task dev:up             # Postgres, Redis, MinIO, Mailpit
+task dev                # backend and frontend, both reloading</code></pre>
+          <p>
+            The frontend serves on <code>:5173</code>, the backend on
+            <code>:8080</code>, and Mailpit catches outgoing email at
+            <code>:8025</code> so you can see confirmation messages without a real
+            SMTP server. Full details are in
+            <a
+              href="https://github.com/williamokano/go-torrent-trader/blob/main/DEVELOPMENT.md"
+              >DEVELOPMENT.md</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">In front of it</p>
+          <h2>Reverse proxy and TLS</h2>
+          <p>
+            Put a proxy in front and terminate TLS there. The backend expects to
+            receive the real client address, so forward it — the tracker records
+            peer IPs from the connection, and a proxy that hides them will make
+            every peer look like it is coming from localhost.
+          </p>
+          <pre><code># Caddy — the whole file
+tracker.example.com {
+    reverse_proxy localhost:8080
+}</code></pre>
+          <p class="small">
+            Caddy sets <code>X-Forwarded-For</code> and obtains certificates on its
+            own. With nginx, set <code>proxy_set_header X-Real-IP $remote_addr;</code>
+            and use certbot.
+          </p>
+          <div class="note">
+            <p>
+              <strong>Announce traffic is chatty.</strong> Every client checks in
+              on an interval, so the tracker endpoint sees far more requests than
+              the website does. If you put a rate limiter in your proxy, exclude
+              <code>/announce</code> and <code>/scrape</code> or you will break
+              swarms.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Keeping it running</p>
+          <h2>Backups</h2>
+          <p>
+            The admin panel can take database backups on a schedule and download
+            them. Back up the object storage volume too — that is where
+            <code>.torrent</code> files live, and a database without them leaves
+            every torrent undownloadable.
+          </p>
+        </div>
+      </section>
+
+      <section class="ethos">
+        <div class="wrap">
+          <p class="eyebrow">A reminder</p>
+          <h2>This is yours once you run it</h2>
+          <p>
+            TorrentTrader is open source and free of charge. Change anything you
+            like — the code is there to be modified, and running a fork you have
+            altered beyond recognition is a perfectly good outcome.
+          </p>
+          <p>
+            If something here was wrong, unclear, or missing, saying so is a
+            contribution in itself.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn"
+              href="https://github.com/williamokano/go-torrent-trader/issues"
+              >Report a problem</a
+            >
+            <a class="btn ghost" href="configure.html">Configure your site</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <hr class="rule-strip" data-strip="60" />
+
+    <footer class="site">
+      <div class="wrap">
+        <p class="small">
+          TorrentTrader — open source, free of charge, yours to modify.
+        </p>
+        <nav>
+          <a href="index.html">Overview</a>
+          <a href="configure.html">Configure</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="assets/site.js"></script>
+  </body>
+</html>

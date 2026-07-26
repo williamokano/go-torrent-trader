@@ -6,10 +6,14 @@
 > stories here, and do not change a story's status here. Open an issue instead and
 > close it from the PR that does the work.
 >
-> This file stays as **history**: it records what was built, what shipped partially,
-> and the reasoning behind ~190 stories. That is worth keeping and worth reading. It
-> is being drained into issues; entries that still represent unbuilt work will move,
-> and the rest remains as the port's build log.
+> **The drain is finished.** Every item here that represented unbuilt work is now a
+> GitHub issue. This file stays only as **history** — the build log of ~190 stories
+> and the reasoning behind them.
+>
+> Two things it got wrong, worth knowing before you trust anything in it: a story was
+> marked `[DONE]` over three unimplemented criteria and an endpoint with no
+> authorization check, and two stories were marked "deferred" for work that had
+> quietly shipped elsewhere months before. Status markers here are not evidence.
 >
 > Why the change: status in Markdown drifts across branches and merges. This document
 > carried a story marked `[DONE]` over three unshipped acceptance criteria and an

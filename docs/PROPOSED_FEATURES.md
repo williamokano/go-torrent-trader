@@ -7,10 +7,11 @@
 > the model for what a good one contains: what it is in plain language, what already
 > exists that it can reuse, what it depends on, and the questions still open.
 >
-> This document stays as **the reasoning behind the ideas** — the verification pass,
-> the dependency graph, and the shared machinery several items assume are all worth
-> keeping in one place rather than scattered across issue comments. It is being
-> drained into issues item by item. See `CLAUDE.md` for the full rule.
+> **The drain is finished** — every PF item below now exists as a GitHub issue, and
+> the issues are the live version. This document stays only as **the reasoning behind
+> the ideas**: the verification pass against the codebase, the dependency graph, and
+> the shared machinery several items assume are worth keeping in one place rather
+> than scattered across issue comments. See `CLAUDE.md` for the full rule.
 
 A staging area for features that have been **proposed but not specified**. Nothing
 here is committed work.
