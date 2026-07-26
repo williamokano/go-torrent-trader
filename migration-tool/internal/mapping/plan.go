@@ -48,6 +48,25 @@ const (
 	TransformSlugify = "slugify"
 )
 
+// KnownTransforms is every transform a rule may name. A mapping naming
+// anything else is refused before a run starts: a transform nobody wrote is a
+// column that would silently arrive wrong.
+func KnownTransforms() []string {
+	return []string{
+		TransformYesNoToBool,
+		TransformYesNoToBoolInverted,
+		TransformZeroOneToBool,
+		TransformPositiveToBool,
+		TransformHexToBytea,
+		TransformTextToBytea,
+		TransformTextToInet,
+		TransformLegacyHash,
+		TransformBBCodeToMarkdown,
+		TransformClassToGroupID,
+		TransformSlugify,
+	}
+}
+
 func mapTo(target, transform, comment string) Rule {
 	return Rule{Action: ActionMap, Target: target, Transform: transform, Comment: comment}
 }

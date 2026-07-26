@@ -11,15 +11,20 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/baseline"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/compare"
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/config"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/mapping"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/target"
 )
 
 // errSchemaDiffers is returned when validation fails, so the process exits
 // non-zero without cobra printing a second, redundant explanation.
 var errSchemaDiffers = errors.New("source schema is not usable as it stands")
 
-var validateStrict bool
+var (
+	validateStrict  bool
+	validateMapping string
+)
 
 // validateCmd compares the source schema against the TorrentTrader 3.0 baseline.
 var validateCmd = &cobra.Command{
@@ -31,7 +36,12 @@ var validateCmd = &cobra.Command{
 		"Differences are expected — installs collect mods. The command fails only when a\n" +
 		"table the migration cannot run without is missing, or a column a transformer reads\n" +
 		"is missing. A column the migration skips anyway is reported and not held against\n" +
-		"you. Use --strict to fail on any difference at all.",
+		"you. Use --strict to fail on any difference at all.\n\n" +
+		"Given --target, it also checks the target database has the schema this tool\n" +
+		"writes into. Given --mapping, it checks the mapping file against both databases:\n" +
+		"every column it reads, every column it writes, and every decision it still\n" +
+		"leaves open. That is the check worth running before a cutover — a bad mapping\n" +
+		"then fails in seconds instead of halfway through a million rows.",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return withSchema(cmd, func(s schema.Schema, server string) error {
 			report := compare.Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
@@ -39,9 +49,29 @@ var validateCmd = &cobra.Command{
 				return err
 			}
 
+			// The target and the mapping are checked after the source, so a
+			// source that is obviously wrong is reported first rather than
+			// buried under consequences of itself.
+			tgt, targetBroken, err := checkTarget(cmd)
+			if err != nil {
+				return err
+			}
+			mappingFatal, err := checkMapping(cmd, s, tgt)
+			if err != nil {
+				return err
+			}
+
 			switch {
 			case report.Blocking():
 				return errSchemaDiffers
+			// Before this, target drift was printed and then the process exited 0,
+			// so `migrate validate && migrate run` sailed past a database whose
+			// migrations had never been run and died partway through a table —
+			// which is exactly the failure the pre-flight exists to move earlier.
+			case targetBroken:
+				return errTargetSchemaMissing
+			case mappingFatal:
+				return errMappingUnusable
 			case validateStrict && !report.Clean():
 				return fmt.Errorf("%w: --strict is set and the schema is not stock", errSchemaDiffers)
 			default:
@@ -51,9 +81,95 @@ var validateCmd = &cobra.Command{
 	},
 }
 
+// errMappingUnusable is returned when the mapping cannot drive a run.
+var errMappingUnusable = errors.New("the mapping cannot be used as it stands")
+
+// errTargetSchemaMissing is returned when the target database lacks something the
+// migration writes to.
+var errTargetSchemaMissing = errors.New("the target database does not have the schema this tool writes into")
+
+// checkTarget verifies the target database has the schema this tool writes
+// into, when one was given. It returns the live schema so the mapping check can
+// reuse it rather than connecting twice.
+// The bool reports whether the target is unusable as it stands. It is separate
+// from the error, which covers only failures to connect, read or print: a target
+// missing columns is a finding to report alongside every other finding, not a
+// reason to stop the pass and hide the rest.
+func checkTarget(cmd *cobra.Command) (target.Schema, bool, error) {
+	cfg, err := config.LoadFromFlags(cmd)
+	if err != nil {
+		return target.Schema{}, false, err
+	}
+	if cfg.TargetDSN == "" {
+		return target.Schema{}, false, nil
+	}
+
+	db, err := target.Open(cmd.Context(), cfg.TargetDSN)
+	if err != nil {
+		return target.Schema{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+
+	live, err := db.Schema(cmd.Context())
+	if err != nil {
+		return target.Schema{}, false, err
+	}
+
+	p := newPrinter(cmd.OutOrStdout())
+	p.printf("\nTarget: %s\n", db)
+	problems := target.Verify(live)
+	if len(problems) == 0 {
+		p.println("  The schema is what this tool expects.")
+		return live, false, p.errf("the target report")
+	}
+
+	p.printf("  %d things the migration writes to are not there:\n", len(problems))
+	for _, problem := range problems {
+		p.printf("    %s\n", problem)
+	}
+	p.println("  Run the backend's migrations against this database first.")
+	return live, true, p.errf("the target report")
+}
+
+// checkMapping validates the mapping file, when one was given, and reports
+// whether anything in it stops a run.
+func checkMapping(cmd *cobra.Command, source schema.Schema, tgt target.Schema) (bool, error) {
+	if validateMapping == "" {
+		return false, nil
+	}
+
+	doc, err := mapping.LoadFile(validateMapping)
+	if err != nil {
+		return false, err
+	}
+
+	p := newPrinter(cmd.OutOrStdout())
+	p.printf("\nMapping: %s (version %d, generated from %s)\n", validateMapping, doc.Version, doc.Server)
+
+	problems := mapping.Validate(doc, source, tgt)
+	if len(problems) == 0 {
+		if len(tgt.Tables()) == 0 {
+			p.println("  Usable. Pass --target as well to check the columns it writes to.")
+		} else {
+			p.println("  Usable against both databases.")
+		}
+		return false, p.errf("the mapping report")
+	}
+
+	for _, problem := range problems {
+		p.printf("  %-7s %s\n", problem.Severity, problem)
+	}
+	if fatal := problems.Count(mapping.Fatal); fatal > 0 {
+		p.printf("  %d of these stop the migration.\n", fatal)
+	}
+	return problems.Fatal(), p.errf("the mapping report")
+}
+
 func init() {
 	validateCmd.Flags().BoolVar(&validateStrict, "strict", false,
 		"Fail on any difference from the stock schema, not just the blocking ones")
+	validateCmd.Flags().StringVar(&validateMapping, "mapping", "",
+		"Also check this mapping file against the source and, if given, the target")
 }
 
 func printReport(out io.Writer, r compare.Report, server string, s schema.Schema) error {

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "github.com/lib/pq"
 
 	"gopkg.in/yaml.v3"
 
@@ -302,5 +305,238 @@ func TestMappingRecordsServerWithoutCredentials(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "/torrenttrader") {
 		t.Error("the mapping does not record which database it came from")
+	}
+}
+
+// --target and --mapping turn `validate` into the pre-flight check: does the
+// target have the schema this tool writes into, and does the mapping fit both
+// databases. This is the run an operator makes before the cutover, and it has
+// to fail in seconds rather than halfway through a million rows.
+
+func TestValidateChecksTheTargetSchema(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	out, err := execute(t, "validate", "--source", legacyDSN(t), "--target", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("validate --target: %v\n%s", err, out)
+	}
+	for _, want := range []string{"Target:", "The schema is what this tool expects."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the output does not mention %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "tt-secret") {
+		t.Error("the output printed the target password")
+	}
+}
+
+func TestValidateRejectsATargetWithoutTheSchema(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	// A database that exists but has never had the migrations run: the
+	// ordinary way this goes wrong.
+	empty := createEmptyDatabase(t)
+
+	out, err := execute(t, "validate", "--source", legacyDSN(t), "--target", empty)
+	if err == nil {
+		t.Fatalf("validate against an unmigrated target passed:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "no tables") {
+		t.Errorf("the error does not explain the target is empty: %v", err)
+	}
+}
+
+func TestValidateChecksAMappingAgainstBothDatabases(t *testing.T) {
+	noDatabaseConfigured(t)
+	path := filepath.Join(t.TempDir(), "mapping.yaml")
+
+	if _, err := execute(t, "mapping", "--source", legacyDSN(t), "--out", path); err != nil {
+		t.Fatalf("generating the mapping: %v", err)
+	}
+
+	// As generated, the corpus's mod columns are undecided, so the mapping
+	// must be refused rather than run.
+	out, err := execute(t, "validate",
+		"--source", legacyDSN(t), "--target", testenv.Target(t), "--mapping", path)
+	if err == nil {
+		t.Fatalf("a mapping with undecided columns was accepted:\n%s", out)
+	}
+	for _, want := range []string{"Mapping:", "seedbonus", "custom"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not mention %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "stop the migration") {
+		t.Errorf("the report does not say how many problems are fatal:\n%s", out)
+	}
+}
+
+func TestValidateAcceptsADecidedMapping(t *testing.T) {
+	noDatabaseConfigured(t)
+	path := filepath.Join(t.TempDir(), "mapping.yaml")
+
+	if _, err := execute(t, "mapping", "--source", legacyDSN(t), "--out", path); err != nil {
+		t.Fatalf("generating the mapping: %v", err)
+	}
+
+	// Settle every decision the way an operator would: skip what the mods
+	// added and skip the tables with no rules yet.
+	decideEverything(t, path)
+
+	out, err := execute(t, "validate",
+		"--source", legacyDSN(t), "--target", testenv.Target(t), "--mapping", path)
+	if err != nil {
+		t.Fatalf("a fully decided mapping was refused: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Usable against both databases.") {
+		t.Errorf("the report does not say the mapping is usable:\n%s", out)
+	}
+}
+
+func TestValidateRejectsAnUnreadableMapping(t *testing.T) {
+	noDatabaseConfigured(t)
+	path := filepath.Join(t.TempDir(), "mapping.yaml")
+
+	// A mapping from a future version of the tool.
+	if err := os.WriteFile(path, []byte("version: 99\ntables:\n  users:\n    action: skip\n"), 0o600); err != nil {
+		t.Fatalf("writing the mapping: %v", err)
+	}
+
+	_, err := execute(t, "validate", "--source", legacyDSN(t), "--mapping", path)
+	if err == nil {
+		t.Fatal("a mapping from an unknown version was accepted")
+	}
+	if !strings.Contains(err.Error(), "version 99") {
+		t.Errorf("the error does not explain the version: %v", err)
+	}
+}
+
+// createEmptyDatabase makes a database on the shared server with nothing in it,
+// standing in for a target whose migrations were never run.
+func createEmptyDatabase(t *testing.T) string {
+	t.Helper()
+
+	admin, err := sql.Open("postgres", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("connecting to the target server: %v", err)
+	}
+	defer func() { _ = admin.Close() }()
+
+	name := "unmigrated_" + strings.ToLower(t.Name())
+	for _, stmt := range []string{
+		`DROP DATABASE IF EXISTS ` + pgQuote(name),
+		`CREATE DATABASE ` + pgQuote(name),
+	} {
+		if _, err := admin.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	t.Cleanup(func() {
+		conn, err := sql.Open("postgres", testenv.Target(t))
+		if err != nil {
+			t.Logf("cleaning up %s: %v", name, err)
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		if _, err := conn.Exec(`DROP DATABASE IF EXISTS ` + pgQuote(name)); err != nil {
+			t.Logf("dropping %s: %v", name, err)
+		}
+	})
+
+	// The shared DSN points at the migrated database; swap in the empty one.
+	return strings.Replace(testenv.Target(t), "/torrenttrader?", "/"+name+"?", 1)
+}
+
+func pgQuote(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// decideEverything settles every open decision in a mapping the way an operator
+// would if they wanted nothing but the stock data: skip the mods, skip the
+// tables with no rules.
+func decideEverything(t *testing.T, path string) {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // a path this test just wrote
+	if err != nil {
+		t.Fatalf("reading the mapping: %v", err)
+	}
+
+	out := strings.ReplaceAll(string(content), "action: custom", "action: skip")
+	out = strings.ReplaceAll(out, "action: review", "action: skip")
+	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
+		t.Fatalf("writing the mapping: %v", err)
+	}
+}
+
+// The pre-flight's whole purpose is answering "will this run?" before the first
+// write, and target drift was printed and then **exited 0** — so a cutover script
+// written as `migrate validate && migrate run` sailed straight past a database
+// whose migrations had never been run, and died partway through a table with a
+// message about one column, having already written half the members.
+//
+// TestValidateRejectsATargetWithoutTheSchema did not catch it because a *totally
+// empty* database fails earlier and elsewhere, in connect.go's "no tables" check.
+// The gap was the partially-migrated target: real tables, one column short. That is
+// also the likelier accident, since it is what an interrupted or outdated migration
+// leaves behind.
+func TestValidateRejectsAPartiallyMigratedTarget(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	db, err := sql.Open("postgres", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("connecting to the target: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Drop a column the migration writes to, exactly as a target predating
+	// 067_add_torrent_moderation.sql would lack it. Nullable with no default, so
+	// putting it back is faithful.
+	if _, err := db.Exec(`ALTER TABLE torrents DROP COLUMN IF EXISTS approved_by`); err != nil {
+		t.Fatalf("dropping the column: %v", err)
+	}
+	// Its own connection, because the deferred Close above runs *before*
+	// t.Cleanup — the first version of this test used `db` here, failed to restore
+	// the column, and left the shared target broken for every test after it.
+	t.Cleanup(func() {
+		conn, err := sql.Open("postgres", testenv.Target(t))
+		if err != nil {
+			t.Fatalf("reconnecting to restore approved_by: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		if _, err := conn.Exec(
+			`ALTER TABLE torrents ADD COLUMN IF NOT EXISTS approved_by BIGINT REFERENCES users(id) ON DELETE SET NULL`,
+		); err != nil {
+			t.Fatalf("restoring approved_by: %v", err)
+		}
+	})
+
+	out, err := execute(t, "validate", "--source", legacyDSN(t), "--target", testenv.Target(t))
+
+	if err == nil {
+		t.Fatalf("validate passed against a target missing a column the migration "+
+			"writes to, so `validate && run` would proceed into a half-written table:\n%s", out)
+	}
+	// The report still has to name the column, or a non-zero exit tells the
+	// operator only that something is wrong.
+	if !strings.Contains(out, "approved_by") {
+		t.Errorf("the output does not name the missing column:\n%s", out)
+	}
+	if !strings.Contains(out, "Run the backend's migrations") {
+		t.Errorf("the output does not say how to fix it:\n%s", out)
+	}
+}
+
+// And a target that is fully migrated still passes, so the check above is not
+// simply failing for everyone.
+func TestValidateAcceptsAFullyMigratedTarget(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	out, err := execute(t, "validate", "--source", legacyDSN(t), "--target", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("validate failed against a fully migrated target: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "The schema is what this tool expects.") {
+		t.Errorf("the output does not confirm the target schema:\n%s", out)
 	}
 }
