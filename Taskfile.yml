@@ -78,10 +78,21 @@ tasks:
   generate:
     desc: Run all code generation
     cmds:
+      - task: generate:openapi
       - task: generate:api-client
 
+  generate:openapi:
+    desc: Derive the published public OpenAPI spec from the full one
+    dir: '{{.BACKEND_DIR}}'
+    cmds:
+      - go run ./cmd/openapi-public
+
   generate:api-client:
-    desc: Generate TypeScript API client from OpenAPI spec
+    # Types come from the FULL spec, not the public one — the frontend renders
+    # the admin panel and needs those types. Runs after generate:openapi so a
+    # single `task generate` leaves both documents consistent.
+    desc: Generate TypeScript API types from the full OpenAPI spec
+    deps: [generate:openapi]
     dir: '{{.FRONTEND_DIR}}'
     cmds:
       - npm run generate:api
@@ -112,7 +123,7 @@ tasks:
     vars:
       # Keep these in sync with .github/workflows/backend.yml
       COVERAGE_FLOOR: '80.0'
-      COVERAGE_EXCLUDE: '/backend/(cmd/server/|internal/testutil/|cmd/backfill-mentions/main\.go)'
+      COVERAGE_EXCLUDE: '/backend/(cmd/server/|internal/testutil/|cmd/backfill-mentions/main\.go|cmd/openapi-public/)'
     cmds:
       - go test -coverprofile=coverage.out ./...
       - grep -Ev '{{.COVERAGE_EXCLUDE}}' coverage.out > coverage.filtered.out

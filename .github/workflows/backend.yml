@@ -49,7 +49,7 @@ jobs:
       - name: Filter coverage profile
         working-directory: backend
         env:
-          COVERAGE_EXCLUDE: '/backend/(cmd/server/|internal/testutil/|cmd/backfill-mentions/main\.go)'
+          COVERAGE_EXCLUDE: '/backend/(cmd/server/|internal/testutil/|cmd/backfill-mentions/main\.go|cmd/openapi-public/)'
         run: |
           grep -Ev "$COVERAGE_EXCLUDE" coverage.out > coverage.filtered.out
           echo "excluded $(( $(wc -l < coverage.out) - $(wc -l < coverage.filtered.out) )) profile blocks matching $COVERAGE_EXCLUDE"
