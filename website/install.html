@@ -171,17 +171,10 @@ $EDITOR stack.env</code></pre>
               <p>
                 Each release includes <code>tt</code>, a command-line tool for
                 administering the site without a browser. Point it at your site and
-                give it a token:
+                log in:
               </p>
               <pre><code>tt profile set mysite --url https://tracker.example.com
-
-# Get a token by logging in
-curl -sX POST https://tracker.example.com/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"YOUR_USERNAME","password":"YOUR_PASSWORD"}' \
-  | jq -r .tokens.access_token
-
-tt auth set-token mysite   # paste it at the prompt
+tt auth login mysite       # asks for your username and password
 tt whoami</code></pre>
               <p>
                 It stores the token in <code>credentials.yaml</code> under your
@@ -189,11 +182,22 @@ tt whoami</code></pre>
                 if that stops being true.
               </p>
               <p>
-                Be aware that this token expires after an hour, so it suits working
-                at a terminal rather than a scheduled job. Long-lived keys that a
-                cron job can hold are still to be built. Nothing else on the site
-                needs any of this — it is only worth doing if you intend to script
-                against it.
+                The token a login returns expires after an hour, so <code>tt</code>
+                also stores the refresh token that comes with it and renews the
+                short one by itself. That means a scheduled job keeps working
+                without anyone re-entering a password. For a script, supply the
+                password through <code>TT_PASSWORD</code> or
+                <code>--password-stdin</code> rather than typing it, and run
+                <code>tt auth logout</code> when you are done — it ends the session
+                on the server, not just on your disk.
+              </p>
+              <p>
+                A login carries every permission your account has, which is more
+                than a scheduled job usually needs. Scoped keys that can be granted
+                narrowly and revoked on their own are still to be built; when they
+                arrive, <code>tt auth set-token</code> already accepts one. Nothing
+                else on the site needs any of this — it is only worth doing if you
+                intend to script against it.
               </p>
             </li>
           </ol>

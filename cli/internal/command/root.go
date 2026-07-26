@@ -105,30 +105,84 @@ func warnIfPlaintext(w io.Writer, rawURL string) {
 	_, _ = fmt.Fprintf(w, "tt: warning: %s is not https, so the token is sent in cleartext\n", rawURL)
 }
 
+// userAgent identifies this build in the site's access logs.
+func (g *globals) userAgent() string { return "tt/" + g.version }
+
+// httpClient builds the transport for one invocation.
+func (g *globals) httpClient() *http.Client {
+	return &http.Client{Timeout: g.timeout}
+}
+
+// checkTimeout rejects a non-positive timeout.
+//
+// http.Client treats one as "no timeout", which is the exact hang the flag
+// exists to prevent. Many tools read 0 as "use the default", so refusing beats
+// silently doing the opposite of what a reader expects.
+func (g *globals) checkTimeout() error {
+	if g.timeout <= 0 {
+		return usageError{fmt.Errorf("--timeout must be positive, got %s", g.timeout)}
+	}
+	return nil
+}
+
+// resolveSite resolves just the URL for a named profile, for commands that
+// establish a credential rather than use one.
+func (g *globals) resolveSite(f *config.File, name string) (config.Resolved, error) {
+	if err := g.checkTimeout(); err != nil {
+		return config.Resolved{}, err
+	}
+	return config.ResolveSite(f, name, g.url)
+}
+
 // authClient builds a client for an endpoint that requires authentication.
 //
 // It returns an actionable error when no credential is configured rather than
 // letting the request go out anonymously and surface as a bare 401.
-func (g *globals) authClient() (*client.Client, config.Resolved, error) {
-	if g.timeout <= 0 {
-		// http.Client treats a non-positive timeout as "no timeout", which is
-		// the exact hang this flag exists to prevent. Many tools read 0 as
-		// "use the default", so refusing beats silently doing the opposite.
-		return nil, config.Resolved{}, usageError{fmt.Errorf("--timeout must be positive, got %s", g.timeout)}
+// Takes the command so the refresher can write a warning to the same stderr
+// everything else uses, and so a proactive renewal is bound to the invocation's
+// context — Ctrl-C could not interrupt it while it used context.Background().
+func (g *globals) authClient(cmd *cobra.Command) (*client.Client, config.Resolved, error) {
+	if err := g.checkTimeout(); err != nil {
+		return nil, config.Resolved{}, err
 	}
 
 	resolved, err := g.resolve()
 	if err != nil {
 		return nil, config.Resolved{}, err
 	}
-	c, err := client.NewAuthenticated(resolved.URL, resolved.Token,
-		client.WithUserAgent("tt/"+g.version),
-		client.WithHTTPClient(&http.Client{Timeout: g.timeout}))
+
+	opts := []client.Option{
+		client.WithUserAgent(g.userAgent()),
+		client.WithHTTPClient(g.httpClient()),
+	}
+	// Only a credential this profile actually owns may be refreshed. An
+	// explicit --token or TT_TOKEN belongs to the caller, and silently
+	// replacing it with a stored profile's session would be a surprise.
+	token := resolved.Token
+	if resolved.FromStore {
+		stored, storeErr := config.LoadCredentialRecord(resolved.Profile)
+		if storeErr != nil {
+			return nil, config.Resolved{}, storeErr
+		}
+		if refresher := refresherFor(resolved.Profile, resolved.URL, stored, cmd.ErrOrStderr(),
+			client.WithUserAgent(g.userAgent()), client.WithHTTPClient(g.httpClient())); refresher != nil {
+			opts = append(opts, client.WithRefresher(refresher))
+			// Renew up front when the token is already spent, rather than
+			// spending a request to be told what the expiry already says.
+			if stored.ExpiresWithin(refreshSkew) {
+				if fresh, refreshErr := refresher(cmd.Context()); refreshErr == nil {
+					token = fresh
+				}
+			}
+		}
+	}
+
+	c, err := client.NewAuthenticated(resolved.URL, token, opts...)
 	if err != nil {
 		if errors.Is(err, client.ErrNoCredentials) {
 			return nil, config.Resolved{}, authError{fmt.Errorf(
-				"no token for profile %q: export %s, pass --token, or run 'tt auth set-token %s'",
-				resolved.Profile, config.EnvToken, resolved.Profile)}
+				"no token for profile %q: run 'tt auth login %s', export %s, pass --token, or run 'tt auth set-token %s'",
+				resolved.Profile, resolved.Profile, config.EnvToken, resolved.Profile)}
 		}
 		return nil, config.Resolved{}, usageError{err}
 	}

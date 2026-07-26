@@ -22,6 +22,45 @@ func isolate(t *testing.T) {
 	t.Setenv(config.EnvProfile, "")
 	t.Setenv(config.EnvURL, "")
 	t.Setenv(config.EnvToken, "")
+	// TT_PASSWORD too, and this one is not merely tidiness. With it exported,
+	// readPasswordInput returns the environment value and never touches the shared
+	// reader — so the regression test for the buffered-reader bug (two readers
+	// wrapping stdin, the first swallowing the piped password) passes with the bug
+	// reintroduced. Verified: mutating readPasswordInput back turns the package
+	// green when TT_PASSWORD is set and red when it is not.
+	//
+	// lessons.md, from this same PR: an isolation helper that neutralises the input
+	// under test turns the suite green for the wrong reason. Every variable a
+	// command reads has to be cleared here, or a developer's shell decides whether
+	// the suite is meaningful.
+	t.Setenv(EnvPassword, "")
+}
+
+// TestIsolateClearsEveryEnvironmentVariableTheCLIReads guards the helper itself.
+// A variable added to the CLI and forgotten here silently removes a test's
+// isolation, which is invisible until someone happens to have it exported.
+func TestIsolateClearsEveryEnvironmentVariableTheCLIReads(t *testing.T) {
+	// Set every one to a value that would change behaviour if it survived.
+	for _, name := range []string{
+		config.EnvConfigDir, config.EnvProfile, config.EnvURL, config.EnvToken, EnvPassword,
+	} {
+		t.Setenv(name, "leaked-"+name)
+	}
+
+	isolate(t)
+
+	for _, name := range []string{
+		config.EnvProfile, config.EnvURL, config.EnvToken, EnvPassword,
+	} {
+		if got := os.Getenv(name); got != "" {
+			t.Errorf("%s = %q after isolate(), want it cleared", name, got)
+		}
+	}
+	// EnvConfigDir is repointed rather than cleared, so assert it moved off the
+	// developer's real configuration instead of being empty.
+	if got := os.Getenv(config.EnvConfigDir); got == "" || got == "leaked-"+config.EnvConfigDir {
+		t.Errorf("%s = %q after isolate(), want a scratch directory", config.EnvConfigDir, got)
+	}
 }
 
 type result struct {

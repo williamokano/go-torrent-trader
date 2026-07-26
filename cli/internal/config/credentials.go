@@ -17,11 +17,36 @@ import (
 // forwards it and lets the server decide. That keeps this file unchanged when
 // scoped tokens land.
 type credentialFile struct {
-	Profiles map[string]credential `yaml:"profiles,omitempty"`
+	Profiles map[string]Credential `yaml:"profiles,omitempty"`
 }
 
-type credential struct {
+// Credential is what is stored for one profile.
+//
+// Token alone is the whole record for a key pasted in with `tt auth set-token`
+// — including a scoped API key once #170 lands, which never needs refreshing.
+// The other two fields are only populated by `tt auth login`, so a file written
+// by an older version stays readable and a key-only profile stays key-only.
+type Credential struct {
 	Token string `yaml:"token"`
+	// RefreshToken renews Token without re-entering a password. Empty when the
+	// credential did not come from a login.
+	RefreshToken string `yaml:"refresh_token,omitempty"`
+	// ExpiresAt is when Token stops working, used to renew before spending a
+	// request discovering it. Zero means unknown, which is treated as "might
+	// still be good" — the 401 path is the backstop.
+	ExpiresAt time.Time `yaml:"expires_at,omitempty"`
+}
+
+// CanRefresh reports whether this credential can renew itself.
+func (c Credential) CanRefresh() bool { return c.RefreshToken != "" }
+
+// ExpiresWithin reports whether the access token is already past, or close to,
+// its expiry. The skew avoids a request that is certain to 401 in flight.
+func (c Credential) ExpiresWithin(skew time.Duration) bool {
+	if c.ExpiresAt.IsZero() {
+		return false
+	}
+	return time.Now().Add(skew).After(c.ExpiresAt)
 }
 
 // ErrCredentialsTooOpen reports that the credential file is readable by users
@@ -47,11 +72,28 @@ func CredentialsPath() (string, error) {
 // read out of a world-readable file is the failure this check exists to prevent,
 // and ssh sets the precedent that refusing is kinder than warning.
 func LoadCredential(profile string) (string, error) {
-	f, _, err := loadCredentialFile()
+	c, err := LoadCredentialRecord(profile)
 	if err != nil {
 		return "", err
 	}
-	return f.Profiles[profile].Token, nil
+	return c.Token, nil
+}
+
+// LoadCredentialRecord returns the full stored credential for a profile, or a
+// zero Credential when none is stored.
+func LoadCredentialRecord(profile string) (Credential, error) {
+	f, _, err := loadCredentialFile()
+	if err != nil {
+		return Credential{}, err
+	}
+	return f.Profiles[profile], nil
+}
+
+// StoreCredentialRecord writes a full credential for a profile.
+func StoreCredentialRecord(profile string, c Credential) error {
+	return withCredentialLock(func(f *credentialFile) {
+		f.Profiles[profile] = c
+	})
 }
 
 // HasCredential reports whether a token is stored for a profile, without
@@ -80,7 +122,7 @@ func StoredProfiles() (map[string]bool, error) {
 // tokens and leaving the file mode at 0600.
 func StoreCredential(profile, token string) error {
 	return withCredentialLock(func(f *credentialFile) {
-		f.Profiles[profile] = credential{Token: token}
+		f.Profiles[profile] = Credential{Token: token}
 	})
 }
 
@@ -179,7 +221,7 @@ func loadCredentialFile() (*credentialFile, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	f := &credentialFile{Profiles: map[string]credential{}}
+	f := &credentialFile{Profiles: map[string]Credential{}}
 
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -204,7 +246,7 @@ func loadCredentialFile() (*credentialFile, string, error) {
 		return nil, "", fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if f.Profiles == nil {
-		f.Profiles = map[string]credential{}
+		f.Profiles = map[string]Credential{}
 	}
 	return f, path, nil
 }

@@ -44,12 +44,21 @@ const DefaultTimeout = 30 * time.Second
 // of it into a terminal buries the actual problem.
 const maxErrorBodyBytes = 512
 
+// Refresher renews an expired access token and returns the replacement.
+//
+// It exists so the client can recover from the one failure that is routine
+// rather than exceptional: a session access token lives an hour, so any
+// scheduled use of tt will meet an expired one. Returning an error means the
+// credential cannot be renewed and the caller should see the original 401.
+type Refresher func(ctx context.Context) (string, error)
+
 // Client talks to one site.
 type Client struct {
 	baseURL   string
 	token     string
 	userAgent string
 	http      *http.Client
+	refresh   Refresher
 }
 
 // Option customises a Client.
@@ -65,6 +74,11 @@ func WithHTTPClient(h *http.Client) Option {
 // access logs tells CLI traffic from browser traffic.
 func WithUserAgent(ua string) Option {
 	return func(c *Client) { c.userAgent = ua }
+}
+
+// WithRefresher installs a callback used to renew the token once after a 401.
+func WithRefresher(r Refresher) Option {
+	return func(c *Client) { c.refresh = r }
 }
 
 // New builds a client for anonymous requests.
@@ -228,31 +242,32 @@ type errorEnvelope struct {
 // A non-nil body is JSON-encoded. A non-nil out is JSON-decoded from the
 // response. Non-2xx responses become *APIError.
 func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
+	var encoded []byte
 	if body != nil {
-		encoded, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if encoded, err = json.Marshal(body); err != nil {
 			return fmt.Errorf("encoding request body: %w", err)
 		}
-		reader = bytes.NewReader(encoded)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	resp, err := c.send(ctx, method, path, encoded)
 	if err != nil {
-		return fmt.Errorf("building request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", c.userAgent)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		return err
 	}
 
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%s %s: %w", method, path, err)
+	// One retry, and only for 401. The body is re-encoded from the bytes above
+	// rather than replayed from a consumed reader, so a retried POST sends the
+	// same payload. Retrying more than once would loop against a credential the
+	// server keeps rejecting.
+	if resp.StatusCode == http.StatusUnauthorized && c.refresh != nil {
+		token, refreshErr := c.refresh(ctx)
+		if refreshErr == nil && token != "" {
+			_ = resp.Body.Close()
+			c.token = token
+			if resp, err = c.send(ctx, method, path, encoded); err != nil {
+				return err
+			}
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -266,6 +281,37 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		return fmt.Errorf("decoding %s %s response: %w", method, path, err)
 	}
 	return nil
+}
+
+func (c *Client) send(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, fmt.Errorf("building request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", c.userAgent)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	return resp, nil
+}
+
+// Post is Do with method POST.
+func (c *Client) Post(ctx context.Context, path string, body, out any) error {
+	return c.Do(ctx, http.MethodPost, path, body, out)
 }
 
 // Get is Do with method GET and no request body.

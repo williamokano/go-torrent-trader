@@ -30,6 +30,8 @@ func newAuthCmd(g *globals) *cobra.Command {
 			"sharing a credential.",
 	}
 	cmd.AddCommand(
+		newAuthLoginCmd(g),
+		newAuthLogoutCmd(g),
 		newAuthSetTokenCmd(g),
 		newAuthClearTokenCmd(g),
 	)
@@ -68,6 +70,7 @@ func newAuthSetTokenCmd(g *globals) *cobra.Command {
 			if token == "" {
 				return usageError{errors.New("no token supplied")}
 			}
+			warnIfDiscardingARefreshableSession(cmd, name)
 			if err := config.StoreCredential(name, token); err != nil {
 				return err
 			}
@@ -97,6 +100,7 @@ func newAuthClearTokenCmd(g *globals) *cobra.Command {
 				return err
 			}
 			name := g.profileName(f, firstArg(args))
+			warnIfDiscardingARefreshableSession(cmd, name)
 			if err := config.DeleteCredential(name); err != nil {
 				return err
 			}
@@ -128,9 +132,24 @@ func readToken(cmd *cobra.Command, fromStdin bool) (string, error) {
 	}
 
 	// Not a terminal, or --stdin: read one line. Piping is the CI path.
-	line, err := bufio.NewReader(in).ReadString('\n')
+	return readLine(in)
+}
+
+// readLine reads a single line, treating EOF as the end of the value so a
+// here-string with no trailing newline works.
+func readLine(in io.Reader) (string, error) {
+	return readBufferedLine(bufio.NewReader(in))
+}
+
+// readBufferedLine reads one line from an already-buffered reader.
+//
+// Callers that read more than once must share the reader: a second
+// bufio.NewReader over the same stream would find the first one had already
+// buffered — and discarded — the input it needs.
+func readBufferedLine(in *bufio.Reader) (string, error) {
+	line, err := in.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("reading token from stdin: %w", err)
+		return "", fmt.Errorf("reading from stdin: %w", err)
 	}
 	return strings.TrimSpace(line), nil
 }
@@ -146,4 +165,25 @@ func firstArg(args []string) string {
 		return args[0]
 	}
 	return ""
+}
+
+// warnIfDiscardingARefreshableSession notes that overwriting or deleting a stored
+// credential leaves a live server-side session behind.
+//
+// Neither set-token nor clear-token revokes anything, so replacing a login record
+// with a pasted API key — or clearing it — leaves precisely the state
+// `tt auth logout` was written to prevent: a 30-day refresh token nobody can see
+// and nobody revoked. Not refused, because the operator may well be deliberately
+// swapping credentials and may not have the site reachable; but it must not be
+// silent, since the whole argument for logout is that an unrevoked session is the
+// worse failure.
+func warnIfDiscardingARefreshableSession(cmd *cobra.Command, name string) {
+	stored, err := config.LoadCredentialRecord(name)
+	if err != nil || !stored.CanRefresh() {
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+		"tt: warning: profile %q holds a login session with a refresh token, and this "+
+			"does not revoke it.\ntt: the session stays valid on the server until it "+
+			"expires — run 'tt auth logout %s' first to end it.\n", name, name)
 }

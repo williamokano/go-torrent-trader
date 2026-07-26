@@ -301,3 +301,44 @@ accepted, producing `/api/v1/auth/me/api/v1/auth/me`. Rejecting paths turned
 `TestBaseURLWithAPathPrefixIsPreserved` red — a site served from a subdirectory is
 a supported deployment. A finding that is real is not automatically a finding you
 should act on; run the suite before believing a tightening is free.
+## A guard test that catches a bug by hanging is barely a guard test
+
+Mutation-testing the CLI's 401 retry, changing its `if` to a `for` did not fail the
+suite — it hung it. `TestDoRetriesAtMostOnce` and `TestDoSurfacesThe401WhenRefreshFails`
+both called `Do` directly with `context.Background()`, so an infinite retry never
+returned and the whole package sat there until something killed it. That cost a
+ten-minute mutation run, and worse, it killed the script mid-mutation and left the
+deliberate defect applied to `client.go` — a hang does not clean up after itself the
+way a failure does.
+
+In CI the symptom would have been a job timing out with no failing test named, which
+reads like flakiness or a slow runner rather than the loop it actually is. Note that
+one of the two mutants could not have been caught by a context deadline either: when
+the refresh call itself errored, the loop spun without issuing a request, so nothing
+was waiting on the context.
+
+**Rule:** a test whose subject could loop, block or deadlock must bound its own
+runtime — run the call in a goroutine and fail on a `time.After` — so the regression
+reports as a named failure instead of a stalled job. Bounding the *context* is not
+enough; bound the *call*. And a mutation harness needs a per-mutation timeout and a
+restore that runs even when the run is killed, or a timeout leaves your working tree
+holding a deliberate bug.
+
+## Revocation that needs a live credential cannot revoke a dead one
+
+`tt auth logout` calls the site so the session is really gone, then deletes the local
+file. But the server finds a session *from its access token* and gives up when that
+lookup misses, and the access token lives one hour while the refresh token lives
+thirty days. So logging out the morning after logging in revoked nothing, answered
+401, and still deleted the only copy of a refresh token that stayed valid for a
+month — precisely the "credential nobody can see and nobody revoked" the command was
+written to prevent. It was invisible in tests because every test logged out
+immediately after logging in, when the token was still fresh.
+
+**Rule:** when a command's job is to destroy a credential, test it in the state the
+credential is normally in when someone reaches for that command — expired, stale, a
+day old — not the state the previous line of the test just created. And check the
+lifetimes: if the thing being revoked outlives the thing authorising the revocation,
+there is a window where revocation silently does nothing. Deleting the local copy is
+what makes it unrecoverable, so a client that cleans up after itself needs the server
+call to have actually worked.

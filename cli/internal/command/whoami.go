@@ -65,7 +65,7 @@ func newWhoamiCmd(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, resolved, err := g.authClient()
+			c, resolved, err := g.authClient(cmd)
 			if err != nil {
 				return err
 			}
