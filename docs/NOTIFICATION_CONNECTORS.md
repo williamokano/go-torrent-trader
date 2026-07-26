@@ -530,9 +530,10 @@ built. Kept as a record of what was chosen and why.
   defer the rest to the next window.
 - **Delivery store retention — `connector_delivery_retention_days`** (seeded at
   30 by migration 073, non-positive disables pruning), swept by the existing
-  maintenance-worker pass. It mirrors `announce_log_retention_days` in shape —
-  though not yet in fate: that one is still advisory with no job behind it (see
-  `docs/FUTURE_WORK.md`).
+  maintenance-worker pass. It mirrors `announce_log_retention_days` in shape, and
+  now in fate too: that one grew its own nightly job (`announce_log:maintain`),
+  which rolls each closed day into `user_period_stats` before deleting anything, so
+  the prune can never outrun the aggregate.
 - **Multi-event scope — generic payload now, more event kinds later**, as the
   leaning predicted. `Announcement.Event` stays a plain string rather than a
   closed enum, so `forum.post` or `news.published` can widen it without a

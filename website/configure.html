@@ -455,17 +455,26 @@
               <tr>
                 <td><code>announce_log_retention_days</code></td>
                 <td>90</td>
-                <td>How long those records are kept.</td>
+                <td>
+                  How long individual announce records are kept. A nightly job
+                  totals each day into permanent per-member monthly figures and
+                  then deletes the raw rows past this window, so shortening it
+                  reclaims disk without losing anyone's transfer history. Set it
+                  to 0 to keep every raw announce indefinitely.
+                </td>
               </tr>
             </tbody>
           </table>
           <div class="note">
             <p>
-              <strong>Know what you are storing.</strong> The announce log contains
-              IP addresses and peer identifiers. If your community is somewhere
-              with data protection obligations, that is personal data and the
-              retention window is a decision you should make deliberately rather
-              than leave at the default.
+              <strong>Know what you are storing.</strong> The announce log records
+              what each member's client transferred and when, identified by peer
+              ID. It deliberately holds no IP addresses: the tracker needs a peer's
+              address to answer an announce and keeps it only while that peer is in
+              the swarm, so there is no months-long history of anyone's address to
+              leak or to hand over. Members and staff can read the log from a
+              member's profile, and the monthly totals stay readable after the raw
+              rows are gone.
             </p>
           </div>
         </div>

@@ -184,6 +184,8 @@ func fullRouterDeps(t *testing.T) *Deps {
 		UserRepo:            users,
 		CategoryRepo:        &stubCategoryRepo{},
 		TransferHistoryRepo: &mockTransferHistoryRepo{},
+		AnnounceEventRepo:   &stubAnnounceEventRepo{},
+		AnnounceRollupRepo:  &stubAnnounceRollupRepo{},
 		RSSConfig:           &RSSConfig{SiteName: "test", BaseURL: "http://localhost", ApiURL: "http://localhost:8080"},
 		StatsCache:          service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
 	}

@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -25,6 +27,14 @@ func (m *trackerMockAnnounceEventRepo) Create(_ context.Context, e *model.Announ
 
 func (m *trackerMockAnnounceEventRepo) ListByUser(_ context.Context, _ int64, _, _ int) ([]repository.AnnounceEventWithTorrent, int64, error) {
 	return nil, 0, nil
+}
+
+// The read and housekeeping halves of the interface are unreachable from the
+// tracker, which only ever appends. They fail loudly rather than returning a
+// plausible zero value, so a future call from the announce path shows up as a test
+// failure instead of as a silently empty result.
+func (m *trackerMockAnnounceEventRepo) DeleteOlderThan(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, errors.New("DeleteOlderThan: not reachable from the announce path")
 }
 
 func (m *trackerMockAnnounceEventRepo) snapshot() []model.AnnounceEvent {
@@ -65,8 +75,8 @@ func TestAnnounce_RecordsEventByDefault(t *testing.T) {
 	if e.Seeder {
 		t.Error("Seeder = true, want false (left > 0)")
 	}
-	if e.IP != "1.2.3.4" || e.Port != 6881 {
-		t.Errorf("endpoint = %s:%d, want 1.2.3.4:6881", e.IP, e.Port)
+	if e.Port != 6881 {
+		t.Errorf("Port = %d, want 6881", e.Port)
 	}
 	if e.TorrentID == nil {
 		t.Error("TorrentID = nil, want the announced torrent")

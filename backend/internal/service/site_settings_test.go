@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -410,6 +411,58 @@ func TestSet_ChatSystemDisplayNameValidation(t *testing.T) {
 		}
 		if got := svc.SystemChatName(ctx); got != "Announcer" {
 			t.Fatalf("SystemChatName = %q, want %q", got, "Announcer")
+		}
+	})
+}
+
+// This setting decides how much of the announce log survives, and therefore how
+// far back a ratio dispute can be checked. Accepting a value the worker then reads
+// as something else — via
+// GetInt's silent fallback, or via a duration overflow — means the admin page shows
+// one policy while the prune enforces another.
+func TestSet_AnnounceLogRetentionValidation(t *testing.T) {
+	repo := newMockSiteSettingsRepo()
+	svc := NewSiteSettingsService(repo, event.NewInMemoryBus())
+	ctx := context.Background()
+
+	t.Run("rejects non-numeric input", func(t *testing.T) {
+		err := svc.Set(ctx, SettingAnnounceLogRetentionDays, "ninety", event.Actor{ID: 1})
+		if !errors.Is(err, ErrInvalidSetting) {
+			t.Fatalf("Set = %v, want ErrInvalidSetting — GetInt would silently fall back to 90", err)
+		}
+	})
+
+	t.Run("rejects a value that overflows the duration", func(t *testing.T) {
+		// days * 24h overflows int64 nanoseconds above roughly 106,751 days and
+		// wraps negative, which the prune reads as "disabled".
+		err := svc.Set(ctx, SettingAnnounceLogRetentionDays, "99999999", event.Actor{ID: 1})
+		if !errors.Is(err, ErrInvalidSetting) {
+			t.Fatalf("Set = %v, want ErrInvalidSetting", err)
+		}
+	})
+
+	t.Run("accepts zero, which disables pruning", func(t *testing.T) {
+		if err := svc.Set(ctx, SettingAnnounceLogRetentionDays, "0", event.Actor{ID: 1}); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+		if got := svc.GetInt(ctx, SettingAnnounceLogRetentionDays, 90); got != 0 {
+			t.Fatalf("GetInt = %d, want 0", got)
+		}
+	})
+
+	t.Run("accepts an ordinary window", func(t *testing.T) {
+		if err := svc.Set(ctx, SettingAnnounceLogRetentionDays, "30", event.Actor{ID: 1}); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+		if got := svc.GetInt(ctx, SettingAnnounceLogRetentionDays, 90); got != 30 {
+			t.Fatalf("GetInt = %d, want 30", got)
+		}
+	})
+
+	t.Run("accepts the upper bound", func(t *testing.T) {
+		if err := svc.Set(ctx, SettingAnnounceLogRetentionDays,
+			strconv.Itoa(maxAnnounceLogRetentionDays), event.Actor{ID: 1}); err != nil {
+			t.Fatalf("Set: %v", err)
 		}
 	})
 }

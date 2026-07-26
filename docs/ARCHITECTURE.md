@@ -80,6 +80,7 @@ Additional components:
 - **Middleware**: Auth (opaque Bearer token resolved against a Redis session), request logging, activity tracking, CORS. Applied at the router level. **There is no general rate-limiting middleware** — limiting is per-surface (login attempts, WebSocket messages, connector sends, SSE stream count). See decision 10.
 - **Tracker**: BitTorrent announce/scrape handler. This is a separate HTTP handler from the REST API — it speaks the BitTorrent tracker protocol and is performance-critical.
 - **Workers**: Background jobs for periodic tasks like cleanup (expired tokens, dead peers), stats aggregation, and email dispatch.
+  - **Retention jobs aggregate before they delete.** Where a log is pruned but its history still has to be answerable, the job that deletes is the job that rolls up, in that order, and the prune is bounded by how far the rollup got. `announce_log:maintain` is the reference case: it totals each closed UTC day into `user_period_stats`, advances a watermark in `announce_rollup_state`, and only then deletes `announce_events` rows past `announce_log_retention_days` — never past the watermark. A failed rollup therefore leaves the log growing (recoverable) rather than deleting uncounted bytes (not).
 
 ## Frontend Architecture
 

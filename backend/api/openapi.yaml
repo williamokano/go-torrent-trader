@@ -650,6 +650,80 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/users/{id}/announce-log:
+    get:
+      operationId: getUserAnnounceLog
+      x-audience: public
+      summary: Get a member's announce log and monthly transfer totals
+      description: >
+        Returns the raw announces the tracker recorded for this member, newest
+        first, together with their per-month transfer totals.
+
+        The raw rows are pruned once they pass the site's
+        `announce_log_retention_days` window, so the listing only reaches as far
+        back as `retention_days` (0 means pruning is disabled and rows are kept
+        indefinitely). The monthly totals are aggregated before the prune runs and
+        are kept permanently, so they still cover months whose raw rows are gone.
+
+        Readable by the member themselves and by staff only: the per-announce byte
+        deltas say what a member is seeding and when they are online. The tracker
+        does not record announce IP addresses.
+      tags: [users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The member's numeric ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+      responses:
+        '200':
+          description: Announce log page and monthly totals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnounceLogResponse'
+        '400':
+          description: Invalid user ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not the member and not staff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/torrents:
     post:
       operationId: uploadTorrent
@@ -2021,6 +2095,127 @@ components:
           minLength: 8
           maxLength: 1024
           description: The new password
+
+    AnnounceLogEntry:
+      type: object
+      description: >
+        One announce, exactly as the client reported it. Retained only for
+        `announce_log_retention_days`.
+      properties:
+        id:
+          type: integer
+          format: int64
+        torrent_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Null once the torrent has been deleted — the log outlives it
+        torrent_name:
+          type: string
+          description: '"Deleted Torrent" when the torrent is gone'
+        event:
+          type: string
+          enum: [started, stopped, completed, announce]
+          description: '"announce" for a periodic update carrying no event'
+        port:
+          type: integer
+          description: >
+            The port the client listened on. There is no companion address: the
+            tracker does not retain announce IPs.
+        peer_id:
+          type: string
+          description: Hex-encoded — the raw value is arbitrary bytes
+          example: "2d7142343535302d"
+        uploaded:
+          type: integer
+          format: int64
+          description: Client-reported cumulative total for the session
+        downloaded:
+          type: integer
+          format: int64
+          description: Client-reported cumulative total for the session
+        left_bytes:
+          type: integer
+          format: int64
+        uploaded_delta:
+          type: integer
+          format: int64
+          description: Bytes uploaded since this peer's previous announce
+        downloaded_delta:
+          type: integer
+          format: int64
+          description: Raw, before any freeleech discount
+        counted_downloaded_delta:
+          type: integer
+          format: int64
+          description: After freeleech discount — what counted toward ratio
+        seeder:
+          type: boolean
+        announced_at:
+          type: string
+          format: date-time
+
+    AnnounceLogPeriod:
+      type: object
+      description: >
+        One calendar month (UTC) of totals, aggregated from the raw log before it
+        was pruned and kept permanently.
+      properties:
+        year_month:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+          example: "2026-07"
+        uploaded:
+          type: integer
+          format: int64
+          description: Sum of per-announce upload deltas for the month
+        downloaded:
+          type: integer
+          format: int64
+          description: Raw download total, before freeleech discounts
+        counted_downloaded:
+          type: integer
+          format: int64
+          description: What counted toward ratio for the month
+        announces:
+          type: integer
+          format: int64
+        seed_announces:
+          type: integer
+          format: int64
+          description: How many of those announces were made while seeding
+        ratio:
+          type: number
+          format: double
+          description: >
+            uploaded / counted_downloaded. 0 when the month is empty, -1 when
+            nothing counted against the member (an effectively infinite ratio).
+
+    AnnounceLogResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnounceLogEntry'
+        total:
+          type: integer
+          format: int64
+          description: Total retained announces for this member
+        page:
+          type: integer
+        per_page:
+          type: integer
+        monthly:
+          type: array
+          description: Monthly totals, newest month first, up to 120 months
+          items:
+            $ref: '#/components/schemas/AnnounceLogPeriod'
+        retention_days:
+          type: integer
+          description: >
+            How many days of raw announces the site keeps. 0 means pruning is
+            disabled and nothing is deleted.
 
     Torrent:
       type: object

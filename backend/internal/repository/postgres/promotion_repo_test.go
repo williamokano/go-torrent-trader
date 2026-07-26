@@ -24,7 +24,7 @@ func insertAnnounce(t *testing.T, db *sql.DB, userID, torrentID int64, seeder bo
 	repo := NewAnnounceEventRepo(db)
 	if err := repo.Create(context.Background(), &model.AnnounceEvent{
 		UserID: userID, TorrentID: &torrentID, PeerID: []byte("peer-one-1234567890"),
-		IP: "10.0.0.1", Port: 6881, Event: "announce", Seeder: seeder, AnnouncedAt: at,
+		Port: 6881, Event: "announce", Seeder: seeder, AnnouncedAt: at,
 	}); err != nil {
 		t.Fatalf("insert announce: %v", err)
 	}

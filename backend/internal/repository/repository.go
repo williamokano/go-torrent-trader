@@ -132,12 +132,50 @@ type TransferHistoryWithTorrent struct {
 type AnnounceEventRepository interface {
 	Create(ctx context.Context, event *model.AnnounceEvent) error
 	ListByUser(ctx context.Context, userID int64, page, perPage int) ([]AnnounceEventWithTorrent, int64, error)
+	// DeleteOlderThan deletes at most limit rows announced before cutoff, and
+	// returns how many it deleted. Bounded rather than unbounded so the caller can
+	// prune in chunks: one DELETE over a year of accumulated announces would hold
+	// row locks and bloat WAL for as long as it took.
+	DeleteOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 }
 
 // AnnounceEventWithTorrent is an announce event joined with the torrent name.
 type AnnounceEventWithTorrent struct {
 	model.AnnounceEvent
 	TorrentName string
+}
+
+// AnnounceRollupRepository aggregates the raw announce log into the monthly
+// per-user totals that outlive it.
+//
+// The rollup is additive and advances a watermark, rather than recomputing a month
+// from raw rows. Recomputation would be idempotent but would also silently zero a
+// month the moment its raw rows were pruned, which is precisely the data these
+// totals exist to preserve.
+type AnnounceRollupRepository interface {
+	// RolledThrough returns the exclusive upper date bound already aggregated:
+	// every announce strictly before it is counted in user_period_stats.
+	RolledThrough(ctx context.Context) (time.Time, error)
+	// Rollup aggregates announces in [RolledThrough, min(RolledThrough+maxDays,
+	// through)) into user_period_stats and advances the watermark, atomically.
+	// through must be a UTC midnight that has already passed, so no further
+	// announce can land inside the window being counted.
+	Rollup(ctx context.Context, through time.Time, maxDays int) (RollupResult, error)
+	// ListByUser returns a member's monthly totals, newest month first.
+	ListByUser(ctx context.Context, userID int64, limit int) ([]model.UserPeriodStats, error)
+}
+
+// RollupResult reports what one Rollup call covered.
+type RollupResult struct {
+	// From and To are the half-open date window aggregated by this call. They are
+	// equal when the watermark was already at through and nothing was done.
+	From time.Time
+	To   time.Time
+	// Rows is the number of user_period_stats rows inserted or updated.
+	Rows int64
+	// CaughtUp reports whether the watermark reached through. False means maxDays
+	// capped the window and another call has work to do.
+	CaughtUp bool
 }
 
 // Bonus purchase sentinels. They originate inside the purchase transaction

@@ -23,7 +23,7 @@ func TestAnnounceEventRepo_CreateAndListByUser(t *testing.T) {
 	base := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	first := &model.AnnounceEvent{
 		UserID: user.ID, TorrentID: &torrent.ID, PeerID: []byte("peer-aaaaaaaaaaaaaa"),
-		IP: "10.0.0.1", Port: 6881, Event: "started",
+		Port: 6881, Event: "started",
 		Uploaded: 0, Downloaded: 0, LeftBytes: 1000,
 		UploadedDelta: 0, DownloadedDelta: 0, CountedDownloadedDelta: 0,
 		Seeder: false, AnnouncedAt: base,
@@ -37,7 +37,7 @@ func TestAnnounceEventRepo_CreateAndListByUser(t *testing.T) {
 
 	second := &model.AnnounceEvent{
 		UserID: user.ID, TorrentID: &torrent.ID, PeerID: []byte("peer-aaaaaaaaaaaaaa"),
-		IP: "10.0.0.1", Port: 6881, Event: "completed",
+		Port: 6881, Event: "completed",
 		Uploaded: 500, Downloaded: 1000, LeftBytes: 0,
 		UploadedDelta: 500, DownloadedDelta: 1000, CountedDownloadedDelta: 500,
 		Seeder: true, AnnouncedAt: base.Add(30 * time.Minute),
@@ -49,7 +49,7 @@ func TestAnnounceEventRepo_CreateAndListByUser(t *testing.T) {
 	// A different user's event must not leak into `user`'s history.
 	if err := repo.Create(ctx, &model.AnnounceEvent{
 		UserID: other.ID, TorrentID: &torrent.ID, PeerID: []byte("peer-bbbbbbbbbbbbbb"),
-		IP: "10.0.0.2", Port: 6882, Event: "announce", AnnouncedAt: base,
+		Port: 6882, Event: "announce", AnnouncedAt: base,
 	}); err != nil {
 		t.Fatalf("Create(other): %v", err)
 	}
@@ -79,9 +79,6 @@ func TestAnnounceEventRepo_CreateAndListByUser(t *testing.T) {
 	if got.TorrentName != torrent.Name {
 		t.Errorf("TorrentName = %q, want %q", got.TorrentName, torrent.Name)
 	}
-	if got.IP != "10.0.0.1" {
-		t.Errorf("IP = %q, want 10.0.0.1", got.IP)
-	}
 }
 
 func TestAnnounceEventRepo_ListByUserPagination(t *testing.T) {
@@ -97,7 +94,7 @@ func TestAnnounceEventRepo_ListByUserPagination(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		if err := repo.Create(ctx, &model.AnnounceEvent{
 			UserID: user.ID, TorrentID: &torrent.ID, PeerID: []byte("peer-aaaaaaaaaaaaaa"),
-			IP: "10.0.0.1", Port: 6881, Event: "announce",
+			Port: 6881, Event: "announce",
 			AnnouncedAt: base.Add(time.Duration(i) * time.Minute),
 		}); err != nil {
 			t.Fatalf("Create(%d): %v", i, err)
@@ -137,7 +134,7 @@ func TestAnnounceEventRepo_TorrentDeletionKeepsEvent(t *testing.T) {
 
 	if err := repo.Create(ctx, &model.AnnounceEvent{
 		UserID: user.ID, TorrentID: &torrent.ID, PeerID: []byte("peer-aaaaaaaaaaaaaa"),
-		IP: "10.0.0.1", Port: 6881, Event: "completed", AnnouncedAt: time.Now().UTC(),
+		Port: 6881, Event: "completed", AnnouncedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -158,5 +155,28 @@ func TestAnnounceEventRepo_TorrentDeletionKeepsEvent(t *testing.T) {
 	}
 	if events[0].TorrentName != "Deleted Torrent" {
 		t.Errorf("TorrentName = %q, want 'Deleted Torrent'", events[0].TorrentName)
+	}
+}
+
+// Migration 080 dropped announce_events.ip: the tracker needs a peer's address to
+// answer an announce, and the peers table holds it for as long as that takes, but
+// nothing ever read the copy in the log.
+//
+// Asserted against the real schema rather than the Go struct, because the struct
+// only proves this code stopped writing the column. A later migration re-adding it,
+// or a rollback of 080 left in place, would put the column back underneath an
+// unchanged model and nothing else here would notice.
+func TestAnnounceEventsHasNoIPColumn(t *testing.T) {
+	db := requireDB(t)
+	ctx := context.Background()
+
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM information_schema.columns
+		 WHERE table_name = 'announce_events' AND column_name = 'ip'`).Scan(&n); err != nil {
+		t.Fatalf("reading announce_events columns: %v", err)
+	}
+	if n != 0 {
+		t.Error("announce_events.ip exists — the tracker must not retain announce IP addresses")
 	}
 }

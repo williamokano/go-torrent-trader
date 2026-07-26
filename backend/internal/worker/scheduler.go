@@ -97,6 +97,18 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register notification digest: %w", err)
 	}
 
+	// Roll up and prune the announce log nightly, before the promotion job at 05:00
+	// so the two bulk-write jobs do not overlap. Hours past midnight UTC on
+	// purpose: the rollup only aggregates days that have closed, and the gap makes
+	// certain that every announce stamped just before midnight has committed.
+	announceLogTask, err := NewAnnounceLogMaintenanceTask()
+	if err != nil {
+		return fmt.Errorf("create announce log maintenance task: %w", err)
+	}
+	if _, err := scheduler.Register("15 4 * * *", announceLogTask); err != nil {
+		return fmt.Errorf("register announce log maintenance: %w", err)
+	}
+
 	return nil
 }
 

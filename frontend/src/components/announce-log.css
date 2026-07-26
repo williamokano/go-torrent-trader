@@ -1,0 +1,22 @@
+/* The panel sits inside .profile-activity__content and reuses its table and
+   pagination styles, so only the pieces unique to it are defined here. */
+
+.announce-log__note {
+  margin: 0 0 var(--space-lg);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.announce-log__subtitle {
+  margin: var(--space-lg) 0 var(--space-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.announce-log__subtitle:first-of-type {
+  margin-top: 0;
+}
