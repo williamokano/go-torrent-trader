@@ -17,6 +17,11 @@ type Column struct {
 	// server: "varchar(40)", "enum('yes','no')", "bigint unsigned".
 	Type     string
 	Nullable bool
+	// Charset and Collation are empty for a non-text column. They matter
+	// because a latin1 database loaded into a UTF-8 target is the classic
+	// way to turn every accented username into mojibake.
+	Charset   string
+	Collation string
 	// Default is the column's DEFAULT expression, empty when there is none.
 	Default string
 	// Key is the information_schema COLUMN_KEY value: "PRI", "UNI", "MUL" or "".
@@ -27,9 +32,13 @@ type Column struct {
 
 // Table is one table and its columns, in ordinal order.
 type Table struct {
-	Name    string
-	Engine  string
-	Columns []Column
+	Name string
+	// Engine is the storage engine: TorrentTrader uses MyISAM throughout.
+	Engine string
+	// Collation is the table's default collation, which its columns inherit
+	// unless they override it.
+	Collation string
+	Columns   []Column
 	// Rows is the row count. Where it came from — an estimate from
 	// information_schema or an exact COUNT(*) — is the caller's business.
 	Rows int64
@@ -99,11 +108,19 @@ var typeNoise = regexp.MustCompile(`\s+(binary|zerofill|character set \S+|collat
 // storage attributes, and spells "integer" as "int".
 //
 // Genuine differences survive: varchar(40) and varchar(20) do not compare equal,
-// and neither do enum sets with different members.
+// and neither do enum sets with different members — including members that
+// happen to contain a word like "binary" or "collate", which is why the
+// attribute stripping is confined to the part of the declaration outside the
+// parentheses.
 func NormalizeType(t string) string {
 	n := strings.ToLower(strings.TrimSpace(t))
 	n = strings.Join(strings.Fields(n), " ")
-	n = typeNoise.ReplaceAllString(n, "")
+
+	body, attrs := splitTypeAttributes(n)
+	attrs = typeNoise.ReplaceAllString(" "+attrs, "")
+
+	n = strings.TrimSpace(body + " " + attrs)
+	n = strings.Join(strings.Fields(n), " ")
 	n = intDisplayWidth.ReplaceAllString(n, "$1")
 	if n == "integer" || strings.HasPrefix(n, "integer ") {
 		n = "int" + strings.TrimPrefix(n, "integer")
@@ -113,7 +130,73 @@ func NormalizeType(t string) string {
 	return strings.TrimSpace(n)
 }
 
+// splitTypeAttributes divides a declaration into the type itself and the
+// attributes trailing it. For "enum('a','b') character set utf8" that is
+// "enum('a','b')" and "character set utf8"; for "bigint unsigned" it is
+// "bigint" and "unsigned".
+//
+// The parenthesised part is found by scanning rather than by regexp because it
+// can contain anything — quotes, commas, and words that look like attributes.
+func splitTypeAttributes(t string) (body, attrs string) {
+	open := strings.IndexByte(t, '(')
+	if open < 0 {
+		if space := strings.IndexByte(t, ' '); space >= 0 {
+			return t[:space], t[space+1:]
+		}
+		return t, ""
+	}
+
+	inQuote := false
+	for i := open; i < len(t); i++ {
+		switch t[i] {
+		case '\'':
+			// '' inside a quoted literal is an escaped quote, and flipping
+			// twice leaves the state correct either way.
+			inQuote = !inQuote
+		case ')':
+			if !inQuote {
+				return t[:i+1], strings.TrimSpace(t[i+1:])
+			}
+		}
+	}
+	// Unbalanced — no server produces this, so treat it all as the type.
+	return t, ""
+}
+
 // TypesEqual reports whether two MySQL type declarations describe the same type.
 func TypesEqual(a, b string) bool {
 	return NormalizeType(a) == NormalizeType(b)
+}
+
+// TextEncodings returns the distinct character sets used by text columns in the
+// schema, sorted. An operator needs this before a migration: everything the
+// target stores is UTF-8, so anything else here has to be converted on the way
+// in rather than copied byte for byte.
+func (s Schema) TextEncodings() []string {
+	seen := map[string]bool{}
+	for _, t := range s.Tables {
+		for _, c := range t.Columns {
+			if c.Charset != "" {
+				seen[strings.ToLower(c.Charset)] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// IsUTF8 reports whether a MySQL character set name stores Unicode. utf8mb3 —
+// MySQL's old three-byte "utf8" — counts: it is Unicode, just unable to hold
+// astral characters, which is a narrower problem than a latin1 column.
+func IsUTF8(charset string) bool {
+	switch strings.ToLower(charset) {
+	case "utf8", "utf8mb3", "utf8mb4", "ucs2", "utf16", "utf16le", "utf32":
+		return true
+	default:
+		return false
+	}
 }

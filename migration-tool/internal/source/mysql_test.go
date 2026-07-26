@@ -301,7 +301,7 @@ func TestCompareAgainstARealModdedDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Schema: %v", err)
 	}
-	r := compare.Compare(baseline.TorrentTrader30(), s)
+	r := compare.Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	if r.Blocking() {
 		t.Errorf("a modded but complete install was reported unusable: missing required %v, tables %+v",
@@ -376,5 +376,79 @@ func TestMappingGeneratedFromARealDatabase(t *testing.T) {
 
 	if os.Getenv("MIGRATION_DUMP_MAPPING") != "" {
 		t.Logf("generated mapping:\n%s", rendered)
+	}
+}
+
+// A 2008-era TorrentTrader is latin1 throughout, and the target stores UTF-8.
+// The tool has to be able to see that, because copying the bytes across
+// unconverted is what turns accented usernames into mojibake.
+func TestSchemaReadsTextEncoding(t *testing.T) {
+	db := openLegacy(t)
+
+	s, err := db.Schema(context.Background())
+	if err != nil {
+		t.Fatalf("Schema: %v", err)
+	}
+
+	encodings := s.TextEncodings()
+	if !slices.Contains(encodings, "latin1") {
+		t.Errorf("TextEncodings() = %v, want it to contain latin1", encodings)
+	}
+	for _, e := range encodings {
+		if schema.IsUTF8(e) {
+			t.Errorf("%s reported as Unicode; this fixture is latin1 throughout", e)
+		}
+	}
+
+	users, _ := s.Table("users")
+	if !strings.Contains(strings.ToLower(users.Collation), "latin1") {
+		t.Errorf("users collation = %q, want a latin1 one", users.Collation)
+	}
+
+	username, ok := users.Column("username")
+	if !ok {
+		t.Fatal("users.username missing")
+	}
+	if username.Charset != "latin1" {
+		t.Errorf("users.username charset = %q, want latin1", username.Charset)
+	}
+	// A numeric column has no character set, and claiming one would send the
+	// transformers converting integers.
+	id, _ := users.Column("id")
+	if id.Charset != "" {
+		t.Errorf("users.id charset = %q, want empty", id.Charset)
+	}
+}
+
+// The generated mapping has to carry the encoding, or a reviewer reading the
+// file has no way to know the text needs converting.
+func TestMappingRecordsNonUnicodeColumns(t *testing.T) {
+	db := openLegacy(t)
+
+	s, err := db.Schema(context.Background())
+	if err != nil {
+		t.Fatalf("Schema: %v", err)
+	}
+	out, err := mapping.Render(mapping.Build(s, db.Server()))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rendered := string(out)
+
+	if !strings.Contains(rendered, "charset: latin1") {
+		t.Error("the mapping does not record that the source is latin1")
+	}
+	// The source types travel with it, so the file can be reviewed without
+	// reconnecting to the old database.
+	for _, want := range []string{"type: varchar(40)", "type: bigint unsigned"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the mapping does not record %q", want)
+		}
+	}
+	// Credentials must not: this file is meant to be committed.
+	for _, forbidden := range []string{"tt-secret", "tt:"} {
+		if strings.Contains(rendered, forbidden) {
+			t.Errorf("the mapping contains %q", forbidden)
+		}
 	}
 }

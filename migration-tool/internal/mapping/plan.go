@@ -11,8 +11,9 @@ package mapping
 // one — a skip with a reason is honest, a silent drop is not.
 
 // Named transforms. A rule names one; the transformers added by the entity
-// migrations implement it. Keeping them as constants means a rule that names a
-// transform nobody wrote is a compile error, not a runtime surprise.
+// migrations implement it. They are constants so a rule can be found by
+// reference rather than by grepping for a string, and plan_test.go rejects any
+// rule naming a transform that is not on this list.
 const (
 	// TransformYesNoToBool converts ENUM('yes','no') to boolean.
 	TransformYesNoToBool = "yes_no_to_bool"
@@ -69,7 +70,7 @@ func Plan() map[string]TablePlan {
 		// Tables the baseline names but does not break down. The target is
 		// settled here; the column rules come with the entity migrations that
 		// implement each one.
-		"categories":  {Action: TableMigrate, Target: "categories", Comment: "Hierarchical categories flatten onto categories.parent_id."},
+		"categories":  {Action: TableMigrate, Target: "categories", Comment: "Hierarchical categories flatten onto categories.parent_id.\n\nThe target seeds 20 categories at explicit ids 1-20. Keeping legacy ids collides with them, so either merge onto the seeded rows or renumber and rewrite torrents.category_id to match. Reset the id sequence afterwards."},
 		"comments":    {Action: TableMigrate, Target: "torrent_comments", Comment: "Legacy comments cover torrents and news; only the torrent rows have a home here. News comments have no target table."},
 		"ratings":     {Action: TableMigrate, Target: "torrent_ratings", Comment: "torrents.numratings and torrents.ratingsum are recomputed from these rows rather than copied."},
 		"files":       {Action: TableMigrate, Target: "torrents.files", Comment: "The target keeps the file list as JSONB on the torrent, so these rows are grouped by torrent rather than inserted one for one."},
@@ -77,11 +78,11 @@ func Plan() map[string]TablePlan {
 		"news":        {Action: TableMigrate, Target: "news", Comment: ""},
 		"shoutbox":    {Action: TableMigrate, Target: "chat_messages", Comment: ""},
 		"warnings":    {Action: TableMigrate, Target: "warnings", Comment: ""},
-		"bans":        {Action: TableMigrate, Target: "banned_ips", Comment: "Legacy bans store ranges; the target stores addresses. Ranges need expanding or re-expressing."},
+		"bans":        {Action: TableMigrate, Target: "banned_ips", Comment: "banned_ips.ip_range is a Postgres CIDR, so a legacy range becomes one row rather than being expanded into many. A legacy first/last pair that is not a whole prefix has to be split into the CIDR blocks that cover it."},
 		"email_bans":  {Action: TableMigrate, Target: "banned_emails", Comment: ""},
-		"countries":   {Action: TableMigrate, Target: "countries", Comment: ""},
-		"languages":   {Action: TableMigrate, Target: "languages", Comment: ""},
-		"forumcats":   {Action: TableMigrate, Target: "forum_categories", Comment: ""},
+		"countries":   {Action: TableMigrate, Target: "countries", Comment: "The target seeds 25 countries with code UNIQUE. Match on code rather than inserting, or the run fails on the first duplicate. Nothing refers to these rows — the target does not put a country on the member record — so skipping the table entirely is reasonable."},
+		"languages":   {Action: TableMigrate, Target: "languages", Comment: "The target seeds 20 languages with code UNIQUE. Match on code rather than inserting. As with countries, nothing in the target refers to these rows."},
+		"forumcats":   {Action: TableMigrate, Target: "forum_categories", Comment: "The target seeds 3 forum categories. Merge onto them or insert alongside, then reset the id sequence."},
 		"invites":     {Action: TableMigrate, Target: "invites", Comment: "Not part of the 3.0 baseline, but common enough as a mod to be worth naming a target for."},
 		"teams":       {Action: TableReview, Comment: "Teams are proposed but not built, so the target schema has nowhere to put these rows yet. Keep the dump if you intend to load them when the feature lands."},
 		"announce":    {Action: TableSkip, Comment: "Per-torrent announce URLs. The new tracker issues its own announce URL from the member's passkey."},
@@ -114,10 +115,18 @@ func usersPlan() TablePlan {
 			"password_scheme": "the scheme the legacy hash is in, so the backend can verify it once and re-hash to argon2id at next login",
 			"bonus_points":    "0 — TorrentTrader 3.0 has no bonus economy",
 			"parked":          "false",
+			"updated_at":      "added, the registration date — the legacy schema records no modification time",
+			"warn_until":      "NULL — legacy warnings are a flag with no expiry, so a warned member stays warned until staff clear it",
+			"disabled_until":  "NULL — legacy enabled is permanent, not timed",
+			"can_upload":      "true — the legacy schema grants this by class, not per member, and groups.can_upload already carries it",
+			"can_download":    "true — see can_upload",
+			"can_invite":      "true — see can_upload",
+			"can_chat":        "true — no legacy per-member equivalent",
+			"can_feed":        "true — no legacy per-member equivalent",
 		},
 		Columns: map[string]Rule{
 			"id":           mapTo("id", "", "Kept, so foreign keys across the dump resolve without a translation table."),
-			"username":     mapTo("username", "", "Legacy varchar(40) against a target varchar(20): names longer than 20 characters have to be shortened before the run, and the pre-flight check reports them."),
+			"username":     mapTo("username", "", "Legacy varchar(40) against a target varchar(20). Names longer than 20 characters have to be shortened before the run — nothing checks this yet, so find them with SELECT username FROM users WHERE CHAR_LENGTH(username) > 20."),
 			"password":     mapTo("password_hash", TransformLegacyHash, "Carried across as-is. The backend verifies the legacy scheme once and re-hashes to argon2id, so nobody is asked to reset a password."),
 			"secret":       skip("Legacy session token. Sessions are re-established at first login."),
 			"editsecret":   skip("Email-change token; the new flow issues its own."),
@@ -167,10 +176,18 @@ func groupsPlan() TablePlan {
 	return TablePlan{
 		Action:  TableMigrate,
 		Target:  "groups",
-		Comment: "The legacy permission flags are finer-grained than the target's. Several collapse onto is_moderator and is_admin, which loses detail — check the result against your staff roster before going live.",
+		Comment: "The legacy permission flags are finer-grained than the target's. Several collapse onto is_moderator and is_admin, which loses detail — check the result against your staff roster before going live.\n\nThe target seeds this table with 6 groups whose name and slug are UNIQUE, so legacy ids and names collide. Decide per group whether to merge into the seeded row or insert alongside it, and reset the id sequence afterwards.",
 		Derived: map[string]string{
-			"slug":  "slugified from level",
-			"level": "the legacy group_id, which is also the class rank users.class refers to",
+			"slug":             "slugified from level",
+			"level":            "the legacy group_id, which is also the class rank users.class refers to",
+			"can_comment":      "true — TorrentTrader has no separate comment permission",
+			"can_invite":       "true — invites are governed per member in the legacy schema",
+			"can_feed":         "true — no legacy equivalent",
+			"can_self_approve": "false — a new permission with no legacy counterpart; grant it deliberately",
+			"is_immune":        "false — set this by hand for the staff groups that should not be ratio-watched",
+			"color":            "NULL — legacy groups have no colour",
+			"created_at":       "the run time",
+			"updated_at":       "the run time",
 		},
 		Columns: map[string]Rule{
 			"group_id":        mapTo("id", "", "Kept: users.class refers to it."),
@@ -203,8 +220,10 @@ func torrentsPlan() TablePlan {
 		Target:  "torrents",
 		Comment: "info_hash is the one column that cannot be got wrong: the target stores the 20 raw bytes where the legacy schema stores 40 hex characters, and a torrent whose hash does not survive stops announcing.",
 		Derived: map[string]string{
-			"silver":     "false — no legacy equivalent",
-			"updated_at": "last_action",
+			"silver":            "false — no legacy equivalent",
+			"files":             "the legacy files table, grouped by torrent into one JSONB document",
+			"moderation_status": "approved for a visible torrent, rejected for a banned one",
+			"search_vector":     "maintained by the backend; leave it to the trigger rather than writing it",
 		},
 		Columns: map[string]Rule{
 			"id":              mapTo("id", "", "Kept: peers, comments and completions all refer to it."),
@@ -271,7 +290,7 @@ func completedPlan() TablePlan {
 	return TablePlan{
 		Action:  TableMigrate,
 		Target:  "transfer_history",
-		Comment: "The legacy completion log becomes the target's transfer history. Legacy keeps no per-torrent byte counts, so the totals start at zero — members keep their overall ratio from users.uploaded and users.downloaded, not from these rows.",
+		Comment: "The legacy completion log becomes the target's transfer history. Legacy keeps no per-torrent byte counts, so the totals start at zero — members keep their overall ratio from users.uploaded and users.downloaded, not from these rows.\n\nBoth sides are unique on (member, torrent), so the rows transfer one for one. What does not transfer is a row whose member or torrent no longer exists: the target has real foreign keys where the legacy MyISAM schema had none, so orphaned rows have to be dropped rather than inserted.",
 		Derived: map[string]string{
 			"uploaded":      "0 — the legacy schema records no per-torrent totals",
 			"downloaded":    "0 — see uploaded",
@@ -291,7 +310,11 @@ func messagesPlan() TablePlan {
 	return TablePlan{
 		Action:  TableMigrate,
 		Target:  "messages",
-		Comment: "",
+		Comment: "Only the rows a member actually sent or received. Drafts and templates go to saved_messages instead — see the note on location.",
+		Derived: map[string]string{
+			"parent_id":           "NULL — the legacy poster column is a thread id, which cannot be resolved back to the single parent the target threads on",
+			"mentioned_usernames": "empty — the target populates this when a message is written",
+		},
 		Columns: map[string]Rule{
 			"id":       mapTo("id", "", ""),
 			"sender":   mapTo("sender_id", "", ""),
@@ -301,7 +324,7 @@ func messagesPlan() TablePlan {
 			"msg":      mapTo("body", TransformBBCodeToMarkdown, ""),
 			"unread":   mapTo("is_read", TransformYesNoToBoolInverted, "Reversed sense: unread='yes' becomes is_read=false."),
 			"poster":   skip("Legacy thread id; the target threads messages through parent_id, which the legacy data cannot reconstruct."),
-			"location": derive("sender_deleted, receiver_deleted", "The legacy mailbox enum encodes which side deleted the message: 'in' means the sender deleted it, 'out' means the receiver did, 'both' means neither. Drafts and templates have no target and are dropped."),
+			"location": derive("sender_deleted, receiver_deleted", "The legacy mailbox enum encodes which side deleted the message: 'in' means the sender deleted it, 'out' means the receiver did, 'both' means neither — see FULL_FEATURE_DOCUMENTATION.md section 8.5 before 'correcting' this. Rows marked 'draft' or 'template' are not messages at all: they belong in saved_messages, whose kind column takes exactly those two values."),
 		},
 	}
 }
@@ -310,7 +333,14 @@ func forumForumsPlan() TablePlan {
 	return TablePlan{
 		Action:  TableMigrate,
 		Target:  "forums",
-		Comment: "The target has one permission level per forum where the legacy schema has separate read and write levels. The read level is used, so nobody silently loses access to a forum they could see before.",
+		Comment: "Read and write levels both carry across: minclassread becomes min_group_level and minclasswrite becomes min_post_level.",
+		Derived: map[string]string{
+			"topic_count":  "counted from the migrated topics",
+			"post_count":   "counted from the migrated posts",
+			"last_post_id": "the newest migrated post in the forum",
+			"created_at":   "the run time — the legacy schema records no creation date for a forum",
+			"updated_at":   "the run time",
+		},
 		Columns: map[string]Rule{
 			"id":            mapTo("id", "", ""),
 			"name":          mapTo("name", "", ""),
@@ -318,7 +348,7 @@ func forumForumsPlan() TablePlan {
 			"category":      mapTo("category_id", "", "Resolved through the forumcats mapping."),
 			"sort":          mapTo("sort_order", "", ""),
 			"minclassread":  mapTo("min_group_level", "", ""),
-			"minclasswrite": skip("The target has a single level per forum; the read level is the one kept. A forum where writing was restricted more tightly than reading needs checking by hand."),
+			"minclasswrite": mapTo("min_post_level", "", "The target gates starting a topic on this level. It does not gate replies, so a forum that was read-only to most members needs checking by hand."),
 			"guest_read":    skip("The target has no guest access to forums."),
 		},
 	}
@@ -330,8 +360,12 @@ func forumTopicsPlan() TablePlan {
 		Target:  "forum_topics",
 		Comment: "",
 		Derived: map[string]string{
-			"post_count":   "counted from the migrated posts",
-			"last_post_at": "the created_at of the post last_post_id points to",
+			"post_count":    "counted from the migrated posts",
+			"last_post_at":  "the created_at of the post last_post_id points to",
+			"last_post_by":  "the author of the post last_post_id points to",
+			"created_at":    "the added date of the topic's first post — legacy topics carry no timestamp of their own",
+			"updated_at":    "last_post_at",
+			"search_vector": "maintained by the backend",
 		},
 		Columns: map[string]Rule{
 			"id":       mapTo("id", "", ""),
@@ -352,6 +386,14 @@ func forumPostsPlan() TablePlan {
 		Action:  TableMigrate,
 		Target:  "forum_posts",
 		Comment: "",
+		Derived: map[string]string{
+			"updated_at":          "editedat where the post was edited, otherwise added",
+			"deleted_at":          "NULL — the legacy forum deletes posts outright, so nothing is soft-deleted on arrival",
+			"deleted_by":          "NULL — see deleted_at",
+			"reply_to_post_id":    "NULL — legacy posts are a flat list with no reply threading",
+			"mentioned_usernames": "empty — the target populates this when a post is written",
+			"search_vector":       "maintained by the backend",
+		},
 		Columns: map[string]Rule{
 			"id":       mapTo("id", "", ""),
 			"topicid":  mapTo("topic_id", "", ""),

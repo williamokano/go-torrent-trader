@@ -134,3 +134,19 @@ func DescribeDSN(raw string) string {
 	b.WriteString(cfg.DBName)
 	return b.String()
 }
+
+// DescribeServer renders a DSN as host and database only, with no credentials
+// at all. DescribeDSN keeps the username because an error message about a
+// refused connection needs it; this is for the generated mapping file, which
+// the operator is told to keep in version control.
+func DescribeServer(raw string) string {
+	cfg, err := parseConfig(raw)
+	if err != nil {
+		return "<unparseable DSN>"
+	}
+	addr := cfg.Addr
+	if addr == "" {
+		addr = "127.0.0.1:" + defaultPort
+	}
+	return addr + "/" + cfg.DBName
+}

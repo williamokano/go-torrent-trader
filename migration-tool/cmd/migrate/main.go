@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -26,7 +31,16 @@ func init() {
 }
 
 func run() int {
-	if err := rootCmd.Execute(); err != nil {
+	// Reading a large legacy database can take minutes — `discover --exact`
+	// scans every table — so Ctrl-C has to reach the running query rather than
+	// being noticed once it finishes.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			fmt.Fprintln(os.Stderr, "Cancelled. Nothing was written.")
+		}
 		return 1
 	}
 	return 0

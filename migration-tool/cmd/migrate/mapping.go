@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,8 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/config"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/mapping"
-	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/source"
 )
 
 var (
@@ -28,13 +30,23 @@ var mappingCmd = &cobra.Command{
 		"Edit it, keep it in version control, and pass it back when you run the migration.\n\n" +
 		"Writing to - sends the file to stdout.",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		return withSchema(cmd, func(s schema.Schema, server string) error {
-			doc := mapping.Build(s, server)
+		cfg, err := config.LoadFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+		return withSource(cmd, func(ctx context.Context, db *source.DB) error {
+			s, err := db.Schema(ctx)
+			if err != nil {
+				return err
+			}
+			// The file is meant to be committed, so it records the server
+			// without any credentials — not even the username.
+			doc := mapping.Build(s, db.Server())
 			out, err := mapping.Render(doc)
 			if err != nil {
 				return err
 			}
-			if err := writeMapping(cmd, out); err != nil {
+			if err := writeMapping(cmd, out, cfg.DryRun); err != nil {
 				return err
 			}
 			return printMappingSummary(cmd.ErrOrStderr(), doc)
@@ -51,7 +63,14 @@ func init() {
 
 // writeMapping refuses to overwrite an existing file unless asked. A mapping is
 // hand-edited, so silently replacing one would throw away an operator's review.
-func writeMapping(cmd *cobra.Command, content []byte) error {
+func writeMapping(cmd *cobra.Command, content []byte, dryRun bool) error {
+	if dryRun {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+			"--dry-run: %s not written (%d bytes).\n", mappingOut, len(content)); err != nil {
+			return fmt.Errorf("writing to stdout: %w", err)
+		}
+		return nil
+	}
 	if mappingOut == "-" {
 		_, err := cmd.OutOrStdout().Write(content)
 		if err != nil {

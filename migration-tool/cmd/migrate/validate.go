@@ -11,6 +11,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/baseline"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/compare"
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/mapping"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
 )
 
@@ -28,12 +29,13 @@ var validateCmd = &cobra.Command{
 		"differs: tables that are missing, tables and columns that were added, and columns\n" +
 		"whose type has changed.\n\n" +
 		"Differences are expected — installs collect mods. The command fails only when a\n" +
-		"table the migration cannot run without is missing, or a table has lost columns the\n" +
-		"migration reads. Use --strict to fail on any difference at all.",
+		"table the migration cannot run without is missing, or a column a transformer reads\n" +
+		"is missing. A column the migration skips anyway is reported and not held against\n" +
+		"you. Use --strict to fail on any difference at all.",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return withSchema(cmd, func(s schema.Schema, server string) error {
-			report := compare.Compare(baseline.TorrentTrader30(), s)
-			if err := printReport(cmd.OutOrStdout(), report, server); err != nil {
+			report := compare.Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
+			if err := printReport(cmd.OutOrStdout(), report, server, s); err != nil {
 				return err
 			}
 
@@ -54,9 +56,10 @@ func init() {
 		"Fail on any difference from the stock schema, not just the blocking ones")
 }
 
-func printReport(out io.Writer, r compare.Report, server string) error {
+func printReport(out io.Writer, r compare.Report, server string, s schema.Schema) error {
 	p := newPrinter(out)
 	p.printf("Source: %s\n\n", server)
+	printEncodings(p, s)
 
 	if r.Clean() {
 		p.println("This is a stock TorrentTrader 3.0 schema — no differences found.")
@@ -95,7 +98,10 @@ func printReport(out io.Writer, r compare.Report, server string) error {
 	for _, t := range changed {
 		p.printf("Table %s\n", t.Name)
 		for _, c := range t.MissingColumns {
-			p.printf("  - missing column %s (the migration reads this)\n", c)
+			p.printf("  ! missing column %s — the migration reads this one\n", c)
+		}
+		for _, c := range t.DroppedColumns {
+			p.printf("  - column %s is gone (not migrated anyway)\n", c)
 		}
 		for _, c := range t.AddedColumns {
 			p.printf("  + added column %s\n", c)
@@ -121,9 +127,46 @@ func printReport(out io.Writer, r compare.Report, server string) error {
 
 	if r.Blocking() {
 		p.println("Result: the migration cannot run against this schema as it stands.")
+		p.println()
+		p.println("Every line marked ! is a column or table a transformer reads and your")
+		p.println("database does not have. Restore it from a backup, add it back empty, or")
+		p.println("edit the mapping so nothing reads it. Lines marked - are already handled.")
 	} else {
 		p.println("Result: usable. Generate a mapping with `migrate mapping` and review it")
 		p.println("before running the migration.")
 	}
 	return p.errf("the validation report")
+}
+
+// printEncodings reports the character sets the source stores text in.
+//
+// This is separate from the baseline diff because it is not a schema
+// difference — a stock TorrentTrader from 2008 is latin1 throughout and matches
+// the baseline perfectly. It is reported anyway because the target stores UTF-8,
+// and copying latin1 bytes into it unconverted is what turns every accented
+// username and every non-English forum post into mojibake. That damage is
+// silent, and it is discovered weeks later.
+func printEncodings(p *printer, s schema.Schema) {
+	encodings := s.TextEncodings()
+	if len(encodings) == 0 {
+		return
+	}
+
+	var legacy []string
+	for _, e := range encodings {
+		if !schema.IsUTF8(e) {
+			legacy = append(legacy, e)
+		}
+	}
+	if len(legacy) == 0 {
+		p.printf("Text encoding: %s. Nothing to convert.\n\n", strings.Join(encodings, ", "))
+		return
+	}
+
+	p.printf("Text encoding: %s\n", strings.Join(encodings, ", "))
+	p.printf("  %s is not Unicode, and the target stores UTF-8.\n", strings.Join(legacy, " and "))
+	p.println("  The migration must convert this text rather than copy its bytes. Reading")
+	p.println("  the source with the wrong charset is what turns accented usernames and")
+	p.println("  non-English forum posts into mojibake, and it is not noticed for weeks.")
+	p.println()
 }

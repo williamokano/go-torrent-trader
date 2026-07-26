@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-sql-driver/mysql"
-
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
 )
 
@@ -19,19 +17,20 @@ type DB struct {
 	db       *sql.DB
 	database string
 	describe string
+	server   string
 }
 
 // Open parses the DSN, connects, and verifies the connection. The returned DB
 // must be closed by the caller.
 func Open(ctx context.Context, rawDSN string) (*DB, error) {
-	dsn, err := ParseDSN(rawDSN)
+	cfg, err := parseConfig(rawDSN)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("source DSN is not valid: %w", err)
+	if cfg.DBName == "" {
+		return nil, errors.New("source DSN has no database name")
 	}
+	dsn := cfg.FormatDSN()
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -50,7 +49,12 @@ func Open(ctx context.Context, rawDSN string) (*DB, error) {
 		return nil, fmt.Errorf("connecting to source database %s: %w", DescribeDSN(rawDSN), err)
 	}
 
-	return &DB{db: db, database: cfg.DBName, describe: DescribeDSN(rawDSN)}, nil
+	return &DB{
+		db:       db,
+		database: cfg.DBName,
+		describe: DescribeDSN(rawDSN),
+		server:   DescribeServer(rawDSN),
+	}, nil
 }
 
 // Close releases the connection pool.
@@ -62,15 +66,20 @@ func (d *DB) Database() string { return d.database }
 // String describes the connection without its password.
 func (d *DB) String() string { return d.describe }
 
+// Server describes the connection without any credentials, for recording in a
+// file that will be committed.
+func (d *DB) Server() string { return d.server }
+
 const tablesQuery = `
-SELECT TABLE_NAME, COALESCE(ENGINE, ''), COALESCE(TABLE_ROWS, 0)
+SELECT TABLE_NAME, COALESCE(ENGINE, ''), COALESCE(TABLE_ROWS, 0), COALESCE(TABLE_COLLATION, '')
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
 ORDER BY TABLE_NAME`
 
 const columnsQuery = `
 SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE,
-       COALESCE(COLUMN_DEFAULT, ''), COALESCE(COLUMN_KEY, ''), COALESCE(EXTRA, '')
+       COALESCE(COLUMN_DEFAULT, ''), COALESCE(COLUMN_KEY, ''), COALESCE(EXTRA, ''),
+       COALESCE(CHARACTER_SET_NAME, ''), COALESCE(COLLATION_NAME, '')
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = ?
 ORDER BY TABLE_NAME, ORDINAL_POSITION`
@@ -107,7 +116,7 @@ func (d *DB) tables(ctx context.Context) ([]schema.Table, error) {
 	var tables []schema.Table
 	for rows.Next() {
 		var t schema.Table
-		if err := rows.Scan(&t.Name, &t.Engine, &t.Rows); err != nil {
+		if err := rows.Scan(&t.Name, &t.Engine, &t.Rows, &t.Collation); err != nil {
 			return nil, fmt.Errorf("reading table list: %w", err)
 		}
 		tables = append(tables, t)
@@ -132,7 +141,8 @@ func (d *DB) columns(ctx context.Context) (map[string][]schema.Column, error) {
 	for rows.Next() {
 		var table, nullable string
 		var c schema.Column
-		if err := rows.Scan(&table, &c.Name, &c.Type, &nullable, &c.Default, &c.Key, &c.Extra); err != nil {
+		if err := rows.Scan(&table, &c.Name, &c.Type, &nullable, &c.Default, &c.Key, &c.Extra,
+			&c.Charset, &c.Collation); err != nil {
 			return nil, fmt.Errorf("reading column list: %w", err)
 		}
 		c.Nullable = strings.EqualFold(nullable, "YES")

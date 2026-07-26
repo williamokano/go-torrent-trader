@@ -58,9 +58,13 @@ could do.
 |---------|------|-------------|
 | `discover` | `--exact` | Count rows with `COUNT(*)` instead of the engine's estimate |
 | `discover` | `--table <name>` | Describe one table's columns and print its `SHOW CREATE TABLE` |
+| `discover` | `--ddl` | Dump `SHOW CREATE TABLE` for every table |
 | `validate` | `--strict` | Fail on any difference from the stock schema, not just blocking ones |
 | `mapping` | `--out <path>` | Where to write the mapping (default `mapping.yaml`; `-` for stdout) |
 | `mapping` | `--force` | Overwrite an existing mapping file |
+
+`--dry-run` works on `mapping`: it reports what would be written and writes
+nothing.
 
 ## Configuration
 
@@ -122,7 +126,13 @@ It does not move data yet.
 - The TorrentTrader 3.0 baseline schema, transcribed from
   `docs/FULL_FEATURE_DOCUMENTATION.md` section 1
 - Comparison against that baseline: missing tables, mod-added tables and
-  columns, and type mismatches
+  columns, and type mismatches. A column the migration does not read is
+  reported when it is missing but does not stop a run — 36 baseline columns
+  are skipped outright, and an install that dropped one migrates fine
+- Character set reporting. A stock 2008 TorrentTrader is `latin1` throughout
+  and the target stores UTF-8, so `validate` names the encodings it found and
+  the mapping records them per column. Copying those bytes across unconverted
+  is what turns accented usernames into mojibake
 - Mapping file generation, with the reasoning for each decision kept as comments
 - Integration tests against a real MySQL 8 server via testcontainers
 
@@ -152,6 +162,10 @@ Each column gets an action:
 | `custom` | A mod added this column and only the operator knows what it is for |
 | `review` | A stock column this tool has no rule for yet |
 
+Each entry also records the column's source `type`, and its `charset` when that
+is not Unicode, so the file can be reviewed — and consumed — without
+reconnecting to the old database.
+
 `custom` and `review` are the entries needing a decision; the command prints how
 many there are and where. The file is meant to be edited and kept in version
 control.
@@ -167,20 +181,34 @@ control.
             # Carried across as-is. The backend verifies the legacy scheme once
             # and re-hashes to argon2id, so nobody is asked to reset a password.
             password:
+                type: varchar(40)
+                charset: latin1
                 action: map
                 target: password_hash
                 transform: legacy_hash
             # Reversed sense: forumbanned='yes' becomes can_forum=false.
             forumbanned:
+                type: char(3)
+                charset: latin1
                 action: map
                 target: can_forum
                 transform: yes_no_to_bool_inverted
             # Who's-online scratch state.
             page:
+                type: text
+                charset: latin1
                 action: skip
             seedbonus:
+                type: float
                 action: custom
+        # Target columns filled from something other than a single legacy column.
+        derived:
+            password_scheme: the scheme the legacy hash is in, so the backend can verify it once and re-hash to argon2id at next login
+            warn_until: NULL — legacy warnings are a flag with no expiry
 ```
+
+The file records the server it came from as `host:port/database`, with no
+username and no password, because it is meant to be committed.
 
 ## What the baseline knows
 
@@ -195,6 +223,31 @@ Six tables are marked required, meaning the migration cannot run without them:
 `users`, `groups`, `torrents`, `peers`, `completed` and `categories`. A missing
 optional table is reported and not treated as fatal — an install that dropped
 polls years ago still migrates.
+
+## What the target knows
+
+`internal/target` declares the PostgreSQL tables and columns the mapping writes
+into. It is declared here rather than imported because `migration-tool` is its
+own module and may not import `backend/internal` — see **Shared Nothing** in
+`docs/ARCHITECTURE.md`.
+
+A declaration nothing checks drifts, and this one did: the first version of the
+mapping named three target columns that were wrong, including a `forums`
+permission column it claimed did not exist. So `internal/target` is checked two
+ways:
+
+- `target_drift_test.go` replays `backend/migrations` and fails if the
+  declaration disagrees with them. It skips when those files are absent, so the
+  module still builds standalone
+- `internal/mapping/target_test.go` fails if a rule names a target column that
+  does not exist, or if any target column has neither a rule nor a `derived`
+  note — which is what stops a column being dropped by accident
+
+`internal/target` also records which target tables ship with rows already in
+them. `groups`, `categories`, `countries`, `languages` and `forum_categories`
+are seeded, several with unique constraints, so the "keep the legacy id"
+strategy that works everywhere else collides there. The mapping says so on each
+of those tables.
 
 ## Development
 

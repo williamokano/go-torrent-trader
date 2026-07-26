@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/baseline"
+	"github.com/williamokano/go-torrent-trader/migration-tool/internal/mapping"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
 )
 
@@ -26,7 +27,7 @@ func stockSchema(t *testing.T) schema.Schema {
 }
 
 func TestCompareStockSchemaIsClean(t *testing.T) {
-	r := Compare(baseline.TorrentTrader30(), stockSchema(t))
+	r := Compare(baseline.TorrentTrader30(), stockSchema(t), mapping.ReadColumns())
 
 	if !r.Clean() {
 		t.Errorf("a schema built from the baseline reported differences: %+v", r)
@@ -54,7 +55,7 @@ func TestCompareToleratesServerReportingDifferences(t *testing.T) {
 		}
 	}
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 	if !r.Clean() {
 		t.Errorf("reporting differences were treated as schema differences: %+v", r)
 	}
@@ -64,7 +65,7 @@ func TestCompareReportsMissingTable(t *testing.T) {
 	s := stockSchema(t)
 	s.Tables = slices.DeleteFunc(s.Tables, func(tb schema.Table) bool { return tb.Name == "polls" })
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	if !slices.Contains(r.MissingTables, "polls") {
 		t.Errorf("MissingTables = %v, want it to contain polls", r.MissingTables)
@@ -82,7 +83,7 @@ func TestCompareBlocksOnMissingRequiredTable(t *testing.T) {
 	s := stockSchema(t)
 	s.Tables = slices.DeleteFunc(s.Tables, func(tb schema.Table) bool { return tb.Name == "torrents" })
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	if !slices.Contains(r.MissingRequiredTables, "torrents") {
 		t.Errorf("MissingRequiredTables = %v, want it to contain torrents", r.MissingRequiredTables)
@@ -103,7 +104,7 @@ func TestCompareBlocksOnMissingColumn(t *testing.T) {
 		})
 	}
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	var users TableReport
 	for _, tr := range r.Tables {
@@ -129,7 +130,7 @@ func TestCompareReportsModsWithoutBlocking(t *testing.T) {
 	}
 	s.Tables = append(s.Tables, schema.Table{Name: "bonus_log", Columns: []schema.Column{{Name: "id", Type: "int"}}})
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	if !slices.Contains(r.AddedTables, "bonus_log") {
 		t.Errorf("AddedTables = %v, want it to contain bonus_log", r.AddedTables)
@@ -164,7 +165,7 @@ func TestCompareReportsTypeMismatchWithoutBlocking(t *testing.T) {
 		}
 	}
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	var found bool
 	for _, tr := range r.Tables {
@@ -198,7 +199,7 @@ func TestCompareSkipsColumnsOfUndocumentedTables(t *testing.T) {
 		}
 	}
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	for _, tr := range r.Tables {
 		if tr.Name != "shoutbox" {
@@ -222,7 +223,7 @@ func TestCompareSortsOutput(t *testing.T) {
 		{Name: "users"},
 	}}
 
-	r := Compare(baseline.TorrentTrader30(), s)
+	r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
 
 	if !slices.IsSorted(r.AddedTables) {
 		t.Errorf("AddedTables not sorted: %v", r.AddedTables)
@@ -236,5 +237,86 @@ func TestCompareSortsOutput(t *testing.T) {
 	}
 	if !slices.IsSorted(names) {
 		t.Errorf("Tables not sorted: %v", names)
+	}
+}
+
+// dropColumn removes a column from a table in a discovered schema.
+func dropColumn(s schema.Schema, table, column string) schema.Schema {
+	for i, tb := range s.Tables {
+		if tb.Name != table {
+			continue
+		}
+		s.Tables[i].Columns = slices.DeleteFunc(slices.Clone(tb.Columns), func(c schema.Column) bool {
+			return c.Name == column
+		})
+	}
+	return s
+}
+
+// The regression this package was written wrong for once: 36 baseline columns
+// are skipped by the plan, and an install that dropped one used to be told its
+// database could not be migrated.
+func TestDroppingASkippedColumnDoesNotBlock(t *testing.T) {
+	// Every one of these is an ActionSkip rule in the mapping plan.
+	for _, column := range []string{"age", "gender", "signature", "tzoffset", "privacy", "stylesheet", "page"} {
+		t.Run(column, func(t *testing.T) {
+			s := dropColumn(stockSchema(t), "users", column)
+			r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
+
+			if r.Blocking() {
+				t.Errorf("dropping users.%s blocked the migration, but nothing reads it", column)
+			}
+
+			var users TableReport
+			for _, tr := range r.Tables {
+				if tr.Name == "users" {
+					users = tr
+				}
+			}
+			if !slices.Contains(users.DroppedColumns, column) {
+				t.Errorf("DroppedColumns = %v, want it to contain %s", users.DroppedColumns, column)
+			}
+			if slices.Contains(users.MissingColumns, column) {
+				t.Errorf("%s was reported as missing, which is the blocking list", column)
+			}
+			// It is still a difference — the operator should see it.
+			if r.Clean() {
+				t.Error("a dropped column was not reported at all")
+			}
+		})
+	}
+}
+
+// The other half: a column the migration does read must still block.
+func TestDroppingAReadColumnBlocks(t *testing.T) {
+	for _, column := range []string{"passkey", "username", "uploaded", "class"} {
+		t.Run(column, func(t *testing.T) {
+			s := dropColumn(stockSchema(t), "users", column)
+			r := Compare(baseline.TorrentTrader30(), s, mapping.ReadColumns())
+
+			if !r.Blocking() {
+				t.Errorf("dropping users.%s did not block, but the migration reads it", column)
+			}
+
+			var users TableReport
+			for _, tr := range r.Tables {
+				if tr.Name == "users" {
+					users = tr
+				}
+			}
+			if !slices.Contains(users.MissingColumns, column) {
+				t.Errorf("MissingColumns = %v, want it to contain %s", users.MissingColumns, column)
+			}
+		})
+	}
+}
+
+// A caller with no plan to hand gets the cautious reading, not a silent pass.
+func TestNilReadsTreatsEveryColumnAsRead(t *testing.T) {
+	s := dropColumn(stockSchema(t), "users", "age")
+	r := Compare(baseline.TorrentTrader30(), s, nil)
+
+	if !r.Blocking() {
+		t.Error("with no plan supplied, any missing column must be treated as read")
 	}
 }

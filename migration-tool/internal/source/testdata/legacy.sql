@@ -12,6 +12,9 @@
 --   * polls, pollanswers, faq, ...        stock tables this install dropped
 --   * shoutbox                            a stock table whose columns the
 --                                         reference does not document
+--   * DEFAULT CHARSET=latin1              what a 2008-era install actually is,
+--                                         and the reason the tool reports
+--                                         encodings at all
 
 CREATE TABLE users (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -62,7 +65,7 @@ CREATE TABLE users (
     karma        INT NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY username (username)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE `groups` (
     group_id        INT NOT NULL AUTO_INCREMENT,
@@ -86,7 +89,7 @@ CREATE TABLE `groups` (
     staff_public    ENUM('yes','no') NOT NULL DEFAULT 'no',
     staff_sort      TINYINT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (group_id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE torrents (
     id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -122,7 +125,7 @@ CREATE TABLE torrents (
     last_action     DATETIME DEFAULT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY info_hash (info_hash)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE peers (
     id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -141,7 +144,7 @@ CREATE TABLE peers (
     userid      VARCHAR(32) NOT NULL DEFAULT '',
     passkey     VARCHAR(32) NOT NULL DEFAULT '',
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE completed (
     id        INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -149,7 +152,7 @@ CREATE TABLE completed (
     torrentid INT NOT NULL DEFAULT 0,
     date      DATETIME DEFAULT NULL,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE messages (
     id       INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -162,7 +165,7 @@ CREATE TABLE messages (
     poster   BIGINT UNSIGNED NOT NULL DEFAULT 0,
     location ENUM('in','out','both','draft','template') NOT NULL DEFAULT 'in',
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE forum_forums (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -174,7 +177,7 @@ CREATE TABLE forum_forums (
     minclasswrite TINYINT UNSIGNED NOT NULL DEFAULT 0,
     guest_read    ENUM('yes','no') NOT NULL DEFAULT 'no',
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE forum_topics (
     id       INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -187,7 +190,7 @@ CREATE TABLE forum_topics (
     views    INT NOT NULL DEFAULT 0,
     lastpost INT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE forum_posts (
     id       INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -198,7 +201,7 @@ CREATE TABLE forum_posts (
     editedby INT UNSIGNED NOT NULL DEFAULT 0,
     editedat DATETIME DEFAULT NULL,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE categories (
     id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -207,7 +210,7 @@ CREATE TABLE categories (
     image      VARCHAR(100) NOT NULL DEFAULT '',
     sort       INT NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE files (
     id       INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -215,7 +218,7 @@ CREATE TABLE files (
     filename VARCHAR(255) NOT NULL DEFAULT '',
     size     BIGINT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 CREATE TABLE comments (
     id      INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -225,7 +228,7 @@ CREATE TABLE comments (
     added   DATETIME DEFAULT NULL,
     text    TEXT,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 -- A stock table the reference document names but does not break down.
 CREATE TABLE shoutbox (
@@ -234,7 +237,7 @@ CREATE TABLE shoutbox (
     date   INT NOT NULL DEFAULT 0,
     text   TEXT,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 -- A table no stock TorrentTrader ever had.
 CREATE TABLE bonus_log (
@@ -242,7 +245,7 @@ CREATE TABLE bonus_log (
     userid INT UNSIGNED NOT NULL DEFAULT 0,
     amount FLOAT NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
-) ENGINE=MyISAM;
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 
 INSERT INTO users (username, passkey, class) VALUES
     ('alice', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 7),

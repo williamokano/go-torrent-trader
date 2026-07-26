@@ -286,9 +286,13 @@ tracker.example.com {
               <td>
                 Compares your schema against a stock TorrentTrader 3.0 and
                 reports what differs — tables you have dropped, tables and
-                columns your mods added, and columns whose type has changed.
-                Differences are expected; it only fails when something the
-                migration needs is genuinely missing.
+                columns your mods added, and columns whose type has changed. It
+                also tells you what character set your text is stored in, which
+                matters: an older install is usually <code>latin1</code>, the
+                new tracker stores UTF-8, and text copied across without being
+                converted comes out as mojibake. Differences are expected; it
+                only fails when something the migration actually reads is
+                genuinely missing.
               </td>
             </tr>
             <tr>

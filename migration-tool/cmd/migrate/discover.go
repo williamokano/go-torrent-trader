@@ -13,6 +13,7 @@ import (
 var (
 	discoverExact bool
 	discoverTable string
+	discoverDDL   bool
 )
 
 // discoverCmd reports what is in the source database.
@@ -21,13 +22,18 @@ var discoverCmd = &cobra.Command{
 	Short: "Discover tables and data in the source database",
 	Long: "Lists the tables in the legacy database with their storage engine, row count and\n" +
 		"column count. With --table, prints that table's columns and the DDL the server\n" +
-		"reports for it — which is what to attach to a bug report when a mapping looks wrong.",
+		"reports for it — which is what to attach to a bug report when a mapping looks\n" +
+		"wrong. With --ddl, dumps SHOW CREATE TABLE for every table.",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return withSource(cmd, func(ctx context.Context, db *source.DB) error {
-			if discoverTable != "" {
+			switch {
+			case discoverTable != "":
 				return describeTable(ctx, cmd.OutOrStdout(), db, discoverTable)
+			case discoverDDL:
+				return dumpDDL(ctx, cmd.OutOrStdout(), db)
+			default:
+				return listTables(ctx, cmd.OutOrStdout(), db)
 			}
-			return listTables(ctx, cmd.OutOrStdout(), db)
 		})
 	},
 }
@@ -37,6 +43,8 @@ func init() {
 		"Count rows with COUNT(*) instead of trusting the engine's estimate")
 	discoverCmd.Flags().StringVar(&discoverTable, "table", "",
 		"Describe one table's columns and DDL instead of listing all tables")
+	discoverCmd.Flags().BoolVar(&discoverDDL, "ddl", false,
+		"Dump SHOW CREATE TABLE for every table")
 }
 
 func listTables(ctx context.Context, out io.Writer, db *source.DB) error {
@@ -56,11 +64,15 @@ func listTables(ctx context.Context, out io.Writer, db *source.DB) error {
 	tp, flush := p.table()
 	tp.println("TABLE\tENGINE\tROWS\tCOLUMNS")
 	var total int64
+	var countErr error
 	for _, t := range s.Tables {
 		rows := t.Rows
 		if discoverExact {
-			if rows, err = db.CountRows(ctx, t.Name); err != nil {
-				return err
+			// A count can fail partway — a lock timeout on a big table is the
+			// usual reason. Stop counting, but flush what was already gathered
+			// rather than throwing the whole listing away.
+			if rows, countErr = db.CountRows(ctx, t.Name); countErr != nil {
+				break
 			}
 		}
 		total += rows
@@ -68,6 +80,9 @@ func listTables(ctx context.Context, out io.Writer, db *source.DB) error {
 	}
 	flush()
 
+	if countErr != nil {
+		return countErr
+	}
 	p.printf("\nTotal rows: %d\n", total)
 	return p.errf("the table list")
 }
@@ -108,4 +123,26 @@ func describeTable(ctx context.Context, out io.Writer, db *source.DB, name strin
 
 	p.printf("\n%s\n", ddl)
 	return p.errf("the table description")
+}
+
+// dumpDDL prints the server's own CREATE TABLE for every table, which is the
+// unambiguous record of what the source schema was on the night of the run.
+func dumpDDL(ctx context.Context, out io.Writer, db *source.DB) error {
+	s, err := db.Schema(ctx)
+	if err != nil {
+		return err
+	}
+
+	p := newPrinter(out)
+	p.printf("-- Source: %s\n", db.Server())
+	p.printf("-- %d tables\n", len(s.Tables))
+
+	for _, t := range s.Tables {
+		ddl, err := db.CreateTable(ctx, t.Name)
+		if err != nil {
+			return err
+		}
+		p.printf("\n%s;\n", ddl)
+	}
+	return p.errf("the DDL dump")
 }

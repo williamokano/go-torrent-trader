@@ -4,12 +4,18 @@
 // The premise, from the epic: no two TorrentTrader installs are identical after
 // years of mods, so the tool reports what it found rather than assuming. A
 // difference is therefore not automatically a failure. Only two things stop a
-// run — a required table that is absent, and a documented column that is
-// absent — because those are the cases where the migration has nothing to read.
+// run — a required table that is absent, and an absent column the migration
+// actually reads — because those are the cases where it has nothing to read.
+//
+// The second half of that matters. The mapping skips 36 baseline columns
+// outright: age, gender, signature, the timezone offset, the who's-online
+// scratch field. An install that dropped one years ago migrates perfectly, and
+// an earlier version of this package refused to run over it.
 package compare
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/baseline"
 	"github.com/williamokano/go-torrent-trader/migration-tool/internal/schema"
@@ -27,11 +33,14 @@ type TypeMismatch struct {
 type TableReport struct {
 	Name string
 	// ColumnsChecked is false when the baseline knows the table but not its
-	// columns, in which case the three column fields are empty and mean
-	// nothing.
+	// columns, in which case the column fields are empty and mean nothing.
 	ColumnsChecked bool
-	// MissingColumns are baseline columns the source does not have.
+	// MissingColumns are absent columns the migration reads. These block.
 	MissingColumns []string
+	// DroppedColumns are absent baseline columns the migration does not read.
+	// Worth reporting, since they say something about the install, but
+	// harmless.
+	DroppedColumns []string
 	// AddedColumns are source columns the baseline does not have — almost
 	// always a mod.
 	AddedColumns []string
@@ -41,7 +50,8 @@ type TableReport struct {
 
 // Differs reports whether anything about the table is worth printing.
 func (t TableReport) Differs() bool {
-	return len(t.MissingColumns) > 0 || len(t.AddedColumns) > 0 || len(t.TypeMismatches) > 0
+	return len(t.MissingColumns) > 0 || len(t.DroppedColumns) > 0 ||
+		len(t.AddedColumns) > 0 || len(t.TypeMismatches) > 0
 }
 
 // Report is the whole comparison.
@@ -59,9 +69,9 @@ type Report struct {
 }
 
 // Blocking reports whether the differences prevent a migration from running: a
-// required table is gone, or a table is missing columns the transformers read.
-// Added columns and type mismatches are not blocking on their own — they are
-// what the mapping file exists to resolve.
+// required table is gone, or a column the transformers read is gone. Added
+// columns, type mismatches and dropped columns nobody reads are not blocking —
+// they are what the mapping file exists to resolve.
 func (r Report) Blocking() bool {
 	if len(r.MissingRequiredTables) > 0 {
 		return true
@@ -88,7 +98,12 @@ func (r Report) Clean() bool {
 }
 
 // Compare diffs found against base.
-func Compare(base baseline.Schema, found schema.Schema) Report {
+//
+// reads maps a legacy table name to the columns the migration reads from it —
+// mapping.ReadColumns() supplies it. A nil map means "assume every baseline
+// column is read", which is the safe reading for a caller that has no plan to
+// hand, not the useful one.
+func Compare(base baseline.Schema, found schema.Schema, reads map[string][]string) Report {
 	var r Report
 
 	for _, bt := range base.Tables {
@@ -100,7 +115,7 @@ func Compare(base baseline.Schema, found schema.Schema) Report {
 			}
 			continue
 		}
-		r.Tables = append(r.Tables, compareTable(bt, ft))
+		r.Tables = append(r.Tables, compareTable(bt, ft, reads))
 	}
 
 	for _, ft := range found.Tables {
@@ -116,16 +131,21 @@ func Compare(base baseline.Schema, found schema.Schema) Report {
 	return r
 }
 
-func compareTable(bt baseline.Table, ft schema.Table) TableReport {
+func compareTable(bt baseline.Table, ft schema.Table, reads map[string][]string) TableReport {
 	report := TableReport{Name: bt.Name, ColumnsChecked: bt.ColumnsDocumented}
 	if !bt.ColumnsDocumented {
 		return report
 	}
+	read := readSet(reads, bt.Name)
 
 	for _, bc := range bt.Columns {
 		fc, ok := ft.Column(bc.Name)
 		if !ok {
-			report.MissingColumns = append(report.MissingColumns, bc.Name)
+			if read == nil || read[strings.ToLower(bc.Name)] {
+				report.MissingColumns = append(report.MissingColumns, bc.Name)
+			} else {
+				report.DroppedColumns = append(report.DroppedColumns, bc.Name)
+			}
 			continue
 		}
 		if !schema.TypesEqual(bc.Type, fc.Type) {
@@ -143,4 +163,25 @@ func compareTable(bt baseline.Table, ft schema.Table) TableReport {
 		}
 	}
 	return report
+}
+
+// readSet returns the columns the migration reads from a table, as a set keyed
+// by lower-cased name. A nil result means "no information", which callers treat
+// as "every column is read".
+func readSet(reads map[string][]string, table string) map[string]bool {
+	if reads == nil {
+		return nil
+	}
+	for name, columns := range reads {
+		if !strings.EqualFold(name, table) {
+			continue
+		}
+		set := make(map[string]bool, len(columns))
+		for _, c := range columns {
+			set[strings.ToLower(c)] = true
+		}
+		return set
+	}
+	// The table has a baseline entry but the plan reads nothing from it.
+	return map[string]bool{}
 }

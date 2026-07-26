@@ -341,3 +341,33 @@ func TestRenderIsStable(t *testing.T) {
 		}
 	}
 }
+
+// ReadColumns is what stops validate blocking on a column nobody reads, so the
+// distinction it draws is worth asserting directly.
+func TestReadColumns(t *testing.T) {
+	reads := ReadColumns()
+
+	users, ok := reads["users"]
+	if !ok {
+		t.Fatal("no read columns for users")
+	}
+	for _, want := range []string{"passkey", "username", "class", "status"} {
+		if !slices.Contains(users, want) {
+			t.Errorf("users reads = %v, want it to contain %s", users, want)
+		}
+	}
+	// Every one of these is an ActionSkip rule: nothing reads them.
+	for _, notWanted := range []string{"age", "gender", "signature", "tzoffset", "page"} {
+		if slices.Contains(users, notWanted) {
+			t.Errorf("users reads %s, but the plan skips it", notWanted)
+		}
+	}
+	if !slices.IsSorted(users) {
+		t.Errorf("users reads not sorted: %v", users)
+	}
+
+	// A table skipped wholesale reads nothing at all.
+	if columns, ok := reads["sqlerr"]; ok {
+		t.Errorf("sqlerr is skipped but reports reads %v", columns)
+	}
+}

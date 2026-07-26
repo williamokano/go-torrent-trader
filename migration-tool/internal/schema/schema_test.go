@@ -99,3 +99,78 @@ func TestColumnNames(t *testing.T) {
 		t.Errorf("ColumnNames() = %v, want [id username] in ordinal order", got)
 	}
 }
+
+// The attribute keywords also occur inside enum literals, where they are data.
+// An earlier version stripped them everywhere and silently truncated the type.
+func TestNormalizeTypeDoesNotEditInsideLiterals(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"collate in a member", "enum('yes collate x','no')", "enum('yes collate x','no')"},
+		{"binary in a member", "enum('a binary','b')", "enum('a binary','b')"},
+		{"charset in a member", "set('character set utf8','b')", "set('character set utf8','b')"},
+		{"paren in a member", "enum('a)b','c')", "enum('a)b','c')"},
+		{"attribute still stripped outside", "enum('a','b') character set utf8", "enum('a','b')"},
+		{"collation still stripped outside", "varchar(20) collate utf8_bin", "varchar(20)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeType(tc.in); got != tc.want {
+				t.Errorf("NormalizeType(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	// The consequence that matters: two different enum sets must not collapse
+	// into the same normalized form.
+	if TypesEqual("enum('a binary','b')", "enum('a','b')") {
+		t.Error("enum sets differing by a member containing \"binary\" compared equal")
+	}
+}
+
+func TestIsUTF8(t *testing.T) {
+	unicode := []string{"utf8", "utf8mb3", "utf8mb4", "UTF8MB4", "ucs2", "utf16", "utf16le", "utf32"}
+	for _, cs := range unicode {
+		if !IsUTF8(cs) {
+			t.Errorf("IsUTF8(%q) = false, want true", cs)
+		}
+	}
+	// latin1 is what a 2008 TorrentTrader actually is, and the one that has to
+	// be caught.
+	notUnicode := []string{"latin1", "latin2", "cp1251", "koi8r", "big5", "sjis", "binary", ""}
+	for _, cs := range notUnicode {
+		if IsUTF8(cs) {
+			t.Errorf("IsUTF8(%q) = true, want false", cs)
+		}
+	}
+}
+
+func TestTextEncodings(t *testing.T) {
+	s := Schema{Tables: []Table{
+		{Name: "users", Columns: []Column{
+			{Name: "id", Type: "int"}, // no charset
+			{Name: "username", Type: "varchar(40)", Charset: "latin1"},
+			{Name: "info", Type: "text", Charset: "LATIN1"}, // same set, other case
+		}},
+		{Name: "posts", Columns: []Column{
+			{Name: "body", Type: "text", Charset: "utf8mb4"},
+		}},
+	}}
+
+	got := s.TextEncodings()
+	want := []string{"latin1", "utf8mb4"}
+	if len(got) != len(want) {
+		t.Fatalf("TextEncodings() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("TextEncodings()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	if enc := (Schema{}).TextEncodings(); len(enc) != 0 {
+		t.Errorf("TextEncodings() on an empty schema = %v, want none", enc)
+	}
+}

@@ -155,7 +155,8 @@ func TestValidateReportsModsAndPasses(t *testing.T) {
 		t.Fatalf("validate: %v\n%s", err, out)
 	}
 
-	for _, want := range []string{"bonus_log", "seedbonus", "polls", "Result: usable"} {
+	for _, want := range []string{"bonus_log", "seedbonus", "polls", "Result: usable",
+		"latin1", "not Unicode", "mojibake"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("validate output does not mention %q:\n%s", want, out)
 		}
@@ -292,5 +293,70 @@ func TestMappingToStdoutIsPipeable(t *testing.T) {
 	}
 	if strings.Contains(out, "Wrote ") {
 		t.Error("the stdout path printed a file-written message")
+	}
+}
+
+// --ddl dumps the server's own CREATE TABLE for every table, which is the
+// record of what the source schema was on the night of the run.
+func TestDiscoverDumpsAllDDL(t *testing.T) {
+	noDatabaseConfigured(t)
+
+	out, err := execute(t, "discover", "--source", legacyDSN(t), "--ddl")
+	if err != nil {
+		t.Fatalf("discover --ddl: %v\n%s", err, out)
+	}
+
+	// Every table, not just one.
+	for _, want := range []string{"CREATE TABLE `users`", "CREATE TABLE `torrents`",
+		"CREATE TABLE `groups`", "CREATE TABLE `bonus_log`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the dump is missing %q", want)
+		}
+	}
+	if strings.Contains(out, "tt-secret") {
+		t.Error("the dump contains the password")
+	}
+}
+
+// --dry-run must not write the file. `migrate mapping --dry-run` writing one
+// anyway is exactly the kind of thing an operator finds out about too late.
+func TestMappingDryRunWritesNothing(t *testing.T) {
+	noDatabaseConfigured(t)
+	path := filepath.Join(t.TempDir(), "mapping.yaml")
+
+	out, err := execute(t, "mapping", "--source", legacyDSN(t), "--out", path, "--dry-run")
+	if err != nil {
+		t.Fatalf("mapping --dry-run: %v\n%s", err, out)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("--dry-run wrote %s", path)
+	}
+	if !strings.Contains(out, "dry-run") {
+		t.Errorf("the output does not say the file was withheld:\n%s", out)
+	}
+}
+
+// The file records where it came from, and that provenance must not carry
+// credentials — the README tells operators to commit it.
+func TestMappingRecordsServerWithoutCredentials(t *testing.T) {
+	noDatabaseConfigured(t)
+	path := filepath.Join(t.TempDir(), "mapping.yaml")
+
+	if _, err := execute(t, "mapping", "--source", legacyDSN(t), "--out", path); err != nil {
+		t.Fatalf("mapping: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the mapping: %v", err)
+	}
+
+	for _, forbidden := range []string{"tt-secret", "tt:***", "tt@"} {
+		if strings.Contains(string(content), forbidden) {
+			t.Errorf("the mapping records %q", forbidden)
+		}
+	}
+	if !strings.Contains(string(content), "/torrenttrader") {
+		t.Error("the mapping does not record which database it came from")
 	}
 }
