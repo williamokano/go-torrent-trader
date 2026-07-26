@@ -216,6 +216,27 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s unmuted %s in chat", actor, target), e.Actor
 	})
 
+	// Deletions are logged by message ID rather than content: the entry records
+	// that a message was removed and by whom, without reprinting whatever was
+	// worth removing. Site announcements are deletable too, so without this a
+	// site-wide notice could disappear leaving no trace at all.
+	listen(event.ChatMessageDeleted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ChatMessageDeletedEvent)
+		actor := resolveActor(userRepo, e.Actor)
+		return fmt.Sprintf("%s deleted chat message #%d", actor, e.MessageID), e.Actor
+	})
+
+	listen(event.ChatUserMessagesDeleted, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.ChatUserMessagesDeletedEvent)
+		actor := resolveActor(userRepo, e.Actor)
+		target := resolveUsername(userRepo, e.TargetUserID)
+		plural := "messages"
+		if e.Count == 1 {
+			plural = "message"
+		}
+		return fmt.Sprintf("%s deleted %d chat %s from %s", actor, e.Count, plural, target), e.Actor
+	})
+
 	listen(event.NewsPublished, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.NewsPublishedEvent)
 		return fmt.Sprintf("%s published news: %s", e.Actor.Username, e.Title), e.Actor

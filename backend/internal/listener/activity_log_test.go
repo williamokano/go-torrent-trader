@@ -337,3 +337,79 @@ func TestListener_TorrentPublishedIsNotLogged(t *testing.T) {
 		t.Fatalf("torrent_published wrote %d activity log entries, want 0", len(repo.logs))
 	}
 }
+
+// Chat deletions had no listener at all: both events were published and nothing
+// subscribed, so a removed message — including a site announcement, which became
+// deletable later — left no trace of who removed it.
+func TestListener_ChatMessageDeleted(t *testing.T) {
+	repo, bus := setup()
+
+	// The service publishes the actor as an ID with no username, so the listener
+	// has to resolve it. Without that the entry reads " deleted chat message #9".
+	bus.Publish(context.Background(), &event.ChatMessageDeletedEvent{
+		Base:      event.NewBase(event.ChatMessageDeleted, event.Actor{ID: 4}),
+		MessageID: 9,
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if got := repo.logs[0].EventType; got != "chat_message_deleted" {
+		t.Errorf("event type = %s, want chat_message_deleted", got)
+	}
+	if want := "user4 deleted chat message #9"; repo.logs[0].Message != want {
+		t.Errorf("message = %q, want %q", repo.logs[0].Message, want)
+	}
+	if repo.logs[0].ActorID == nil || *repo.logs[0].ActorID != 4 {
+		t.Errorf("actor_id = %v, want 4", repo.logs[0].ActorID)
+	}
+}
+
+func TestListener_ChatUserMessagesDeleted(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.ChatUserMessagesDeletedEvent{
+		Base:         event.NewBase(event.ChatUserMessagesDeleted, event.Actor{ID: 4}),
+		TargetUserID: 11,
+		Count:        12,
+	})
+
+	if len(repo.logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(repo.logs))
+	}
+	if want := "user4 deleted 12 chat messages from user11"; repo.logs[0].Message != want {
+		t.Errorf("message = %q, want %q", repo.logs[0].Message, want)
+	}
+}
+
+func TestListener_ChatUserMessagesDeleted_SingularReadsNaturally(t *testing.T) {
+	repo, bus := setup()
+
+	bus.Publish(context.Background(), &event.ChatUserMessagesDeletedEvent{
+		Base:         event.NewBase(event.ChatUserMessagesDeleted, event.Actor{ID: 4}),
+		TargetUserID: 11,
+		Count:        1,
+	})
+
+	if want := "user4 deleted 1 chat message from user11"; repo.logs[0].Message != want {
+		t.Errorf("message = %q, want %q", repo.logs[0].Message, want)
+	}
+}
+
+// Deleting messages is moderation against one member, classified with warnings
+// and restrictions rather than with mutes. Announcing it site-wide amplifies
+// whatever was removed. Mutes stay public on purpose — see staff_only.go.
+func TestChatDeletionsAreStaffOnlyButMutesAreNot(t *testing.T) {
+	staffOnly := []event.Type{event.ChatMessageDeleted, event.ChatUserMessagesDeleted}
+	for _, typ := range staffOnly {
+		if !event.IsStaffOnly(typ) {
+			t.Errorf("%s should be staff-only", typ)
+		}
+	}
+	public := []event.Type{event.ChatUserMuted, event.ChatUserUnmuted}
+	for _, typ := range public {
+		if event.IsStaffOnly(typ) {
+			t.Errorf("%s is public by design; changing it needs a deliberate decision", typ)
+		}
+	}
+}
