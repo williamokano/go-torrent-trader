@@ -39,7 +39,9 @@ const (
 	// verification will need; what must not happen is an operator being told
 	// this works today.
 	TransformLegacyHash = "legacy_hash"
-	// TransformBBCodeToMarkdown converts BBCode body text to Markdown.
+	// TransformBBCodeToMarkdown converts BBCode body text to Markdown, as
+	// implemented in internal/bbcode. Malformed markup passes through as
+	// written rather than being guessed at.
 	TransformBBCodeToMarkdown = "bbcode_to_markdown"
 	// TransformClassToGroupID resolves a legacy class number to a target
 	// group id through the groups mapping.
