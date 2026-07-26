@@ -815,17 +815,12 @@ func setupReseedService() (*TorrentService, *memTorrentRepo, *memReseedRequestRe
 }
 
 func TestTorrentService_RequestReseed_Success(t *testing.T) {
-	svc, _, reseedRepo := setupReseedService()
+	svc, repo, reseedRepo := setupReseedService()
 
-	// Upload a torrent first
-	data := buildTorrentFile("reseed-test")
-	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 1)
-	if err != nil {
-		t.Fatalf("upload failed: %v", err)
-	}
+	uploaded := uploadForReseed(t, svc, repo, "reseed-test")
 
 	// Request reseed
-	err = svc.RequestReseed(context.Background(), uploaded.ID, 42)
+	err := svc.RequestReseed(context.Background(), uploaded.ID, 42)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -841,16 +836,12 @@ func TestTorrentService_RequestReseed_Success(t *testing.T) {
 }
 
 func TestTorrentService_RequestReseed_Duplicate(t *testing.T) {
-	svc, _, _ := setupReseedService()
+	svc, repo, _ := setupReseedService()
 
-	data := buildTorrentFile("reseed-dup-test")
-	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 1)
-	if err != nil {
-		t.Fatalf("upload failed: %v", err)
-	}
+	uploaded := uploadForReseed(t, svc, repo, "reseed-dup-test")
 
 	// First request
-	err = svc.RequestReseed(context.Background(), uploaded.ID, 42)
+	err := svc.RequestReseed(context.Background(), uploaded.ID, 42)
 	if err != nil {
 		t.Fatalf("first request failed: %v", err)
 	}
@@ -871,14 +862,111 @@ func TestTorrentService_RequestReseed_TorrentNotFound(t *testing.T) {
 	}
 }
 
-func TestTorrentService_GetReseedCount(t *testing.T) {
-	svc, _, _ := setupReseedService()
-
-	data := buildTorrentFile("reseed-count-test")
-	uploaded, err := svc.Upload(context.Background(), data, UploadTorrentRequest{CategoryID: 1}, 1)
+// uploadForReseed uploads a torrent, approves it, and hands back the stored record
+// so a test can put it into whatever state it wants. The repo returns the live
+// pointer, so mutating the result is what the service will read.
+//
+// The approval matters. This fixture builds the service with no SiteSettingsService,
+// so Upload takes the moderation-enabled branch and every torrent lands as pending —
+// a state in which a member cannot see the torrent at all, let alone ask for a
+// reseed. Leaving it pending would make every case below pass for the wrong reason.
+func uploadForReseed(t *testing.T, svc *TorrentService, repo *memTorrentRepo, name string) *model.Torrent {
+	t.Helper()
+	uploaded, err := svc.Upload(context.Background(), buildTorrentFile(name), UploadTorrentRequest{CategoryID: 1}, 1)
 	if err != nil {
 		t.Fatalf("upload failed: %v", err)
 	}
+	stored, err := repo.GetByID(context.Background(), uploaded.ID)
+	if err != nil {
+		t.Fatalf("stored torrent not found: %v", err)
+	}
+	stored.ModerationStatus = model.ModerationApproved
+	return stored
+}
+
+// Eligibility used to live only in the React component, so a direct POST was
+// accepted against any torrent — and every accepted request emails the uploader.
+// Each case below is a request the endpoint previously granted.
+func TestTorrentService_RequestReseed_RejectsIneligibleTorrents(t *testing.T) {
+	cases := []struct {
+		name    string
+		arrange func(*model.Torrent)
+		want    error
+	}{
+		{
+			name:    "torrent already has a seeder",
+			arrange: func(tor *model.Torrent) { tor.Seeders = 1 },
+			want:    ErrTorrentHasSeeders,
+		},
+		{
+			name:    "torrent is banned",
+			arrange: func(tor *model.Torrent) { tor.Banned = true },
+			want:    ErrForbidden,
+		},
+		{
+			name:    "torrent is hidden",
+			arrange: func(tor *model.Torrent) { tor.Visible = false },
+			want:    ErrForbidden,
+		},
+		{
+			name:    "torrent is awaiting moderation",
+			arrange: func(tor *model.Torrent) { tor.ModerationStatus = model.ModerationPending },
+			want:    ErrForbidden,
+		},
+		{
+			name:    "torrent was rejected by moderation",
+			arrange: func(tor *model.Torrent) { tor.ModerationStatus = model.ModerationRejected },
+			want:    ErrForbidden,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo, reseedRepo := setupReseedService()
+			stored := uploadForReseed(t, svc, repo, "reseed-"+tc.name)
+			tc.arrange(stored)
+
+			err := svc.RequestReseed(context.Background(), stored.ID, 42)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("expected %v, got %v", tc.want, err)
+			}
+
+			// A rejected request must leave nothing behind: a stored row would
+			// block the member from asking once the torrent became eligible.
+			count, err := reseedRepo.CountByTorrent(context.Background(), stored.ID)
+			if err != nil {
+				t.Fatalf("count failed: %v", err)
+			}
+			if count != 0 {
+				t.Errorf("expected no reseed request to be stored, got %d", count)
+			}
+		})
+	}
+}
+
+// Ordering matters for the message the member sees. With the duplicate lookup
+// first, someone who asked while the torrent was dead and asks again after it
+// recovered is told "you already asked" — which is true but not the reason, and
+// sends them to staff to find out why the button stopped working.
+func TestTorrentService_RequestReseed_ReportsIneligibilityBeforeDuplication(t *testing.T) {
+	svc, repo, _ := setupReseedService()
+	stored := uploadForReseed(t, svc, repo, "reseed-ordering")
+
+	if err := svc.RequestReseed(context.Background(), stored.ID, 42); err != nil {
+		t.Fatalf("first request should have been accepted: %v", err)
+	}
+
+	stored.Seeders = 3
+	err := svc.RequestReseed(context.Background(), stored.ID, 42)
+	if !errors.Is(err, ErrTorrentHasSeeders) {
+		t.Fatalf("expected ErrTorrentHasSeeders, got %v", err)
+	}
+}
+
+func TestTorrentService_GetReseedCount(t *testing.T) {
+	svc, repo, _ := setupReseedService()
+
+	uploaded := uploadForReseed(t, svc, repo, "reseed-count-test")
 
 	// No requests yet
 	count, err := svc.GetReseedCount(context.Background(), uploaded.ID)

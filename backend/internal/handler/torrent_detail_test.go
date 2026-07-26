@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -414,7 +415,12 @@ func TestRequestReseedReturns404WhenTorrentMissing(t *testing.T) {
 
 func TestRequestReseedCreatesRequest(t *testing.T) {
 	d := newTorrentDeps()
-	d.torrents.torrents[3] = &model.Torrent{ID: 3, Name: "A movie", Seeders: 0}
+	// Visible and approved: a reseed request is only meaningful for a torrent the
+	// member can actually see, and the service now enforces that.
+	d.torrents.torrents[3] = &model.Torrent{
+		ID: 3, Name: "A movie", Seeders: 0,
+		Visible: true, ModerationStatus: model.ModerationApproved,
+	}
 	h := d.handler()
 
 	req := authed(httptest.NewRequest(http.MethodPost, "/api/v1/torrents/3/reseed", nil), 7, 20)
@@ -427,6 +433,34 @@ func TestRequestReseedCreatesRequest(t *testing.T) {
 	}
 	if len(d.reseeds.created) != 1 || d.reseeds.created[0].RequesterID != 7 || d.reseeds.created[0].TorrentID != 3 {
 		t.Errorf("reseed requests = %+v, want one from the authenticated user for torrent 3", d.reseeds.created)
+	}
+}
+
+// The seeder rejection is expected, not exceptional. Surfacing it as a 500 would
+// tell the member the site is broken and would page whoever watches error rates,
+// so the status code is worth pinning at the HTTP boundary rather than trusting
+// the service test alone.
+func TestRequestReseedOnSeededTorrentIsAConflictNotAServerError(t *testing.T) {
+	d := newTorrentDeps()
+	d.torrents.torrents[3] = &model.Torrent{
+		ID: 3, Name: "A well-seeded movie", Seeders: 4,
+		Visible: true, ModerationStatus: model.ModerationApproved,
+	}
+	h := d.handler()
+
+	req := authed(httptest.NewRequest(http.MethodPost, "/api/v1/torrents/3/reseed", nil), 7, 20)
+	req = withURLParam(req, "id", "3")
+	w := httptest.NewRecorder()
+	h.HandleRequestReseed(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "torrent_has_seeders") {
+		t.Errorf("body should name the reason so the UI can explain it, got: %s", w.Body.String())
+	}
+	if len(d.reseeds.created) != 0 {
+		t.Errorf("no reseed request should have been stored, got %+v", d.reseeds.created)
 	}
 }
 

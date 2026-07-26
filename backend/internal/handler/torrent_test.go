@@ -238,6 +238,15 @@ func buildTorrentFileBytes(name string) []byte {
 }
 
 func setupTorrentRouter() (http.Handler, service.SessionStore) {
+	router, sessions, _ := setupTorrentRouterWithRepo()
+	return router, sessions
+}
+
+// setupTorrentRouterWithRepo also hands back the torrent repo, so a test can put an
+// uploaded torrent into a state the HTTP surface cannot reach on its own. No
+// ModerationService is wired here, so the approve endpoint does not exist and an
+// upload would otherwise stay pending forever.
+func setupTorrentRouterWithRepo() (http.Handler, service.SessionStore, *mockTorrentRepo) {
 	userRepo := newMockUserRepo()
 	torrentRepo := newMockTorrentRepo()
 	store := newMockStorage()
@@ -253,7 +262,20 @@ func setupTorrentRouter() (http.Handler, service.SessionStore) {
 		TorrentService: torrentSvc,
 		UserRepo:       userRepo,
 	})
-	return router, sessions
+	return router, sessions, torrentRepo
+}
+
+// approveTorrent marks an uploaded torrent public. Uploads land pending because the
+// service has no SiteSettingsService to tell it moderation is off, and a pending
+// torrent is invisible to members — including for reseed requests.
+func approveTorrent(t *testing.T, repo *mockTorrentRepo, id int64) *model.Torrent {
+	t.Helper()
+	stored, err := repo.GetByID(context.Background(), id)
+	if err != nil {
+		t.Fatalf("torrent %d not in repo: %v", id, err)
+	}
+	stored.ModerationStatus = model.ModerationApproved
+	return stored
 }
 
 var testUserCounter int64
@@ -927,7 +949,7 @@ func TestHandleDelete_NotFound(t *testing.T) {
 // --- Reseed handler tests ---
 
 func TestHandleRequestReseed_Success(t *testing.T) {
-	router, sessions := setupTorrentRouter()
+	router, sessions, torrentRepo := setupTorrentRouterWithRepo()
 
 	ownerToken := createSessionWithGroup(sessions, 1100, 5)
 	torrentData := buildTorrentFileBytes("reseed-handler-test")
@@ -942,6 +964,7 @@ func TestHandleRequestReseed_Success(t *testing.T) {
 	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
 	torrent := uploadResp["torrent"].(map[string]interface{})
 	id := int64(torrent["id"].(float64))
+	approveTorrent(t, torrentRepo, id)
 
 	// Request reseed
 	requesterToken := createSessionWithGroup(sessions, 1101, 5)
@@ -956,7 +979,7 @@ func TestHandleRequestReseed_Success(t *testing.T) {
 }
 
 func TestHandleRequestReseed_Duplicate(t *testing.T) {
-	router, sessions := setupTorrentRouter()
+	router, sessions, torrentRepo := setupTorrentRouterWithRepo()
 
 	ownerToken := createSessionWithGroup(sessions, 1200, 5)
 	torrentData := buildTorrentFileBytes("reseed-dup-handler-test")
@@ -971,6 +994,7 @@ func TestHandleRequestReseed_Duplicate(t *testing.T) {
 	_ = json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp)
 	torrent := uploadResp["torrent"].(map[string]interface{})
 	id := int64(torrent["id"].(float64))
+	approveTorrent(t, torrentRepo, id)
 
 	requesterToken := createSessionWithGroup(sessions, 1201, 5)
 

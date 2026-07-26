@@ -387,6 +387,8 @@ func handleTorrentError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusForbidden, "forbidden", "you do not have permission to perform this action")
 	case errors.Is(err, service.ErrDuplicateReseedRequest):
 		ErrorResponse(w, http.StatusConflict, "duplicate_reseed_request", err.Error())
+	case errors.Is(err, service.ErrTorrentHasSeeders):
+		ErrorResponse(w, http.StatusConflict, "torrent_has_seeders", err.Error())
 	case errors.Is(err, service.ErrNotPending):
 		ErrorResponse(w, http.StatusConflict, "not_pending", "torrent is not pending moderation")
 	case errors.Is(err, service.ErrEmptyMessage):
