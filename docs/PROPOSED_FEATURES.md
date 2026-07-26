@@ -30,9 +30,10 @@ less — PF-26 is flagged as likely next.
 Three sections matter more than the individual items:
 
 1. **[Decisions this document reopens](#decisions-this-document-reopens)** —
-   three proposals reverse decisions recorded in `NOT_PORTING.md`, and two
-   reverse operator decisions made *in the last two weeks*. Those need explicit
-   sign-off before anything downstream of them is specified.
+   several proposals reverse recorded decisions. **Reputation (PF-3) and teams
+   (PF-2) were approved on 2026-07-26**, which unblocks about a third of this
+   document; three smaller reversals are still open and need sign-off before
+   anything downstream of them is specified.
 2. **[Part C — shared machinery](#part-c--shared-machinery)** — five pieces
    (escrow, torrent edit history, polymorphic reports, file uploads, announce-log
    lifecycle) that multiple items silently assume. Naming them prevents building
@@ -102,24 +103,27 @@ on 2026-07-26 closed most of them:
 ## Decisions this document reopens
 
 Several proposals contradict recorded decisions. That is allowed — decisions are
-revisable — but it must be **explicit**: each of these needs an operator yes/no
-before its dependents are specified, and a matching edit to the source document
-so the two never disagree silently.
+revisable — but it must be **explicit**: each needs an operator yes/no before its
+dependents are specified, and a matching edit to the source document so the two
+never disagree silently.
 
-| Proposal | Contradicts | What was decided, and when |
+**Two are now decided.**
+
+| Proposal | Contradicted | Outcome |
 |---|---|---|
-| **PF-3 Reputation** | `NOT_PORTING.md` §14 | Karma/reputation dropped: "Not widely used in practice. The ratio system already serves as the primary reputation metric." **This is the most consequential conflict** — six items depend on PF-3. |
-| **PF-2 Teams** | `NOT_PORTING.md` §4 | Teams/groups dropped: "Rarely used in modern private trackers. Adds complexity without proportional value." |
-| **PF-22 Collections** | `NOT_PORTING.md` §15 | Bookmarks dropped for MVP but explicitly listed under "May Be Added Later" — the softest of the three. |
-| **PF-25 Public health page** | `BE-9.22 / FE-4.4` (shipped) | Site stats were deliberately moved *behind* auth, citing `NOT_PORTING.md` §9 (no anonymous browsing): "membership/activity numbers aren't leaked to the public on a private tracker." |
-| **PF-16 Subscriptions** | `BE-10.5` (dropped 2026-07-25) | Per-user relay over the announcement pipeline was dropped as "a want nobody had expressed." PF-16 *is* that want, now expressed — new evidence, but the reversal should be conscious. |
+| **PF-3 Reputation** | `NOT_PORTING.md` §14 | ✅ **Approved, 2026-07-26.** Karma was cut to reach a working tracker; the port is now stable, so scope is open again. §14 moved to "Reinstated". Six proposals unblocked. |
+| **PF-2 Teams** | `NOT_PORTING.md` §4 | ✅ **Approved, 2026-07-26.** Same reasoning. §4 moved to "Reinstated". Unblocks PF-6 team rooms and PF-14 team colours. |
+| **PF-22 Collections** | `NOT_PORTING.md` §15 | Open, but soft — bookmarks were dropped for MVP and already sit under "May Be Added Later". Given §4 and §14 went the way they did, this one is a formality. |
+| **PF-25 Public health page** | `BE-9.22 / FE-4.4` (shipped) | **Still open, and the one to be careful with.** Site stats were deliberately moved *behind* auth: membership and activity figures are not put in front of anonymous visitors. Unlike Teams and Karma this was not an MVP scope cut — it is a standing privacy posture. |
+| **PF-16 Subscriptions** | `BE-10.5` (dropped 2026-07-25) | Open. Per-user relay was dropped as "a want nobody had expressed." PF-16 *is* that want, now expressed — new evidence, but the reversal should be conscious. |
 
-Recommendation on the last two: PF-25 has a members-only variant that contradicts
-nothing and is cheap — ship that first and treat "public" as a separate, later
-decision. PF-16 differs from BE-10.5 in a way worth stating in its spec: it
-routes matches into the **notification system** (which exists, with batching and
-digests) rather than a second delivery pipeline, which is precisely the part of
-BE-10.5 that made it not worth building.
+Recommendation on the two that remain: PF-25 has a **members-only** variant that
+contradicts nothing and captures most of the community value — ship that and
+treat "public" as a separate, later decision, because it is a different kind of
+question from the two just approved. PF-16 differs from BE-10.5 in a way worth
+stating in its spec: it routes matches into the **notification system** (which
+exists, with batching and digests) rather than a second delivery pipeline, which
+is precisely the part of BE-10.5 that made it not worth building.
 
 ---
 
@@ -183,8 +187,9 @@ better first consumer, because it needs no file handling at all.
 A team is a group of people who release together. Teams get a public page so users
 can find releases by the group they trust.
 
-**This reverses `NOT_PORTING.md` §4** — see
-[Decisions this document reopens](#decisions-this-document-reopens).
+**Approved 2026-07-26.** This reversed `NOT_PORTING.md` §4, which has moved to
+that document's "Reinstated" section. Teams were an MVP scope cut, not a
+permanent judgement, and the port has reached a stable tracker.
 
 **Mechanics as described:**
 - Team page shows members, release count, and a team leader.
@@ -240,9 +245,12 @@ every layer that decides, with a nothing-wired test.
 Distinct from bonus points: reputation is earned by participating, not by seeding
 economics, and is displayed as a rank badge.
 
-**This reverses `NOT_PORTING.md` §14** — see
-[Decisions this document reopens](#decisions-this-document-reopens). Six items
-hang off this one, so the reversal decision gates a third of this document.
+**Approved 2026-07-26.** This reversed `NOT_PORTING.md` §14, which has moved to
+that document's "Reinstated" section. Six items hang off this one, so it is now
+the natural first build after PF-26 — and the note there is worth carrying: the
+original "ratio is already the reputation metric" rationale does not actually
+conflict with this proposal, because ratio measures seeding economics while this
+measures participation.
 
 **Mechanics as described:**
 - Staff define the tiers in admin: names, point thresholds, optionally rules.
@@ -1136,8 +1144,8 @@ marked ●new.
 
 ```
  DECISIONS (cheap, block everything under them)
- ├─ D1: reopen NOT_PORTING §14 (karma)      → gates PF-3 and its 6 dependents
- ├─ D2: reopen NOT_PORTING §4 (teams)       → gates PF-2, PF-6 rooms, PF-14
+ ├─ D1: reopen NOT_PORTING §14 (karma)      ✅ APPROVED 2026-07-26 — PF-3 unblocked
+ ├─ D2: reopen NOT_PORTING §4 (teams)       ✅ APPROVED 2026-07-26 — PF-2 unblocked
  ├─ D3: multiplier stacking + accrual-time  → gates PF-12, PF-13, PF-19, PF-26 interplay
  ├─ D4: privacy opt-out model               → gates PF-4 lists, PF-18, PF-21
  └─ D5: membership-based access model       → gates PF-2 forum + PF-6 rooms (one design)
@@ -1167,9 +1175,12 @@ marked ●new.
 
 0. **Fix the live reseed gap** (server-side eligibility + honest BE-3.9 status).
    Not a feature — a correctness fix that should not wait for PF-8.
-1. **The decision batch (D1–D5).** One sitting. D1 especially: a third of this
-   document is downstream of "is reputation in or out", and specifying any of it
-   before that answer is rework risk.
+1. **The remaining decision batch (D3, D4, D5).** One sitting. D1 and D2 are
+   **done** — reputation and teams are both in, so the third of this document
+   that was downstream of "is reputation in or out" is now buildable. What is
+   left still wants deciding before its dependents are specified: how multipliers
+   stack (D3), what members can opt out of publishing (D4), and the one
+   membership-based access model shared by team forums and chat rooms (D5).
 2. **PF-26 — freeleech.** Independent of everything above, flagged as likely
    next, and it forces the resolver/scheduler/computed-not-written patterns the
    whole economy layer will reuse. Include the timezone-AC cleanup and the
@@ -1200,9 +1211,10 @@ marked ●new.
 14. **PF-13, PF-12, PF-19 — the economy layer**, specified together under D3 so
     multiplier stacking is decided once. PF-26 has already forced the hard
     patterns by this point.
-15. **PF-2 — teams (D2 permitting) → PF-6 — chat rooms.** The two big
-    authorisation lifts, sharing the D5 membership model. PF-6's hide-shoutbox
-    slice ships early and independently (it is nearly done).
+15. **PF-2 — teams → PF-6 — chat rooms.** Approved, and the two big
+    authorisation lifts. They share the D5 membership model, so settle that once
+    across both rather than twice. PF-6's hide-shoutbox slice ships early and
+    independently of all of it (it is nearly done already).
 16. **PF-21, PF-22, PF-23, PF-25 — community slot-ins.** Each independent;
     PF-23 (appeals) is the highest-empathy item and touches nothing else.
 17. **PF-27 — site CLI.** After PF-28, sequenced against the migration tool's

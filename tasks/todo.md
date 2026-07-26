@@ -76,6 +76,25 @@ Open by decision rather than by neglect: **live feeds are not access-scoped per
 feed.** `can_feed` is one privilege across every feed. Per-feed gating was considered
 and deliberately not built.
 
+## Scope decision, 2026-07-26
+
+**Teams and reputation are back in scope.** Both were cut from `NOT_PORTING.md` for
+the initial release; with the port feature-complete and stable, the operator
+reinstated them. §4 and §14 moved to that file's "Reinstated" section, keeping their
+numbers so `§N` citations elsewhere still resolve.
+
+This unblocks roughly a third of `PROPOSED_FEATURES.md`: PF-3 (reputation ledger) is
+the most depended-upon proposal in the document — PF-4, PF-5, PF-10, PF-12, PF-18 and
+PF-1 all get cheap once it exists — and PF-2 (teams) is what PF-6 team rooms and PF-14
+team colours attach to.
+
+Three decisions still gate their dependents: **D3** multiplier stacking, **D4** the
+privacy opt-out model, **D5** the membership-based access model shared by team forums
+and chat rooms. None of the three is large, but each wants deciding once rather than
+per-feature. PF-25's *public* health page is deliberately still open and is a
+different kind of question — that gating was a standing privacy posture, not an MVP
+scope cut.
+
 ## Known bugs / tech debt
 
 - **The unguarded reseed endpoint**, above. The one genuine correctness issue known.

@@ -2,6 +2,8 @@
 
 The following TorrentTrader 3.0 features will not be ported to the new Go implementation. Each has a rationale explaining why it was dropped.
 
+**Entry numbers are stable.** Other documents cite them as `NOT_PORTING.md §N`, so numbers are never renumbered or reused. **The gaps at §4 and §14 are deliberate** — those entries were reinstated and moved to [Reinstated](#reinstated) at the bottom, which records what they were and why they came back. Everything remaining under "Dropped Features" is genuinely dropped.
+
 ## Dropped Features
 
 ### 1. Blocks/Widget System
@@ -21,14 +23,6 @@ The following TorrentTrader 3.0 features will not be ported to the new Go implem
 **Original**: Server-side language files for multi-language support. The system loaded translation strings from PHP arrays and injected them into templates.
 
 **Why dropped**: Out of scope for initial release. Can be added later with react-i18next if needed. The tracker community is primarily English-speaking.
-
-### 4. Teams/Groups System
-
-**Original**: User-created teams/groups for organizing around content (e.g., release groups, fan communities). Users could join teams, teams had profiles and member lists.
-
-**Why dropped**: Rarely used in modern private trackers. Adds complexity without proportional value. Note: staff roles and permission groups (admin, moderator, etc.) are still fully supported — this only drops user-created social groups.
-
-**Status (2026-07)**: under reconsideration — see `PROPOSED_FEATURES.md` PF-2 (release-group teams), which would also give PF-6 team chat rooms and PF-14 team colours somewhere to hang. This entry stands until that decision is taken.
 
 ### 5. Polls
 
@@ -84,14 +78,6 @@ The following TorrentTrader 3.0 features will not be ported to the new Go implem
 
 **Why dropped**: Irrelevant — we're not using PHP. Docker containers handle runtime dependencies, and Go binaries are self-contained.
 
-### 14. Karma/Reputation System
-
-**Original**: User karma points that could be given by other users as a social reputation indicator, separate from upload/download ratio.
-
-**Why dropped**: Not widely used in practice. The ratio system (upload/download) already serves as the primary reputation metric in private tracker communities.
-
-**Status (2026-07)**: under reconsideration — see `PROPOSED_FEATURES.md` PF-3 (reputation ledger), which six other proposals depend on. This entry stands until that decision is taken.
-
 ### 15. Torrent Bookmarks
 
 **Original**: Users could bookmark torrents for later reference, creating a personal saved list accessible from their profile.
@@ -103,6 +89,34 @@ The following TorrentTrader 3.0 features will not be ported to the new Go implem
 **Original**: A per-user timezone preference (`users.tzoffset`, an offset in hours — see `FULL_FEATURE_DOCUMENTATION.md` §1.2, and "timezone" among the editable account settings in §4.7) plus a site-wide timezone, both applied server-side when rendering dates.
 
 **Why dropped**: Decision 10a in `OPEN_QUESTIONS.md` — **the server is UTC, always.** Every timestamp is stored as `TIMESTAMPTZ` and served in UTC; the browser formats it into the reader's local time, which is a pure rendering concern with no accounting consequence and needs no stored preference. Scheduling stays UTC because it *does* have an accounting consequence: a freeleech window, contest or double-bonus weekend is configured in UTC by the maintainer, since on a global membership there is no correct per-user answer — and a user-controlled timezone would let a member shift their own clock to enter or extend such a window.
+
+## Reinstated
+
+Cut to get the port to a working tracker, put back once it got there. **Operator
+decision, 2026-07-26:** the port is feature-complete against the original spec and
+running stably, so scope that was deferred for the initial release is open again.
+Neither of these is a dropped feature any more, and neither should be cited as one.
+
+The rationale each entry originally carried is kept below, because a decision that
+erases its own reasoning cannot be re-examined later.
+
+### 4. Teams/Groups System
+
+**Original**: User-created teams/groups for organizing around content (e.g., release groups, fan communities). Users could join teams, teams had profiles and member lists.
+
+**Why it was dropped**: "Rarely used in modern private trackers. Adds complexity without proportional value." Staff roles and permission groups were never in question — that rationale only ever covered user-created social groups.
+
+**Why it is back**: specified as `PROPOSED_FEATURES.md` PF-2, and it unblocks PF-6 (team chat rooms) and PF-14 (team colours), which have nothing to attach to without it. One caveat carried over from the proposal: original TorrentTrader's teams were explicitly *"social/organizational, no permission implications"*, whereas PF-2 gives a team its own private forum and scoped moderation powers. That inversion is where the real cost sits, and it is a new authorisation axis — membership-based access, which forum permissions have never had (they compare `level >=` and nothing else). PF-2 and PF-6 should settle that model once, together.
+
+### 14. Karma/Reputation System
+
+**Original**: User karma points that could be given by other users as a social reputation indicator, separate from upload/download ratio.
+
+**Why it was dropped**: "Not widely used in practice. The ratio system (upload/download) already serves as the primary reputation metric."
+
+**Why it is back**: specified as `PROPOSED_FEATURES.md` PF-3, and it is the single most depended-upon proposal — PF-4 (thanks), PF-5 (forum voting), PF-10 (adopt a torrent), PF-12 (bonus multipliers), PF-18 (leaderboards) and PF-1 (designer payment) all become cheap once the ledger exists and are awkward without it.
+
+Worth noting the original rationale does not actually conflict with what PF-3 proposes. Ratio measures *seeding economics*; PF-3 measures *participation* — commenting, uploading, moderating, forum activity — which ratio has never captured. They are complementary metrics, not competing ones. The one thing to get right is how a reputation tier relates to the existing automatic class ladder (BE-8.13 already promotes and demotes on upload/ratio thresholds): two ladders drawn next to the same username need a clear division, and the likely answer is that class governs privileges while reputation stays cosmetic.
 
 ## May Be Added Later
 
