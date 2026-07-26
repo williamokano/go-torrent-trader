@@ -10,10 +10,28 @@
 > See `PROPOSED_FEATURES.md` for ideas raised but **not yet specified** — they
 > move here as stories once their open questions are answered.
 
+## ID Conventions and Known Collisions
+
+Story IDs are **never renumbered** — other docs, PR titles and git history reference
+them. That history has left four duplicate IDs in this file. They are documented
+rather than fixed:
+
+| ID | Occurrence A | Occurrence B |
+|----|--------------|--------------|
+| `BE-10` (epic) | `### Epic BE-10: Protocol Support` (bencode / API-design note) | `#### BE-10: External Notification Connectors` (under Epic FE-5, see the note there) |
+| `BE-10.1` | BEncode Library (under Epic BE-10: Protocol Support) | Connector seam + Chat + Webhook + admin CRUD (under BE-10: External Notification Connectors) |
+| `BE-10.7` | Multiple live feeds, each with its own URL | Shoutbox announcements — deletable, readable, named, and linked |
+| `BE-10.8` | `can_feed` — live feed access as a privilege (DONE) | Audit-log chat message deletions (still **open**, `[BUG]`) |
+
+**Rule for new work: take a fresh epic prefix (`BE-11.x` onward). Never reuse or
+extend `BE-10.x`.** When citing one of the colliding IDs elsewhere, quote its title
+too.
+
 ## Development Standards
 
 ### Test Coverage
-- **Minimum 80% coverage** per package is required. CI gates on this threshold.
+- **80% overall coverage** is the gate — *not* per package. CI computes one total for the backend and fails below `COVERAGE_FLOOR` in `.github/workflows/backend.yml` (currently `80.0`). `cmd/server/`, `internal/testutil/` and `cmd/backfill-mentions/main.go` are excluded from the denominator via `COVERAGE_EXCLUDE`. Check locally with `task backend:coverage`.
+- The floor ratchets **up** as coverage improves — raise it when you raise coverage, and never lower it to turn a red build green.
 - All new code must ship with tests. No exceptions — if it's not tested, it doesn't ship.
 - New PRs must not decrease overall coverage.
 - Backend: `go test -coverprofile=coverage.out ./...` — check with `go tool cover -func=coverage.out`
@@ -30,13 +48,23 @@
 
 ## Phase Overview
 
-| Phase | Focus | Ships |
-|-------|-------|-------|
-| 1 | Foundation | Monorepo scaffolding, dev environment, backend foundation, frontend foundation, migration CLI scaffold |
-| 2 | Core Features | Auth, tracker, torrent management, public frontend pages, data transformers |
-| 3 | Community | Forum, chat, PMs, invites, user pages, real-time features |
-| 4 | Admin & Polish | Admin panel, moderation, migration verification, admin frontend |
-| 5 | Advanced | UDP tracker, additional themes, static pages, polish |
+| Phase | Focus | Ships | State |
+|-------|-------|-------|-------|
+| 1 | Foundation | Monorepo scaffolding, dev environment, backend foundation, frontend foundation, migration CLI scaffold | DONE |
+| 2 | Core Features | Auth, tracker, torrent management, public frontend pages | DONE |
+| 3 | Community | Forum, chat, PMs, invites, user pages, real-time features | DONE |
+| 4 | Admin & Polish | Admin panel, moderation, admin frontend | DONE |
+| 5 | Advanced | Originally "UDP tracker, additional themes, static pages, polish". Static pages shipped; **UDP tracker (BE-2.5) and the theme stories (FE-7.1–7.3) were DEFERRED** to `docs/FUTURE_WORK.md`. What actually landed here instead: notification connectors (the second `BE-10` epic), live feeds, bonus store, moderation queue | DONE, minus the deferrals |
+| — | Migration | Migration tool data transformers + verification + cutover (MT-0.2 → MT-2.3) | **OPEN — 11 stories, the only unfinished epic group** |
+
+**Current state:** the port is feature-complete except for (a) the migration tool
+(MT-0.2, MT-0.3, MT-1.1–MT-1.6, MT-2.1–MT-2.3 — 11 stories, none started) and
+(b) two open `[BUG]` stories: `BE-10.8` *Audit-log chat message deletions* and
+`FE-4.6` *A spoiler inside a link must not split the row*.
+
+**Where new work goes:** new features start life in `docs/PROPOSED_FEATURES.md` and
+move here as stories under a **fresh `BE-11.x` / `FE-8.x` epic prefix** once their
+open questions are answered. See "ID Conventions and Known Collisions" above.
 
 ---
 
@@ -61,7 +89,7 @@
 **So that** I can develop without installing services manually
 
 **Acceptance Criteria:**
-- `docker-compose.yml` with: PostgreSQL 16, Redis 7, MinIO (S3-compatible), Mailhog (SMTP)
+- `docker-compose.yml` with: PostgreSQL 16, Redis 7, MinIO (S3-compatible), Mailhog (SMTP) — shipped with **Mailpit** (`axllent/mailpit`) rather than Mailhog, which is unmaintained
 - Health checks on all services
 - Named volumes for data persistence
 - Port mappings documented in `.env.example`
@@ -103,7 +131,7 @@
 **Acceptance Criteria:**
 - Backend hot reload with `air` (rebuild on Go file changes)
 - Frontend hot reload with Vite HMR
-- `task generate` runs all code generation (OpenAPI client, sqlc, etc.)
+- `task generate` runs all code generation. Since BE-11.1 that is two steps: `generate:openapi` derives `backend/api/openapi.public.yaml` from the **hand-maintained** full spec, then `generate:api-client` regenerates the frontend's TypeScript types from that full spec (`openapi-typescript` + Prettier). (The original wording also listed `sqlc`; no SQL generator was ever adopted — decision 2 settled on raw SQL + pgx with no ORM or codegen layer.)
 - `task dev` starts docker-compose + backend + frontend with hot reload
 - Pre-commit hooks: lint + format check (optional, via lefthook or similar)
 
@@ -175,10 +203,10 @@
 
 **Acceptance Criteria:**
 - Interface per aggregate (UserRepo, TorrentRepo, PeerRepo, ForumRepo, etc.)
-- PostgreSQL implementations using sqlx or pgx
+- PostgreSQL implementations using **pgx** (decision 2 — `jackc/pgx/v5`; sqlx was the alternative and was not adopted)
 - Context-aware (accept `context.Context`)
 - Transaction support (begin/commit/rollback helper)
-- Query builder or raw SQL (no ORM magic)
+- **Raw SQL, no query builder and no ORM** (decision 2). No SQL codegen either — see INFRA-5 on the dropped `sqlc` mention
 
 #### BE-0.6: HTTP Router & Middleware Stack [S] [DONE]
 **As a** developer
@@ -186,14 +214,14 @@
 **So that** all endpoints share consistent auth, logging, and error handling
 
 **Acceptance Criteria:**
-- Router: chi, echo, or gin
+- Router: **chi** (decision 1)
 - Middleware: request logging, panic recovery, CORS, request ID
-- Rate limiter middleware (per-IP, configurable) — **use a library** (e.g., `tollbooth`, `ulule/limiter`), do NOT implement from scratch
+- Rate limiter middleware (per-IP, configurable) using a library (`tollbooth`, `ulule/limiter`) — **NOT SHIPPED**. `internal/middleware/` holds only `activity.go`, `auth.go`, `cors.go`, `logger.go`, and no rate-limiting library was ever adopted. What exists instead is targeted, per-feature limiting: failed-login throttling inside `service/auth.go` (see BE-1.2), per-client WebSocket message limiting (10 msgs / 10s) in `handler/chat_ws.go`, and per-instance `rate_per_min` on notification connectors. A general per-IP gate at the edge remains unbuilt
 - Auth middleware that extracts Bearer token, validates session, sets user in context
 - All endpoints return JSON (except announce/scrape which return bencode)
 - Error response helper: `{ "error": { "code": "...", "message": "..." } }`
 - Health check endpoint (`GET /healthz`)
-- OpenAPI/Swagger spec generation (swag or oapi-codegen)
+- OpenAPI/Swagger spec **generation** (swag or oapi-codegen) — **NOT SHIPPED**. No Go OpenAPI library is in `go.mod`; nothing derives the spec from route definitions. `backend/api/openapi.yaml` is **hand-maintained**, and keeping it in step with the router is a manual, standing obligation (see the "Note on API design" under Epic BE-10: Protocol Support)
 
 #### BE-0.7: Background Job System [S] [DONE]
 **As a** developer
@@ -201,7 +229,7 @@
 **So that** request handlers don't block on slow operations
 
 **Acceptance Criteria:**
-- Job queue backed by Redis or Postgres — **use `asynq` or `river`**, do NOT build a custom queue
+- Job queue backed by Redis — shipped with **`hibiken/asynq`** (`river` was the alternative and was not adopted); no custom queue
 - Jobs: send email, connectivity check, cleanup, stats recalculation
 - Retry with backoff on failure
 - Logging per job execution
@@ -238,20 +266,21 @@
   - Each login creates an independent session (NOT one session per user)
   - Sessions stored in Redis: `session:{token}` -> `{user_id, device_name, ip, created_at, last_active}`
   - Optional `device_name` parameter on login (e.g. "Firefox", "TUI", "Upload Bot")
-  - `GET /api/v1/auth/sessions` - list all active sessions for current user
-  - `DELETE /api/v1/auth/sessions/{id}` - revoke a specific session (remote logout)
-  - `DELETE /api/v1/auth/sessions` - revoke all sessions except current (panic button)
+  - **DEFERRED — the three session-management endpoints below were never registered.** The only protected auth routes are `POST /auth/logout` and `GET /auth/me`. The underlying `SessionStore` already has `DeleteByUserID` / `DeleteByUserIDExcept` (BE-1.2.2), so the store supports this; only the HTTP surface is missing. FE-2.1's "Active sessions list" is deferred for the same reason.
+    - `GET /api/v1/auth/sessions` - list all active sessions for current user — NOT SHIPPED
+    - `DELETE /api/v1/auth/sessions/{id}` - revoke a specific session (remote logout) — NOT SHIPPED
+    - `DELETE /api/v1/auth/sessions` - revoke all sessions except current (panic button) — NOT SHIPPED
 - **Token design**:
   - Access token: opaque, 64-char hex, short-lived (1 hour)
   - Refresh token: opaque, 64-char hex, long-lived (30 days)
   - `POST /api/v1/auth/refresh` -> issue new access token using refresh token
   - Refresh token rotation: old refresh token invalidated on use
-- **API key support** (for automations/bots):
-  - `POST /api/v1/auth/api-keys` - create named API key (no expiry, manually revoked)
-  - API keys are Bearer tokens like access tokens but don't expire
-  - Scoped permissions: read-only, upload, full (user chooses on creation)
-  - `GET /api/v1/auth/api-keys` - list keys (shows name, created, last used, never shows secret)
-  - `DELETE /api/v1/auth/api-keys/{id}` - revoke key
+- **API key support** (for automations/bots) — **DEFERRED, nothing shipped.** No API-key table, service, or endpoint exists; there is no non-expiring Bearer credential and no permission scoping beyond the group RBAC of BE-1.5. Automations must log in and refresh like any other client. Every claim below is unbuilt, and BE-6.1's "access token or API key" WS handshake and FE-2.1's "API keys management" are deferred with it:
+  - `POST /api/v1/auth/api-keys` - create named API key (no expiry, manually revoked) — NOT SHIPPED
+  - API keys are Bearer tokens like access tokens but don't expire — NOT SHIPPED
+  - Scoped permissions: read-only, upload, full (user chooses on creation) — NOT SHIPPED
+  - `GET /api/v1/auth/api-keys` - list keys (shows name, created, last used, never shows secret) — NOT SHIPPED
+  - `DELETE /api/v1/auth/api-keys/{id}` - revoke key — NOT SHIPPED
 - Logout: `POST /api/v1/auth/logout` invalidates current session only
 - Ban check: reject login if user disabled or IP banned
 - Rate limit: max 5 failed attempts per 15 minutes per IP
@@ -327,7 +356,8 @@
 
 **Acceptance Criteria:**
 - View profile: username, join date, ratio, uploaded/downloaded, class, avatar, bio
-- Edit: email (triggers re-confirmation), avatar URL, bio, signature, timezone, language, theme
+- Edit: email (triggers re-confirmation), avatar URL, bio, signature, language, theme
+  - `timezone` was in the original list and is **deliberately not ported** — decision 10a (OPEN_QUESTIONS.md) drops per-user timezones entirely: timestamps are stored UTC and rendered in the browser's local zone, so there is nothing for a user to configure
 - Privacy setting: public / limited / private (controls what others see)
 - Passkey management: view current, regenerate (with grace period for old key)
 - Accept PMs toggle
@@ -568,7 +598,7 @@
 - If deleter != owner: send PM to owner with reason
 - All actions logged
 
-#### BE-3.7: Comments & Ratings [M] [DONE — PR pending merge]
+#### BE-3.7: Comments & Ratings [M] [DONE]
 **As a** user
 **I want** to comment on and rate torrents
 **So that** I can share feedback
@@ -587,22 +617,33 @@
 **So that** moderators can take action
 
 **Acceptance Criteria:**
-- Reportable: torrents, users, comments, forum posts
+- Reportable: **torrents only.** The original criterion read "torrents, users, comments, forum posts"; what shipped is torrent-only — the `reports` table carries a plain `torrent_id` column, not a polymorphic (target_type, target_id) pair, and the FE-2.8 report UI is reachable only from a torrent. Reporting users, comments or forum posts would need a schema change, not just a handler
 - Requires reason
 - One report per user per item (prevent spam)
-- Admin view: list reports, filter by type/status, mark as resolved
+- Admin view: list reports, **filter by status**, mark as resolved. "Filter by type" is moot while torrents are the only reportable type
 - Resolved reports keep history
 
-#### BE-3.9: Reseed Request [S] [DONE]
+#### BE-3.9: Reseed Request [S] [DONE — button + uploader email; rate limit, PM fan-out, eligibility enforcement NOT shipped]
 **As a** user
 **I want** to request a reseed for a dead torrent
 **So that** it becomes downloadable again
 
 **Acceptance Criteria:**
-- Only for local, non-banned torrents with 0 seeders
-- Rate limit: one request per torrent per 24h per user (server-side, NOT cookie)
-- Sends PM to all users who completed the torrent + torrent owner
-- Queued as background job (could be hundreds of PMs)
+- Only for local, non-banned torrents with 0 seeders — **NOT ENFORCED SERVER-SIDE.** `TorrentService.RequestReseed` checks only that the torrent exists and that this user has not already requested it. The "0 seeders" rule lives entirely in the frontend, which renders the button under `seeders === 0` (`TorrentDetailPage.tsx`). See the known gap below
+- Rate limit: one request per torrent per 24h per user (server-side, NOT cookie) — **NOT SHIPPED as specified.** Migration 016 gives `reseed_requests` a `UNIQUE(torrent_id, requester_id)`, so the real rule is *one request per user per torrent, permanently*. There is no time window and no way to ask again once a torrent goes dead a second time
+- Sends PM to all users who completed the torrent + torrent owner — **NOT SHIPPED.** No PM is sent to anyone. `internal/listener/reseed_email.go` sends a single **email to the uploader** and nothing else; snatchers are never contacted
+- Queued as background job (could be hundreds of PMs) — **NOT SHIPPED.** There is no reseed job in `internal/worker/`; the listener runs synchronously off `ReseedRequestedEvent`. Moot while the fan-out is one email
+
+**What actually shipped:** a "Request reseed" button on the torrent detail page → `RequestReseed` → a `reseed_requests` row (deduped by the unique index) → `ReseedRequestedEvent` → one email to the uploader.
+
+> **Known gap (security-adjacent, unfixed):** the endpoint is unguarded beyond
+> authentication and the duplicate check. `RequestReseed` performs **no seeder check,
+> no banned check, and no visibility/moderation check** — so a direct `POST` succeeds
+> against *any* torrent id, including healthy, banned, hidden and still-pending ones,
+> and mails the uploader each time. The frontend's `seeders === 0` condition is the
+> only thing making this look constrained. Any fix belongs with the eligibility rules
+> being specified in `docs/PROPOSED_FEATURES.md` → **PF-8** (which already records that
+> this feature is less built than previously claimed).
 
 #### BE-3.10: RSS Feed [S] [DONE]
 **As a** user
@@ -1069,7 +1110,7 @@ The link carries the item's **page** (computed from its position: forum `topic.P
 
 **Acceptance Criteria:**
 - WebSocket endpoint: `ws:///ws/chat`
-- Authentication: validate Bearer token (access token or API key) on connect handshake
+- Authentication: validate Bearer token on connect handshake — access token only; the "or API key" half is moot, API keys were deferred and never built (see BE-1.2)
 - Send message: broadcast to all connected users
 - Receive message: real-time push (no polling)
 - Message format: `{ id, user: {id, username, role}, message, timestamp }`
@@ -1200,20 +1241,20 @@ The link carries the item's **page** (computed from its position: forum `topic.P
 - [ ] Mod notes (staff-only field)
 - [x] Invalidate sessions when disabling user (tracked as future enhancement)
 
-#### BE-8.3: Torrent & Content Moderation [S] [DONE]
+#### BE-8.3: Torrent & Content Moderation [S] [PARTIAL — reports management shipped; dedicated torrent search/ban/freeleech admin views not built]
 **As an** admin
 **I want** to manage torrents and content
 **So that** I can maintain site quality
 
 **Acceptance Criteria:**
-- [ ] Search torrents by name, info_hash
-- [ ] Ban/unban torrents
-- [ ] Toggle freeleech per torrent
+- [~] Search torrents by name, info_hash — name search shipped (the shared browse search over `ListTorrentsOptions.Search`, which staff use with `IncludeHidden`); **searching by `info_hash` was never implemented** — no filter field and no query path for it exists
+- [x] Ban/unban torrents — via BE-3.6's staff torrent edit: `banned` is an admin-only field on `PUT /api/v1/torrents/{id}` (`TorrentService.EditTorrent` rejects it from non-admins). No separate admin screen
+- [x] Toggle freeleech per torrent — same mechanism as above; `free` (and `silver`) are admin-only fields on the torrent edit form
 - [x] View/manage all reports (filter by status, enriched with reporter/torrent names)
 - [x] Resolve reports
-- [ ] Resolve with action (warn uploader, delete torrent, ban user)
-- [ ] Bulk actions: ban multiple, delete multiple
-- [ ] View all freeleech torrents, all banned torrents
+- [ ] Resolve with action (warn uploader, delete torrent, ban user) — **not built.** `PUT /admin/reports/{id}/resolve` only closes the report; any follow-up action is done by hand on separate screens
+- [ ] Bulk actions: ban multiple, delete multiple — **not built.** Every torrent action is single-target
+- [ ] View all freeleech torrents, all banned torrents — **not built.** `ListTorrentsOptions` has no `free`/`banned` predicate, so there is no way to list either set
 
 #### BE-8.4: News Management [S] [DONE]
 **As an** admin
@@ -1803,10 +1844,102 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 > **Note on API design**: This project is API-first by design. ALL features are JSON REST
 > endpoints under `/api/v1/...`. The only non-JSON endpoints are `/announce` and `/scrape`
-> (bencode) and `/ws/chat` (WebSocket). Every story implicitly exposes its functionality
-> as JSON API endpoints. The OpenAPI spec is auto-generated from route definitions (BE-0.6).
-> This means any client (web SPA, TUI, mobile browser, automation scripts, Upload-Assistant
-> integrations) can consume the full API with Bearer token auth (BE-1.2).
+> (bencode), `/ws/chat` (WebSocket) and `/api/v1/announce-stream/{slug}` (SSE). Every story
+> implicitly exposes its functionality as JSON API endpoints. This means any client (web SPA,
+> TUI, mobile browser, automation scripts, Upload-Assistant integrations) can consume the full
+> API with Bearer token auth (BE-1.2).
+>
+> **The OpenAPI spec is hand-maintained, not generated.** `backend/api/openapi.yaml` is written
+> by hand (BE-0.6's spec-generation criterion was never shipped) and documents 37 of the 189
+> routes registered in `internal/handler/router.go`. Being API-first is therefore a *standing
+> obligation*, not an automatic property: a story that adds or changes a route must update the
+> spec in the same PR, or the documented API silently drifts from the served one. `task generate`
+> only propagates the spec into the frontend's TypeScript types — it cannot discover a route the
+> spec never mentioned. Since BE-11.1 this is enforced by a guard test rather than by discipline.
+
+---
+
+### Epic BE-11: Published API Contract
+
+The API is not just the web UI's private backchannel — members may drive it directly and build
+their own clients. That makes the spec a product surface, which means it needs to be accurate,
+enforced, and split so the administrative half is not published as though it were supported.
+
+#### BE-11.1: Public/full OpenAPI split with a route-coverage guard [M] [DONE]
+**As a** member or third-party integrator
+**I want** a published API document I can build a client against
+**So that** the web UI is a convenience rather than the only way to use the site
+
+**Context:** operator request, 2026-07-26. Two documents were wanted so the admin surface is not
+advertised as a supported contract — the project is open source and those routes are readable in
+the source, but "discoverable in the code" and "published as a contract" are different promises,
+and only the second implies stability.
+
+**Delivered:**
+- **`backend/api/openapi.yaml` is the full spec and the single source of truth.** Every operation
+  carries `x-audience: public | internal`. Retitled so it cannot be mistaken for the published one.
+- **`backend/api/openapi.public.yaml` is generated** by `cmd/openapi-public` from the full spec:
+  internal operations dropped, path items emptied by that removal dropped, component schemas and
+  security schemes pruned transitively when nothing surviving references them, `x-audience` markers
+  stripped, title/description rewritten for an external reader, `DO NOT EDIT` header emitted.
+  Implemented over `yaml.Node` rather than `map[string]any` so key order and comments survive and
+  the output is byte-deterministic — which is what makes the drift test possible.
+- **A path-prefix filter would have been wrong and the tests prove it.** Six forum moderation
+  endpoints (`lock`/`unlock`/`pin`/`unpin`/`move`/`title`) are staff-only but sit on ordinary member
+  paths because authorization happens in the service layer, not the router. `TestServiceLayerStaffRoutesAreInternal`
+  pins them by name, verifies each is still a registered route, and fails if one reaches the public
+  document.
+- **Guard tests** (`internal/handler/openapi_routes_test.go`), walking the real router via the
+  existing `fullRouterDeps` wiring so no route is silently absent: every route is documented or in
+  an explicit debt ledger; no ledger entry is stale or now-documented; every documented operation
+  declares an audience; no documented operation is a phantom; every `/api/v1/admin` route is
+  internal; the checked-in public document equals a fresh generation; the public document is a
+  subset of the full one and carries no authoring markers. Route count is floor-checked so an
+  under-wired router cannot make the suite vacuously pass.
+- **`internal/handler/openapi_undocumented.go`** is the debt ledger — 152 routes undocumented at
+  the split. It may only shrink; adding to it for a new endpoint is prohibited and the stale-entry
+  test keeps it honest.
+- **Endpoints added to the spec** because they are the surface integrators actually need:
+  `/announce` and `/scrape` (bencode), `/api/v1/rss`, both `/api/v1/announce-stream` forms (SSE),
+  and `/healthz` (internal). A `passkeyAuth` security scheme was added for the query-param ones.
+- **Three drift bugs fixed:** the spec documented `GET /api/v1/users/{id}` (real route takes
+  `{username}`) and put two *admin* report operations on member-looking `/api/v1/reports` paths.
+- **Wiring:** `task generate:openapi`, `task generate` runs it before `generate:api-client`, and
+  `cmd/openapi-public/` is excluded from the coverage denominator in both CI and the Taskfile.
+- **Tests:** 24 unit tests for the generator (pruning incl. transitive `$ref`s, key-order and
+  comment preservation, determinism, malformed and multi-document input) plus the 9 guard tests.
+  Backend coverage 82.3% → **82.9%**.
+
+> **Two latent breaks found and fixed on the way, both in `task generate` itself:**
+> `frontend/src/api/schema.d.ts` had been **hand-edited** despite its "Do not make direct changes"
+> header — `category_image_url` and `email_confirmation_required` existed in the backend and in the
+> checked-in types but had never been in the spec, so running the sanctioned generate command
+> deleted them and broke the frontend build. Both are now in the spec, which is where they belong.
+> Separately, the generator's output failed `npm run format:check`, so `generate:api` now pipes
+> through Prettier. Neither was caught because CI never runs `task generate`.
+
+#### BE-11.2: Close the OpenAPI coverage debt [L]
+**As a** third-party integrator
+**I want** the published document to describe the whole member-facing API
+**So that** I can build a complete client without reading Go source
+
+**Context:** BE-11.1 made coverage *measurable and enforced going forward*; it did not make it
+complete. 152 of 189 routes are in the debt ledger. This story is the ledger going to zero.
+
+**Acceptance Criteria:**
+- Document the member-facing surface first (forums, messages, notifications, chat, store, invites,
+  activity logs) — that is what the public document is for.
+- Then the admin surface, marked `x-audience: internal`.
+- Delete each route from `internal/handler/openapi_undocumented.go` as it is documented; the
+  stale-entry guard test enforces that the two stay in step.
+- Response bodies are the hard part: handlers overwhelmingly write `map[string]interface{}`
+  literals rather than named types (~250 across 38 files), so schemas must be written by hand
+  against the actual handler code, not derived. Prefer introducing named response types where a
+  handler is being touched anyway.
+- Sensible to slice by domain, one PR per epic-sized group, rather than as one enormous change.
+
+> **Enables:** PF-27 (site CLI) — a generated CLI needs a spec that describes more than 20% of
+> the API. Also makes the typed frontend client worth adopting more widely (see FE-0.4's gap).
 
 ---
 
@@ -1853,16 +1986,22 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 - Admin route wrapper (redirects if not admin)
 - Loading states and error boundaries per route
 
-#### FE-0.4: API Client Generation [S] [DONE]
+#### FE-0.4: API Client Generation [S] [DONE — generated *types* only; typed client not adopted site-wide, no interceptors]
 **As a** frontend developer
 **I want** a type-safe API client generated from the OpenAPI spec
 **So that** I never hand-write API calls or guess response types
 
 **Acceptance Criteria:**
-- Auto-generate TypeScript API client from backend's OpenAPI spec
-- `task generate:api-client` regenerates on spec changes
-- Axios or fetch-based, with interceptors for auth token injection and refresh
-- All endpoints fully typed (request params, body, response)
+- Auto-generate TypeScript API client from backend's OpenAPI spec — **partially.** `openapi-typescript` generates **types only** into `frontend/src/api/schema.d.ts`; `frontend/src/api/client.ts` is a bare `openapi-fetch` `createClient<paths>({ baseUrl })` over them. No client code is generated
+- `task generate:api-client` regenerates on spec changes — shipped (`npm run generate:api`). Note it regenerates from the **hand-maintained** spec, so it only covers routes someone wrote into `openapi.yaml`
+- Axios or fetch-based, with interceptors for auth token injection and refresh — **NOT SHIPPED.** `client.ts` registers no middleware; every caller attaches its own `Authorization` header, and 401/refresh handling lives in `AuthContext` rather than in the transport
+- All endpoints fully typed (request params, body, response) — **NOT ACHIEVED.** Only ~10 non-test source files import `@/api`; **55 call `fetch()` directly** against `${getConfig().API_URL}` with hand-written types. The premise "I never hand-write API calls" is false today
+
+> **Outstanding gap:** the typed client exists but was never adopted as *the* way to
+> call the backend, and it cannot be until the hand-maintained spec covers the routes
+> those 55 files use (see the API-design note under Epic BE-10: Protocol Support).
+> Widening spec coverage and migrating raw `fetch` call sites are the two halves of
+> closing this; neither is scheduled.
 
 #### FE-0.5: Auth State Management [M] [DONE]
 **As a** user
@@ -2024,11 +2163,12 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 **Acceptance Criteria:**
 - Profile edit: avatar upload, bio, signature (Markdown editor)
-- Settings: theme, timezone, privacy level, notification preferences
+- Settings: theme, privacy level, notification preferences
+  - `timezone` was in the original list and is **deliberately not ported** (decision 10a) — timestamps are UTC and rendered in the browser's local zone, so there is no setting to expose. Same annotation as BE-1.4
 - Password change (requires current password)
 - Email change (triggers re-verification)
-- Active sessions list with revoke button
-- API keys management (create, list, revoke)
+- Active sessions list with revoke button — **DEFERRED, not built.** Depends on `GET`/`DELETE /api/v1/auth/sessions`, which BE-1.2 never registered
+- API keys management (create, list, revoke) — **DEFERRED, not built.** There is no API-key backend at all (see BE-1.2)
 
 #### FE-2.2: User Profile Page [M] [DONE — group name, seeding/leeching counts, recent uploads, invited-by link]
 **As a** user
@@ -2248,7 +2388,17 @@ run its own dump — wasteful but safe, since every dump writes to a uniquely na
 
 ---
 
-### Epic FE-5: Admin Panel [L] [DONE — all FE-5.x child stories complete]
+### Epic FE-5: Admin Panel [L] [DONE — all FE-5.x child stories complete; **the marker covers FE-5.x only**]
+
+> **Heading-depth caveat — read before trusting the marker above.** `BE-10: External
+> Notification Connectors` was added later at story depth (`####`) instead of epic depth
+> (`###`), so everything from that heading to the end of this section is *nested* under
+> Epic FE-5 in the document outline while having nothing to do with the admin panel.
+> The `[DONE]` marker means **all FE-5.x stories are complete** — it says nothing about
+> the non-FE-5 stories that follow, two of which are still **open**: `BE-10.8` *Audit-log
+> chat message deletions* `[BUG]` and `FE-4.6` *A spoiler inside a link must not split the
+> row* `[BUG]`. The nesting is left as-is deliberately: re-homing ~500 lines would churn
+> the file for no gain and risks breaking anchors. Judge each story by its own marker.
 
 #### FE-5.0: Admin Panel Foundation [S] [DONE]
 **As an** admin
@@ -2592,6 +2742,12 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 
 ##### BE-8.22d: Notify the uploader on approve/reject [DONE]
 - Approve/reject were silent — the uploader had no signal their submission went live or got bounced. Both now publish a `TorrentModeratedEvent`; a listener creates a `moderation_decision` notification for the uploader ("Your torrent X was approved/rejected", links to the torrent). The actor is skipped by `NotificationService.Create`, so an Uploader self-approving their own upload isn't pinged. New `model.NotifModerationDecision` added to `AllNotificationTypes`; frontend `notificationDisplay` + preferences label wired. Tests: service (approve/reject publish), listener (uploader notified; self-approver skipped), frontend (message + link, approved/rejected).
+
+> **End of Epic FE-5.** Everything below this line is a separate epic that sits at the
+> wrong heading depth (`####` instead of `###`) and is therefore nested under FE-5 in the
+> outline. Epic FE-5's `[DONE]` marker does not apply to any of it. Note also that this
+> `BE-10` is **not** the same epic as `Epic BE-10: Protocol Support` (bencode) — see
+> "ID Conventions and Known Collisions" at the top of this file.
 
 #### BE-10: External Notification Connectors [L] [DONE — design in `docs/NOTIFICATION_CONNECTORS.md`, plan in `docs/plans/BE-10.md`]
 **As a** tracker operator
@@ -2957,7 +3113,8 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 - Migrates `users` table to new split structure:
   - `users` (auth): id, username, email, password_hash, password_scheme, is_enabled, is_confirmed
   - `user_profiles` (display): avatar, bio, signature, title, country, gender, age
-  - `user_settings` (prefs): theme, language, timezone, privacy, accept_pms, notifications
+  - `user_settings` (prefs): theme, language, privacy, accept_pms, notifications
+    - The original schema's per-user timezone (`users.tzoffset`) is **intentionally dropped on import**, not mapped — decision 10a ports no per-user timezone at all (UTC storage, browser-local rendering), so there is no target column to write it to. Record it as a skipped source field in the mapping rather than failing the row
   - `user_stats` (tracker): uploaded, downloaded (preserved exactly)
 - Password migration:
   - Copy old hash as-is
@@ -3119,6 +3276,9 @@ Ships in three staged PRs (a/b/c), each backend+frontend complete.
 
 ## Dependency Graph
 
+> Historical: this is the graph the port was planned against. Every edge below except
+> the `MT-*` chain has already been walked — see the Phase Overview for current state.
+
 ```
 INFRA-1 ──┬── BE-0 ──┬── BE-1 ──┬── BE-4
            │          │          ├── BE-7
@@ -3128,14 +3288,17 @@ INFRA-1 ──┬── BE-0 ──┬── BE-1 ──┬── BE-4
            │          ├── BE-5 ──┬── BE-6
            │          │          └── FE-3 (needs forum API)
            │          ├── BE-8 ──── FE-5 (needs admin API)
-           │          └── BE-10 (independent, needed by BE-2)
+           │          └── Epic BE-10 "Protocol Support" (bencode) — needed by BE-2
+           │             NOTE: this is the bencode BE-10, NOT the later
+           │             "BE-10: External Notification Connectors" epic, which
+           │             depends on BE-3/BE-6/BE-8 and gates nothing.
            │
            ├── FE-0 ──┬── FE-1 (needs FE-0 components)
            │          ├── FE-4 (needs FE-0 + WebSocket)
            │          ├── FE-6 (independent static pages)
-           │          └── FE-7 (extends FE-0.2 theme system)
+           │          └── FE-7 (extends FE-0.2 theme system) — DEFERRED, see FUTURE_WORK.md
            │
-           └── MT-0 ──── MT-1 ──── MT-2
+           └── MT-0 ──── MT-1 ──── MT-2      ← the only chain still unwalked
 
 BE-5.6 (notification infra) ── BE-5.7, BE-5.8, BE-5.9, BE-6.1, BE-7.3
 BE-9 runs independently after BE-0
@@ -3145,11 +3308,33 @@ BE-9 runs independently after BE-0
 
 ## Suggested Implementation Order
 
+> **Historical plan, kept for the record — phases 1–4 are complete and phase 5 is
+> complete minus its deferrals.** This list was written up front and was never extended
+> as work continued, so it stops short of a large amount of shipped work: BE-8.8+,
+> BE-9.3+, the whole `BE-10: External Notification Connectors` epic (connectors, IRC,
+> live feeds, `can_feed`), and every FE-5.10+ story. Read it as the original sequencing
+> rationale, not as a to-do list. For what is actually left, see the Phase Overview near
+> the top of this file; the short version is below.
+
+```
+Remaining work (as of this pass)
+  MT-0.2, MT-0.3                  Source + target DB connectors
+  MT-1.1 through MT-1.6           All data transformers
+  MT-2.1, MT-2.2, MT-2.3          Verification, resumability, cutover
+  BE-10.8 [BUG]                   Audit-log chat message deletions
+                                  (the OPEN BE-10.8 — see ID collisions)
+  FE-4.6 [BUG]                    Spoiler inside a link splits the row
+
+  New features enter via docs/PROPOSED_FEATURES.md and land here under a fresh
+  BE-11.x / FE-8.x prefix. Never reuse or extend BE-10.x.
+```
+
 ```
 Phase 1 — Foundation
   INFRA-1, INFRA-2, INFRA-3       Monorepo, Docker Compose, Dockerfiles
   BE-0.1 through BE-0.7           Backend foundation
-  BE-10.1                         BEncode library
+  BE-10.1                         BEncode library (the Protocol Support BE-10.1,
+                                  not the connector-seam story of the same ID)
   FE-0.1 through FE-0.4           Frontend foundation (setup, themes, routing, API client)
   MT-0.1                          Migration CLI scaffold
 
@@ -3190,7 +3375,8 @@ Phase 3 — Feature Parity + Community
 
 Phase 4 — Admin & Migration
   BE-1.6, BE-1.7, BE-1.8         IP bans, warnings, staff page
-  BE-2.5, BE-2.7                 UDP tracker, cheating detection
+  BE-2.7                         Cheating detection
+                                 (BE-2.5 UDP tracker: DEFERRED → FUTURE_WORK.md)
   BE-6.3                         Chat history
   BE-7.2                         PM drafts/templates
   BE-8.1 through BE-8.7          Full admin panel
@@ -3203,8 +3389,17 @@ Phase 4 — Admin & Migration
 
 Phase 5 — Polish
   BE-3.9, BE-3.10, BE-3.11       Reseed, RSS, categories management
+                                 (BE-3.9 shipped only partially — see its story)
   FE-6.1, FE-6.2, FE-6.3        Static pages (FAQ, rules, reference)
   FE-7.1, FE-7.2, FE-7.3        Theme management + additional theme
+                                 DEFERRED → FUTURE_WORK.md; never built
 
   Milestone: Fully polished. All features complete.
+
+Not in this list, but shipped after it was written — see the stories themselves:
+  BE-8.8+, BE-8.12, BE-8.14, BE-8.22a–d   Later admin panel + moderation queue
+  BE-9.3+, BE-9.24                        Stats, staff-only activity log
+  BE-10 (External Notification Connectors) Connector seam, IRC, SSE live feeds,
+    incl. BE-10.1–10.4, 10.6, 10.7, 10.8   Discord/Telegram, can_feed
+  FE-5.10+, FE-5.14                        Later admin pages, bonus store
 ```

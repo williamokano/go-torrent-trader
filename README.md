@@ -129,7 +129,6 @@ Required environment variables (no defaults):
 | Variable | Description |
 |---|---|
 | `POSTGRES_PASSWORD` | Database password |
-| `JWT_SECRET` | Secret for token signing |
 | `MINIO_ROOT_PASSWORD` | MinIO admin password |
 | `S3_SECRET_KEY` | S3 storage secret (same as MinIO password) |
 

@@ -28,6 +28,8 @@ The following TorrentTrader 3.0 features will not be ported to the new Go implem
 
 **Why dropped**: Rarely used in modern private trackers. Adds complexity without proportional value. Note: staff roles and permission groups (admin, moderator, etc.) are still fully supported — this only drops user-created social groups.
 
+**Status (2026-07)**: under reconsideration — see `PROPOSED_FEATURES.md` PF-2 (release-group teams), which would also give PF-6 team chat rooms and PF-14 team colours somewhere to hang. This entry stands until that decision is taken.
+
 ### 5. Polls
 
 **Original**: Forum poll creation and voting. Admins or users could attach polls to forum topics with multiple-choice options.
@@ -56,7 +58,7 @@ The following TorrentTrader 3.0 features will not be ported to the new Go implem
 
 **Original**: Tracking anonymous/non-logged-in visitors — recording page views, IP addresses, and browsing patterns for guests.
 
-**Why dropped**: Not useful for a private tracker where registration is required to access content. Adds unnecessary database writes with no practical benefit.
+**Why dropped**: Adds unnecessary database writes with no practical benefit — and on this site there is barely a guest to track. The principle behind that, which is what other documents cite this entry for, is broader than analytics: **registration is required to access content, and site membership and activity figures are not put in front of anonymous visitors.** Browse, search, torrent detail, downloads, forums, chat and the member list are all behind auth, and the footer's peer/torrent/user counts were deliberately moved behind it too (BE-9.22 / FE-4.4). The public surface is deliberately short — login and registration, invite-token validation, the category list, published news, and the passkey-authenticated RSS feed. Proposals that would widen it (anonymous browsing, a publicly readable stats or health page) are out of scope for this reason, not merely because guest page-view logging is uninteresting.
 
 ### 10. Torrent Batch Import
 
@@ -88,18 +90,26 @@ The following TorrentTrader 3.0 features will not be ported to the new Go implem
 
 **Why dropped**: Not widely used in practice. The ratio system (upload/download) already serves as the primary reputation metric in private tracker communities.
 
+**Status (2026-07)**: under reconsideration — see `PROPOSED_FEATURES.md` PF-3 (reputation ledger), which six other proposals depend on. This entry stands until that decision is taken.
+
 ### 15. Torrent Bookmarks
 
 **Original**: Users could bookmark torrents for later reference, creating a personal saved list accessible from their profile.
 
 **Why dropped**: Not core functionality for MVP. Can be reconsidered as a future enhancement.
 
+### 16. Per-User and Site Timezone Settings
+
+**Original**: A per-user timezone preference (`users.tzoffset`, an offset in hours — see `FULL_FEATURE_DOCUMENTATION.md` §1.2, and "timezone" among the editable account settings in §4.7) plus a site-wide timezone, both applied server-side when rendering dates.
+
+**Why dropped**: Decision 10a in `OPEN_QUESTIONS.md` — **the server is UTC, always.** Every timestamp is stored as `TIMESTAMPTZ` and served in UTC; the browser formats it into the reader's local time, which is a pure rendering concern with no accounting consequence and needs no stored preference. Scheduling stays UTC because it *does* have an accounting consequence: a freeleech window, contest or double-bonus weekend is configured in UTC by the maintainer, since on a global membership there is no correct per-user answer — and a user-controlled timezone would let a member shift their own clock to enter or extend such a window.
+
 ## May Be Added Later
 
 Some of these features could be revisited in future phases if there is community demand:
 
-- **Internationalization (i18n)** — Most likely candidate for future addition via react-i18next.
-- **Polls** — Straightforward to add to the forum system later.
-- **Torrent Bookmarks** — Simple feature that could enhance user experience post-MVP.
+- **Internationalization (i18n)** — Most likely candidate for future addition via react-i18next. No proposal written.
+- **Polls** — Straightforward to add to the forum system later. Still unclaimed: nothing in `PROPOSED_FEATURES.md` covers it, and `TRACKER_MODS.md` lists it as buildable work.
+- **Torrent Bookmarks** — Now has a proposal: `PROPOSED_FEATURES.md` PF-22 (Collections) treats a private bookmark list as a personal collection and would close this entry when it ships.
 
 These would be evaluated based on user feedback after the initial release.

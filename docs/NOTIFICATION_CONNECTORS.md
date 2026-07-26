@@ -1,10 +1,14 @@
 # External Notification Connectors — Design
 
-**Status:** implemented, phases 1–4. BE-10.1 — the connector seam, Chat and
+**Status:** implemented. Phases 1–4: BE-10.1 — the connector seam, Chat and
 Webhook connectors, the delivery pipeline and admin CRUD; BE-10.2 — IRC, the
 persistent-connector lifecycle and advisory-lock leader election; BE-10.3 — the
-authenticated SSE live feed; BE-10.4 — Discord and Telegram. Phase 5 (per-user
-relay) remains future work.
+authenticated SSE live feed; BE-10.4 — Discord and Telegram. Since then:
+**BE-10.6** — connector admin usability (nested category pickers, exclude
+filters, several independent chat instances, per-kind template help); **BE-10.7**
+— several live feeds, each with its own slug and URL; **BE-10.8** — `can_feed`,
+live feed access as a class privilege revocable per member. Phase 5, the per-user
+relay, was **dropped** by operator decision (§9) — it is not outstanding work.
 
 Phase 4 is the evidence the seam works: two packages, two registration lines and
 one helper promoted into the shared package, with no change to the dispatcher,
@@ -21,7 +25,7 @@ Where this document and the plan differ, the plan's §1 records the decision.
 **Relates to:** `docs/EXTENSIBILITY.md` (reaction-side plugins), `docs/TRACKER_MODS.md`
 ("IRC / Discord announce bot"), `docs/FUTURE_WORK.md` (Real-Time Stats Push / SSE).
 
-Two things the implementation settled that this document left open:
+Three things the implementation settled that this document left open:
 
 - **Delivery is at-least-once.** The `(instance_id, event_key)` unique index
   gives exactly one delivery *row* per event per instance, and a per-row lease
@@ -290,6 +294,13 @@ Table `notification_connectors`:
   filtered to staff-only categories is still visible to anyone holding
   `can_feed`; filters are not the place to express that.
 
+  **`can_feed` is site-wide, not per-feed — deliberately.** Per-feed access
+  scoping was asked for in the BE-10.7 review and **considered and not built**
+  (operator decision, 2026-07-25; recorded in `tasks/todo.md`): a per-feed
+  dimension would be a second permission model to maintain, for a need nobody
+  had stated. If a truly restricted stream is ever wanted, that is a new decision
+  to take, not a filter to configure.
+
   Revoking `can_feed` closes the member's open streams, because the gate runs at
   connect and a stream held open would otherwise outlive the privilege. Editing a
   class's `can_feed` disconnects every watcher rather than just that class's, for
@@ -357,8 +368,8 @@ config — so it doesn't force this either way.)
 - **Never return secrets in API responses** — write-only fields; show "•••• set".
 - **Never log** config; redact secrets in the delivery log and errors.
 
-**Then pick a storage posture for your threat model** (this is an open question,
-§12 — your call):
+**Then pick a storage posture for your threat model** (decided below and recorded
+in §12):
 1. **Plaintext in DB** + the baseline above. Simplest; fine when DB and app share a
    trust boundary and backups are protected.
 2. **Encrypt secret fields at rest** with an app key from env (envelope-encrypt the
@@ -411,8 +422,9 @@ package (it already runs digests, cleanup, bonus, backups).
    joins channels, announces one line per publish, routes by category, reconnects
    with backoff. Use a maintained library (per "prefer libraries" convention),
    e.g. `github.com/lrstanley/girc` or `github.com/ergochat/irc-go`.
-4. **SSE live feed (internal, authenticated).** `GET /api/v1/announce-stream`
-   (SSE) — members enroll and receive published torrents in real time. Reuses the
+4. **SSE live feed (internal, authenticated).** `GET /api/v1/announce-stream/{slug}`
+   (SSE; the unslugged path predates multiple feeds and resolves to the default
+   one) — members enroll and receive published torrents in real time. Reuses the
    WS-hub fan-out pattern (like `ChatHub`); SSE is preferred over WebSocket for a
    one-directional broadcast (per `docs/FUTURE_WORK.md`). This is the seam
    several named feeds are built on: same `Announcement`, one client set per
@@ -462,37 +474,68 @@ having anyway so later event kinds (forum posts, news) can widen it.
 ## 11. Phased backlog
 
 Sequenced so the pattern earns each step (per `docs/EXTENSIBILITY.md`), not a
-framework up front:
+framework up front. **Everything below has shipped or been dropped; nothing here
+is outstanding.**
 
-- **Phase 1 — the seam + first two connectors.**
+- **Phase 1 — the seam + first two connectors. [DONE — BE-10.1]**
   `TorrentPublished` event (emitted from approve + auto-approve upload); the
   `Announcement` payload; the `Connector` interface + compile-time registry; the
   `notification_connectors` table + admin CRUD; the async delivery pipeline
-  (isolation/retry/timeout/log). Ship **Chat** (reuses existing infra) and
-  **Generic Webhook** (HMAC + SSRF) as the first two instances. FE: admin
+  (isolation/retry/timeout/log). **Chat** (reuses existing infra) and
+  **Generic Webhook** (HMAC + SSRF) shipped as the first two instances. FE: admin
   Connectors page + test-send.
-- **Phase 2 — IRC.** The `PersistentConnector` shape + `ConnectorManager`
-  lifecycle; per-instance channels, category routing, reconnect, rate-limit. FE:
-  IRC config form + connection status.
-- **Phase 3 — SSE live feed.** Authenticated `GET /api/v1/announce-stream`; hub
-  fan-out; graceful reconnect/fallback. FE: an opt-in "live releases" view.
-- **Phase 4 — Discord + Telegram.** Both are thin specializations of the webhook /
-  bot-POST path once Phase 1 exists.
-- **Phase 5 — per-user relay: dropped** (§9). The multi-feed live stream covers it.
+- **Phase 2 — IRC. [DONE — BE-10.2]** The `PersistentConnector` shape +
+  `ConnectorManager` lifecycle; per-instance channels, category routing,
+  reconnect, rate-limit, and advisory-lock leader election (§4d). FE: IRC config
+  form + connection status.
+- **Phase 3 — SSE live feed. [DONE — BE-10.3]** Authenticated SSE endpoint; hub
+  fan-out; graceful reconnect. FE: an opt-in "live releases" view.
+- **Phase 4 — Discord + Telegram. [DONE — BE-10.4]** Both are thin
+  specializations of the webhook / bot-POST path, and shipped as two packages and
+  two registration lines with no change to the dispatcher, repositories, handlers
+  or schema.
+- **Phase 5 — per-user relay: DROPPED** (§9). The multi-feed live stream covers it.
 
-## 12. Open questions
+Follow-ups since, all **[DONE]**, none of them phases:
 
-- **Secret storage — DECIDED:** plaintext in the DB for now, with the baseline
-  redaction (never logged/returned) and secret fields *marked* so encryption or
-  references can be added later without a feature-wide migration (§5.3).
-- **Deployment topology / leader election** — single-process is the zero-config
-  default (no election). Multi-node needs a single-owner lease per persistent
-  connector (§4d): Postgres advisory lock vs Redis lease — pick when/if we run more
-  than one replica. (Leaning: Postgres advisory lock — crash-safe, no TTL tuning.)
-- **Batching semantics** — per-instance rate cap with coalescing ("+N more"), or
-  hard drop past the cap? (Leaning: coalesce.)
-- **Delivery store retention** — how long to keep `connector_deliveries`; prune via
-  the maintenance worker (mirror `announce_log_retention_days`).
-- **Multi-event scope** — do we widen beyond `torrent.published` in Phase 1
-  (forum/news), or keep the payload generic and add event kinds later? (Leaning:
-  generic payload now, more event kinds later.)
+- **BE-10.6 — connector admin usability.** Nested category pickers, `exclude`
+  filter mode (§5.2), several independent chat instances (§5), and per-kind
+  template field help.
+- **BE-10.7 — several live feeds.** SSE stopped being a singleton: feeds are told
+  apart by slug, each with its own filters and URL, and a watcher subscribes to
+  exactly one (§5.1).
+- **BE-10.8 — `can_feed`.** Feed access as a class privilege, revocable per
+  member, enforced at connect and closing open streams on revocation (§5.1).
+
+## 12. Resolved decisions
+
+Every question this section opened has been decided and, where it needed code,
+built. Kept as a record of what was chosen and why.
+
+- **Secret storage — plaintext in the DB**, with the baseline redaction (never
+  logged, never returned by the API) and secret fields *marked* so encryption or
+  references can be added later without a feature-wide migration (§5.3). The
+  operator runs DB and app inside one trust boundary.
+- **Deployment topology / leader election — Postgres advisory lock**, as the
+  leaning predicted, shipped with BE-10.2. Single-process stays the zero-config
+  default; a multi-node deployment elects one owner per persistent instance with
+  a 10s ownership re-check that stops the IRC client the moment ownership cannot
+  be proven. Crash-safe, no TTL to tune. The guarantees and the bounded
+  split-brain window it does *not* close are spelled out in §4d.
+- **Batching semantics — coalesce, but per-kind, not globally.** The connector's
+  `Coalescable()` decides: destinations a person reads (chat, IRC, Discord,
+  Telegram, SSE) replace a rate-limited backlog with "+N more"; destinations a
+  program reads (webhook) never do, because a summary names nothing a receiver
+  can act on — they spend the whole rate budget on individual deliveries and
+  defer the rest to the next window.
+- **Delivery store retention — `connector_delivery_retention_days`** (seeded at
+  30 by migration 073, non-positive disables pruning), swept by the existing
+  maintenance-worker pass. It mirrors `announce_log_retention_days` in shape —
+  though not yet in fate: that one is still advisory with no job behind it (see
+  `docs/FUTURE_WORK.md`).
+- **Multi-event scope — generic payload now, more event kinds later**, as the
+  leaning predicted. `Announcement.Event` stays a plain string rather than a
+  closed enum, so `forum.post` or `news.published` can widen it without a
+  redesign; only `torrent.published` is emitted today. This also happens to be
+  the only thing the dropped per-user relay (§9) ever asked the design for, and
+  it is worth having on its own merits.

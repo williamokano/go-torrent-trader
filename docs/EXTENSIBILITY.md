@@ -1,11 +1,18 @@
 # Extensibility Direction — Events & Plugins
 
-**Status: exploratory. Nothing here is committed or scheduled.** This captures a
-maintainer discussion about how to add mod-style features (ratio multipliers,
-bonus-shop boosts, and beyond) *without* editing core files every time — so the
-reasoning is durable when the decision is actually faced. See
-[`TRACKER_MODS.md`](./TRACKER_MODS.md) for the catalogue of features this is
-about.
+**Status: partly settled.** This captures a maintainer discussion about how to
+add mod-style features (ratio multipliers, bonus-shop boosts, and beyond)
+*without* editing core files every time — so the reasoning is durable when the
+decision is actually faced. See [`TRACKER_MODS.md`](./TRACKER_MODS.md) for the
+catalogue of features this is about.
+
+**Step 2 of the recommended sequencing has since happened**: the reaction side
+was proved pluggable by the BE-10 connector epic
+([`NOTIFICATION_CONNECTORS.md`](./NOTIFICATION_CONNECTORS.md)) — announce bots
+for chat, IRC, Discord, Telegram, webhooks and an SSE feed, all downstream of a
+single `TorrentPublished` event, with no change to the announce path. The
+**decision side is still exploratory and uncommitted**: neither the stats
+resolver (Direction 1) nor any plugin interface (Direction 2) has been built.
 
 ## The problem it solves
 
@@ -13,9 +20,13 @@ In TorrentTrader there was no extension mechanism, so every mod edited the hot
 paths (`announce.php`, `takeupload.php`) directly. This rewrite already splits
 schema / logic / presentation, but one drift risk remains: **every
 ratio-affecting feature wants a branch in the announce path.** Per-torrent
-freeleech and silver are there now (`countedDownload` in
-`internal/service/tracker.go`). Next come global/scheduled freeleech, freeleech
-tokens, a bought 24h double-upload, per-group multipliers, seedbox multipliers —
+freeleech and silver are the only ones there today (`countedDownload` in
+`internal/service/tracker.go`) — and the queue behind them has grown since:
+scheduled and rule-based freeleech is a written proposal
+(`PROPOSED_FEATURES.md` PF-26, flagged as likely next), and the bonus economy
+that shipped in BE-8.14 already sells `freeleech_ticket` and `double_upload`
+store items which are **seeded disabled precisely because their announce-time
+effects do not exist yet**. Add per-group multipliers and seedbox multipliers,
 and naively each is another `if` in the announce. The announce is the most
 critical, most-tested path in the system; growing a branch per policy there is
 exactly the drift we want to avoid.
@@ -125,9 +136,14 @@ Do **not** build a framework first. Let the pattern earn each step:
 1. **Extract the stats resolver** (Direction 1) — synchronous, pure, one
    function. This alone solves the immediate freeleech/multiplier drift and is a
    small, safe refactor.
-2. **Prove the reaction side is already pluggable** by building IRC/Discord
-   announce and/or achievements as pure event listeners. If that feels clean, the
-   reaction-side plugin story needs no new machinery.
+2. ~~**Prove the reaction side is already pluggable** by building IRC/Discord
+   announce and/or achievements as pure event listeners.~~ **DONE** — the BE-10
+   connector epic ([`NOTIFICATION_CONNECTORS.md`](./NOTIFICATION_CONNECTORS.md)).
+   It came out clean: six connector kinds behind one interface, a compile-time
+   registry, and adding the fifth and sixth (Discord, Telegram) meant two
+   packages and two registration lines with no change to the dispatcher, the
+   repositories, the handlers or the schema. **The reaction-side plugin story
+   needs no new machinery** — that is now evidence, not a prediction.
 3. **Introduce exactly one decision-side interface** where the pain is real —
    promote the stats resolver from step 1 to a `StatsResolver` interface with a
    registry — and live with it for a while.
@@ -136,3 +152,12 @@ Do **not** build a framework first. Let the pattern earn each step:
 
 The whole point is that steps 1 and 2 deliver most of the value with almost none
 of the risk, and each later step is optional.
+
+**Where that leaves steps 3–4.** They can now be re-evaluated against real
+evidence rather than a guess. Two things BE-10 actually demonstrated are worth
+carrying forward: the isolation rules (recover-and-isolate, dead-letter a
+permanently-broken destination) survived contact with production shapes, and a
+compile-time registry was enough — nothing wanted hot-loading. What BE-10 did
+**not** test is the hard part, since every connector only reacts: no plugin has
+yet been allowed to change a flow. So step 3's premise stands untouched, and
+step 1 is still the prerequisite for it.

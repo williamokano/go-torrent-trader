@@ -5,7 +5,7 @@
 # configured in Portainer's stack environment variables or via stack.env.
 #
 # Required variables (no defaults — you MUST set these):
-#   POSTGRES_PASSWORD, JWT_SECRET, MINIO_ROOT_PASSWORD, S3_SECRET_KEY
+#   POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, S3_SECRET_KEY
 #
 # See stack.env.example for all available variables with documentation.
 #
@@ -36,9 +36,6 @@ services:
       SESSION_STORE: "${SESSION_STORE:-redis}"
       ACCESS_TOKEN_TTL: "${ACCESS_TOKEN_TTL:-1h}"
       REFRESH_TOKEN_TTL: "${REFRESH_TOKEN_TTL:-720h}"
-
-      # JWT
-      JWT_SECRET: "${JWT_SECRET}"
 
       # Storage (S3/MinIO — uses the same credentials as the minio service)
       STORAGE_TYPE: "${STORAGE_TYPE:-s3}"
