@@ -8,24 +8,25 @@ vars:
   BACKEND_DIR: backend
   FRONTEND_DIR: frontend
   MIGRATION_TOOL_DIR: migration-tool
+  CLI_DIR: cli
 
 tasks:
   default:
     desc: Build all projects
-    deps: [backend:build, frontend:build, migration-tool:build]
+    deps: [backend:build, frontend:build, migration-tool:build, cli:build]
 
   # Top-level aggregate tasks
   build:
     desc: Build all projects
-    deps: [backend:build, frontend:build, migration-tool:build]
+    deps: [backend:build, frontend:build, migration-tool:build, cli:build]
 
   test:
     desc: Run all tests
-    deps: [backend:test, frontend:test, migration-tool:test]
+    deps: [backend:test, frontend:test, migration-tool:test, cli:test]
 
   lint:
     desc: Lint all projects
-    deps: [backend:lint, frontend:lint]
+    deps: [backend:lint, frontend:lint, cli:lint]
 
   dev:
     desc: Start full development environment
@@ -214,3 +215,51 @@ tasks:
     dir: '{{.MIGRATION_TOOL_DIR}}'
     cmds:
       - go run ./cmd/migrate
+
+  # Site CLI tasks
+  cli:build:
+    desc: Build the site CLI
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - go build -o tt ./cmd/tt
+
+  cli:test:
+    desc: Run site CLI tests
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - go test ./...
+
+  cli:lint:
+    desc: Lint site CLI code
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - go vet ./...
+      - golangci-lint run
+
+  cli:coverage:
+    desc: Check site CLI coverage against the CI floor
+    dir: '{{.CLI_DIR}}'
+    vars:
+      # Keep these in sync with .github/workflows/cli.yml
+      COVERAGE_FLOOR: '80.0'
+      COVERAGE_EXCLUDE: '/cli/cmd/tt/'
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - grep -Ev '{{.COVERAGE_EXCLUDE}}' coverage.out > coverage.filtered.out
+      - |
+        total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {print $NF}' | tr -d '%')
+        echo "coverage: ${total}% (CI floor {{.COVERAGE_FLOOR}}%)"
+        awk -v total="$total" -v floor='{{.COVERAGE_FLOOR}}' 'BEGIN {
+          if (total + 0 < floor + 0) {
+            printf "coverage %s%% is below the %s%% floor — CI will fail\n", total, floor
+            exit 1
+          }
+        }'
+      - go tool cover -html=coverage.filtered.out -o coverage.html
+      - echo "line-by-line report written to cli/coverage.html"
+
+  cli:run:
+    desc: Run the site CLI
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - go run ./cmd/tt {{.CLI_ARGS}}

@@ -89,6 +89,7 @@ The spec should cover:
 ### 4. Implement
 
 - **Features ship in BE+FE pairs** — every feature must include both backend and frontend in the same PR. A backend endpoint without its corresponding UI (or vice versa) is not considered complete. No half-shipped features.
+  - **The CLI is not yet part of that rule.** `cli/` exists but its command surface is still small, so requiring every feature to add a `tt` command would block work on a tool that cannot yet cover it. Extending this to BE+FE+CLI is the intended end state and is tracked on #211; until then, adding a CLI command for a new feature is welcome, not required.
 - **Every new endpoint is documented and classified in the same PR** — add it to `backend/api/openapi.yaml` with an `x-audience: public | internal` marker, then run `task generate` to refresh `backend/api/openapi.public.yaml` and the frontend types. The public document is what third-party integrators build against; the full one includes admin routes and is not published as a contract. A guard test walks the real router and fails the build on an unclassified route, so this is enforced, not merely expected. Never add a route to the undocumented-debt ledger — that list may only shrink.
 - **Every user-visible feature updates the public site in the same PR** — `website/` is the project's front door, published to GitHub Pages. If you shipped something a member or an operator would notice, it belongs there: a new capability goes in the feature list on `index.html`, a new setting goes in the table on `configure.html`, anything that changes how the site is deployed goes in `install.html`. A feature nobody knows about may as well not exist, and a site that lags the software is worse than no site because people plan around it. Match the existing voice: plain description of what the thing does, no marketing adjectives, and keep the open-source framing — free of charge, forking encouraged, contributions appreciated.
 - **Tests are mandatory** — every feature or fix must include tests
@@ -120,6 +121,9 @@ cd backend && go build ./... && go test ./... && go vet ./... && golangci-lint r
 
 # Frontend
 cd frontend && npm run build && npm test && npm run lint && npm run format:check
+
+# Site CLI
+cd cli && go build ./... && go test ./... && go vet ./... && golangci-lint run
 ```
 
 **If you changed:**
@@ -173,7 +177,7 @@ past discussions without scrolling through pages of threads.
 
 Read these before starting work on an unfamiliar area:
 
-- `docs/ARCHITECTURE.md` — layered architecture, project boundaries, backend/frontend/migration-tool design
+- `docs/ARCHITECTURE.md` — layered architecture, project boundaries, backend/frontend/migration-tool/cli design
 - `docs/IMPLEMENTATION_TASKS.md` — **living backlog** — mark tasks DONE here when completing work
 - `docs/FULL_FEATURE_DOCUMENTATION.md` — original TorrentTrader feature specs (porting reference)
 - `docs/OPEN_QUESTIONS.md` — architecture decision log (all decisions finalized)
@@ -197,6 +201,7 @@ shipped unguarded.
 - `backend/` — Go 1.25, Chi router, goose migrations, pgx, minio-go. API contract in `backend/api/`
 - `frontend/` — React 19, Vite 6, TypeScript 5.7, React Router 7
 - `migration-tool/` — Go 1.23, Cobra CLI (TorrentTrader data migration)
+- `cli/` — Go 1.25, Cobra CLI (`tt`), a REST client for administering a running site
 - `docs/` — architecture, decision log, backlog, and the porting reference (see Key References)
 - `tasks/` — `todo.md` session context and `lessons.md` accumulated rules
 - `Taskfile.yml` — build orchestration (use `task --list` to see available tasks)

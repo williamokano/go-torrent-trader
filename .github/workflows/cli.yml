@@ -1,0 +1,85 @@
+name: CLI CI
+on:
+  push:
+    branches: [main]
+    paths: ['cli/**', '.github/workflows/cli.yml']
+  pull_request:
+    branches: [main]
+    paths: ['cli/**', '.github/workflows/cli.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+          cache-dependency-path: cli/go.sum
+      - run: go vet ./...
+        working-directory: cli
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          # Pinned to the same version as backend.yml. Floating to latest turns a
+          # green PR red on someone else's release, with no change to this code.
+          version: v2.12.2
+          working-directory: cli
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+          cache-dependency-path: cli/go.sum
+      - run: go test -race -coverprofile=coverage.out ./...
+        working-directory: cli
+
+      # cmd/tt is bootstrap: it wires main to the command tree, the same reason
+      # backend excludes cmd/server from its denominator. Its tests still run
+      # (cmd/tt/main_test.go covers run()) — this filters the profile, not the
+      # test set.
+      - name: Filter coverage profile
+        working-directory: cli
+        env:
+          COVERAGE_EXCLUDE: '/cli/cmd/tt/'
+        run: |
+          grep -Ev "$COVERAGE_EXCLUDE" coverage.out > coverage.filtered.out
+          echo "excluded $(( $(wc -l < coverage.out) - $(wc -l < coverage.filtered.out) )) profile blocks matching $COVERAGE_EXCLUDE"
+
+      # Ratchet this up as coverage improves, and never lower it to make a red
+      # build go green.
+      - name: Enforce coverage floor
+        working-directory: cli
+        env:
+          COVERAGE_FLOOR: '80.0'
+        run: |
+          total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {print $NF}' | tr -d '%')
+          if [ -z "$total" ]; then
+            echo "::error::could not parse a coverage total from coverage.filtered.out"
+            exit 1
+          fi
+          echo "coverage: ${total}% (floor ${COVERAGE_FLOOR}%)"
+          awk -v total="$total" -v floor="$COVERAGE_FLOOR" 'BEGIN {
+            if (total + 0 < floor + 0) {
+              printf "::error::coverage %s%% is below the %s%% floor\n", total, floor
+              exit 1
+            }
+          }'
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+          cache-dependency-path: cli/go.sum
+      - run: go build -o tt ./cmd/tt
+        working-directory: cli

@@ -215,6 +215,15 @@
             The tracker also exposes a passkey-authenticated RSS feed, so a client
             can watch for new releases without anyone writing code at all.
           </p>
+          <p>
+            There is a command-line tool, <code>tt</code>, for driving a site from a
+            terminal. It talks to the same REST API, so it does nothing the web
+            interface cannot — the point is that a cron job, a shell pipeline, or an
+            operator on a box with no browser can use it. It keeps a named profile
+            per site, holds tokens in a file only you can read, and prints either a
+            readable table or JSON for scripts to parse. It ships as a binary
+            alongside the server in each release.
+          </p>
         </div>
       </section>
 

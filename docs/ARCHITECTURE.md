@@ -45,6 +45,14 @@ go-torrent-trader/
 │   │   └── verify/
 │   ├── go.mod
 │   └── Dockerfile
+├── cli/                        # Site CLI (`tt`), a REST client
+│   ├── cmd/tt/main.go
+│   ├── internal/
+│   │   ├── command/            # the Cobra tree
+│   │   ├── client/             # REST client and error mapping
+│   │   ├── config/             # profiles and credentials
+│   │   └── output/             # table / json / yaml rendering
+│   └── go.mod
 ├── docs/
 ├── .github/workflows/
 ├── docker-compose.yml
@@ -59,9 +67,10 @@ go-torrent-trader/
 
 ## Project Boundaries
 
-- **Shared Nothing**: Each project has its own `go.mod` or `package.json`. There are no shared Go packages between `backend/` and `migration-tool/`. This keeps dependency trees independent and avoids accidental coupling.
+- **Shared Nothing**: Each project has its own `go.mod` or `package.json`. There are no shared Go packages between `backend/`, `migration-tool/` and `cli/`. This keeps dependency trees independent and avoids accidental coupling. It is also why `cli/` is a REST client with its own request and response types rather than importing `backend/internal/` — the boundary is the API, not a Go package.
 - **API Contract**: `backend/api/openapi.yaml` is the hand-maintained contract. The frontend generates **TypeScript types** from it (`openapi-typescript` → `src/api/schema.d.ts`) and a typed `openapi-fetch` client wraps them. A second document, `backend/api/openapi.public.yaml`, is generated from the first and contains only the member-facing surface — that is the one intended for publication. See decision 9 in `OPEN_QUESTIONS.md`.
   - **Honest caveat:** most frontend calls are still raw `fetch` against string URLs rather than the typed client, so the types are advisory in much of the app. Narrowing that gap is tracked in `IMPLEMENTATION_TASKS.md`; until it closes, do not assume a route change breaks the frontend build.
+- **Site CLI**: `cli/` talks to a running site over HTTP only. It holds no database credentials and has no privileged path — every command goes through the same REST endpoints and the same authorization the web UI uses. Whether a break-glass tool with direct database access should exist is an open question on issue #211, and the answer there is that it would be a different binary.
 - **Database**: The backend owns the schema and migrations. The migration-tool reads from the source database (MySQL, the legacy TorrentTrader DB) and writes to the target database (PostgreSQL) but uses its own connection logic, completely independent of the backend's data access layer.
 
 ## Backend Architecture
@@ -110,12 +119,12 @@ Key tasks:
 | Command | Scope |
 |---|---|
 | `task build` / `task test` / `task lint` | All projects |
-| `task backend:build` / `task frontend:build` / `task migration-tool:build` | Per-project |
+| `task backend:build` / `task frontend:build` / `task migration-tool:build` / `task cli:build` | Per-project |
 | `task dev` | Starts docker-compose + hot reload for backend (air) + frontend (vite) |
 | `task docker:build` | Builds all Docker images |
 | `task generate` | Regenerates the public OpenAPI spec from the full one, then the frontend's TypeScript types from the full spec |
 
-**Why not Bazel?** Bazel's benefits (hermetic builds, remote caching) aren't needed at this scale. For a 3-project monorepo, the overhead of maintaining Bazel BUILD files far outweighs the gains. Taskfile provides everything needed with minimal configuration.
+**Why not Bazel?** Bazel's benefits (hermetic builds, remote caching) aren't needed at this scale. For a monorepo this size, the overhead of maintaining Bazel BUILD files far outweighs the gains. Taskfile provides everything needed with minimal configuration.
 
 ## Docker Setup
 

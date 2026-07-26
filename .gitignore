@@ -34,10 +34,13 @@ docker-compose.override.yml
 # Build artifacts
 backend/server
 migration-tool/migrate
+cli/tt
 tmp/
 
 # Coverage
 coverage/
+# Written by the *:coverage tasks alongside the (already ignored) *.out profiles.
+coverage.html
 *.coverprofile
 coverage.out
 coverage.filtered.out
