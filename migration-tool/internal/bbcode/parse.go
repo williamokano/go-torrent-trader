@@ -157,8 +157,52 @@ func scanVerbatim(s, tag string) (body string, consumed int, closed bool) {
 	return s, len(s), false
 }
 
+// indexFold returns the offset of the first case-insensitive occurrence of substr
+// in s, as an offset into s itself.
+//
+// That last part is the whole point. This used to be
+// `strings.Index(strings.ToLower(s), strings.ToLower(substr))`, and ToLower is not
+// byte-length-preserving: U+212A KELVIN SIGN is three bytes and lowercases to a
+// one-byte 'k', so the returned offset pointed somewhere else entirely in s. The
+// caller slices s with it, so `[code]K[/code]TAIL` came out with the body
+// truncated mid-rune, the closing tag partly re-tokenized, and **invalid UTF-8** on
+// the wire — which PostgreSQL rejects outright ("invalid byte sequence for encoding
+// UTF8"), failing the migration on one row of one post.
+//
+// Comparing bytes is safe here because BBCode tag names are ASCII, and no ASCII
+// byte can occur inside a multi-byte UTF-8 sequence (continuation bytes are all
+// >= 0x80). So a byte-wise scan cannot match halfway through a rune, and folding
+// only the ASCII range cannot change any byte's length.
+//
+// It also stops lowercasing the entire remaining input on every [code] tag, which
+// was half of the quadratic scaling on bracket-heavy posts.
 func indexFold(s, substr string) int {
-	return strings.Index(strings.ToLower(s), strings.ToLower(substr))
+	if substr == "" {
+		return 0
+	}
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if equalFoldASCII(s[i:i+len(substr)], substr) {
+			return i
+		}
+	}
+	return -1
+}
+
+// equalFoldASCII compares two equal-length strings, folding only A-Z.
+func equalFoldASCII(a, b string) bool {
+	for i := 0; i < len(a); i++ {
+		if lowerASCII(a[i]) != lowerASCII(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 // selfClosing are tags with no closing form. [*] ends at the next [*] or at the

@@ -14,6 +14,8 @@
 package bbcode
 
 import (
+	"html"
+	"strconv"
 	"strings"
 )
 
@@ -93,13 +95,41 @@ func wrap(b *strings.Builder, n *node, marker string) {
 
 	// Emphasis with nothing in it renders as literal asterisks, so an empty
 	// [b][/b] is dropped instead.
-	if strings.TrimSpace(inner.String()) == "" {
-		b.WriteString(inner.String())
+	body := inner.String()
+	if strings.TrimSpace(body) == "" {
+		b.WriteString(body)
 		return
 	}
+
+	// Markdown will not open emphasis on a marker followed by whitespace, nor
+	// close one on a marker preceded by it — so "[b] hello [/b]" rendered as the
+	// literal "** hello **". A space inside the tag is extremely common in
+	// hand-typed posts. Hoisting the whitespace outside the markers keeps both the
+	// spacing and the formatting.
+	lead := body[:len(body)-len(strings.TrimLeft(body, " \t\n"))]
+	tail := body[len(strings.TrimRight(body, " \t\n")):]
+	body = body[len(lead) : len(body)-len(tail)]
+
+	// [i][i]x[/i][/i] doubles the marker into "**x**", which is *bold* — the one
+	// thing the member did not write. A repeat of the same emphasis adds nothing,
+	// so the inner one is dropped rather than concatenated.
+	// An *exact* run, not a prefix: for [i] wrapping [b], the body starts with "**"
+	// where the marker is "*", and that is a different emphasis rather than a
+	// repeat of this one — dropping it would turn "***both***" into "**both**".
+	if markerRun(body, marker[0]) == len(marker) &&
+		markerRunEnd(body, marker[0]) == len(marker) &&
+		len(body) > 2*len(marker) {
+		b.WriteString(lead)
+		b.WriteString(body)
+		b.WriteString(tail)
+		return
+	}
+
+	b.WriteString(lead)
 	b.WriteString(marker)
-	b.WriteString(inner.String())
+	b.WriteString(body)
 	b.WriteString(marker)
+	b.WriteString(tail)
 }
 
 func renderURL(b *strings.Builder, n *node) {
@@ -129,9 +159,15 @@ func renderURL(b *strings.Builder, n *node) {
 }
 
 func renderImage(b *strings.Builder, n *node) {
+	// [img=url] carries the target in the attribute, but [img=width,height] carries
+	// *dimensions* there and the target in the body. Taking the attribute
+	// unconditionally turned "[img=100,80]http://a.com/pic.jpg[/img]" into
+	// "![](100,80)" — the image lost, the URL gone from the post entirely.
 	src := n.attr
-	if src == "" {
-		src = rawText(n)
+	if src == "" || isImageDimensions(src) {
+		if body := rawText(n); body != "" {
+			src = body
+		}
 	}
 	if src == "" {
 		return
@@ -139,6 +175,40 @@ func renderImage(b *strings.Builder, n *node) {
 	b.WriteString("![](")
 	b.WriteString(sanitizeURL(src))
 	b.WriteString(")")
+}
+
+// markerRun counts the leading run of c, and markerRunEnd the trailing one.
+func markerRun(s string, c byte) int {
+	n := 0
+	for n < len(s) && s[n] == c {
+		n++
+	}
+	return n
+}
+
+func markerRunEnd(s string, c byte) int {
+	n := 0
+	for n < len(s) && s[len(s)-1-n] == c {
+		n++
+	}
+	return n
+}
+
+// isImageDimensions reports whether an [img=...] attribute is a size rather than a
+// URL: digits separated by a comma or an x, as legacy forums wrote it.
+func isImageDimensions(attr string) bool {
+	seenDigit, seenSep := false, false
+	for i := 0; i < len(attr); i++ {
+		switch c := attr[i]; {
+		case c >= '0' && c <= '9':
+			seenDigit = true
+		case c == ',' || c == 'x' || c == 'X' || c == ' ':
+			seenSep = true
+		default:
+			return false
+		}
+	}
+	return seenDigit && seenSep
 }
 
 func renderQuote(b *strings.Builder, n *node) {
@@ -167,7 +237,11 @@ func renderQuote(b *strings.Builder, n *node) {
 		b.WriteString("> ")
 		b.WriteString(line)
 	}
-	b.WriteString("\n")
+	// A blank line, not one newline. With a single "\n", Markdown's lazy
+	// continuation pulls the following paragraph *into* the quote:
+	// "[quote]a[/quote]after" rendered as one blockquote reading "a after",
+	// silently attributing the member's own words to whoever they were quoting.
+	b.WriteString("\n\n")
 }
 
 func renderCode(b *strings.Builder, n *node) {
@@ -219,7 +293,7 @@ func renderList(b *strings.Builder, n *node) {
 			continue
 		}
 		if ordered {
-			b.WriteString(itoa(i + 1))
+			b.WriteString(strconv.Itoa(i + 1))
 			b.WriteString(". ")
 		} else {
 			b.WriteString("- ")
@@ -228,6 +302,9 @@ func renderList(b *strings.Builder, n *node) {
 		b.WriteString(strings.ReplaceAll(item, "\n", "\n  "))
 		b.WriteString("\n")
 	}
+	// Closes the list, for the same reason the quote above needs it: otherwise
+	// "[list][*]a[/list]after" renders "after" inside the last bullet.
+	b.WriteString("\n")
 }
 
 // rawText returns a node's text with no escaping, for the places where the
@@ -253,21 +330,72 @@ func rawText(n *node) string {
 	return strings.TrimSpace(b.String())
 }
 
-// sanitizeURL keeps a link target from breaking out of the Markdown syntax
-// holding it, and refuses the schemes that make a link a script.
-func sanitizeURL(u string) string {
-	u = strings.TrimSpace(u)
-	u = strings.NewReplacer("\n", "", "\r", "", " ", "%20", "(", "%28", ")", "%29").Replace(u)
+// allowedURLSchemes are the schemes a migrated link may carry.
+//
+// An allow-list, not a deny-list. The deny-list this replaces tested three
+// prefixes and was bypassable several ways at once — `java\tscript:`,
+// `java\vscript:`, `java\x00script:`, `\x01javascript:` and `&#106;avascript:` all
+// sailed through, because browsers strip tabs, newlines and leading control
+// characters from URLs and CommonMark decodes entity references inside a link
+// destination. Enumerating what is dangerous cannot work when the attacker picks
+// the spelling; enumerating what is useful can.
+var allowedURLSchemes = map[string]bool{
+	"http": true, "https": true, "mailto": true, "ftp": true, "ftps": true,
+}
 
-	switch {
-	case strings.HasPrefix(strings.ToLower(u), "javascript:"),
-		strings.HasPrefix(strings.ToLower(u), "data:"),
-		strings.HasPrefix(strings.ToLower(u), "vbscript:"):
-		// Legacy forums collected these. Carrying one across turns an old
-		// post into a live problem on a new site.
+// sanitizeURL keeps a link target from breaking out of the Markdown syntax holding
+// it, and refuses any scheme that is not plainly a link.
+func sanitizeURL(u string) string {
+	// Control characters first, and dropped rather than encoded: a browser
+	// ignores them inside a URL, so leaving them in is what let a scheme be
+	// spelled around the check. Covers NUL, tab, vertical tab, form feed, CR, LF
+	// and DEL in one pass.
+	u = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, u)
+	u = strings.TrimSpace(u)
+
+	if !schemeIsAllowed(u) {
 		return "#"
 	}
-	return u
+
+	// `<` and `>` are the pair that mattered and were missing. The bare
+	// [url]target[/url] form renders as an autolink, `<target>`, so a `>` in the
+	// target closed it early and everything after it became raw HTML in the
+	// output — `[url]http://a/><b>bold</b>[/url]` produced a live <b> element out
+	// of a member's post, and a <script> when the renderer had no sanitizer. That
+	// contradicts the claim that <u> is the only HTML this converter emits, and the
+	// conversion is one-way, so it would have been stored that way for good.
+	return strings.NewReplacer(
+		" ", "%20", "(", "%28", ")", "%29", "<", "%3C", ">", "%3E",
+	).Replace(u)
+}
+
+// schemeIsAllowed reports whether a target's scheme is one we carry across.
+//
+// A target with no scheme is relative and fine. The comparison is made against an
+// entity-decoded copy, because CommonMark decodes entity references in a link
+// destination — so `&#106;avascript:` reaches the browser as `javascript:` — but
+// only the copy is decoded, since decoding the target itself would corrupt a
+// legitimate `?a=1&amp;b=2` query string.
+func schemeIsAllowed(u string) bool {
+	probe := strings.ToLower(html.UnescapeString(u))
+
+	colon := strings.IndexByte(probe, ':')
+	if colon < 0 {
+		return true
+	}
+	// A colon inside a path, query or fragment is not a scheme separator:
+	// "/a:b" and "?x=a:b" are ordinary relative targets.
+	for _, sep := range []byte{'/', '?', '#'} {
+		if i := strings.IndexByte(probe, sep); i >= 0 && i < colon {
+			return true
+		}
+	}
+	return allowedURLSchemes[probe[:colon]]
 }
 
 func longestBacktickRun(s string) int {
@@ -283,16 +411,4 @@ func longestBacktickRun(s string) int {
 		run = 0
 	}
 	return longest
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }

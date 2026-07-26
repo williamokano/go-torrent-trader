@@ -25,6 +25,11 @@ var inlineSpecials = strings.NewReplacer(
 	`]`, `\]`,
 	`<`, `\<`,
 	`|`, `\|`,
+	// GFM reads ~~x~~ as strikethrough and ~~~ as a code fence — the same
+	// swallow-the-rest-of-the-post failure the backtick fence rule was written to
+	// prevent, reachable through prose instead. BBCode gave ~ no meaning, so a
+	// 2009 post using it for emphasis or ASCII art hits both.
+	`~`, `\~`,
 )
 
 // escapeMarkdown makes a run of legacy text render as written.
@@ -60,6 +65,15 @@ func escapeLineStart(line string) string {
 		return line
 	}
 
+	// Four spaces, or one tab, makes an indented code block. Indented ASCII art,
+	// pasted logs and NFO fragments are everywhere in fifteen years of posts, and
+	// they arrive as a grey monospace box with the indentation eaten. The
+	// indentation is what the member typed, so it is kept and made inert by
+	// escaping the first visible character rather than by trimming.
+	if isIndentedCodeBlock(prefix) {
+		return prefix + `\` + rest
+	}
+
 	switch rest[0] {
 	case '#', '>', '+':
 		return prefix + `\` + rest
@@ -84,6 +98,20 @@ func escapeLineStart(line string) string {
 		return prefix + rest[:digits] + `\` + rest[digits:]
 	}
 	return line
+}
+
+// isIndentedCodeBlock reports whether leading whitespace is enough to open one.
+// A tab counts as four columns, which is what CommonMark does.
+func isIndentedCodeBlock(prefix string) bool {
+	columns := 0
+	for i := 0; i < len(prefix); i++ {
+		if prefix[i] == '\t' {
+			columns += 4
+			continue
+		}
+		columns++
+	}
+	return columns >= 4
 }
 
 func allSame(s string, c byte) bool {

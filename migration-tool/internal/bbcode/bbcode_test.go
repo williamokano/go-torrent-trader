@@ -1,8 +1,10 @@
 package bbcode
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func convert(s string) string { return Convert(s, Options{}) }
@@ -66,7 +68,7 @@ func TestMalformedInputPassesThrough(t *testing.T) {
 				"and the [/i] left over closes nothing, so both come back as written",
 		},
 		{
-			name: "unclosed inside closed", in: "[quote][b]broken[/quote]", want: "> \\[b\\]broken\n",
+			name: "unclosed inside closed", in: "[quote][b]broken[/quote]", want: "> \\[b\\]broken\n\n",
 			why: "the quote is well-formed and converts; the bold inside it is not",
 		},
 		{
@@ -150,14 +152,14 @@ func TestScriptURLsAreDefused(t *testing.T) {
 func TestQuotes(t *testing.T) {
 	t.Run("plain", func(t *testing.T) {
 		got := convert("[quote]quoted words[/quote]")
-		if got != "> quoted words\n" {
+		if got != "> quoted words\n\n" {
 			t.Errorf("Convert() = %q", got)
 		}
 	})
 
 	t.Run("attributed", func(t *testing.T) {
 		got := convert("[quote=alice]her words[/quote]")
-		want := "> **alice wrote:**\n>\n> her words\n"
+		want := "> **alice wrote:**\n>\n> her words\n\n"
 		if got != want {
 			t.Errorf("Convert() = %q, want %q", got, want)
 		}
@@ -165,7 +167,7 @@ func TestQuotes(t *testing.T) {
 
 	t.Run("multi-line", func(t *testing.T) {
 		got := convert("[quote]one\ntwo[/quote]")
-		want := "> one\n> two\n"
+		want := "> one\n> two\n\n"
 		if got != want {
 			t.Errorf("Convert() = %q, want %q", got, want)
 		}
@@ -174,7 +176,7 @@ func TestQuotes(t *testing.T) {
 	// A blank line inside a quote ends it unless the blank line is marked too.
 	t.Run("blank line inside", func(t *testing.T) {
 		got := convert("[quote]one\n\ntwo[/quote]")
-		want := "> one\n>\n> two\n"
+		want := "> one\n>\n> two\n\n"
 		if got != want {
 			t.Errorf("Convert() = %q, want %q", got, want)
 		}
@@ -234,12 +236,14 @@ func TestCode(t *testing.T) {
 }
 
 func TestLists(t *testing.T) {
+	// Each ends with a blank line, which closes the list. With one newline,
+	// Markdown's lazy continuation folds whatever follows into the last bullet.
 	tests := []struct{ name, in, want string }{
-		{"unordered", "[list][*]one[*]two[/list]", "\n- one\n- two\n"},
-		{"ordered", "[list=1][*]one[*]two[/list]", "\n1. one\n2. two\n"},
-		{"ol alias", "[ol][*]one[/ol]", "\n1. one\n"},
-		{"formatting inside", "[list][*][b]bold[/b] item[/list]", "\n- **bold** item\n"},
-		{"empty items dropped", "[list][*][*]real[/list]", "\n- real\n"},
+		{"unordered", "[list][*]one[*]two[/list]", "\n- one\n- two\n\n"},
+		{"ordered", "[list=1][*]one[*]two[/list]", "\n1. one\n2. two\n\n"},
+		{"ol alias", "[ol][*]one[/ol]", "\n1. one\n\n"},
+		{"formatting inside", "[list][*][b]bold[/b] item[/list]", "\n- **bold** item\n\n"},
+		{"empty items dropped", "[list][*][*]real[/list]", "\n- real\n\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,8 +259,17 @@ func TestLists(t *testing.T) {
 		if !strings.Contains(got, "- two") || !strings.Contains(got, "after") {
 			t.Errorf("Convert() = %q", got)
 		}
-		if strings.Contains(got, "- two\nafter") && !strings.Contains(got, "- two\n") {
-			t.Errorf("the text after the list was absorbed into it: %q", got)
+		// This assertion used to be `Contains("- two\nafter") && !Contains("- two\n")`,
+		// which can never both hold: the second substring is a prefix of the first.
+		// It was dead code guarding the exact bug that shipped — a list emitting one
+		// trailing newline lets Markdown's lazy continuation pull the following
+		// paragraph into the last bullet. What has to be true is that a blank line
+		// separates them.
+		if strings.Contains(got, "- two\nafter") {
+			t.Errorf("the text after the list was absorbed into the last bullet: %q", got)
+		}
+		if !strings.Contains(got, "\n\nafter") {
+			t.Errorf("no blank line separates the list from the text after it: %q", got)
 		}
 	})
 }
@@ -387,7 +400,7 @@ func TestPathologicalInputIsSurvivable(t *testing.T) {
 		"\x00\x01\x02",
 	}
 	for i, in := range inputs {
-		t.Run(itoa(i), func(t *testing.T) {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			// A panic or a hang here is the failure; the output only has to
 			// exist.
 			_ = convert(in)
@@ -419,4 +432,202 @@ func TestCorpusContent(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The conversion runs once over text nobody will proofread, so a case that comes
+// out *plausible but wrong* is worse than one that fails loudly. Each of these
+// produced readable output that said something the member did not write.
+func TestSilentCorruptionsFoundInReview(t *testing.T) {
+	tests := []struct {
+		name, in, want, why string
+	}{{
+		name: "a code body whose rune case-folds to a different byte length",
+		in:   "[code]K[/code]TAIL",
+		want: "\n```\nK\n```\nTAIL",
+		why: "indexFold searched a ToLower'd copy and sliced the original with the " +
+			"offset, so the body was cut mid-rune and the output was invalid UTF-8 — " +
+			"which PostgreSQL rejects outright, failing the migration on one post",
+	}, {
+		name: "a bare url containing markup characters",
+		in:   "[url]http://a.com/><b>x</b>[/url]",
+		want: "<http://a.com/%3E%3Cb%3Ex%3C/b%3E>",
+		why: "the autolink form is <target>, so an unencoded > closed it early and " +
+			"everything after became raw HTML — a live element out of a member's post",
+	}, {
+		name: "text after a quote",
+		in:   "[quote]a[/quote]after",
+		want: "> a\n\nafter",
+		why: "one trailing newline let lazy continuation pull the next paragraph " +
+			"into the quote, attributing the member's own words to whoever they quoted",
+	}, {
+		name: "a space inside an emphasis tag",
+		in:   "[b] hello [/b]",
+		want: " **hello** ",
+		why: "Markdown will not open emphasis on a marker followed by whitespace, so " +
+			"this rendered as the literal ** hello ** — and it is very common input",
+	}, {
+		name: "the same emphasis nested",
+		in:   "[i][i]x[/i][/i]",
+		want: "*x*",
+		why:  "the doubled marker read as bold, which is not what was written",
+	}, {
+		name: "an image with dimensions in the attribute",
+		in:   "[img=100,80]http://a.com/pic.jpg[/img]",
+		want: "![](http://a.com/pic.jpg)",
+		why:  "the attribute won unconditionally, so the URL vanished from the post",
+	}, {
+		name: "a tilde in prose",
+		in:   "~~~",
+		want: `\~\~\~`,
+		why: "GFM reads ~~~ as a code fence, swallowing the rest of the post — the " +
+			"same failure the backtick fence rule prevents, reached through prose",
+	}, {
+		name: "an indented line",
+		in:   "    four space indent",
+		want: `    \four space indent`,
+		why:  "four spaces makes an indented code block; pasted logs and ASCII art are everywhere",
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := convert(tc.in); got != tc.want {
+				t.Errorf("Convert(%q) = %q, want %q\n%s", tc.in, got, tc.want, tc.why)
+			}
+		})
+	}
+}
+
+// Nesting *different* emphasis must keep both, or the fix for the nested-identical
+// case above would be silently dropping formatting instead.
+func TestNestingDifferentEmphasisKeepsBoth(t *testing.T) {
+	for _, in := range []string{"[i][b]both[/b][/i]", "[b][i]both[/i][/b]"} {
+		if got := convert(in); got != "***both***" {
+			t.Errorf("Convert(%q) = %q, want %q", in, got, "***both***")
+		}
+	}
+}
+
+// Every scheme the old deny-list missed, and every legitimate target it allowed.
+// Browsers strip control characters from URLs and CommonMark decodes entity
+// references in a link destination, so the three prefix tests it did were
+// bypassable five ways.
+func TestOnlyLinkSchemesSurvive(t *testing.T) {
+	defused := []string{
+		"java\tscript:alert(1)", "java\vscript:alert(1)", "java\x00script:alert(1)",
+		"\x01javascript:alert(1)", "&#106;avascript:alert(1)", "JaVaScRiPt:alert(1)",
+		"vbscript:msgbox", "data:text/html,<script>", "file:///etc/passwd",
+	}
+	for _, target := range defused {
+		t.Run("defused "+target, func(t *testing.T) {
+			got := convert("[url=" + target + "]x[/url]")
+			if got != "[x](#)" {
+				t.Errorf("Convert() = %q, want the target defused to #", got)
+			}
+		})
+		t.Run("defused img "+target, func(t *testing.T) {
+			if got := convert("[img]" + target + "[/img]"); got != "![](#)" {
+				t.Errorf("Convert() = %q, want the target defused to #", got)
+			}
+		})
+	}
+
+	kept := map[string]string{
+		"https://ok.example/a?b=1&c=2": "[x](https://ok.example/a?b=1&c=2)",
+		"http://ok.example":            "[x](http://ok.example)",
+		"mailto:a@b.com":               "[x](mailto:a@b.com)",
+		"ftp://files.example/pub":      "[x](ftp://files.example/pub)",
+		"/relative/path":               "[x](/relative/path)",
+		"page.php?id=1":                "[x](page.php?id=1)",
+	}
+	for target, want := range kept {
+		t.Run("kept "+target, func(t *testing.T) {
+			if got := convert("[url=" + target + "]x[/url]"); got != want {
+				t.Errorf("Convert() = %q, want %q — a legitimate target was broken", got, want)
+			}
+		})
+	}
+}
+
+// A real property, unlike the hardcoded word list above: every run of letters and
+// digits in the input must survive into the output, whatever the markup around it.
+//
+// The list version was satisfiable by construction — seven words checked against
+// four inputs, each gated on `strings.Contains(tc.in, word)`, so an input that
+// never contained them asserted nothing. That is why it stayed green while
+// `[code]K[/code]TAIL` mangled TAIL into "e]TAIL" and `[spoiler]x[/spoiler]` ate
+// its closing tag. Deriving the expectation from the input catches the class
+// rather than the instances.
+func TestNoWordEverGoesMissing(t *testing.T) {
+	inputs := []string{
+		"[b]Bold[/b] and [i]italic[/i].",
+		"[quote][b]unclosed bold [i]and italic[/b] still going[/quote] tail",
+		"[quote=alice]Please read the rules.[/quote] Done.",
+		"Je regarde [i]Amélie[/i] — très bien !",
+		"[code]KELVIN[/code]TAIL",
+		"[code]dotted[/code]AFTER",
+		"[url=http://example.com]anchor text[/url] afterwards",
+		"[img=100,80]http://a.com/pic.jpg[/img]",
+		"[list][*]alpha[*]beta[/list]gamma",
+		"[b] spaced [/b] words",
+		"2*3*4 and snake_case_name and #1 release",
+		"[unknowntag]inner words[/unknowntag] outer",
+		"~~struck~~ and ~tilde~",
+		"    indented line",
+		"[quote]quoted[/quote]immediately",
+	}
+
+	for _, in := range inputs {
+		t.Run(in, func(t *testing.T) {
+			got := convert(in)
+			for _, word := range wordsIn(in) {
+				if !strings.Contains(got, word) {
+					t.Errorf("the word %q is missing from the output\n  in:  %q\n  out: %q",
+						word, in, got)
+				}
+			}
+		})
+	}
+}
+
+// wordsIn returns the runs of letters and digits in s, skipping BBCode tag names
+// so that a converted [b] is not reported as a lost word. Runs shorter than three
+// characters are skipped too: single letters collide with markup by chance.
+func wordsIn(s string) []string {
+	// Blank out anything between brackets — the markup, not the prose.
+	stripped := []rune(s)
+	depth := 0
+	for i, r := range stripped {
+		switch r {
+		case '[':
+			depth++
+			stripped[i] = ' '
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+			stripped[i] = ' '
+		default:
+			if depth > 0 {
+				stripped[i] = ' '
+			}
+		}
+	}
+
+	var words []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() >= 3 {
+			words = append(words, cur.String())
+		}
+		cur.Reset()
+	}
+	for _, r := range stripped {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			cur.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return words
 }
