@@ -83,6 +83,17 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 
 	listen(event.TorrentEdited, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentEditedEvent)
+		// A ban is named, because the log is the only place it is recorded and
+		// "edited torrent" is indistinguishable from a rename. An edit that also
+		// changed other fields still reports the ban: that is the part someone
+		// comes looking for.
+		if e.BannedChanged != nil {
+			verb := "unbanned"
+			if *e.BannedChanged {
+				verb = "banned"
+			}
+			return fmt.Sprintf("%s %s torrent: %s", e.Actor.Username, verb, e.TorrentName), e.Actor
+		}
 		return fmt.Sprintf("%s edited torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
 	})
 

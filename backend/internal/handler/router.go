@@ -478,6 +478,7 @@ func NewRouter(deps *Deps) chi.Router {
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {
 							torrentAdmin := NewTorrentAdminHandler(deps.TorrentService)
+							r.Post("/torrents/bulk", torrentAdmin.HandleBulkAction)
 							r.Delete("/torrents/{id}", torrentAdmin.HandleDeleteTorrent)
 						}
 					}

@@ -525,6 +525,93 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/admin/torrents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Search every torrent on the tracker (admin only)
+     * @description Lists torrents from an administrator's view: banned, hidden and
+     *     not-yet-approved torrents are all included, which is what distinguishes
+     *     this from the member-facing listing.
+     *
+     *     **Searching by info hash.** `search` is matched against torrent names,
+     *     except when the term is exactly 40 hexadecimal characters — that cannot be
+     *     a name, so it is matched against `info_hash` instead. This is deliberate:
+     *     the identifier in a takedown notice or a report about a misbehaving swarm
+     *     is a hash, and pasting it into a search box should find the torrent. Use
+     *     the `info_hash` parameter to match by hash without relying on that guess;
+     *     it rejects anything that is not a 40-character hex string.
+     *
+     *     Only administrators (group_id=1) may call this.
+     */
+    get: operations["adminListTorrents"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/torrents/bulk": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ban, unban or delete several torrents at once (admin only)
+     * @description Applies one moderation action to up to 100 torrents.
+     *
+     *     **Returns 200 even when some torrents failed.** Each id is handled
+     *     independently and reported in `results`, because a list a moderator pasted
+     *     will routinely contain one that has already been deleted, and failing the
+     *     whole batch would leave them to work out which. The status code answers
+     *     "was the request valid"; the body answers "what happened to each one".
+     *
+     *     Repeated ids are collapsed. Every torrent acted on produces its own
+     *     activity-log entry, so a bulk ban is auditable afterwards as individual
+     *     facts rather than as one opaque batch.
+     *
+     *     Deleting also removes each torrent's stored `.torrent` file and cannot be
+     *     undone.
+     */
+    post: operations["adminBulkTorrentAction"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/torrents/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete a torrent (admin only)
+     * @description Permanently deletes the torrent and its stored `.torrent` file. Peers,
+     *     comments and transfer history cascade with it; the announce log keeps its
+     *     rows with a null torrent reference.
+     */
+    delete: operations["adminDeleteTorrent"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/admin/reports": {
     parameters: {
       query?: never;
@@ -1619,6 +1706,57 @@ export interface components {
         code?: string;
         message?: string;
       };
+    };
+    /** @description A torrent as the admin listing renders it — fewer fields than the member view, plus the moderation flags and the info hash. */
+    AdminTorrent: {
+      /** Format: int64 */
+      id?: number;
+      name?: string;
+      /**
+       * @description Hex-encoded SHA1 info hash
+       * @example a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+       */
+      info_hash?: string;
+      /** Format: int64 */
+      size?: number;
+      seeders?: number;
+      leechers?: number;
+      /** Format: int64 */
+      uploader_id?: number;
+      /** @description Uploader's username, empty when the account is gone */
+      uploader?: string;
+      banned?: boolean;
+      /** @description Freeleech — downloads do not count against ratio */
+      free?: boolean;
+      /** @description Half credit — downloads count at 50% */
+      silver?: boolean;
+      visible?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+    };
+    BulkTorrentActionRequest: {
+      /** @enum {string} */
+      action: "ban" | "unban" | "delete";
+      /** @description Torrent ids. Repeats are collapsed, so the same id twice is acted on once and reported once. */
+      ids: number[];
+    };
+    BulkTorrentActionResponse: {
+      /** @enum {string} */
+      action?: "ban" | "unban" | "delete";
+      results?: components["schemas"]["BulkTorrentResult"][];
+      /** @description How many torrents the action applied to */
+      succeeded?: number;
+      /** @description How many did not. Non-zero with a 200 status is normal — read `results` for which and why. */
+      failed?: number;
+    };
+    BulkTorrentResult: {
+      /** Format: int64 */
+      id?: number;
+      /**
+       * @description `not_found` also covers a non-positive id. `error` means something unexpected failed for this torrent and was logged server-side.
+       * @enum {string}
+       */
+      status?: "ok" | "not_found" | "forbidden" | "error";
     };
   };
   responses: {
@@ -3084,6 +3222,202 @@ export interface operations {
       };
       /** @description Duplicate report (already reported this item) */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  adminListTorrents: {
+    parameters: {
+      query?: {
+        /** @description Torrent name (full-text, prefix-matched at 3+ characters; ILIKE at 2). A 40-character hex string is treated as an info hash instead. */
+        search?: string;
+        /** @description Hex info hash, matched exactly and case-insensitively. Returns at most one torrent, since the column is unique. */
+        info_hash?: string;
+        /** @description Forces a name search, overriding both `search`'s hash guess and any `info_hash` given. The inverse escape hatch: without it a torrent whose title happens to be 40 hex characters — a checksum, a git SHA — could never be found by name. */
+        name?: string;
+        /** @description true lists only banned torrents, false only un-banned ones. Omit for both. */
+        banned?: boolean;
+        /** @description Only torrents uploaded by this member */
+        uploader_id?: number;
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated list of torrents */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            torrents?: components["schemas"]["AdminTorrent"][];
+            /** Format: int64 */
+            total?: number;
+            page?: number;
+            per_page?: number;
+          };
+        };
+      };
+      /** @description A parameter was unusable — `info_hash` not 40 hex characters, `banned` not a boolean, or `page`/`per_page`/`uploader_id` not a positive number. Rejected rather than dropped: a silently ignored filter widens the result set, which reads as "your search matched everything". */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — administrator access required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  adminBulkTorrentAction: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BulkTorrentActionRequest"];
+      };
+    };
+    responses: {
+      /** @description Per-torrent outcome. Check `failed` before reporting success. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BulkTorrentActionResponse"];
+        };
+      };
+      /** @description Unknown action, empty id list, or more than 100 ids — the request itself is unusable. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — administrator access required. Also returned when the caller is not staff at all: the check is repeated in the service layer, not left to the route. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  adminDeleteTorrent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Torrent deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** @example torrent deleted */
+            message?: string;
+          };
+        };
+      };
+      /** @description Invalid torrent ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forbidden — administrator access required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Torrent not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

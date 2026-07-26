@@ -151,6 +151,75 @@
   min-width: 220px;
 }
 
+/* Inline note under a toolbar field, e.g. "looking up by info hash". */
+.admin-hint {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--text-sm);
+}
+
+/* A link-shaped control inside running text, for switching an interpretation
+   rather than navigating — a button because it changes this view, not the page. */
+.admin-linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.admin-linkbtn:hover {
+  text-decoration: none;
+}
+
+/* Bulk action bar. Appears only while rows are selected, between the toolbar and
+   the table, so the count and the buttons that act on it sit together. */
+.admin-bulkbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.admin-bulkbar__count {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.admin-bulkbar__actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* An info hash. Monospace so the characters line up down the column, which is what
+   makes two similar hashes distinguishable at a glance.
+
+   Truncated by CSS rather than by slicing the string, so the whole 40 characters
+   stay in the DOM and can be selected and copied — which is the point of showing it
+   at all. */
+.admin-hash {
+  display: inline-block;
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+/* Several status badges in one cell wrap rather than widening the column. */
+.admin-flags {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
 /* Outline pill badges — status at a glance, colored by the token palette. */
 .admin-badge {
   display: inline-block;

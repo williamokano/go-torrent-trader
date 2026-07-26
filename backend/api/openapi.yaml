@@ -1449,6 +1449,246 @@ paths:
   # Report management. Previously documented as GET /api/v1/reports and
   # PUT /api/v1/reports/{id}/resolve, which never existed: the router has always
   # registered them under /api/v1/admin, behind RequireAdmin.
+  /api/v1/admin/torrents:
+    get:
+      operationId: adminListTorrents
+      x-audience: internal
+      summary: Search every torrent on the tracker (admin only)
+      description: |
+        Lists torrents from an administrator's view: banned, hidden and
+        not-yet-approved torrents are all included, which is what distinguishes
+        this from the member-facing listing.
+
+        **Searching by info hash.** `search` is matched against torrent names,
+        except when the term is exactly 40 hexadecimal characters — that cannot be
+        a name, so it is matched against `info_hash` instead. This is deliberate:
+        the identifier in a takedown notice or a report about a misbehaving swarm
+        is a hash, and pasting it into a search box should find the torrent. Use
+        the `info_hash` parameter to match by hash without relying on that guess;
+        it rejects anything that is not a 40-character hex string.
+
+        Only administrators (group_id=1) may call this.
+      tags: [admin, torrents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: >
+            Torrent name (full-text, prefix-matched at 3+ characters; ILIKE at 2).
+            A 40-character hex string is treated as an info hash instead.
+        - name: info_hash
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{40}$'
+          description: >
+            Hex info hash, matched exactly and case-insensitively. Returns at most
+            one torrent, since the column is unique.
+        - name: name
+          in: query
+          schema:
+            type: string
+          description: >
+            Forces a name search, overriding both `search`'s hash guess and any
+            `info_hash` given. The inverse escape hatch: without it a torrent whose
+            title happens to be 40 hex characters — a checksum, a git SHA — could
+            never be found by name.
+        - name: banned
+          in: query
+          schema:
+            type: boolean
+          description: >
+            true lists only banned torrents, false only un-banned ones. Omit for
+            both.
+        - name: uploader_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: Only torrents uploaded by this member
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+      responses:
+        '200':
+          description: Paginated list of torrents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  torrents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminTorrent'
+                  total:
+                    type: integer
+                    format: int64
+                  page:
+                    type: integer
+                  per_page:
+                    type: integer
+        '400':
+          description: >
+            A parameter was unusable — `info_hash` not 40 hex characters, `banned`
+            not a boolean, or `page`/`per_page`/`uploader_id` not a positive number.
+            Rejected rather than dropped: a silently ignored filter widens the
+            result set, which reads as "your search matched everything".
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden — administrator access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/torrents/bulk:
+    post:
+      operationId: adminBulkTorrentAction
+      x-audience: internal
+      summary: Ban, unban or delete several torrents at once (admin only)
+      description: |
+        Applies one moderation action to up to 100 torrents.
+
+        **Returns 200 even when some torrents failed.** Each id is handled
+        independently and reported in `results`, because a list a moderator pasted
+        will routinely contain one that has already been deleted, and failing the
+        whole batch would leave them to work out which. The status code answers
+        "was the request valid"; the body answers "what happened to each one".
+
+        Repeated ids are collapsed. Every torrent acted on produces its own
+        activity-log entry, so a bulk ban is auditable afterwards as individual
+        facts rather than as one opaque batch.
+
+        Deleting also removes each torrent's stored `.torrent` file and cannot be
+        undone.
+      tags: [admin, torrents]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkTorrentActionRequest'
+      responses:
+        '200':
+          description: Per-torrent outcome. Check `failed` before reporting success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkTorrentActionResponse'
+        '400':
+          description: >
+            Unknown action, empty id list, or more than 100 ids — the request
+            itself is unusable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >
+            Forbidden — administrator access required. Also returned when the
+            caller is not staff at all: the check is repeated in the service layer,
+            not left to the route.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/torrents/{id}:
+    delete:
+      operationId: adminDeleteTorrent
+      x-audience: internal
+      summary: Delete a torrent (admin only)
+      description: |
+        Permanently deletes the torrent and its stored `.torrent` file. Peers,
+        comments and transfer history cascade with it; the announce log keeps its
+        rows with a null torrent reference.
+      tags: [admin, torrents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Torrent deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: torrent deleted
+        '400':
+          description: Invalid torrent ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden — administrator access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Torrent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/reports:
     get:
       operationId: listReports
@@ -4309,3 +4549,95 @@ components:
               type: string
             message:
               type: string
+
+    AdminTorrent:
+      type: object
+      description: >
+        A torrent as the admin listing renders it — fewer fields than the member
+        view, plus the moderation flags and the info hash.
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        info_hash:
+          type: string
+          description: Hex-encoded SHA1 info hash
+          example: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+        size:
+          type: integer
+          format: int64
+        seeders:
+          type: integer
+        leechers:
+          type: integer
+        uploader_id:
+          type: integer
+          format: int64
+        uploader:
+          type: string
+          description: Uploader's username, empty when the account is gone
+        banned:
+          type: boolean
+        free:
+          type: boolean
+          description: Freeleech — downloads do not count against ratio
+        silver:
+          type: boolean
+          description: Half credit — downloads count at 50%
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    BulkTorrentActionRequest:
+      type: object
+      required: [action, ids]
+      properties:
+        action:
+          type: string
+          enum: [ban, unban, delete]
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: integer
+            format: int64
+          description: >
+            Torrent ids. Repeats are collapsed, so the same id twice is acted on
+            once and reported once.
+
+    BulkTorrentActionResponse:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [ban, unban, delete]
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkTorrentResult'
+        succeeded:
+          type: integer
+          description: How many torrents the action applied to
+        failed:
+          type: integer
+          description: >
+            How many did not. Non-zero with a 200 status is normal — read
+            `results` for which and why.
+
+    BulkTorrentResult:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [ok, not_found, forbidden, error]
+          description: >
+            `not_found` also covers a non-positive id. `error` means something
+            unexpected failed for this torrent and was logged server-side.

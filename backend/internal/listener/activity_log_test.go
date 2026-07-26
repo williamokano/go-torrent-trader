@@ -221,6 +221,43 @@ func TestListener_MultipleEventTypes(t *testing.T) {
 	}
 }
 
+// The activity log is the only record that a torrent was banned. "edited torrent"
+// is indistinguishable from a rename, a description tweak or a freeleech toggle, so
+// it cannot answer the question anyone actually asks a week later — which of these
+// entries was the ban, and was it ever lifted.
+func TestListener_TorrentBanIsNamedInTheLog(t *testing.T) {
+	banned := true
+	unbanned := false
+
+	for _, tc := range []struct {
+		name    string
+		changed *bool
+		want    string
+	}{
+		{"banned", &banned, "admin banned torrent: Some Release"},
+		{"unbanned", &unbanned, "admin unbanned torrent: Some Release"},
+		{"an edit that did not touch the ban flag", nil, "admin edited torrent: Some Release"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, bus := setup()
+
+			bus.Publish(context.Background(), &event.TorrentEditedEvent{
+				Base:          event.NewBase(event.TorrentEdited, event.Actor{ID: 1, Username: "admin"}),
+				TorrentID:     7,
+				TorrentName:   "Some Release",
+				BannedChanged: tc.changed,
+			})
+
+			if len(repo.logs) != 1 {
+				t.Fatalf("expected 1 log, got %d", len(repo.logs))
+			}
+			if repo.logs[0].Message != tc.want {
+				t.Errorf("message = %q, want %q", repo.logs[0].Message, tc.want)
+			}
+		})
+	}
+}
+
 func TestListener_ActorCarriesUsername(t *testing.T) {
 	repo, bus := setup()
 

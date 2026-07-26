@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,15 +75,32 @@ type stubTorrentRepo struct {
 	total    int64
 	lastOpts repository.ListTorrentsOptions
 	deleted  []int64
+	// updated records what Update was asked to persist. GetByID hands out the
+	// stored pointer, so a service that mutates it in place would leave the map
+	// looking correct without ever writing — asserting on this instead is what
+	// makes a persistence test about persistence.
+	updated []model.Torrent
 
 	listErr   error
 	deleteErr error
+	updateErr error
+	// getErr stands in for a lookup that failed rather than found nothing — a pool
+	// timeout, a dropped connection. Kept separate from a miss because the bulk
+	// endpoint reports the two differently to the moderator.
+	getErr error
 }
 
 func (s *stubTorrentRepo) GetByID(_ context.Context, id int64) (*model.Torrent, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	t, ok := s.torrents[id]
 	if !ok {
-		return nil, errors.New("torrent not found")
+		// sql.ErrNoRows, wrapped the way postgres.TorrentRepo wraps it. A bare
+		// errors.New here would be indistinguishable from a connection failure and
+		// would hide the branch that tells them apart — which is exactly the
+		// distinction the bulk endpoint reports to a moderator.
+		return nil, fmt.Errorf("scanning torrent %d: %w", id, sql.ErrNoRows)
 	}
 	return t, nil
 }
@@ -99,7 +118,13 @@ func (s *stubTorrentRepo) ListByUploader(_ context.Context, _ int64, _ int) ([]m
 	return nil, nil
 }
 func (s *stubTorrentRepo) Create(_ context.Context, _ *model.Torrent) error { return nil }
-func (s *stubTorrentRepo) Update(_ context.Context, _ *model.Torrent) error { return nil }
+func (s *stubTorrentRepo) Update(_ context.Context, t *model.Torrent) error {
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	s.updated = append(s.updated, *t) // copy: the caller keeps hold of the pointer
+	return nil
+}
 func (s *stubTorrentRepo) Delete(_ context.Context, id int64) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
