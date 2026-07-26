@@ -99,6 +99,30 @@ jobs:
             source: ./cmd/migrate
             os: darwin
             arch: arm64
+          - project: cli
+            binary: tt
+            source: ./cmd/tt
+            version_var: main.version
+            os: linux
+            arch: amd64
+          - project: cli
+            binary: tt
+            source: ./cmd/tt
+            version_var: main.version
+            os: linux
+            arch: arm64
+          - project: cli
+            binary: tt
+            source: ./cmd/tt
+            version_var: main.version
+            os: windows
+            arch: amd64
+          - project: cli
+            binary: tt
+            source: ./cmd/tt
+            version_var: main.version
+            os: darwin
+            arch: arm64
     steps:
       - uses: actions/checkout@v5
         with:
@@ -124,8 +148,14 @@ jobs:
         run: |
           SUFFIX=""
           if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
+          LDFLAGS="-s -w"
+          # Projects that expose a version variable get the tag stamped in, so
+          # `tt version` reports the release rather than "dev".
+          if [ -n "${{ matrix.version_var }}" ]; then
+            LDFLAGS="$LDFLAGS -X ${{ matrix.version_var }}=${{ steps.version.outputs.VERSION }}"
+          fi
           cd ${{ matrix.project }}
-          go build -ldflags="-s -w" -o "../dist/${{ matrix.binary }}${SUFFIX}" ${{ matrix.source }}
+          go build -ldflags="$LDFLAGS" -o "../dist/${{ matrix.binary }}${SUFFIX}" ${{ matrix.source }}
 
       - name: Package archive
         id: archive
