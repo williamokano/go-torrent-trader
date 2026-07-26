@@ -310,6 +310,16 @@ type ListTorrentsOptions struct {
 	ExcludeAnonymous bool             // when true, filter out anonymous torrents (for non-owner/non-staff viewers)
 	IncludeHidden    bool             // when true, skip visible/banned filters (admin context)
 	MetadataFilters  []MetadataFilter // category-schema metadata predicates (BE-3.13a)
+	// InfoHash matches one torrent by its raw 20-byte hash. This is the identifier
+	// a takedown notice or a misbehaving swarm gives you, and it is the only one
+	// that survives a rename — so staff need to be able to search by it, not just
+	// by name. Exact match: the column is UNIQUE, and a prefix search over it
+	// would have to scan.
+	InfoHash []byte
+	// Banned filters on the ban flag: true for "show me every banned torrent",
+	// false for "only the ones that are not". Only meaningful together with
+	// IncludeHidden, since the default listing excludes banned torrents outright.
+	Banned *bool
 }
 
 // GroupRepository defines persistence operations for groups.

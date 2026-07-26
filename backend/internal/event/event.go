@@ -176,6 +176,15 @@ type TorrentEditedEvent struct {
 	Base
 	TorrentID   int64  `json:"torrent_id"`
 	TorrentName string `json:"torrent_name"`
+	// BannedChanged carries the new ban state when this edit flipped it, and is nil
+	// otherwise.
+	//
+	// It exists because the activity log is the only record of a ban, and
+	// "admin edited torrent: X" cannot answer the question anyone actually asks a
+	// week later — which of these entries was the ban, and was it ever lifted. A
+	// rename, a description tweak and a ban all reached the log as the same
+	// sentence before this field existed.
+	BannedChanged *bool `json:"banned_changed,omitempty"`
 }
 
 type TorrentDeletedEvent struct {

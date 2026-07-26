@@ -3,6 +3,7 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,7 +45,9 @@ func (m *mockTorrentRepo) GetByID(_ context.Context, id int64) (*model.Torrent, 
 			return t, nil
 		}
 	}
-	return nil, errors.New("not found")
+	// Wrapped sql.ErrNoRows, matching postgres.TorrentRepo: the service tells a
+	// genuine miss from a failed lookup, and a bare error would hide that branch.
+	return nil, fmt.Errorf("scanning torrent %d: %w", id, sql.ErrNoRows)
 }
 
 func (m *mockTorrentRepo) GetByInfoHash(_ context.Context, infoHash []byte) (*model.Torrent, error) {

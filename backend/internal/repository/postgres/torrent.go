@@ -134,6 +134,16 @@ func (r *TorrentRepo) List(ctx context.Context, opts repository.ListTorrentsOpti
 		args = append(args, *opts.UploaderID)
 	}
 
+	if len(opts.InfoHash) > 0 {
+		conditions = append(conditions, fmt.Sprintf("t.info_hash = %s", nextArg()))
+		args = append(args, opts.InfoHash)
+	}
+
+	if opts.Banned != nil {
+		conditions = append(conditions, fmt.Sprintf("t.banned = %s", nextArg()))
+		args = append(args, *opts.Banned)
+	}
+
 	if opts.ExcludeAnonymous {
 		conditions = append(conditions, "t.anonymous = false")
 	}
@@ -307,20 +317,26 @@ func moderationStatusOrDefault(s string) string {
 	return s
 }
 
+// Update writes the editable fields of a torrent.
+//
+// Deliberately NOT seeders, leechers, times_completed or comments_count. Those are
+// maintained by the announce path and the comment path with relative statements
+// (`seeders = GREATEST(0, seeders + $1)`), so writing them from a struct made every
+// edit a read-modify-write that silently reverted whatever announced in between.
+// One admin banning one torrent lost a few announces; banning a hundred in a batch
+// lost a burst of them across the busiest rows on the tracker.
 func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error {
 	query := `UPDATE torrents SET
 		name = $1, info_hash = $2, size = $3, description = $4, nfo = $5,
-		category_id = $6, uploader_id = $7, anonymous = $8, seeders = $9,
-		leechers = $10, times_completed = $11, comments_count = $12,
-		visible = $13, banned = $14, free = $15, silver = $16,
-		file_count = $17, files = $18, metadata = $19, updated_at = NOW()
-	WHERE id = $20
+		category_id = $6, uploader_id = $7, anonymous = $8,
+		visible = $9, banned = $10, free = $11, silver = $12,
+		file_count = $13, files = $14, metadata = $15, updated_at = NOW()
+	WHERE id = $16
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
 		torrent.Name, torrent.InfoHash, torrent.Size, torrent.Description,
 		torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
-		torrent.Seeders, torrent.Leechers, torrent.TimesCompleted, torrent.CommentsCount,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver,
 		torrent.FileCount, torrent.Files, metadataOrDefault(torrent.Metadata), torrent.ID,
 	).Scan(&torrent.UpdatedAt)

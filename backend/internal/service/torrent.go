@@ -507,8 +507,9 @@ func (s *TorrentService) DownloadTorrent(ctx context.Context, torrentID, userID 
 func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions, req EditTorrentRequest) (*model.Torrent, error) {
 	torrent, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
-		return nil, ErrTorrentNotFound
+		return nil, notFoundOrWrapped(err, "load torrent for edit")
 	}
+	wasBanned := torrent.Banned
 
 	isOwner := torrent.UploaderID == userID
 
@@ -577,20 +578,173 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 		return nil, fmt.Errorf("update torrent: %w", err)
 	}
 
+	// Only when the flag actually moved: an edit that leaves it alone must not log
+	// as a ban, and re-banning an already-banned torrent is not news.
+	var bannedChanged *bool
+	if torrent.Banned != wasBanned {
+		banned := torrent.Banned
+		bannedChanged = &banned
+	}
+
 	s.eventBus.Publish(ctx, &event.TorrentEditedEvent{
-		Base:        event.NewBase(event.TorrentEdited, s.actorFromUserID(ctx, userID)),
-		TorrentID:   torrent.ID,
-		TorrentName: torrent.Name,
+		Base:          event.NewBase(event.TorrentEdited, s.actorFromUserID(ctx, userID)),
+		TorrentID:     torrent.ID,
+		TorrentName:   torrent.Name,
+		BannedChanged: bannedChanged,
 	})
 
 	return torrent, nil
+}
+
+// notFoundOrWrapped maps a lookup error to ErrTorrentNotFound only when the row
+// genuinely is not there.
+//
+// Collapsing every error into "not found" is cheap for a single request — the
+// operator sees one 404 for one torrent in front of them — and actively misleading
+// in bulk, where a saturated connection pool reports as "18 of 25 not found" and an
+// admin reasonably concludes their ids were stale. Those torrents are live and
+// un-banned, and nothing recorded that anything went wrong.
+func notFoundOrWrapped(err error, what string) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrTorrentNotFound
+	}
+	return fmt.Errorf("%s: %w", what, err)
+}
+
+// BulkAction names an operation applied to several torrents in one request.
+type BulkAction string
+
+const (
+	BulkActionBan    BulkAction = "ban"
+	BulkActionUnban  BulkAction = "unban"
+	BulkActionDelete BulkAction = "delete"
+)
+
+// MaxBulkTorrents bounds one bulk request. Staff clearing out a bad release group
+// work in tens, not thousands, and a delete touches object storage per torrent —
+// an unbounded list would be a slow request holding a connection while it ran.
+const MaxBulkTorrents = 100
+
+// Outcomes for a single torrent in a bulk request. Strings rather than errors
+// because they cross the API boundary: the caller needs to render "3 of 12 could
+// not be found", not inspect a wrapped error.
+const (
+	BulkStatusOK        = "ok"
+	BulkStatusNotFound  = "not_found"
+	BulkStatusForbidden = "forbidden"
+	BulkStatusError     = "error"
+)
+
+// BulkTorrentResult is what happened to one torrent in a bulk request.
+type BulkTorrentResult struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+}
+
+// BulkModerate applies one moderation action to several torrents.
+//
+// Each torrent is handled independently and reported separately: a list of ids
+// typed or pasted by a moderator will contain ones that were already deleted, and
+// failing the whole request over them would mean the moderator has to work out
+// which of the twelve was the problem. Only the request itself being invalid — an
+// unknown action, an empty or over-long list — is an error.
+//
+// The work goes through EditTorrent and DeleteTorrent rather than reimplementing
+// them. That keeps one authorization gate, one set of events, and therefore one
+// activity-log entry per torrent, which is what makes a bulk ban auditable
+// afterwards as individual facts.
+func (s *TorrentService) BulkModerate(
+	ctx context.Context,
+	action BulkAction,
+	ids []int64,
+	actorID int64,
+	perms model.Permissions,
+) ([]BulkTorrentResult, error) {
+	// Gated here as well as on the route. DeleteTorrent authorises owner-or-staff,
+	// which is right for a member deleting their own upload and wrong for something
+	// called BulkModerate — without this, a caller reaching the service directly
+	// could delete a list of their own torrents through a moderation entry point.
+	// An authorization gate that exists only at the route is one refactor from gone.
+	if !perms.IsStaff() {
+		return nil, ErrForbidden
+	}
+
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: no torrent ids given", ErrInvalidTorrent)
+	}
+	if len(ids) > MaxBulkTorrents {
+		return nil, fmt.Errorf("%w: at most %d torrents per request, got %d",
+			ErrInvalidTorrent, MaxBulkTorrents, len(ids))
+	}
+
+	var apply func(context.Context, int64) error
+	switch action {
+	case BulkActionBan, BulkActionUnban:
+		banned := action == BulkActionBan
+		apply = func(ctx context.Context, id int64) error {
+			_, err := s.EditTorrent(ctx, id, actorID, perms, EditTorrentRequest{Banned: &banned})
+			return err
+		}
+	case BulkActionDelete:
+		apply = func(ctx context.Context, id int64) error {
+			return s.DeleteTorrent(ctx, id, actorID, perms)
+		}
+	default:
+		return nil, fmt.Errorf("%w: unknown bulk action %q", ErrInvalidTorrent, action)
+	}
+
+	// Deduplicated. A repeated id would otherwise be logged twice, and for a delete
+	// the second pass would report not_found for work that had just succeeded —
+	// reading as a partial failure when nothing failed.
+	seen := make(map[int64]struct{}, len(ids))
+	results := make([]BulkTorrentResult, 0, len(ids))
+
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+
+		// Stop rather than grind through the rest: once the request is cancelled or
+		// timed out, every remaining id would fail for that reason and be reported
+		// as though something were wrong with the torrent.
+		if err := ctx.Err(); err != nil {
+			slog.Warn("bulk torrent moderation abandoned mid-batch",
+				"action", action, "actor_id", actorID, "completed", len(results),
+				"requested", len(ids), "error", err)
+			break
+		}
+
+		if id <= 0 {
+			results = append(results, BulkTorrentResult{ID: id, Status: BulkStatusNotFound})
+			continue
+		}
+
+		err := apply(ctx, id)
+		switch {
+		case err == nil:
+			results = append(results, BulkTorrentResult{ID: id, Status: BulkStatusOK})
+		case errors.Is(err, ErrTorrentNotFound):
+			results = append(results, BulkTorrentResult{ID: id, Status: BulkStatusNotFound})
+		case errors.Is(err, ErrForbidden):
+			results = append(results, BulkTorrentResult{ID: id, Status: BulkStatusForbidden})
+		default:
+			// Logged, not summarised away: "error" tells the moderator something
+			// went wrong, and this is the only record of what.
+			slog.Error("bulk torrent moderation failed for one torrent",
+				"action", action, "torrent_id", id, "actor_id", actorID, "error", err)
+			results = append(results, BulkTorrentResult{ID: id, Status: BulkStatusError})
+		}
+	}
+
+	return results, nil
 }
 
 // DeleteTorrent removes a torrent and its stored file. Only the owner or staff may delete.
 func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID int64, perms model.Permissions) error {
 	torrent, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
-		return ErrTorrentNotFound
+		return notFoundOrWrapped(err, "load torrent for delete")
 	}
 
 	isOwner := torrent.UploaderID == userID
@@ -599,15 +753,20 @@ func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID in
 		return ErrForbidden
 	}
 
-	// Delete from storage first (best effort — log and continue if file missing)
-	storageKey := fmt.Sprintf("torrents/%d.torrent", torrentID)
-	if err := s.storage.Delete(ctx, storageKey); err != nil {
-		slog.Warn("torrent file not found in storage (may already be deleted)", "torrent_id", torrentID, "error", err)
-	}
-
-	// Delete from DB
+	// Row first, then the blob. The other order leaves a torrent still listed and
+	// still announcing with its .torrent gone — broken in a way a member notices
+	// and staff cannot explain. This way a failure leaves an orphaned object in
+	// storage, which costs disk and nothing else.
 	if err := s.torrents.Delete(ctx, torrentID); err != nil {
 		return fmt.Errorf("delete torrent: %w", err)
+	}
+
+	// Best effort: the row is already gone, so a missing or unreachable blob must
+	// not turn a completed delete into a failure the caller would retry.
+	storageKey := fmt.Sprintf("torrents/%d.torrent", torrentID)
+	if err := s.storage.Delete(ctx, storageKey); err != nil {
+		slog.Warn("torrent row deleted but its file could not be removed",
+			"torrent_id", torrentID, "storage_key", storageKey, "error", err)
 	}
 
 	s.eventBus.Publish(ctx, &event.TorrentDeletedEvent{

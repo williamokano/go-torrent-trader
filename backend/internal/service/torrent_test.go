@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -71,6 +73,9 @@ type memTorrentRepo struct {
 	mu       sync.Mutex
 	torrents []*model.Torrent
 	nextID   int64
+	// getErr stands in for a lookup that failed rather than found nothing, so the
+	// two can be told apart in a test the way they are told apart in production.
+	getErr error
 }
 
 func newMemTorrentRepo() *memTorrentRepo {
@@ -80,12 +85,18 @@ func newMemTorrentRepo() *memTorrentRepo {
 func (m *memTorrentRepo) GetByID(_ context.Context, id int64) (*model.Torrent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
 	for _, t := range m.torrents {
 		if t.ID == id {
 			return t, nil
 		}
 	}
-	return nil, errors.New("not found")
+	// Wrapped sql.ErrNoRows, exactly as postgres.TorrentRepo returns it. The
+	// service distinguishes a genuine miss from a failed lookup — a bare error here
+	// would report a saturated connection pool as "this torrent does not exist".
+	return nil, fmt.Errorf("scanning torrent %d: %w", id, sql.ErrNoRows)
 }
 
 func (m *memTorrentRepo) GetByInfoHash(_ context.Context, infoHash []byte) (*model.Torrent, error) {

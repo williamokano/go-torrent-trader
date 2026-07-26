@@ -7,6 +7,13 @@ interface ConfirmModalProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /**
+   * Shown on the confirm button while `loading`. Defaults to "Deleting..." because
+   * that is what this modal used to be hardcoded to and every existing caller
+   * deletes — but it now also drives ban and unban, where a button reading
+   * "Deleting..." is the copy most likely to make someone panic-cancel.
+   */
+  loadingLabel?: string;
   danger?: boolean;
   loading?: boolean;
   onConfirm: () => void;
@@ -19,6 +26,7 @@ export function ConfirmModal({
   message,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  loadingLabel = "Deleting...",
   danger = false,
   loading = false,
   onConfirm,
@@ -42,7 +50,7 @@ export function ConfirmModal({
           onClick={onConfirm}
           disabled={loading}
         >
-          {loading ? "Deleting..." : confirmLabel}
+          {loading ? loadingLabel : confirmLabel}
         </button>
       </div>
     </Modal>
