@@ -177,7 +177,7 @@ func TestCutoverCriticalColumns(t *testing.T) {
 	}{
 		{"users", "passkey", "passkey", "", "already-downloaded .torrent files announce with this key"},
 		{"users", "id", "id", "", "foreign keys across the dump resolve against it"},
-		{"users", "password", "password_hash", TransformLegacyHash, "nobody should be asked to reset a password"},
+		{"users", "password", "password_hash", TransformLegacyHash, "it is the only copy of the hash, and #228's verification will need it"},
 		{"torrents", "info_hash", "info_hash", TransformHexToBytea, "40 hex characters must become the 20 bytes the tracker compares"},
 		{"torrents", "id", "id", "", "peers and completions refer to it"},
 	}
@@ -221,6 +221,27 @@ func TestInvertedColumnsAreMarkedInverted(t *testing.T) {
 			t.Errorf("%s.%s uses transform %q, want %q — its sense is reversed in the target",
 				tc.table, tc.column, rule.Transform, TransformYesNoToBoolInverted)
 		}
+	}
+}
+
+// The password rule must not promise that logins survive a cutover. They do
+// not: the backend verifies only argon2id, so a migrated member is locked out
+// until #228 lands. This repository claimed otherwise for a long time, and the
+// claim was copied into the website and into every generated mapping.
+func TestPasswordRuleDoesNotPromiseWorkingLogins(t *testing.T) {
+	rule := Plan()["users"].Columns["password"]
+
+	for _, forbidden := range []string{
+		"nobody is asked to reset",
+		"re-hashes to argon2id, so",
+		"verifies the legacy scheme once",
+	} {
+		if strings.Contains(rule.Comment, forbidden) {
+			t.Errorf("the password rule still claims logins survive the cutover: %q", rule.Comment)
+		}
+	}
+	if !strings.Contains(rule.Comment, "#228") {
+		t.Errorf("the password rule does not point at the issue that has to land first: %q", rule.Comment)
 	}
 }
 

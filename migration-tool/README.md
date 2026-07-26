@@ -180,8 +180,8 @@ control.
         action: migrate
         target: users
         columns:
-            # Carried across as-is. The backend verifies the legacy scheme once
-            # and re-hashes to argon2id, so nobody is asked to reset a password.
+            # Carried across as-is, and it will not let anyone log in yet: the
+            # backend verifies only argon2id (#228).
             password:
                 type: varchar(40)
                 charset: latin1
@@ -205,7 +205,7 @@ control.
                 action: custom
         # Target columns filled from something other than a single legacy column.
         derived:
-            password_scheme: the scheme the legacy hash is in, so the backend can verify it once and re-hash to argon2id at next login
+            password_scheme: the scheme the legacy hash is in. The backend verifies only argon2id today (#228), so this is recorded for when it can
             warn_until: NULL — legacy warnings are a flag with no expiry
 ```
 
@@ -368,9 +368,22 @@ Two things must survive the cutover, and the mapping treats both as such:
   the 20 raw bytes the tracker compares against. A torrent whose hash does not
   survive stops announcing.
 
-Password hashes are migrated as-is. The backend verifies the legacy scheme
-(SHA1/MD5/HMAC) once and re-hashes to Argon2id at that member's next login, so
-nobody is asked to reset a password.
+### Passwords do not work yet
+
+Password hashes are migrated as-is, and **that is not enough for anyone to log
+in**. `service.VerifyPassword` in the backend accepts Argon2id and nothing else:
+given a legacy hash it fails to parse it before any comparison happens. So every
+migrated member is locked out until #228 adds legacy verification.
+
+The hashes are migrated regardless, because they are the only copy and the
+verification that is coming will need them. What must not happen is an operator
+reading a promise this repository has made for some time and has never kept —
+the claim that logins survive a cutover predates the migration work and was
+inherited by everything downstream of it, including this file.
+
+Until #228 lands, the honest instruction is that every member resets their
+password after the migration. Passkeys are unaffected: those are copied exactly
+and keep working, so existing `.torrent` files keep announcing.
 
 Features the port deliberately dropped — polls, the widget system, server-side
 themes, the word censor and others — have their tables marked `skip` with the

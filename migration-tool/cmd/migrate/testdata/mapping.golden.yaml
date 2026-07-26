@@ -764,7 +764,7 @@ tables:
                 charset: latin1
                 action: map
                 target: username
-            # Carried across as-is. The backend verifies the legacy scheme once and re-hashes to argon2id, so nobody is asked to reset a password.
+            # Carried across as-is, and it will not let anyone log in yet: the backend verifies only argon2id, so a legacy hash fails to parse before any comparison happens (#228). Until that is fixed, plan on every member resetting their password after the cutover. The hash is migrated anyway because it is the only copy, and the verification that is coming will need it.
             password:
                 type: varchar(40)
                 charset: latin1
@@ -987,6 +987,6 @@ tables:
             can_upload: true — the legacy schema grants this by class, not per member, and groups.can_upload already carries it
             disabled_until: NULL — legacy enabled is permanent, not timed
             parked: false
-            password_scheme: the scheme the legacy hash is in, so the backend can verify it once and re-hash to argon2id at next login
+            password_scheme: the scheme the legacy hash is in. The backend verifies only argon2id today (#228), so this is recorded for when it can
             updated_at: added, the registration date — the legacy schema records no modification time
             warn_until: NULL — legacy warnings are a flag with no expiry, so a warned member stays warned until staff clear it

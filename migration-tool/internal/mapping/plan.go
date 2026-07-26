@@ -31,7 +31,13 @@ const (
 	// TransformTextToInet parses a text address into an INET value.
 	TransformTextToInet = "text_to_inet"
 	// TransformLegacyHash carries a legacy password hash across unchanged and
-	// records its scheme, so the backend can verify it once and re-hash.
+	// records which scheme it is in.
+	//
+	// The backend cannot yet verify anything but argon2id (#228), so a member
+	// whose hash arrives this way cannot log in until that lands. The hash is
+	// still carried, because it is the only copy and it is what the
+	// verification will need; what must not happen is an operator being told
+	// this works today.
 	TransformLegacyHash = "legacy_hash"
 	// TransformBBCodeToMarkdown converts BBCode body text to Markdown.
 	TransformBBCodeToMarkdown = "bbcode_to_markdown"
@@ -112,7 +118,7 @@ func usersPlan() TablePlan {
 		Target:  "users",
 		Comment: "Members keep their id and passkey, so existing .torrent files keep announcing and every foreign key in the dump resolves without a translation table.",
 		Derived: map[string]string{
-			"password_scheme": "the scheme the legacy hash is in, so the backend can verify it once and re-hash to argon2id at next login",
+			"password_scheme": "the scheme the legacy hash is in. The backend verifies only argon2id today (#228), so this is recorded for when it can",
 			"bonus_points":    "0 — TorrentTrader 3.0 has no bonus economy",
 			"parked":          "false",
 			"updated_at":      "added, the registration date — the legacy schema records no modification time",
@@ -127,7 +133,7 @@ func usersPlan() TablePlan {
 		Columns: map[string]Rule{
 			"id":           mapTo("id", "", "Kept, so foreign keys across the dump resolve without a translation table."),
 			"username":     mapTo("username", "", "Legacy varchar(40) against a target varchar(20). Names longer than 20 characters have to be shortened before the run — nothing checks this yet, so find them with SELECT username FROM users WHERE CHAR_LENGTH(username) > 20."),
-			"password":     mapTo("password_hash", TransformLegacyHash, "Carried across as-is. The backend verifies the legacy scheme once and re-hashes to argon2id, so nobody is asked to reset a password."),
+			"password":     mapTo("password_hash", TransformLegacyHash, "Carried across as-is, and it will not let anyone log in yet: the backend verifies only argon2id, so a legacy hash fails to parse before any comparison happens (#228). Until that is fixed, plan on every member resetting their password after the cutover. The hash is migrated anyway because it is the only copy, and the verification that is coming will need it."),
 			"secret":       skip("Legacy session token. Sessions are re-established at first login."),
 			"editsecret":   skip("Email-change token; the new flow issues its own."),
 			"email":        mapTo("email", "", ""),

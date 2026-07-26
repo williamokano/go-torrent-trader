@@ -325,12 +325,23 @@ tracker.example.com {
             if you would rather not build it. The tool only ever reads from the
             old database.
           </p>
+          <div class="note">
+            <p>
+              <strong>Passwords will not carry over yet.</strong> The tracker
+              currently verifies only its own password format, so a hash brought
+              across from an older install cannot be checked and the member
+              cannot log in. Plan on everyone resetting their password after a
+              migration until that is fixed — it is
+              <a
+                href="https://github.com/williamokano/go-torrent-trader/issues/228"
+                >tracked as issue 228</a
+              >, and this page will say otherwise when it is true.
+            </p>
+          </div>
           <p>
-            Passwords are carried over as they are — the tracker recognises the
-            old hashes and quietly upgrades each one at that member's next
-            login, so nobody is asked to reset anything. Passkeys are kept too,
-            which means <code>.torrent</code> files your members already have
-            keep working.
+            Passkeys are a different matter: those are copied exactly, so the
+            <code>.torrent</code> files your members already have keep
+            announcing and nobody has to re-download anything.
           </p>
         </div>
       </section>
