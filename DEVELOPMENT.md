@@ -1,7 +1,7 @@
 # Development
 
 Everything you need to work on TorrentTrader. If you only want to *run* a tracker,
-the [README](README.md) and the [project site](https://williamokano.github.io/go-torrent-trader/)
+the [README](README.md) and the [project site](https://okano.dev/go-torrent-trader/)
 are the right places.
 
 ## Prerequisites

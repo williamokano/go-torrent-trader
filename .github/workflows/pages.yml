@@ -1,22 +1,18 @@
 name: Project site
 
-# Publishes website/ to GitHub Pages.
+# Publishes website/ to GitHub Pages on every change to the site.
 #
-# Manual-only for now, deliberately. Two things must happen before the site should
-# go live:
+# Pages is enabled with "GitHub Actions" as the source, and the project is MIT
+# licensed, so the two things that previously held publication back are settled.
 #
-#   1. Pages must be enabled with "GitHub Actions" as the source (Settings → Pages).
-#      Without it this job fails, which would put a red X on main for no reason.
-#   2. A LICENSE must be chosen. Every page of the site says the project is free to
-#      use and fork, and nothing currently grants that.
-#
-# Once both are done, add the push trigger back so the site tracks main:
-#
-#   push:
-#     branches: [main]
-#     paths: ['website/**', '.github/workflows/pages.yml']
-#
+# The site lives at https://okano.dev/go-torrent-trader/ — the account has a
+# verified custom domain, so this is NOT the github.io URL you might expect.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
