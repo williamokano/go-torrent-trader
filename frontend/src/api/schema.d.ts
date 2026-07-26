@@ -631,6 +631,361 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/forums": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List forum categories and their forums
+     * @description Returns the forum index: categories in display order, each with the forums inside it. Forums the caller's group level cannot reach are omitted, so this is already filtered to what the member may open. A category left with no readable forums is dropped from the index entirely rather than returned empty, so every category here has at least one forum in it and the index a member sees may be shorter than the one an operator configured.
+     */
+    get: operations["listForums"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/search": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Full-text search across forum posts
+     * @description Searches post bodies. Results are restricted to forums the caller may read, so a search cannot be used to discover the contents of a forum above the member's level.
+     *     Each result carries `post_number` (the post's position in its topic) and the `page` that position falls on at 25 posts per page, so a client can link straight to the post rather than to the top of the topic.
+     *     `snippet` is HTML: the matched terms are wrapped in `<mark>` tags and everything else is escaped. It is safe to render as markup and wrong to display as plain text.
+     */
+    get: operations["searchForumPosts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get one forum */
+    get: operations["getForum"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/{id}/topics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List topics in a forum
+     * @description Pinned topics first, then by most recent activity. The response repeats the forum itself so a client can render a header without a second request, and carries `can_create_topic` — posting has its own level threshold (`min_post_level`), which can be higher than the one needed to read.
+     */
+    get: operations["listForumTopics"];
+    put?: never;
+    /**
+     * Start a topic
+     * @description Creates the topic and its first post in one call, and returns both. The first post cannot be deleted on its own — deleting the topic is what removes it.
+     */
+    post: operations["createForumTopic"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a topic and a page of its posts
+     * @description Reading a topic increments its view count.
+     *     Soft-deleted posts are still returned, with `is_deleted` true — a gap in the numbering would be more confusing than a placeholder. Their `body` and `mentioned_usernames` are blanked for anyone but staff, so a deleted post cannot be read through this endpoint by the member it was hidden from.
+     */
+    get: operations["getForumTopic"];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a topic and every post in it
+     * @description Published rather than internal because the author may delete their own topic within 30 minutes of creating it — a typo in a new thread does not need staff. After that window it is staff-only, and a staff member cannot delete a topic started by someone who outranks them.
+     *     The optional `reason` is recorded in the activity log.
+     */
+    delete: operations["deleteForumTopic"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/posts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reply to a topic
+     * @description `@mentions` in the body notify the members named, and the usernames that resolved come back in `mentioned_usernames`.
+     */
+    post: operations["createForumPost"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/posts/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Edit a post
+     * @description The author may edit their own post; staff may edit anyone's, and the optional `reason` is stored on the edit-history row for that case.
+     *     An edit whose body is identical to the current one is a no-op: it returns **200** with the post unchanged, writes no history row, and does not move `edited_at`.
+     *     Returns **409** only when another edit commits between *this request's* read of the post and its write — the comparison baseline is the body the server just read, not anything the client sent. This is **not** optimistic concurrency against the copy you are holding: there is no version, ETag or expected-body field to send, so a client editing from a body that is already stale overwrites the newer one and gets 200. Re-read the post immediately before submitting.
+     */
+    put: operations["editForumPost"];
+    post?: never;
+    /**
+     * Delete a post
+     * @description A soft delete: the post keeps its place in the topic marked `is_deleted`, and staff can still read it and restore it. The author may delete their own post; staff may delete anyone's.
+     *     The first post of a topic cannot be deleted this way — delete the topic instead. That returns **400**, not 403: it is not a permission problem.
+     */
+    delete: operations["deleteForumPost"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/posts/{id}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Restore a soft-deleted post (staff only)
+     * @description Undoes a delete. Staff-only, enforced in the service rather than by the route, which is why this is withheld from the published document despite sitting on an ordinary member path.
+     *     Restoring a post that is not deleted is a **400** — the request describes a state that does not exist, rather than being refused.
+     */
+    post: operations["restoreForumPost"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/posts/{id}/edits": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A post's edit history (staff only)
+     * @description Every revision of the post, **newest first**, each with the body before and after. Staff-only: the history includes bodies an author may since have removed, and the `reason` a staff editor recorded.
+     *     The order is not cosmetic. Revisions are stored as reversible diffs rather than snapshots, and the bodies are reconstructed by walking backwards from the post's current text — so newest-first is the order the reconstruction produces. If a diff fails to replay, that revision and every older one carry `reconstruction_failed` with blank bodies.
+     *     Withheld from the published document for the same reason as the restore endpoint — the gate is in the service, not the path.
+     */
+    get: operations["listForumPostEdits"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/lock": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Lock a topic
+     * @description A locked topic can still be read; replies are refused with 403.
+     *     Published rather than internal for the same reason as deleting a topic: the author may lock their own topic within 30 minutes of creating it, without being staff. After that window it is staff-only and subject to the moderation hierarchy — a topic started by someone who outranks the caller cannot be locked by them.
+     *     Unlocking is staff-only with no such allowance, so an author who locks their own thread cannot reopen it.
+     */
+    post: operations["lockForumTopic"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/unlock": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Unlock a topic (staff only) */
+    post: operations["unlockForumTopic"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/pin": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Pin a topic to the top of its forum (staff only) */
+    post: operations["pinForumTopic"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/unpin": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Unpin a topic (staff only) */
+    post: operations["unpinForumTopic"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/title": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Rename a topic
+     * @description Published rather than internal because this is not staff-only: the topic's author may rename their own topic, with **no** time limit — unlike locking and deleting, which the author may only do within 30 minutes of creating the topic. Staff may rename anyone's, subject to the moderation hierarchy.
+     *     An author cannot rename a locked topic; staff can. Note that `can_moderate` on the topic response does not describe this endpoint: it can be `false` while the author may still rename.
+     *     The optional `reason` is recorded in the activity log.
+     */
+    put: operations["renameForumTopic"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/move": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Move a topic to another forum (staff only)
+     * @description Moving a topic to the forum it is already in is a **400**, not a silent no-op: it almost always means the wrong destination was picked.
+     */
+    post: operations["moveForumTopic"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/subscribe": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Subscribe to a topic
+     * @description Notifies the caller when someone replies. Subscribing re-checks forum access, so a subscription cannot be used to receive content from a forum the member has since lost access to.
+     */
+    post: operations["subscribeToForumTopic"];
+    /**
+     * Unsubscribe from a topic
+     * @description Idempotent: unsubscribing when not subscribed succeeds. No forum access check — losing access must never leave a member unable to stop notifications.
+     */
+    delete: operations["unsubscribeFromForumTopic"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/forums/topics/{id}/subscription": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Whether the caller is subscribed to a topic */
+    get: operations["getForumTopicSubscription"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -961,6 +1316,232 @@ export interface components {
       torrent_id?: number;
       /** @description Reason for the report */
       reason: string;
+    };
+    /** @description A heading in the forum index with the forums under it. Forums above the caller's group level are omitted, and a category whose every forum is above their level is not returned at all — so `forums` is never empty. */
+    ForumCategory: {
+      /** Format: int64 */
+      id?: number;
+      name?: string;
+      sort_order?: number;
+      forums?: components["schemas"]["Forum"][];
+    };
+    Forum: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      category_id?: number;
+      name?: string;
+      description?: string;
+      sort_order?: number;
+      topic_count?: number;
+      post_count?: number;
+      /** @description The group level needed to read this forum */
+      min_group_level?: number;
+      /** @description The group level needed to post in it. Can be higher than `min_group_level`, which is how a read-only announcements forum is configured. */
+      min_post_level?: number;
+      /** Format: date-time */
+      created_at?: string;
+      /**
+       * Format: date-time
+       * @description Absent when the forum has never been posted in
+       */
+      last_post_at?: string;
+      /** @description Absent when the forum has never been posted in */
+      last_post_username?: string;
+      /**
+       * Format: int64
+       * @description Absent when the forum has never been posted in
+       */
+      last_post_topic_id?: number;
+      /** @description Absent when the forum has never been posted in */
+      last_post_topic_title?: string;
+    };
+    ForumTopic: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      forum_id?: number;
+      forum_name?: string;
+      /**
+       * Format: int64
+       * @description The member who started the topic
+       */
+      user_id?: number;
+      username?: string;
+      title?: string;
+      pinned?: boolean;
+      /** @description A locked topic can still be read; replies are refused */
+      locked?: boolean;
+      post_count?: number;
+      view_count?: number;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+      /**
+       * Format: date-time
+       * @description Points at the opening post from the moment the topic is created, so this is present on every topic — including one with no replies yet. It is not a "has replies" signal; compare `post_count` for that.
+       */
+      last_post_at?: string;
+      /** @description Present on every topic, naming the author for a topic with no replies. Since the opening post cannot be soft-deleted, this always resolves. */
+      last_post_username?: string;
+    };
+    ForumPost: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      topic_id?: number;
+      /** Format: int64 */
+      user_id?: number;
+      username?: string;
+      /** @description Null when the member has not set one */
+      avatar?: string | null;
+      group_name?: string;
+      /** @description Markdown. **Empty string** on a soft-deleted post for anyone but staff — the post keeps its place in the topic but its content is withheld. */
+      body?: string;
+      /**
+       * @description Members `@mentioned` in the body, as resolved when the post was last written **or edited** — an edit re-resolves them against the new body and replaces the stored list, so a mention removed by an edit disappears here. Empty array, not null, for a post with no mentions.
+       *     Null on a soft-deleted post for anyone but staff: who a hidden post named is as much of a disclosure as what it said.
+       */
+      mentioned_usernames?: string[] | null;
+      /** Format: date-time */
+      created_at?: string;
+      /**
+       * Format: date-time
+       * @description When the post's author joined the site, for the post's byline
+       */
+      user_created_at?: string;
+      /** @description The author's total post count, for the byline */
+      user_post_count?: number;
+      is_deleted?: boolean;
+      /** @description True for the post that opens the topic. It cannot be deleted on its own — deleting the topic is what removes it. */
+      is_first_post?: boolean;
+      /**
+       * Format: int64
+       * @description Absent unless this post replies to a specific other post
+       */
+      reply_to_post_id?: number;
+      /**
+       * Format: date-time
+       * @description Absent if never edited
+       */
+      edited_at?: string;
+      /**
+       * Format: int64
+       * @description User ID of whoever last edited it — an id, not a username, so a client showing a name has to resolve it. Absent if never edited.
+       */
+      edited_by?: number;
+      /**
+       * Format: date-time
+       * @description Absent unless deleted
+       */
+      deleted_at?: string;
+      /**
+       * Format: int64
+       * @description User ID of whoever deleted it. Present for staff only — a member is told their post was removed, not by whom.
+       */
+      deleted_by?: number;
+    };
+    /** @description One revision of a post, from the staff-only edit history. */
+    ForumPostEdit: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      post_id?: number;
+      /**
+       * Format: int64
+       * @description Null when the editing account has since been deleted
+       */
+      edited_by?: number | null;
+      /** @description The editor's username, absent when the account is gone */
+      username?: string;
+      /** @description The body before this edit. Blank and not meaningful when `reconstruction_failed` is true. */
+      old_body?: string;
+      /** @description The body after it. Blank and not meaningful when `reconstruction_failed` is true. */
+      new_body?: string;
+      /** Format: date-time */
+      created_at?: string;
+      /** @description The note a staff member left when editing someone else's post. Absent when the author edited their own, or when no reason was given. */
+      reason?: string;
+      /**
+       * @description True when this revision's stored diff could not be replayed. Revisions are held as reversible diffs and rebuilt by walking backwards from the post's current body, so a corrupt or raced row breaks the chain: this revision **and every older one on the same post** get blank `old_body`/`new_body` and this flag, rather than fabricated or silently missing content. Render it as "history unavailable".
+       *     Absent rather than `false` when reconstruction succeeded.
+       */
+      reconstruction_failed?: boolean;
+    };
+    ForumSearchResult: {
+      /** Format: int64 */
+      post_id?: number;
+      /** Format: int64 */
+      topic_id?: number;
+      topic_title?: string;
+      /** Format: int64 */
+      forum_id?: number;
+      forum_name?: string;
+      /** Format: int64 */
+      user_id?: number;
+      username?: string;
+      /** @description The full post body */
+      body?: string;
+      /**
+       * @description **HTML, not plain text.** The matched terms are wrapped in `<mark>` tags and every other character is escaped, so it is safe to render as markup and will show visible tags if rendered as text.
+       * @example the <mark>seedbox</mark> guide everyone links to
+       */
+      snippet?: string;
+      /** Format: date-time */
+      created_at?: string;
+      /** @description The post's 1-based position within its topic */
+      post_number?: number;
+      /** @description Which page of the topic `post_number` falls on at 25 posts per page, so a client can deep-link to the post rather than the top of the thread. */
+      page?: number;
+    };
+    ForumTopicSubscription: {
+      subscribed?: boolean;
+    };
+    /** @description What the topic moderation endpoints return. Deliberately not the updated topic: the client already knows what it asked for, and re-reading the topic is a separate request it may not need. */
+    ForumModerationResult: {
+      /** @example topic locked */
+      message?: string;
+    };
+    /** @description The optional note recorded in the activity log alongside a moderation action. The whole body is optional — an unparseable or absent body is treated as no reason rather than as an error, so a client that sends nothing still works. */
+    ForumModerationReason: {
+      /** @description Truncated to 500 characters if longer */
+      reason?: string;
+    };
+    CreateForumTopicRequest: {
+      /** @description Trimmed of surrounding whitespace, then rejected if empty or longer than 200 runes. */
+      title: string;
+      /** @description Markdown, becomes the topic's first post */
+      body: string;
+    };
+    CreateForumPostRequest: {
+      /** @description Markdown. `@mentions` notify the members named. */
+      body: string;
+      /**
+       * Format: int64
+       * @description Marks this post as a reply to another one in the same topic. A post from a different topic is rejected.
+       */
+      reply_to_post_id?: number;
+    };
+    EditForumPostRequest: {
+      body: string;
+      /** @description Why the post was edited, stored on the edit-history row. Meant for a staff member editing someone else's post; truncated to 500 runes. */
+      reason?: string;
+    };
+    RenameForumTopicRequest: {
+      /** @description Trimmed of surrounding whitespace, then rejected if empty or longer than 200 runes. */
+      title: string;
+      /** @description Recorded in the activity log. Unlike the reason on the other moderation endpoints this one is **not** capped or truncated — see #230. Do not rely on the absence of a limit; it is a bug rather than a guarantee. */
+      reason?: string;
+    };
+    MoveForumTopicRequest: {
+      /**
+       * Format: int64
+       * @description The destination forum. Must not be the topic's current forum.
+       */
+      forum_id: number;
+      /** @description Recorded in the activity log. Unlike the reason on the other moderation endpoints this one is **not** capped or truncated — see #230. Do not rely on the absence of a limit; it is a bug rather than a guarantee. */
+      reason?: string;
     };
     Report: {
       /** Format: int64 */
@@ -2938,6 +3519,1431 @@ export interface operations {
       };
       /** @description Torrent not found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listForums: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The forum index */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            categories?: components["schemas"]["ForumCategory"][];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  searchForumPosts: {
+    parameters: {
+      query: {
+        /** @description The search terms, measured in runes. A `q` that passes those bounds but reduces to no usable search terms returns an empty 200, not a 400. */
+        q: string;
+        /** @description Restrict the search to one forum */
+        forum_id?: number;
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Matching posts, most relevant first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            results?: components["schemas"]["ForumSearchResult"][];
+            /** Format: int64 */
+            total?: number;
+            /** @description Echoes the value as **requested**, not as applied — a non-positive or unparseable `page` serves page 1 but is reported back verbatim (`0` for an unparseable one). Paginate from your own counter, not from this field. Tracked in #236. */
+            page?: number;
+            /** @description Echoes the value as **requested**, not as applied. `per_page` is capped at 100 server-side, so `?per_page=500` returns 100 results and reports 500 here. Tracked in #236. */
+            per_page?: number;
+          };
+        };
+      };
+      /** @description `q` was absent, shorter than 2 runes, longer than 200, or `forum_id` was not a positive number */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getForum: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The forum */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            forum?: components["schemas"]["Forum"];
+          };
+        };
+      };
+      /** @description Invalid forum ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The forum is above the caller's group level */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forum not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listForumTopics: {
+    parameters: {
+      query?: {
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of topics */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            forum?: components["schemas"]["Forum"];
+            topics?: components["schemas"]["ForumTopic"][];
+            /** Format: int64 */
+            total?: number;
+            /** @description Echoes the value as **requested**, not as applied. See #236. */
+            page?: number;
+            /** @description Echoes the value as **requested**, not as applied; the server caps it at 100. See #236. */
+            per_page?: number;
+            /** @description Whether the caller's group level reaches the forum's `min_post_level`. It is **only** a level check: it does not account for a revoked forum privilege, so a member whose posting has been suspended sees `true` here and still gets 403 from the create call. Tracked in #235. */
+            can_create_topic?: boolean;
+          };
+        };
+      };
+      /** @description Invalid forum ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The forum is above the caller's group level */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forum not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  createForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateForumTopicRequest"];
+      };
+    };
+    responses: {
+      /** @description The new topic and its first post, returned **as just written**. Unlike every other forum response, these two are not re-read after the insert, so the fields that come from joins are absent or zero-valued here: `username`, `forum_name`, `group_name` are empty strings, `avatar` is null, `user_created_at` is the zero time, `user_post_count` is 0, and `is_first_post` is `false` even though this post by definition opens the topic. Re-read the topic to get a fully populated shape. Tracked in #229; when that is fixed this caveat goes away. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            topic?: components["schemas"]["ForumTopic"];
+            post?: components["schemas"]["ForumPost"];
+          };
+        };
+      };
+      /** @description Invalid forum ID, unparseable body, an empty title or body, or a title longer than 200 runes */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The caller's group level is below the forum's `min_post_level`, they cannot read the forum at all, or their forum privilege has been revoked (`can_forum`) — the last of these is the common case in practice and is not reflected in `can_create_topic` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Forum not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getForumTopic: {
+    parameters: {
+      query?: {
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The topic and one page of posts */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            topic?: components["schemas"]["ForumTopic"];
+            posts?: components["schemas"]["ForumPost"][];
+            /** Format: int64 */
+            total?: number;
+            /** @description Echoes the value as **requested**, not as applied. See #236. */
+            page?: number;
+            /** @description Echoes the value as **requested**, not as applied; the server caps it at 100. See #236. */
+            per_page?: number;
+            /**
+             * @description True for staff who also pass the moderation hierarchy check — so it is not simply "is staff", and is false for a staff member outranked by the topic's author — and true for the topic's own author within the 30-minute grace period after creating it.
+             *     It is **not** a single permission. An author who holds it by the grace period may lock and delete but not pin, unpin or move, which are staff-only regardless. Renaming is separate again: the author may rename their own topic with no time limit, so `can_moderate: false` does not mean rename is refused. Tracked in #235.
+             */
+            can_moderate?: boolean;
+          };
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The topic's forum is above the caller's group level */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ForumModerationReason"];
+      };
+    };
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the author inside the grace period, not staff, or staff outranked by the topic's author */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  createForumPost: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateForumPostRequest"];
+      };
+    };
+    responses: {
+      /** @description The new post */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            post?: components["schemas"]["ForumPost"];
+          };
+        };
+      };
+      /** @description Invalid topic ID, unparseable body, an empty body, or a `reply_to_post_id` that is not a post in this topic */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The topic is locked and the caller is not staff, its forum is above the caller's level, or the caller's forum privilege has been revoked (`can_forum`) — the last of these is the common case in practice */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The topic, or the forum it belongs to, was not found — the message names which */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  editForumPost: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EditForumPostRequest"];
+      };
+    };
+    responses: {
+      /** @description The edited post */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            post?: components["schemas"]["ForumPost"];
+          };
+        };
+      };
+      /** @description Invalid post ID, unparseable body, or an empty body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the author and not staff; the caller's forum privilege has been revoked (`can_forum`); the topic is locked and the caller is not staff; or the post's forum is above the caller's group level */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The post, its topic, or the forum they belong to was not found — the message names which */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Another edit committed between this request's read and its write. Error code `edit_conflict`; reload and retry. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteForumPost: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid post ID, or this is the topic's first post */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the author and not staff; the caller's forum privilege has been revoked (`can_forum`); the topic is locked and the caller is not staff; or the post's forum is above the caller's group level */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The post, its topic, or the forum they belong to was not found — the message names which */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  restoreForumPost: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restored */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid post ID, or the post is not deleted */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Post not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listForumPostEdits: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The post's revisions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** @description Arrives as JSON `null`, not `[]`, for a post that has never been edited — which is the common case for this endpoint. Tracked in #237. */
+            edits?: components["schemas"]["ForumPostEdit"][] | null;
+          };
+        };
+      };
+      /** @description Invalid post ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not staff */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Post not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  lockForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ForumModerationReason"];
+      };
+    };
+    responses: {
+      /** @description Locked */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumModerationResult"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the author inside the 30-minute grace period, not staff, or staff outranked by the topic's author. An author within the window is also refused if their forum privilege has been revoked (`can_forum`). */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  unlockForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ForumModerationReason"];
+      };
+    };
+    responses: {
+      /** @description Unlocked */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumModerationResult"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not staff, or outranked by the topic's author */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  pinForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ForumModerationReason"];
+      };
+    };
+    responses: {
+      /** @description Pinned */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumModerationResult"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not staff, or outranked by the topic's author */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  unpinForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ForumModerationReason"];
+      };
+    };
+    responses: {
+      /** @description Unpinned */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumModerationResult"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not staff, or outranked by the topic's author */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  renameForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RenameForumTopicRequest"];
+      };
+    };
+    responses: {
+      /** @description Renamed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumModerationResult"];
+        };
+      };
+      /** @description Invalid topic ID, unparseable body, an empty title, or a title longer than 200 runes */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not the author and not staff; an author whose forum privilege has been revoked (`can_forum`) or whose topic is locked; or staff outranked by the topic's author */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  moveForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MoveForumTopicRequest"];
+      };
+    };
+    responses: {
+      /** @description Moved */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumModerationResult"];
+        };
+      };
+      /** @description Invalid topic ID, unparseable body, a non-positive `forum_id`, or the topic is already in that forum */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not staff, or outranked by the topic's author */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic or destination forum not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  subscribeToForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Subscribed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumTopicSubscription"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The topic's forum is above the caller's group level */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Topic not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  unsubscribeFromForumTopic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Not subscribed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumTopicSubscription"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getForumTopicSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The caller's subscription state */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForumTopicSubscription"];
+        };
+      };
+      /** @description Invalid topic ID */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
         headers: {
           [name: string]: unknown;
         };

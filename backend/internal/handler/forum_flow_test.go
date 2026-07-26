@@ -986,6 +986,81 @@ func TestEditPostByStaffStoresOptionalReason(t *testing.T) {
 	}
 }
 
+// The spec says `deleted_by` is "present for staff only — a member is told
+// their post was removed, not by whom". That guarantee lives in the `isStaff`
+// argument every postResponse call site passes, so it has to be asserted
+// through a handler, not against postResponse directly: the schema guards in
+// openapi_forum_shapes_test.go exercise the function in isolation and would
+// stay green while a call site handed them a hardcoded `true` — which is
+// exactly what HandleEditPost did. Both directions are pinned here, because a
+// test that only proves a member is redacted also passes when nobody ever
+// sees the field.
+func TestEditPostDoesNotTellANonStaffAuthorWhoDeletedTheirPost(t *testing.T) {
+	deletedAt := time.Now().Add(-time.Hour)
+	moderatorID := int64(99)
+
+	newDeletedPost := func() *model.ForumPost {
+		return &model.ForumPost{
+			ID: 500, TopicID: 100, UserID: 7, Body: "old text",
+			DeletedAt: &deletedAt, DeletedBy: &moderatorID,
+		}
+	}
+
+	t.Run("the author is not told", func(t *testing.T) {
+		d := newForumDeps()
+		d.topics.topics[100] = &model.ForumTopic{ID: 100, ForumID: 1, UserID: 7}
+		d.posts.posts[500] = newDeletedPost()
+		h := d.handler()
+
+		req := withForumAuth(httptest.NewRequest(http.MethodPut, "/api/v1/forums/posts/500",
+			strings.NewReader(`{"body":"new text"}`)), 7, memberPerms())
+		req = withURLParam(req, "id", "500")
+		w := httptest.NewRecorder()
+		h.HandleEditPost(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+		post, ok := decodeBody(t, w)["post"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("response has no post object: %s", w.Body.String())
+		}
+		if v, present := post["deleted_by"]; present {
+			t.Errorf("deleted_by = %v, want the key absent — a member must not learn "+
+				"which staff member removed their post", v)
+		}
+	})
+
+	t.Run("staff is told", func(t *testing.T) {
+		d := newForumDeps()
+		d.topics.topics[100] = &model.ForumTopic{ID: 100, ForumID: 1, UserID: 7}
+		d.posts.posts[500] = newDeletedPost()
+		h := d.handler()
+
+		req := withForumAuth(httptest.NewRequest(http.MethodPut, "/api/v1/forums/posts/500",
+			strings.NewReader(`{"body":"new text"}`)), 1, staffPerms())
+		req = withURLParam(req, "id", "500")
+		w := httptest.NewRecorder()
+		h.HandleEditPost(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+		post, ok := decodeBody(t, w)["post"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("response has no post object: %s", w.Body.String())
+		}
+		got, present := post["deleted_by"]
+		if !present {
+			t.Fatalf("deleted_by is absent for staff, want %d — otherwise the "+
+				"non-staff assertion above passes for the wrong reason", moderatorID)
+		}
+		if n, isNum := got.(float64); !isNum || int64(n) != moderatorID {
+			t.Errorf("deleted_by = %v, want %d", got, moderatorID)
+		}
+	})
+}
+
 // Editing someone else's post is only for staff.
 func TestEditPostForbiddenForOtherPeoplesPosts(t *testing.T) {
 	d := newForumDeps()

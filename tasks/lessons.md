@@ -191,3 +191,35 @@ criterion against the code, not the marker. When you ship a partial story, put t
 scope in the status (`[DONE — X shipped; Y deferred]`) and annotate the unshipped
 bullets — the backlog's job is to be an honest history, and a bare `[DONE]` over
 unshipped work is how a security gap hides for months.
+
+## A test whose expectation is hand-typed proves nothing
+
+Documenting the forum endpoints (#238) meant pinning `map[string]interface{}` response
+builders to their OpenAPI schemas, since nothing else connected them. Three of the four
+assertions compared the schema against a value the *production code* produced. The
+fourth compared it against a hand-typed list of field names:
+
+```go
+want := []string{"created_at", "edited_by", "id", "new_body", "old_body", ...}
+```
+
+It passed. The schema was missing `reconstruction_failed` — a field `ListPostEdits`
+sets and the frontend already renders — because the list was written from the same
+reading of the struct, in the same sitting, as the schema it was checking. Both sides
+were the same memory, so they agreed. Its comment even claimed the test would force a
+future serialised field into the spec; it could not, and it had already failed to do so
+for a field that existed at the time.
+
+The fix was ten lines of reflection over the struct's json tags. Reverting the schema
+to the state that shipped then failed the test.
+
+**Rule:** an assertion is only worth what its expectation is derived from. If the
+expected value is typed by hand from the same source you are validating, the test
+encodes your belief rather than the system's behaviour — and it will be green for
+exactly the bug you were trying to prevent. Derive the expectation from the code
+(reflection, a fixture the production path builds, a real call) or don't write the
+assertion. This applies well beyond schemas: any hardcoded list of "the fields/routes/
+cases that exist" is a snapshot of an assumption.
+
+Corollary, from the same PR: mutation-test the guard by reverting the bug it was
+written to catch. If that does not fail, the guard is decoration.
