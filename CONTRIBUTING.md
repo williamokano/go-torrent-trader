@@ -130,10 +130,13 @@ because you want the software to be better.
 
 ## Licensing
 
-Contributions are made under the project's licence. Note that a licence file is still
-being chosen — see the open issue about it — so if you are contributing something
-substantial right now, it is worth waiting for that to land, or saying explicitly in
-your PR that you are happy for it to be licensed under whatever the project picks.
+The project is [MIT licensed](LICENSE), and contributions are accepted under the same
+terms. Opening a pull request means you are happy for your work to be distributed
+under MIT — including by people who fork it, change it, and never tell you.
+
+You keep the copyright on what you write. The licence line names "William Okano and
+the TorrentTrader contributors", which includes you the moment your first change is
+merged.
 
 ---
 

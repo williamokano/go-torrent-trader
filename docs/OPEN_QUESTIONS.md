@@ -180,3 +180,34 @@ consequence. Scheduling stays UTC because it has one.
 ### 21. Log Aggregation
 
 **Decision:** stdout/stderr — 12-factor app compliant. No external log aggregation yet.
+
+---
+
+## Project
+
+### 22. Licence
+
+**Decision:** **MIT**, copyright "William Okano and the TorrentTrader contributors".
+
+The alternative seriously considered was **AGPL-3.0**, which would have closed the
+network loophole: anyone running a *modified* copy as a public service would have had
+to offer its source to that service's users. For server software — and a tracker is
+nothing but a network service — AGPL is the only copyleft that actually binds, since
+plain GPL treats hosting as non-distribution and lets a hosted fork stay private.
+
+MIT was chosen anyway, deliberately trading that protection for reach. The project's
+stated purpose is that people run their own tracker for their own community; the
+fewer obligations attached to doing that, the more likely they are to. A fork that
+disappears behind a closed deployment is an accepted cost, not an oversight.
+
+Practical consequences worth knowing before anyone revisits this:
+
+- **Relicensing later is hard.** Every contributor holds copyright on their work, so
+  moving away from MIT would need each of them to agree. Going *from* MIT to
+  something stricter is possible for future versions but cannot claw back what has
+  already been published.
+- **No contributor licence agreement.** `CONTRIBUTING.md` states that opening a pull
+  request means accepting MIT for that contribution, which is the lightweight
+  convention and is adequate here.
+- **No patent grant**, unlike Apache-2.0. Not a practical concern for this project,
+  but it is the one thing MIT gives up relative to the other permissive option.

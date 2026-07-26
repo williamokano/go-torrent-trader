@@ -8,9 +8,10 @@ the software a lot of small communities were built on in the 2000s, and which ha
 not aged well. This is that idea rebuilt: the same shape of community, without the
 PHP, the Smarty templates, or the decade of unmaintained mods.
 
-It is **open source and free of charge.** Fork it, change it, run it for your own
-community — that is the point of the project, not a concession. Contributions back
-are genuinely appreciated, but nobody owes them.
+It is **open source and free of charge**, under the [MIT licence](LICENSE). Fork
+it, change it, run it for your own community, sell a service built on it — that is
+the point of the project, not a concession. Contributions back are genuinely
+appreciated, but nobody owes them.
 
 ---
 
@@ -61,7 +62,7 @@ docker compose -f docker-compose.stack.yml up -d
 ```
 
 Full instructions, including reverse proxy and first-admin setup, are on the
-**[project site](https://williamokano.github.io/go-torrent-trader/)**.
+**[project site](https://okano.dev/go-torrent-trader/)**.
 
 ## Use the API directly
 
@@ -93,6 +94,11 @@ conventions this project holds itself to.
 Forking and running your own modified version is explicitly encouraged — you do not
 need permission and you do not need to contribute anything back. If you do want to
 send something upstream, an issue first is usually the fastest route.
+
+## Licence
+
+[MIT](LICENSE). Do what you like with it; keep the copyright notice; there is no
+warranty.
 
 ## Status
 
