@@ -211,3 +211,99 @@ Practical consequences worth knowing before anyone revisits this:
   convention and is adequate here.
 - **No patent grant**, unlike Apache-2.0. Not a practical concern for this project,
   but it is the one thing MIT gives up relative to the other permissive option.
+
+### 23. Multiplier stacking and when multipliers apply
+
+**Decision:** **Additive on a base of 1.0**, applied **at accrual time**.
+
+Every active multiplier contributes a bonus; the bonuses are summed and applied once:
+
+```
+effective = 1.0 + reputation_tier_bonus + goal_bonus + event_bonus + …
+```
+
+So a member with a +50% rank tier, during a +100% event, having met a +25% goal,
+earns 2.75x — not 3.75x, which is what multiplying those three would give.
+
+**Why additive.** The ceiling grows linearly with the number of sources, so adding a
+fourth source later raises the top end by a known amount instead of doubling it. It
+is also explainable in one line on a member's own page ("+175% right now"), which
+matters because a bonus economy nobody can predict is one nobody trusts.
+
+Multiplicative was the alternative. It feels more generous and is the games-industry
+norm, but it compounds: three modest modifiers reach 3.75x, and each new source
+doubles the top end again. That leads to a cap, and a cap makes a member's rank bonus
+silently stop mattering during events, which reads as a bug.
+
+**Why accrual time.** This half was already settled by precedent rather than argument:
+`announce_events.counted_downloaded_delta` stores the discounted figure per announce,
+so a later configuration change cannot rewrite history. Every multiplier works the
+same way — resolved when the award is granted, written to the ledger, never
+recomputed on read. Read-time multiplication would contradict the rule that changing
+a reward does not re-award the past.
+
+**Not covered by this decision:** freeleech and half-credit are a *discount* on what
+is counted, not a multiplier on what is earned, and they keep their existing
+"most generous wins" rule (free beats silver). Do not merge the two mechanisms; they
+answer different questions and are applied at different points.
+
+**No cap for now.** The ceiling is the sum of whatever sources are configured, which
+is knowable by inspection. If one is ever needed it is a setting, not a redesign.
+
+### 24. What member activity may be published
+
+**Decision:** **Reuse the existing per-user privacy levels** (`strong` / `normal` /
+`low`) rather than adding a new opt-out. Every surface that names a member declares
+which levels it respects.
+
+| Level | Leaderboards and rankings | Followable activity feed | Named in public thanks lists |
+|---|---|---|---|
+| `strong` | excluded | no | no |
+| `normal` | included | yes, limited to entries the activity log already classifies public | yes |
+| `low` | included | yes | yes |
+
+Site-wide aggregate numbers — total torrents, active members, library size — name
+nobody and are therefore unaffected by every level.
+
+**Why reuse.** The concept already exists, is enforced (strong already hides stats
+from non-staff), and members already understand it. A second, parallel opt-out would
+mean two settings that both sound like privacy and disagree in edge cases.
+
+**The rule for future surfaces:** anything new that publishes a named member's
+behaviour must state which levels it respects, and the default is to respect
+`strong`. This is the part that makes the decision durable — it is answered once here
+rather than re-litigated per feature.
+
+Rank badges are deliberately **not** hidden by privacy level. A badge is an adornment
+on content the member chose to post publicly, not a separate publication of their
+behaviour; hiding it would make their own posts look inconsistent to them.
+
+### 25. Access to a resource owned by a team rather than a class
+
+**Decision:** an optional **owning-team reference on the resource**, checked
+alongside the existing class-level threshold.
+
+```
+may_read = level >= min_group_level
+        OR member_of(owner_team)
+        OR is_staff
+```
+
+Posting uses the same shape against `min_post_level`. The same predicate serves team
+forums and, when they exist, team chat rooms — one shared resolver, not two.
+
+**Why not a generic ACL table.** A `(resource_type, resource_id, principal_type,
+principal_id)` grant table is the more general answer and would serve anything added
+later. It was rejected because generality is the wrong thing to optimise here: every
+access check becomes a join against an abstraction, the intent stops being readable
+at the call site, and a single bug in the resolver opens *every* resource at once
+rather than one. This project has already been bitten by an authorisation check that
+failed open when a dependency was missing (see `tasks/lessons.md`), and a single
+concrete predicate is far easier to hold to a fail-closed test than a general one.
+
+**Staff always pass.** Deliberate: moderation has to reach team spaces, or a team
+forum becomes a place the site cannot police.
+
+**Fail closed.** If the team-membership lookup errors, or the resolver is not wired,
+access is denied — never granted. There must be a test that constructs the check with
+nothing wired and asserts refusal, matching the `can_feed` precedent.
