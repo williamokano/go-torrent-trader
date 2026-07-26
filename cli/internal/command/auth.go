@@ -70,6 +70,7 @@ func newAuthSetTokenCmd(g *globals) *cobra.Command {
 			if token == "" {
 				return usageError{errors.New("no token supplied")}
 			}
+			warnIfDiscardingARefreshableSession(cmd, name)
 			if err := config.StoreCredential(name, token); err != nil {
 				return err
 			}
@@ -99,6 +100,7 @@ func newAuthClearTokenCmd(g *globals) *cobra.Command {
 				return err
 			}
 			name := g.profileName(f, firstArg(args))
+			warnIfDiscardingARefreshableSession(cmd, name)
 			if err := config.DeleteCredential(name); err != nil {
 				return err
 			}
@@ -163,4 +165,25 @@ func firstArg(args []string) string {
 		return args[0]
 	}
 	return ""
+}
+
+// warnIfDiscardingARefreshableSession notes that overwriting or deleting a stored
+// credential leaves a live server-side session behind.
+//
+// Neither set-token nor clear-token revokes anything, so replacing a login record
+// with a pasted API key — or clearing it — leaves precisely the state
+// `tt auth logout` was written to prevent: a 30-day refresh token nobody can see
+// and nobody revoked. Not refused, because the operator may well be deliberately
+// swapping credentials and may not have the site reachable; but it must not be
+// silent, since the whole argument for logout is that an unrevoked session is the
+// worse failure.
+func warnIfDiscardingARefreshableSession(cmd *cobra.Command, name string) {
+	stored, err := config.LoadCredentialRecord(name)
+	if err != nil || !stored.CanRefresh() {
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+		"tt: warning: profile %q holds a login session with a refresh token, and this "+
+			"does not revoke it.\ntt: the session stays valid on the server until it "+
+			"expires — run 'tt auth logout %s' first to end it.\n", name, name)
 }

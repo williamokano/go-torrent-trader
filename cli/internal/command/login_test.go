@@ -407,6 +407,11 @@ func TestLogoutRenewsAnExpiredTokenBeforeRevoking(t *testing.T) {
 
 // If revocation fails, the local credential still goes — but the user must be
 // told the session is still alive, not left believing they logged out.
+//
+// And "told" has to mean a non-zero exit code, not only a line on stderr. This
+// previously returned nil: a deprovisioning script saw success while a live 30-day
+// session stayed on the server, and the only way to notice was to grep stderr —
+// which is exactly what this CLI's exit-code table exists to avoid.
 func TestLogoutReportsAFailedRevocation(t *testing.T) {
 	isolate(t)
 	site, srv := newFakeSite(t)
@@ -420,8 +425,12 @@ func TestLogoutReportsAFailedRevocation(t *testing.T) {
 	site.mu.Unlock()
 
 	got := runCLI(t, "", "auth", "logout", "prod")
-	if got.err != nil {
-		t.Fatalf("auth logout error = %v", got.err)
+	if got.err == nil {
+		t.Fatal("auth logout succeeded, want a failure — a script must be able to " +
+			"detect that a live session was left on the server")
+	}
+	if code := exitCode(got.err); code != ExitError {
+		t.Errorf("exit code = %d, want %d", code, ExitError)
 	}
 	if !strings.Contains(got.stderr, "could not be invalidated") {
 		t.Errorf("stderr = %q, want a warning that the session is still valid", got.stderr)

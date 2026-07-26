@@ -138,7 +138,10 @@ func (g *globals) resolveSite(f *config.File, name string) (config.Resolved, err
 //
 // It returns an actionable error when no credential is configured rather than
 // letting the request go out anonymously and surface as a bare 401.
-func (g *globals) authClient() (*client.Client, config.Resolved, error) {
+// Takes the command so the refresher can write a warning to the same stderr
+// everything else uses, and so a proactive renewal is bound to the invocation's
+// context — Ctrl-C could not interrupt it while it used context.Background().
+func (g *globals) authClient(cmd *cobra.Command) (*client.Client, config.Resolved, error) {
 	if err := g.checkTimeout(); err != nil {
 		return nil, config.Resolved{}, err
 	}
@@ -161,13 +164,13 @@ func (g *globals) authClient() (*client.Client, config.Resolved, error) {
 		if storeErr != nil {
 			return nil, config.Resolved{}, storeErr
 		}
-		if refresher := refresherFor(resolved.Profile, resolved.URL, stored,
+		if refresher := refresherFor(resolved.Profile, resolved.URL, stored, cmd.ErrOrStderr(),
 			client.WithUserAgent(g.userAgent()), client.WithHTTPClient(g.httpClient())); refresher != nil {
 			opts = append(opts, client.WithRefresher(refresher))
 			// Renew up front when the token is already spent, rather than
 			// spending a request to be told what the expiry already says.
 			if stored.ExpiresWithin(refreshSkew) {
-				if fresh, refreshErr := refresher(context.Background()); refreshErr == nil {
+				if fresh, refreshErr := refresher(cmd.Context()); refreshErr == nil {
 					token = fresh
 				}
 			}

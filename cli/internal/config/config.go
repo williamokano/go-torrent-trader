@@ -300,18 +300,41 @@ func Resolve(f *File, o Override) (Resolved, error) {
 			return Resolved{}, err
 		}
 		fromStore = stored != ""
-		// A stored token belongs to the site it was stored for. Sending it
-		// anywhere else — a typo in --url, a copy-pasted command, a hostile
-		// value in TT_URL — hands the credential to whoever answers that name.
-		if stored != "" && url != profileURL {
-			return Resolved{}, fmt.Errorf(
-				"%w: profile %q holds a token for %s, but this command targets %s. Pass --token or set %s to authenticate against it",
-				ErrTokenHostMismatch, name, profileURL, url, EnvToken)
+		if stored != "" {
+			if err := CheckStoredCredentialTarget(name, profileURL, url); err != nil {
+				return Resolved{}, err
+			}
 		}
 		token = stored
 	}
 
 	return Resolved{Profile: name, URL: url, Token: token, FromStore: fromStore}, nil
+}
+
+// CheckStoredCredentialTarget refuses to let a credential this CLI stored be sent
+// to a site other than the one it was stored for.
+//
+// A stored credential belongs to its profile's site. Sending it anywhere else — a
+// typo in --url, a copy-pasted command, a stale exported TT_URL, a hostile one —
+// hands it to whoever answers that name.
+//
+// Exported and shared rather than inlined at each use, because it was inlined in
+// Resolve and consequently missing from the logout path, which sent the 30-day
+// refresh token wherever TT_URL pointed and then deleted the only local copy. That
+// is this package's own lessons.md rule — resolve a setting in one place, or the
+// second place will disagree — so the check lives in one function that every
+// caller sending a *stored* credential must call.
+//
+// Deliberately not called when the caller supplied the credential themselves
+// (--token, TT_TOKEN) or is establishing a new one (tt auth login --url ...): in
+// both cases the operator named the target explicitly for this invocation.
+func CheckStoredCredentialTarget(profileName, profileURL, target string) error {
+	if normalizeURL(profileURL) == normalizeURL(target) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: profile %q holds a token for %s, but this command targets %s. Pass --token or set %s to authenticate against it",
+		ErrTokenHostMismatch, profileName, profileURL, target, EnvToken)
 }
 
 // normalizeURL trims a trailing slash so that a profile stored with one and a

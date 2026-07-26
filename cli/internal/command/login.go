@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -134,7 +136,16 @@ func newAuthLogoutCmd(g *globals) *cobra.Command {
 
 			var serverErr error
 			if !local {
-				serverErr = g.revokeSession(cmd.Context(), f, name, stored)
+				serverErr = g.revokeSession(cmd.Context(), cmd.ErrOrStderr(), f, name, stored)
+				// A host mismatch means nothing was attempted, so deleting would
+				// be the unrecoverable outcome rather than the safe one: the
+				// session stays live and the only copy of its refresh token is
+				// gone. Distinct from a server failure below, where the request
+				// did go out and keeping a credential the user asked to remove is
+				// the worse of the two risks. Fix the URL and run it again.
+				if errors.Is(serverErr, config.ErrTokenHostMismatch) {
+					return serverErr
+				}
 			}
 
 			// Delete locally whatever the server said. Keeping the credential
@@ -145,10 +156,17 @@ func newAuthLogoutCmd(g *globals) *cobra.Command {
 			}
 
 			if serverErr != nil {
-				_, printErr := fmt.Fprintf(cmd.ErrOrStderr(),
+				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(),
 					"Removed the local credential for %q, but the session could not be invalidated on the server: %v\n"+
-						"It stays valid until it expires. Revoke it from the site if that matters.\n", name, serverErr)
-				return printErr
+						"It stays valid until it expires. Revoke it from the site if that matters.\n", name, serverErr); printErr != nil {
+					return printErr
+				}
+				// Non-zero, because a deprovisioning script has to be able to tell
+				// that it left a live 30-day session behind. Reporting success and
+				// expecting the caller to grep stderr contradicts this CLI's own
+				// argument for classified exit codes. The local credential is gone
+				// either way, so this says "mostly done, and here is what is not".
+				return fmt.Errorf("session for profile %q was not invalidated on the server: %w", name, serverErr)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Logged out of profile %q\n", name)
 			return err
@@ -169,9 +187,17 @@ func newAuthLogoutCmd(g *globals) *cobra.Command {
 // local file, leaving the 30-day refresh token alive with no copy left to revoke
 // it with. Logging out the morning after logging in is the ordinary case, so
 // that must not be the ordinary outcome.
-func (g *globals) revokeSession(ctx context.Context, f *config.File, name string, stored config.Credential) error {
+func (g *globals) revokeSession(ctx context.Context, warn io.Writer, f *config.File, name string, stored config.Credential) error {
 	resolved, err := g.resolveSite(f, name)
 	if err != nil {
+		return err
+	}
+	// This sends a credential tt stored, so it is subject to the same binding
+	// every other command is. resolveSite deliberately does not apply it — login
+	// may target any URL the operator names — which meant this path would POST the
+	// 30-day refresh token to whatever TT_URL said, report success, and then delete
+	// the only local copy, leaving a live session nobody could revoke.
+	if err := config.CheckStoredCredentialTarget(name, f.Profiles[name].URL, resolved.URL); err != nil {
 		return err
 	}
 
@@ -180,7 +206,7 @@ func (g *globals) revokeSession(ctx context.Context, f *config.File, name string
 		client.WithHTTPClient(g.httpClient()),
 	}
 	token := stored.Token
-	if refresher := refresherFor(name, resolved.URL, stored,
+	if refresher := refresherFor(name, resolved.URL, stored, warn,
 		client.WithUserAgent(g.userAgent()), client.WithHTTPClient(g.httpClient())); refresher != nil {
 		opts = append(opts, client.WithRefresher(refresher))
 		if stored.ExpiresWithin(refreshSkew) {
@@ -206,23 +232,46 @@ func (g *globals) revokeSession(ctx context.Context, f *config.File, name string
 //
 // A pasted API key has no refresh token and never needs one, so it gets nil and
 // a 401 surfaces immediately rather than after a pointless round trip.
-func refresherFor(profileName, baseURL string, stored config.Credential, opts ...client.Option) client.Refresher {
+func refresherFor(profileName, baseURL string, stored config.Credential, warn io.Writer, opts ...client.Option) client.Refresher {
 	if !stored.CanRefresh() {
 		return nil
 	}
+	// Held across calls rather than captured from `stored`, because the refresh
+	// token rotates: a second call replaying the value captured at construction
+	// sends one the server already retired. That happens on the ordinary path —
+	// the proactive renewal before a request, then the retry after a 401 — so it
+	// meant two guaranteed-useless round trips, and would read as token theft to
+	// any server that grows refresh-reuse detection.
+	refreshToken := stored.RefreshToken
+	var mu sync.Mutex
+
 	return func(ctx context.Context) (string, error) {
-		tokens, err := client.Refresh(ctx, baseURL, stored.RefreshToken, opts...)
+		mu.Lock()
+		defer mu.Unlock()
+
+		tokens, err := client.Refresh(ctx, baseURL, refreshToken, opts...)
 		if err != nil {
 			return "", err
 		}
-		// The refresh token rotates, so failing to persist would leave the old
-		// one on disk and the next invocation would have to log in again.
+		refreshToken = tokens.RefreshToken
+
 		if err := config.StoreCredentialRecord(profileName, config.Credential{
 			Token:        tokens.AccessToken,
 			RefreshToken: tokens.RefreshToken,
 			ExpiresAt:    tokens.ExpiresAt(time.Now()),
 		}); err != nil {
-			return "", err
+			// Warn, but hand back the token. By this point the server has already
+			// rotated the pair, so the copy on disk is dead whatever happens next
+			// — returning an error here would throw away a working access token
+			// *and* fail the command the user actually ran, turning a storage
+			// problem into a lost credential plus a failed invocation. This way
+			// the command completes and the operator is told they will have to log
+			// in again. Reachable from lock contention, a full disk, a read-only
+			// $HOME, or losing the race with a concurrent tt.
+			_, _ = fmt.Fprintf(warn,
+				"tt: warning: renewed the token for profile %q but could not save it: %v\n"+
+					"tt: the stored credential is now stale; run 'tt auth login %s' before the next command\n",
+				profileName, err, profileName)
 		}
 		return tokens.AccessToken, nil
 	}

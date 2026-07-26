@@ -194,10 +194,29 @@ otherwise revoke nothing while still deleting your only copy of the refresh
 token. That is a workaround in this client for a server-side gap —
 [#231](https://github.com/williamokano/go-torrent-trader/issues/231) — not a
 fix for it. `--local` skips the server call for
-when the site is unreachable and you only want the file gone; the local
-credential is removed either way, and a failed revocation is reported rather than
-hidden, because keeping a credential after the user asked to log out is the worse
-failure.
+when the site is unreachable and you only want the file gone.
+
+**A failed revocation removes the local credential and exits non-zero.** Keeping a
+credential after the user asked to log out is the worse failure, so the file goes
+either way — but a deprovisioning script has to be able to tell that it left a
+live 30-day session behind, and making it grep stderr for that would defeat the
+point of having classified exit codes at all.
+
+**A logout aimed at a different site is refused outright**, and the credential is
+kept. This command sends a credential `tt` stored, so it is bound to its profile's
+URL exactly as every other command is; a stale `TT_URL` would otherwise POST your
+refresh token to whoever answered and then delete the only copy you had to revoke
+the still-live session with. Fix the URL and run it again.
+
+`tt auth set-token` and `tt auth clear-token` do **not** revoke anything. Using
+either over a stored login warns, because it leaves the same unrevoked session
+this command exists to end — run `tt auth logout` first if you want it dead.
+
+If a renewal succeeds but cannot be written to disk, the command it was renewing
+for still completes and warns. The server has already rotated the pair by then, so
+the copy on disk is dead whichever way this goes; failing as well would throw away
+a working token *and* break the command you actually ran. Log in again before the
+next one.
 
 ### What a login credential is, and what it is not
 
