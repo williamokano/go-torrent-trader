@@ -116,6 +116,30 @@ describe("Shoutbox", () => {
     expect(screen.getByTitle("Delete message")).toBeInTheDocument();
   });
 
+  // The announcement template interpolates the torrent name into a Markdown link,
+  // so a release named with `!!` used to split the row: the spoiler plugin rewrote
+  // the link label into <a>…</a><details>…</details><a>…</a>, wedging a
+  // block-level disclosure widget into a single-line chat row.
+  test("keeps an announcement on one row when the torrent name contains !!", async () => {
+    renderShoutbox();
+
+    await deliver({
+      id: 9,
+      user_id: null,
+      username: "Announcer",
+      message:
+        "New torrent: [Show !!secret ending!! 01](https://example.com/t/1) — TV, 1.2 GB",
+      created_at: new Date().toISOString(),
+      system: true,
+    });
+
+    const link = await screen.findByRole("link", {
+      name: "Show !!secret ending!! 01",
+    });
+    expect(link).toBeInTheDocument();
+    expect(document.querySelector(".shoutbox__messages details")).toBeNull();
+  });
+
   // A system announcement has no author, so it must not offer a profile link or
   // moderation actions that would target a nonexistent user. The label is
   // whatever the API sent — it is an operator setting, so a hardcoded "System"

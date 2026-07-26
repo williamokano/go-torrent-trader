@@ -159,6 +159,21 @@ function hasChildren(node: Nodes): node is Nodes & Parent {
 function transform(node: Nodes): void {
   if (!hasChildren(node)) return;
 
+  // Never rewrite inside a link. `!!` in a link label is almost always part of
+  // the text — a torrent called `Show !!secret!! 01` is the case that prompted
+  // this — and rewriting it there splits one `<a>` into three with a block-level
+  // `<details>` wedged between them, which turns a one-line chat row into a
+  // disclosure widget.
+  //
+  // Escaping cannot solve it from the caller's side: this plugin runs on the
+  // mdast after escapes have already resolved, so the backslashes are gone by
+  // the time we see the text.
+  //
+  // A spoiler whose reveal is a link label is not a meaningful construct anyway.
+  // A link *inside* a spoiler still works: the link is an opaque node to the
+  // tokenizer, so `!!see [here](url)!!` is unaffected by this guard.
+  if (node.type === "link" || node.type === "linkReference") return;
+
   // Depth first: inner containers (emphasis, links, …) are resolved before the
   // paragraph that holds them.
   node.children.forEach((child) => transform(child));
