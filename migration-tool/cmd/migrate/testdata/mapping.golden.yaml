@@ -993,6 +993,6 @@ tables:
             can_upload: true — the legacy schema grants this by class, not per member, and groups.can_upload already carries it
             disabled_until: NULL — legacy enabled is permanent, not timed
             parked: false
-            password_scheme: the scheme the legacy hash is in. The backend verifies only argon2id today (#228), so this is recorded for when it can
+            password_scheme: the scheme the legacy hash is in — the backend verifies it and re-hashes to argon2id on the member's next login, so this value is what decides whether they can log in at all
             updated_at: added, the registration date — the legacy schema records no modification time
             warn_until: NULL — legacy warnings are a flag with no expiry, so a warned member stays warned until staff clear it

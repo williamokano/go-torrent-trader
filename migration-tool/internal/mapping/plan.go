@@ -33,11 +33,11 @@ const (
 	// TransformLegacyHash carries a legacy password hash across unchanged and
 	// records which scheme it is in.
 	//
-	// The backend cannot yet verify anything but argon2id (#228), so a member
-	// whose hash arrives this way cannot log in until that lands. The hash is
-	// still carried, because it is the only copy and it is what the
-	// verification will need; what must not happen is an operator being told
-	// this works today.
+	// The backend verifies these and upgrades them (#228): a migrated member logs
+	// in once with the password they already had, and their hash is re-written as
+	// argon2id in the process, so the legacy path is walked once per member. The
+	// scheme recorded here is what tells it which digest to compute, which is why
+	// getting it wrong locks the member out rather than merely losing metadata.
 	TransformLegacyHash = "legacy_hash"
 	// TransformBBCodeToMarkdown converts BBCode body text to Markdown, as
 	// implemented in internal/bbcode. Malformed markup passes through as
@@ -139,7 +139,7 @@ func usersPlan() TablePlan {
 		Target:  "users",
 		Comment: "Members keep their id and passkey, so existing .torrent files keep announcing and every foreign key in the dump resolves without a translation table.",
 		Derived: map[string]string{
-			"password_scheme": "the scheme the legacy hash is in. The backend verifies only argon2id today (#228), so this is recorded for when it can",
+			"password_scheme": "the scheme the legacy hash is in — the backend verifies it and re-hashes to argon2id on the member's next login, so this value is what decides whether they can log in at all",
 			"bonus_points":    "0 — TorrentTrader 3.0 has no bonus economy",
 			"parked":          "false",
 			"updated_at":      "added, the registration date — the legacy schema records no modification time",

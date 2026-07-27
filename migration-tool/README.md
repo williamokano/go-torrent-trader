@@ -190,7 +190,7 @@ control.
         target: users
         columns:
             # Carried across as-is, and it will not let anyone log in yet: the
-            # backend verifies only argon2id (#228).
+            # the backend verifies this scheme and upgrades it on first login.
             password:
                 type: varchar(40)
                 charset: latin1
@@ -214,7 +214,7 @@ control.
                 action: custom
         # Target columns filled from something other than a single legacy column.
         derived:
-            password_scheme: the scheme the legacy hash is in. The backend verifies only argon2id today (#228), so this is recorded for when it can
+            password_scheme: the scheme the legacy hash is in. The backend verifies it and re-hashes to argon2id on the next login, so this value decides whether the member can log in at all
             warn_until: NULL — legacy warnings are a flag with no expiry
 ```
 
@@ -475,22 +475,32 @@ Two things must survive the cutover, and the mapping treats both as such:
   the 20 raw bytes the tracker compares against. A torrent whose hash does not
   survive stops announcing.
 
-### Passwords do not work yet
+### Passwords survive the cutover
 
-Password hashes are migrated as-is, and **that is not enough for anyone to log
-in**. `service.VerifyPassword` in the backend accepts Argon2id and nothing else:
-given a legacy hash it fails to parse it before any comparison happens. So every
-migrated member is locked out until #228 adds legacy verification.
+Password hashes are migrated as-is, and members log in with the password they
+already had. The backend verifies the legacy schemes TorrentTrader's `passhash()`
+produced — SHA1, MD5 and the HMAC-SHA1 variant — and **re-hashes to Argon2id on
+that first successful login**, so each member walks the legacy path exactly once
+and every login afterwards uses the modern hash.
 
-The hashes are migrated regardless, because they are the only copy and the
-verification that is coming will need them. What must not happen is an operator
-reading a promise this repository has made for some time and has never kept —
-the claim that logins survive a cutover predates the migration work and was
-inherited by everything downstream of it, including this file.
+`password_scheme` is what tells the backend which digest to compute, so it is the
+column that decides whether a member can log in at all rather than a piece of
+metadata. Getting it wrong locks them out.
 
-Until #228 lands, the honest instruction is that every member resets their
-password after the migration. Passkeys are unaffected: those are copied exactly
-and keep working, so existing `.torrent` files keep announcing.
+If the old install used the HMAC variant, set `LEGACY_PASSWORD_SECRET` on the
+backend to the site secret it was configured with. The SHA1 and MD5 variants are
+unsalted and need nothing. Without it, affected members cannot be verified — the
+backend logs that specifically rather than reporting a bad password, because
+sending them to the reset form with no explanation is the worse failure.
+
+**Optionally, wrap them instead.** With `--wrap-passwords` the migration stores
+`argon2id(legacy_digest(password))` under a `wrapped_*` scheme, so no bare SHA1 or
+MD5 is ever at rest in the new database. Members still log in with their original
+password, at the cost of one extra digest per login until they upgrade. This is
+the stronger position and worth taking if the cutover window allows it.
+
+Passkeys are unaffected either way: those are copied exactly and keep working, so
+existing `.torrent` files keep announcing.
 
 Features the port deliberately dropped — polls, the widget system, server-side
 themes, the word censor and others — have their tables marked `skip` with the

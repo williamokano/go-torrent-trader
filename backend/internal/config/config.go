@@ -102,4 +102,9 @@ type SiteConfig struct {
 	BaseURL                  string // SITE_BASE_URL, default "http://localhost:5173" — website (frontend) URL, used in emails and links
 	ApiURL                   string // API_URL, default "http://localhost:8080" — backend API URL, used for announce/scrape URLs
 	RegistrationEmailConfirm bool   // REGISTRATION_EMAIL_CONFIRM, default false — require email confirmation on registration
+	// LegacyPasswordSecret is the site secret a migrated TorrentTrader used with
+	// its HMAC passhash(). LEGACY_PASSWORD_SECRET, default "" — required only when
+	// members were migrated from an install configured for the HMAC variant, and
+	// unused once every one of them has logged in once and been upgraded.
+	LegacyPasswordSecret string
 }

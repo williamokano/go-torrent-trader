@@ -208,6 +208,9 @@ func run() int {
 	banRepo := postgres.NewBanRepo(db)
 	banService := service.NewBanService(banRepo, eventBus)
 	authService.SetBanChecker(banService)
+	// Lets members migrated from an HMAC-configured TorrentTrader log in once and
+	// be upgraded to Argon2id. Empty unless the operator set it (#228).
+	authService.SetLegacyPasswordSecret(cfg.Site.LegacyPasswordSecret)
 
 	chatMessageRepo := postgres.NewChatMessageRepo(db)
 	chatMuteRepo := postgres.NewChatMuteRepo(db)

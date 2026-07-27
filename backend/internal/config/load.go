@@ -53,6 +53,9 @@ func Load() (*Config, error) {
 			Description: envOrDefault("SITE_DESCRIPTION", "Private BitTorrent Tracker"),
 			BaseURL:     envOrDefault("SITE_BASE_URL", "http://localhost:5173"),
 			ApiURL:      envOrDefault("API_URL", "http://localhost:8080"),
+			// Empty is correct for a site that was never migrated, and for one
+			// whose legacy install used the unsalted SHA1 or MD5 variants.
+			LegacyPasswordSecret: os.Getenv("LEGACY_PASSWORD_SECRET"),
 		},
 		Cache: CacheConfig{
 			StatsTTL: 30 * time.Second,
