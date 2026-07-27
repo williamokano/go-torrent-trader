@@ -12,6 +12,12 @@ type SessionStore interface {
 	GetByAccessToken(token string) *Session
 	GetByRefreshToken(token string) *Session
 	Delete(accessToken string)
+	// DeleteByRefreshToken revokes a session identified by its refresh token.
+	//
+	// The access token lives an hour and the refresh token thirty days, so a
+	// session outlives the only credential Delete could identify it by. Without
+	// this there was no way to revoke one after that first hour (#231).
+	DeleteByRefreshToken(refreshToken string)
 	DeleteByUserID(userID int64)
 	DeleteByUserIDExcept(userID int64, keepAccessToken string)
 	Rotate(oldRefreshToken string, newSession *Session) error

@@ -278,6 +278,7 @@ func (m *mockEscalationSessionStore) GetByRefreshToken(_ string) *service.Sessio
 	return nil
 }
 func (m *mockEscalationSessionStore) Delete(_ string)                           {}
+func (m *mockEscalationSessionStore) DeleteByRefreshToken(_ string)             {}
 func (m *mockEscalationSessionStore) DeleteByUserIDExcept(_ int64, _ string)    {}
 func (m *mockEscalationSessionStore) Rotate(_ string, _ *service.Session) error { return nil }
 func (m *mockEscalationSessionStore) TouchLastActive(_ string)                  {}
