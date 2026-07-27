@@ -16,11 +16,20 @@ import (
 type trackerMockAnnounceEventRepo struct {
 	mu     sync.Mutex
 	events []model.AnnounceEvent
+	// createErr makes Create fail the way the real one can. A double that always
+	// succeeds cannot exercise the best-effort path, which is the whole guarantee
+	// the announce path relies on.
+	createErr error
+	calls     int
 }
 
 func (m *trackerMockAnnounceEventRepo) Create(_ context.Context, e *model.AnnounceEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.calls++
+	if m.createErr != nil {
+		return m.createErr
+	}
 	m.events = append(m.events, *e) // copy: caller reuses the struct across announces
 	return nil
 }
@@ -80,6 +89,60 @@ func TestAnnounce_RecordsEventByDefault(t *testing.T) {
 	}
 	if e.TorrentID == nil {
 		t.Error("TorrentID = nil, want the announced torrent")
+	}
+}
+
+// TestAnnounce_SurvivesAFailingLogWrite proves the guarantee recordAnnounceEvent
+// documents — "a logging failure is logged but never breaks the announce" — by
+// making the write fail rather than by reading the code.
+//
+// It matters more than a doc-check normally would. The announce is the one request
+// on the site that must not fail: a member whose client gets an error stops being
+// counted in the swarm. Nothing enforced this, because the only double for the
+// repository always returned nil, so every existing test exercised the success
+// path and the guarantee held by inspection alone.
+//
+// It is also the premise the partitioning proposal (#221) rests on. That issue
+// argues a missing monthly partition would "reject announces", which is what makes
+// its failure mode worse than the current DELETE falling behind. On today's code
+// that is not so — the insert error is swallowed here and the announce still
+// answers, so a missing partition would silently drop log rows instead. Whichever
+// way #221 goes, the property is worth pinning: if a later change ever routes this
+// write through the announce's own transaction, the tracker starts failing on a
+// logging error and this test is what says so.
+func TestAnnounce_SurvivesAFailingLogWrite(t *testing.T) {
+	svc, _, _, _ := setupTracker()
+	log := &trackerMockAnnounceEventRepo{
+		createErr: errors.New("insert failed: no partition of relation \"announce_events\" found for row"),
+	}
+	svc.SetAnnounceEventRepo(log)
+
+	resp, err := svc.Announce(context.Background(), AnnounceRequest{
+		Passkey:  testPasskey(),
+		InfoHash: testInfoHash(),
+		PeerID:   testPeerID(),
+		IP:       "1.2.3.4",
+		Port:     6881,
+		Left:     1000,
+		Event:    EventStarted,
+	})
+	if err != nil {
+		t.Fatalf("Announce returned %v; a failing announce-log write must not break the announce", err)
+	}
+	if resp == nil {
+		t.Fatal("Announce returned no response; the peer would get nothing back")
+	}
+	// The peer still has to be told when to come back, or a client that treats a
+	// malformed response as fatal drops out of the swarm.
+	if resp.Interval <= 0 {
+		t.Errorf("Interval = %d, want the usual announce interval", resp.Interval)
+	}
+
+	// And the write must actually have been attempted — otherwise this passes for
+	// the wrong reason, by the log being skipped rather than by its failure being
+	// tolerated.
+	if log.calls != 1 {
+		t.Errorf("Create called %d times, want 1", log.calls)
 	}
 }
 
