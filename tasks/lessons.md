@@ -342,3 +342,31 @@ lifetimes: if the thing being revoked outlives the thing authorising the revocat
 there is a window where revocation silently does nothing. Deleting the local copy is
 what makes it unrecoverable, so a client that cleans up after itself needs the server
 call to have actually worked.
+
+## A statement the server may ignore is not a fix until you watch it work
+
+Writing the self-referencing tables (#240, shipped in #248) began as `SET CONSTRAINTS
+ALL DEFERRED` at the top of the transaction. It is the answer in every article about
+the problem, it reads correctly, it compiled, and it passed every test in the package.
+
+It does nothing here. PostgreSQL defers a constraint only when the constraint was
+declared `DEFERRABLE`, and nothing in `backend/migrations` is —
+`grep -ric deferrable backend/migrations/*.sql` totals zero. Against a `NOT DEFERRABLE`
+constraint the statement is *accepted and ignored*: no error, no warning, no notice,
+no behaviour change. The suite stayed green because no test put a child row in an
+earlier batch than its parent, so nothing ever asked the deferral to do anything. A
+probe against a real server is what showed it, and the real fix is a different shape
+entirely — write the self-referencing column as NULL, backfill it once every row
+exists.
+
+The trap is that the failure is *silent by design*. A wrong query errors; a directive
+the server declines to honour looks exactly like one it honoured.
+
+**Rule:** when a fix is a directive *to* the database rather than a change to what you
+send it — `SET CONSTRAINTS`, `SET LOCAL`, a session GUC, an isolation level, an index
+hint — the server decides whether to honour it, and "accepted and ignored" is a normal
+outcome, not an exotic one. Verify the precondition in the schema rather than in the
+documentation, and prove the fix by building the case it exists to fix and watching
+that case fail without it. This is the mutation-check rule aimed at a specific blind
+spot: a test suite that never constructs the failing scenario cannot tell a working
+fix from an inert one.
