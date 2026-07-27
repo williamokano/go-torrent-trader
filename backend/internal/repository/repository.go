@@ -137,6 +137,32 @@ type AnnounceEventRepository interface {
 	// prune in chunks: one DELETE over a year of accumulated announces would hold
 	// row locks and bloat WAL for as long as it took.
 	DeleteOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	// Reindex rebuilds the announce log's indexes online.
+	//
+	// The prune keeps the heap at a steady size — measured over 45 nights of full
+	// churn, it does not drift by a single byte — but it cannot keep the indexes
+	// there. Two of the three lead on a monotonically increasing value (the
+	// BIGSERIAL primary key, and announced_at), and the prune deletes the *oldest*
+	// rows, so it empties pages at the left edge of those B-trees while every
+	// announce appends at the right. The third, (user_id, announced_at DESC),
+	// leads on user_id rather than on time, so it is not one long left-to-right
+	// sweep — but within each user's slice it has the same shape. That is the
+	// worst case for page reuse, and autovacuum does not fix it: the indexes grew
+	// by roughly the full entry width of every row removed and had not begun to
+	// plateau after 45 nights. See #259.
+	Reindex(ctx context.Context) (ReindexResult, error)
+}
+
+// ReindexResult reports what a rebuild recovered, so the job can say whether it
+// was worth its runtime rather than only that it finished.
+type ReindexResult struct {
+	BytesBefore int64
+	BytesAfter  int64
+	// LeftoversDropped counts invalid indexes cleaned up before the rebuild.
+	// PostgreSQL leaves one behind whenever REINDEX CONCURRENTLY fails, and they
+	// occupy space while being useless to the planner, so a run that only ever
+	// failed would otherwise accumulate them forever.
+	LeftoversDropped int
 }
 
 // AnnounceEventWithTorrent is an announce event joined with the torrent name.

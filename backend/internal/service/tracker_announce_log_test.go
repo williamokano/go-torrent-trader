@@ -46,6 +46,11 @@ func (m *trackerMockAnnounceEventRepo) DeleteOlderThan(_ context.Context, _ time
 	return 0, errors.New("DeleteOlderThan: not reachable from the announce path")
 }
 
+// Reindex is housekeeping too, and equally unreachable from the announce path.
+func (m *trackerMockAnnounceEventRepo) Reindex(context.Context) (repository.ReindexResult, error) {
+	return repository.ReindexResult{}, errors.New("Reindex: not reachable from the announce path")
+}
+
 func (m *trackerMockAnnounceEventRepo) snapshot() []model.AnnounceEvent {
 	m.mu.Lock()
 	defer m.mu.Unlock()

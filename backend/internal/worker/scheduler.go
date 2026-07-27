@@ -109,6 +109,23 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 		return fmt.Errorf("register announce log maintenance: %w", err)
 	}
 
+	// Rebuild the announce log's indexes on the first of the month. The nightly
+	// prune keeps the heap at a fixed size but cannot keep the indexes there, so
+	// without this they grow indefinitely (#259).
+	//
+	// 01:00 puts it well clear of the heavy jobs, which all sit between 04:15 and
+	// 06:00, and clear of the hour operators usually give the backup. That gap
+	// matters more here than for the other jobs: a rebuild is the only one whose
+	// runtime scales with the entire table, so it is the only one likely to still
+	// be going when the next job starts.
+	announceReindexTask, err := NewAnnounceLogReindexTask()
+	if err != nil {
+		return fmt.Errorf("create announce log reindex task: %w", err)
+	}
+	if _, err := scheduler.Register("0 1 1 * *", announceReindexTask); err != nil {
+		return fmt.Errorf("register announce log reindex: %w", err)
+	}
+
 	return nil
 }
 

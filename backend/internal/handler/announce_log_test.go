@@ -38,6 +38,12 @@ func (s *stubAnnounceEventRepo) DeleteOlderThan(context.Context, time.Time, int)
 	return 0, errors.New("DeleteOlderThan: not reachable from an HTTP handler")
 }
 
+// Reindex is housekeeping too, and equally unreachable from an HTTP path, so it
+// fails the same way rather than returning a plausible zero value.
+func (s *stubAnnounceEventRepo) Reindex(context.Context) (repository.ReindexResult, error) {
+	return repository.ReindexResult{}, errors.New("Reindex: not reachable from an HTTP handler")
+}
+
 type stubAnnounceRollupRepo struct {
 	periods []model.UserPeriodStats
 	listErr error

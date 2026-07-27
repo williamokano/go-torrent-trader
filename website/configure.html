@@ -481,6 +481,19 @@
               member's profile, and the monthly totals stay readable after the raw
               rows are gone.
             </p>
+            <p>
+              <strong>The indexes look after themselves.</strong> The nightly prune
+              holds the log's row count steady and the space it frees inside the
+              table gets reused, but the indexes are a different matter: they are
+              ordered by time and by id, and the prune always removes the oldest
+              rows, so the freed pages collect at one end while every new announce
+              is added at the other. Left alone they would grow without limit, well
+              past what the row count suggests. TorrentTrader rebuilds them on the
+              first of each month, and there is nothing for you to configure or run
+              yourself. Members keep announcing throughout: the rebuild takes a
+              brief exclusive lock as it starts and another as it swaps the new
+              index in, and holds nothing in between.
+            </p>
           </div>
         </div>
       </section>
