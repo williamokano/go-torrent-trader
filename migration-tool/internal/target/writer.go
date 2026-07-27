@@ -69,6 +69,30 @@ type Writer struct {
 	// happen, and returning nil from Close while doing so. A caller that logs and
 	// continues past one bad row is the ordinary way to hit that.
 	failed error
+
+	// Self-reference backfill. A table that points at itself cannot be written
+	// naively in batches: foreign keys fire at end-of-statement, so one multi-row
+	// INSERT is safe while a batch boundary is not — a row whose parent lands in a
+	// later batch fails on the way in (#240).
+	//
+	// Deferring the constraint does not help: nothing in backend/migrations is
+	// declared DEFERRABLE, and SET CONSTRAINTS ALL DEFERRED is silently ignored for
+	// a NOT DEFERRABLE constraint. Verified against a real PostgreSQL rather than
+	// assumed — the deferral looked like it worked and did nothing at all.
+	//
+	// So the column goes in as NULL and is set afterwards, once every row exists.
+	// That works in both transaction modes and needs no schema change. All four
+	// self-referencing columns are nullable, which is what makes it available.
+	selfRefColumn string // "" when this table does not reference itself
+	selfRefIndex  int    // its position in columns
+	idIndex       int    // position of the primary key, needed to target the UPDATE
+	deferred      []selfRef
+}
+
+// selfRef is one row's self-referencing value, held back until every row exists.
+type selfRef struct {
+	id     any
+	parent any
 }
 
 // NewWriter builds a Writer for a table and a fixed column list. Every row
@@ -93,15 +117,42 @@ func (d *DB) NewWriter(table string, columns []string, opts WriterOptions) (*Wri
 	}
 
 	w := &Writer{
-		db:        d.db,
-		table:     table,
-		columns:   columns,
-		batchSize: batchSize,
-		txMode:    opts.TxMode,
-		pending:   make([]any, 0, batchSize*len(columns)),
+		db:           d.db,
+		table:        table,
+		columns:      columns,
+		batchSize:    batchSize,
+		txMode:       opts.TxMode,
+		pending:      make([]any, 0, batchSize*len(columns)),
+		selfRefIndex: -1,
+		idIndex:      -1,
 	}
+
+	// Only when this writer is actually carrying the self-referencing column. A
+	// caller that does not write it has nothing to hold back.
+	if column, selfRef := SelfReferencing[table]; selfRef {
+		w.selfRefIndex = indexOf(columns, column)
+		w.idIndex = indexOf(columns, "id")
+		if w.selfRefIndex >= 0 {
+			if w.idIndex < 0 {
+				return nil, fmt.Errorf("%s references itself through %s, so its id column "+
+					"must be written too — the value is set in a second pass and there is "+
+					"otherwise no way to say which row to set it on", table, column)
+			}
+			w.selfRefColumn = column
+		}
+	}
+
 	w.insertSQL = w.buildInsert(batchSize)
 	return w, nil
+}
+
+func indexOf(haystack []string, needle string) int {
+	for i, s := range haystack {
+		if s == needle {
+			return i
+		}
+	}
+	return -1
 }
 
 // BatchSize is the batch actually in use, which may be smaller than the one
@@ -120,6 +171,18 @@ func (w *Writer) Append(ctx context.Context, values ...any) error {
 	}
 	if len(values) != len(w.columns) {
 		return fmt.Errorf("%s: %d values for %d columns", w.table, len(values), len(w.columns))
+	}
+
+	// Hold the self-referencing value back and insert NULL in its place. Recorded
+	// with the row's id so the second pass knows where to put it.
+	if w.selfRefColumn != "" {
+		if parent := values[w.selfRefIndex]; parent != nil {
+			w.deferred = append(w.deferred, selfRef{id: values[w.idIndex], parent: parent})
+			// Copied because the caller owns the slice it passed and must not see
+			// its value silently replaced with nil.
+			values = append([]any{}, values...)
+			values[w.selfRefIndex] = nil
+		}
 	}
 
 	w.pending = append(w.pending, values...)
@@ -157,15 +220,47 @@ func (w *Writer) Close(ctx context.Context) error {
 	if err := w.Flush(ctx); err != nil {
 		return errors.Join(err, w.rollback())
 	}
-	if w.tx == nil {
+	// TxPerBatch has already committed each batch, so there is no transaction left
+	// here — but the backfill still has to run. Returning early on a nil tx skipped
+	// it entirely in that mode, leaving every held-back value NULL, which is the
+	// invite graph silently dropped rather than a visible failure.
+	if w.tx != nil {
+		tx := w.tx
+		w.tx = nil
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("committing %s: %w", w.table, err)
+		}
+	}
+	return w.backfillSelfReferences(ctx)
+}
+
+// backfillSelfReferences sets the values held back by Append, now that every row the
+// writer was given exists.
+//
+// Runs after the commit rather than inside it. In TxPerBatch the earlier batches are
+// already committed, so there is no single transaction to join; in TxPerTable the
+// rows have to be visible to the foreign key check, which they are only once the
+// insert has committed. Either way the parent is present by the time its child is
+// pointed at it.
+//
+// A failure here leaves the rows in place with a NULL parent, which is recoverable —
+// the operator can re-run this pass — and is reported rather than swallowed.
+func (w *Writer) backfillSelfReferences(ctx context.Context) error {
+	if len(w.deferred) == 0 {
 		return nil
 	}
 
-	tx := w.tx
-	w.tx = nil
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing %s: %w", w.table, err)
+	stmt := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE %s = $2",
+		QuoteIdentifier(w.table), QuoteIdentifier(w.selfRefColumn), QuoteIdentifier("id"))
+
+	for _, ref := range w.deferred {
+		if _, err := w.db.ExecContext(ctx, stmt, ref.parent, ref.id); err != nil {
+			w.failed = fmt.Errorf("backfilling %s.%s for id %v: %w",
+				w.table, w.selfRefColumn, ref.id, err)
+			return w.failed
+		}
 	}
+	w.deferred = nil
 	return nil
 }
 
@@ -231,6 +326,7 @@ func (w *Writer) executor(ctx context.Context) (interface {
 	if err != nil {
 		return nil, fmt.Errorf("starting a transaction for %s: %w", w.table, err)
 	}
+
 	w.tx = tx
 	return tx, nil
 }

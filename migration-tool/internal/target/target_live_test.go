@@ -228,3 +228,77 @@ func leadingCount(note string) (int, bool) {
 func pq(name string) string {
 	return `"` + name + `"`
 }
+
+// The self-referencing tables are declared by hand, so they are checked against the
+// real schema — derived from pg_constraint rather than from a second hand-typed
+// list, which would agree with the first for the same wrong reason.
+//
+// This matters because no table ordering can make a self-reference safe: foreign keys
+// fire at end-of-statement, so one multi-row INSERT is fine while crossing a batch
+// boundary is not. A self-reference added to the schema later and missed here would
+// reintroduce exactly that, and the failure only shows up on a real cutover at a real
+// batch size.
+func TestSelfReferencingMatchesTheRealSchema(t *testing.T) {
+	if _, err := testenv.MigrationsDir(); errors.Is(err, testenv.ErrNoMigrations) {
+		t.Skip("skipping: backend/migrations is not present")
+	}
+
+	db, err := sql.Open("postgres", testenv.Target(t))
+	if err != nil {
+		t.Fatalf("opening the target database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	const query = `
+SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
+FROM pg_constraint c
+JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+WHERE c.contype = 'f'
+  AND c.conrelid = c.confrelid
+  AND connamespace = 'public'::regnamespace`
+
+	rows, err := db.QueryContext(context.Background(), query)
+	if err != nil {
+		t.Fatalf("reading self-referencing constraints: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	live := map[string]string{}
+	for rows.Next() {
+		var table, column string
+		if err := rows.Scan(&table, &column); err != nil {
+			t.Fatalf("scanning: %v", err)
+		}
+		live[table] = column
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("reading self-referencing constraints: %v", err)
+	}
+
+	declared := target.PostgreSQL()
+	for table, column := range live {
+		// Only tables the migration writes to are this tool's business.
+		if !declared.HasTable(table) {
+			continue
+		}
+		got, ok := target.SelfReferencing[table]
+		if !ok {
+			t.Errorf("%s.%s is a self-referencing foreign key in the real schema but is "+
+				"not in target.SelfReferencing — a batched write to it will fail on a "+
+				"row whose parent lands in a later batch, and nothing warns", table, column)
+			continue
+		}
+		if got != column {
+			t.Errorf("target.SelfReferencing[%q] = %q, but the real column is %q", table, got, column)
+		}
+	}
+
+	for table, column := range target.SelfReferencing {
+		if liveCol, ok := live[table]; !ok {
+			t.Errorf("target.SelfReferencing names %s.%s, which is not a self-referencing "+
+				"foreign key in the real schema", table, column)
+		} else if liveCol != column {
+			t.Errorf("target.SelfReferencing[%q] = %q, real schema says %q", table, column, liveCol)
+		}
+	}
+}

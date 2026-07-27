@@ -98,6 +98,25 @@ func NonEmpty(counts map[string]int64) []string {
 	return out
 }
 
+// SelfReferencing names the tables whose rows point at other rows of the same
+// table, and the column that does it.
+//
+// No table ordering can help with these, which is why they are declared separately
+// from DeclaredTables. Foreign keys fire at end-of-statement, so ordering *within*
+// one multi-row INSERT is safe — but across batches it is not: legacy user 12 invited
+// by user 900, at a batch size of 500, puts the parent in a later batch than the
+// child and the first batch fails with a foreign key violation. Under TxPerBatch the
+// run stops with the table half written.
+//
+// Verified against backend/migrations by TestSelfReferencingMatchesTheRealSchema, so
+// a self-reference added later cannot go unnoticed.
+var SelfReferencing = map[string]string{
+	"users":       "invited_by",
+	"categories":  "parent_id",
+	"messages":    "parent_id",
+	"forum_posts": "reply_to_post_id",
+}
+
 // DeclaredTables returns the tables the migration writes to, in the order they
 // have to be written: a table appears after everything it refers to.
 //
