@@ -76,8 +76,11 @@ func TestMalformedInputPassesThrough(t *testing.T) {
 			why: "brackets in prose were never markup",
 		},
 		{
-			name: "an unknown tag", in: "[blink]hello[/blink]", want: `\[blink\]hello`,
-			why: "an unrecognised tag was probably never markup either",
+			name: "an unknown tag", in: "[blink]hello[/blink]", want: `\[blink\]hello\[/blink\]`,
+			why: "an unrecognised tag was probably never markup either — so *all* of it " +
+				"comes back, opener and closer. Emitting only the opener was neither " +
+				"converting it nor passing it through, and silently deleted a character " +
+				"sequence the member typed",
 		},
 		{
 			name: "an empty tag", in: "[] nothing", want: `\[\] nothing`,
@@ -630,4 +633,83 @@ func wordsIn(s string) []string {
 	}
 	flush()
 	return words
+}
+
+// #242. The fidelity gaps left after #234's security fixes. Each produced output
+// that reads fine and says something the member did not write, which on a one-way
+// conversion nobody proofreads is the failure mode that matters.
+func TestFidelityGapsFromReview(t *testing.T) {
+	tests := []struct {
+		name, in, want, why string
+	}{{
+		name: "a spoiler converts to the target's own syntax",
+		in:   "[spoiler]hidden[/spoiler]",
+		want: "!!hidden!!",
+		why: "the target implements !!…!! in remarkSpoiler.ts and [spoiler] is in the " +
+			"legacy supported-tag list, so this is a convertible tag — it used to fall " +
+			"through to the unknown-tag branch and lose its closing tag",
+	}, {
+		name: "an attributed spoiler converts too",
+		in:   "[spoiler=Ending]he dies[/spoiler]",
+		want: "!!he dies!!",
+		why:  "the label has nowhere to go in the target syntax, but the content must survive",
+	}, {
+		name: "a genuinely unknown tag keeps both of its tags",
+		in:   "[blink]hello[/blink]",
+		want: `\[blink\]hello\[/blink\]`,
+		why: "emitting only the opener was neither converting nor passing through, and " +
+			"silently deleted characters the member typed",
+	}, {
+		name: "a nested unknown tag keeps both of its tags",
+		in:   "[table][tr]a[/tr][/table]",
+		want: `\[table\]\[tr\]a\[/tr\]\[/table\]`,
+		why:  "the same at every level, not just the outermost",
+	}, {
+		name: "adjacent runs of the same emphasis merge into one",
+		in:   "[i]a[/i][i]b[/i]",
+		want: "*ab*",
+		why: "`*a**b*` puts a bold delimiter in the middle, so the second run rendered " +
+			"as <em>a**b</em> — losing its italics and gaining two literal asterisks",
+	}, {
+		name: "separated runs of the same emphasis do not merge",
+		in:   "[i]a[/i] [i]b[/i]",
+		want: "*a* *b*",
+		why:  "the space is content; merging across it would delete it",
+	}, {
+		name: "an ampersand in prose survives",
+		in:   "a &amp; b",
+		want: `a \&amp; b`,
+		why: "the renderer decodes entity references in text, so the five characters " +
+			"the member typed displayed as a bare &",
+	}, {
+		name: "code keeps the first line's indentation",
+		in:   "[code]  indented\n    more[/code]",
+		want: "\n```\n  indented\n    more\n```\n",
+		why: "TrimSpace stripped the first line's indent and left every later line, so " +
+			"pasted code arrived with its alignment broken — most of why [code] is used",
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := convert(tc.in); got != tc.want {
+				t.Errorf("Convert(%q) = %q, want %q\n%s", tc.in, got, tc.want, tc.why)
+			}
+		})
+	}
+}
+
+// Escaping `&` belongs to prose only. Doing it in a link target would corrupt every
+// query string in the corpus, which is a bigger loss than the one it fixes.
+func TestAmpersandEscapingDoesNotReachLinkTargets(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{in: "[url=https://ok.example/a?b=1&c=2]x[/url]", want: "[x](https://ok.example/a?b=1&c=2)"},
+		{in: "[url]https://ok.example/?a=1&b=2[/url]", want: "<https://ok.example/?a=1&b=2>"},
+		{in: "[img]https://ok.example/i.png?w=1&h=2[/img]", want: "![](https://ok.example/i.png?w=1&h=2)"},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := convert(tc.in); got != tc.want {
+				t.Errorf("Convert(%q) = %q, want %q — a query string was corrupted", tc.in, got, tc.want)
+			}
+		})
+	}
 }

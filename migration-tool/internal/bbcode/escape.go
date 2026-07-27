@@ -25,6 +25,11 @@ var inlineSpecials = strings.NewReplacer(
 	`]`, `\]`,
 	`<`, `\<`,
 	`|`, `\|`,
+	// Prose only, which is why it lives here rather than in sanitizeURL: a post
+	// that typed the five characters "&amp;" was being displayed as a bare "&",
+	// because the renderer decodes entity references in text. Escaping this in a
+	// link target instead would corrupt every legitimate "?a=1&b=2" query string.
+	`&`, `\&`,
 	// GFM reads ~~x~~ as strikethrough and ~~~ as a code fence — the same
 	// swallow-the-rest-of-the-post failure the backtick fence rule was written to
 	// prevent, reachable through prose instead. BBCode gave ~ no meaning, so a
