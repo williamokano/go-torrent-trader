@@ -40,9 +40,50 @@ func Convert(input string, opts Options) string {
 }
 
 func renderNodes(b *strings.Builder, nodes []*node) {
-	for _, n := range nodes {
+	for _, n := range mergeAdjacentEmphasis(nodes) {
 		renderNode(b, n)
 	}
+}
+
+// emphasisTags are the tags rendered by wrapping their content in a marker. Two of
+// them side by side produce two markers side by side, which Markdown reads as one
+// longer marker rather than as a close followed by an open.
+var emphasisTags = map[string]bool{
+	"b": true, "strong": true, "i": true, "em": true,
+	"s": true, "strike": true, "del": true, "spoiler": true, "u": true,
+}
+
+// mergeAdjacentEmphasis folds neighbouring runs of the same emphasis into one.
+//
+// `[i]a[/i][i]b[/i]` rendered as `*a**b*`, and the `**` in the middle is read as a
+// bold delimiter, so the output was `<em>a**b</em>` — the second run lost its italics
+// and gained two literal asterisks. Merging is not an approximation: two adjacent
+// italic runs with nothing between them *are* one italic run, so `*ab*` says exactly
+// what the member wrote.
+//
+// Only direct neighbours merge. `[i]a[/i] [i]b[/i]` has a text node between them and
+// is left alone, which is right — the space is content, and the two markers are no
+// longer adjacent.
+func mergeAdjacentEmphasis(nodes []*node) []*node {
+	if len(nodes) < 2 {
+		return nodes
+	}
+	out := make([]*node, 0, len(nodes))
+	for _, n := range nodes {
+		if len(out) > 0 {
+			prev := out[len(out)-1]
+			if n.tag != "" && prev.tag == n.tag && prev.attr == n.attr && emphasisTags[n.tag] {
+				// Copy rather than mutate: the same node may be reachable from
+				// elsewhere in the tree, and a render must not rewrite the parse.
+				merged := *prev
+				merged.children = append(append([]*node{}, prev.children...), n.children...)
+				out[len(out)-1] = &merged
+				continue
+			}
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func renderNode(b *strings.Builder, n *node) {
@@ -58,6 +99,12 @@ func renderNode(b *strings.Builder, n *node) {
 		wrap(b, n, "*")
 	case "s", "strike", "del":
 		wrap(b, n, "~~")
+	case "spoiler":
+		// The target implements !!…!! (frontend/src/components/remarkSpoiler.ts), and
+		// [spoiler] is in the legacy supported-tag list, so this is a convertible tag
+		// rather than an unknown one. It used to fall through to the default branch,
+		// which emitted the opener literally and silently swallowed the closer.
+		wrap(b, n, "!!")
 	case "u":
 		// Markdown has no underline. HTML is the only way to keep the
 		// intent, and if the renderer strips it the words still survive —
@@ -83,9 +130,16 @@ func renderNode(b *strings.Builder, n *node) {
 		// matter; the formatting is dropped rather than approximated.
 		renderNodes(b, n.children)
 	default:
-		// An unknown tag was probably never markup. Put it back as written.
+		// An unknown tag was probably never markup. Put it back as written — all of
+		// it. Only the opener was emitted before, so `[spoiler]hidden[/spoiler]`
+		// became `\[spoiler\]hidden`: neither converted nor passed through, which
+		// are the only two defensible outcomes for something this does not
+		// understand. A node still carrying a tag here was definitely closed, since
+		// the parser literalizes the unclosed ones, so emitting the closer cannot
+		// invent one that was not typed.
 		b.WriteString(escapeMarkdown(n.raw))
 		renderNodes(b, n.children)
+		b.WriteString(escapeMarkdown("[/" + n.tag + "]"))
 	}
 }
 
@@ -245,7 +299,7 @@ func renderQuote(b *strings.Builder, n *node) {
 }
 
 func renderCode(b *strings.Builder, n *node) {
-	body := rawText(n)
+	body := rawTextPreservingIndent(n)
 	if strings.TrimSpace(body) == "" {
 		return
 	}
@@ -309,7 +363,21 @@ func renderList(b *strings.Builder, n *node) {
 
 // rawText returns a node's text with no escaping, for the places where the
 // content is a URL or code rather than prose.
+// rawText returns a node's text with no escaping.
+//
+// trimTrailing controls whether surrounding whitespace goes. A URL wants it gone;
+// a [code] block does not — TrimSpace stripped the *first* line's indentation while
+// leaving every later line intact, so pasted code arrived with its alignment broken,
+// which is most of the reason someone reached for [code] at all.
+func rawTextPreservingIndent(n *node) string {
+	return collectRawText(n)
+}
+
 func rawText(n *node) string {
+	return strings.TrimSpace(collectRawText(n))
+}
+
+func collectRawText(n *node) string {
 	var b strings.Builder
 	var walk func(*node)
 	walk = func(x *node) {
@@ -327,7 +395,7 @@ func rawText(n *node) string {
 	for _, c := range n.children {
 		walk(c)
 	}
-	return strings.TrimSpace(b.String())
+	return b.String()
 }
 
 // allowedURLSchemes are the schemes a migrated link may carry.
