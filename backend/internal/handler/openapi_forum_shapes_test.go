@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"sort"
@@ -62,10 +64,49 @@ func schemaProperties(t *testing.T, schema string) []string {
 
 type specSchemaDoc struct {
 	Components struct {
-		Schemas map[string]struct {
-			Properties map[string]yaml.Node `yaml:"properties"`
-		} `yaml:"schemas"`
+		Schemas map[string]specSchema `yaml:"schemas"`
 	} `yaml:"components"`
+}
+
+type specSchema struct {
+	Required   []string            `yaml:"required"`
+	Properties map[string]specProp `yaml:"properties"`
+}
+
+// specProp is the part of a property declaration a flat response can be checked
+// against. Enough for objects of primitives and string arrays, which is what every
+// forum response is; deliberately not a general OpenAPI validator, since pulling one
+// plus its transitive tree into a production module to type-check a documentation
+// test is not a trade worth making.
+type specProp struct {
+	Type     string `yaml:"type"`
+	Format   string `yaml:"format"`
+	Nullable bool   `yaml:"nullable"`
+	Items    *struct {
+		Type string `yaml:"type"`
+	} `yaml:"items"`
+}
+
+// schemaRequired reads the declared required property names of one component schema.
+func schemaRequired(t *testing.T, schema string) []string {
+	t.Helper()
+	doc := parsedFullSpec(t)
+	s, ok := doc.Components.Schemas[schema]
+	if !ok {
+		t.Fatalf("%s documents no schema named %q", fullSpecPath, schema)
+	}
+	return s.Required
+}
+
+// schemaProps reads the full property declarations of one component schema.
+func schemaProps(t *testing.T, schema string) map[string]specProp {
+	t.Helper()
+	doc := parsedFullSpec(t)
+	s, ok := doc.Components.Schemas[schema]
+	if !ok {
+		t.Fatalf("%s documents no schema named %q", fullSpecPath, schema)
+	}
+	return s.Properties
 }
 
 var (
@@ -362,3 +403,204 @@ func TestForumPostEditSchemaMatchesTheModel(t *testing.T) {
 // maximal and a minimal fixture and check JSON kinds against type/format/nullable.
 // That upgrade needs no new dependency — encoding/json plus the schema this file
 // already parses is enough.
+
+// --- limit 1 and 2: required, proved by a minimal fixture ---------------------
+
+// #233. Every fixture above is *maximal* — each optional field populated, so every
+// `if x != nil` branch is taken. A regression that makes a currently-unconditional
+// key conditional therefore stays green, because the fixture satisfies the new
+// condition, while live traffic silently stops carrying a field the schema promises.
+//
+// The fix is `required:` on the response schemas plus a fixture built the opposite
+// way: every pointer nil, every optional absent, the least a real response can carry.
+// Whatever survives that is genuinely unconditional, and the schema now says so — which
+// also makes the generated TypeScript stop marking those fields optional.
+//
+// The required list lives in the YAML rather than here on purpose. A hand-typed list
+// in a test agrees with a schema written from the same memory and proves nothing —
+// this file's own header records that mistake. Here the YAML *claims* and the minimal
+// fixture *proves*: list something as required that the builder can omit, and this
+// fails.
+func TestMinimalFixturesEmitEveryRequiredProperty(t *testing.T) {
+	// Deliberately zero-valued: no pointers set, no staff viewer, no edit history.
+	minimal := map[string]map[string]interface{}{
+		"Forum":             forumResponse(&model.Forum{}),
+		"ForumTopic":        topicResponse(&model.ForumTopic{}),
+		"ForumPost":         postResponse(&model.ForumPost{}, false),
+		"ForumSearchResult": searchResultResponse(model.ForumSearchResult{}),
+	}
+
+	for schema, body := range minimal {
+		t.Run(schema, func(t *testing.T) {
+			required := schemaRequired(t, schema)
+			if len(required) == 0 {
+				t.Fatalf("schema %s declares no required properties, so a consumer must "+
+					"treat every field as optional and this test proves nothing", schema)
+			}
+			for _, name := range required {
+				if _, ok := body[name]; !ok {
+					t.Errorf("%s.%s is declared required but a minimal response omits it — "+
+						"either the builder made it conditional, or the schema is claiming "+
+						"more than the code delivers", schema, name)
+				}
+			}
+		})
+	}
+}
+
+// The other direction: a property that is *not* required must genuinely be omissible,
+// or it should be required and the generated types should say so. Without this,
+// `required` could be under-declared forever and every consumer keeps non-null
+// asserting fields that are always present.
+func TestPropertiesAbsentFromAMinimalResponseAreNotRequired(t *testing.T) {
+	minimal := map[string]map[string]interface{}{
+		"Forum":             forumResponse(&model.Forum{}),
+		"ForumTopic":        topicResponse(&model.ForumTopic{}),
+		"ForumPost":         postResponse(&model.ForumPost{}, false),
+		"ForumSearchResult": searchResultResponse(model.ForumSearchResult{}),
+	}
+
+	for schema, body := range minimal {
+		t.Run(schema, func(t *testing.T) {
+			required := map[string]bool{}
+			for _, name := range schemaRequired(t, schema) {
+				required[name] = true
+			}
+			for name := range schemaProps(t, schema) {
+				_, emitted := body[name]
+				if emitted && !required[name] {
+					t.Errorf("%s.%s is emitted even by a minimal response but is not in "+
+						"`required`, so every generated type marks it optional and every "+
+						"consumer non-null asserts it", schema, name)
+				}
+			}
+		})
+	}
+}
+
+// --- limit 3: types, not just key sets ---------------------------------------
+
+// A key set carries no type information, so `user_post_count` going int -> string,
+// `total` losing `format: int64`, `avatar` losing `nullable: true` or `created_at`
+// becoming a unix integer all passed. This walks the marshalled response against the
+// declared type of each property.
+//
+// Marshalled rather than reflected, because JSON is what the integrator receives:
+// time.Time is a string on the wire whatever it is in Go, and that is the fact the
+// schema is describing.
+func TestForumResponseTypesMatchTheSchema(t *testing.T) {
+	now := time.Now()
+	userID := int64(7)
+
+	shapes := map[string]map[string]interface{}{
+		"Forum": forumResponse(&model.Forum{
+			ID: 1, CategoryID: 2, Name: "General", Description: "d",
+			SortOrder: 1, TopicCount: 3, PostCount: 4,
+			MinGroupLevel: 0, MinPostLevel: 0, CreatedAt: now,
+			LastPostAt: &now, LastPostUsername: strptr("alice"),
+			LastPostTopicID: &userID, LastPostTopicTitle: strptr("t"),
+		}),
+		"ForumTopic": topicResponse(&model.ForumTopic{
+			ID: 1, ForumID: 2, UserID: 7, Username: "alice", Title: "t",
+			PostCount: 1, ViewCount: 2, CreatedAt: now, UpdatedAt: now,
+			ForumName: "General", LastPostAt: &now, LastPostUsername: strptr("bob"),
+		}),
+		"ForumPost": postResponse(&model.ForumPost{
+			ID: 1, TopicID: 2, UserID: 7, Username: "alice",
+			Avatar: strptr("a.png"), GroupName: "User", Body: "b",
+			MentionedUsernames: []string{"bob"},
+			CreatedAt:          now, UserCreatedAt: now, UserPostCount: 3,
+			ReplyToPostID: &userID, EditedAt: &now, EditedBy: &userID,
+			DeletedAt: &now, DeletedBy: &userID,
+		}, true),
+		"ForumSearchResult": searchResultResponse(model.ForumSearchResult{
+			PostID: 1, Body: "b", TopicID: 2, TopicTitle: "t",
+			ForumID: 3, ForumName: "General", UserID: 7, Username: "alice",
+			CreatedAt: now, Snippet: "s", PostNumber: 1,
+		}),
+	}
+
+	for schema, body := range shapes {
+		t.Run(schema, func(t *testing.T) {
+			encoded, err := json.Marshal(body)
+			if err != nil {
+				t.Fatalf("marshalling %s: %v", schema, err)
+			}
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("decoding %s: %v", schema, err)
+			}
+
+			for name, prop := range schemaProps(t, schema) {
+				value, present := decoded[name]
+				if !present {
+					continue // key-set coverage is the other tests' job
+				}
+				if err := checkJSONType(value, prop); err != nil {
+					t.Errorf("%s.%s: %v", schema, name, err)
+				}
+			}
+		})
+	}
+}
+
+// checkJSONType reports whether a decoded JSON value matches a declared property.
+//
+// Only the shapes a flat response actually uses: string (with date-time), integer,
+// number, boolean, and arrays of strings. Anything else is skipped rather than
+// guessed at — a wrong assertion here would be worse than none.
+func checkJSONType(value interface{}, prop specProp) error {
+	if value == nil {
+		if prop.Nullable {
+			return nil
+		}
+		return fmt.Errorf("is null on the wire but the schema does not mark it nullable")
+	}
+
+	switch prop.Type {
+	case "string":
+		s, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("schema says string, response sent %T", value)
+		}
+		if prop.Format == "date-time" {
+			if _, err := time.Parse(time.RFC3339, s); err != nil {
+				return fmt.Errorf("schema says format: date-time, response sent %q", s)
+			}
+		}
+	case "integer":
+		// encoding/json decodes every number as float64, so "integer" means a whole
+		// number rather than a Go int — which is exactly what an integrator sees.
+		n, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("schema says integer, response sent %T", value)
+		}
+		if n != math.Trunc(n) {
+			return fmt.Errorf("schema says integer, response sent %v", n)
+		}
+	case "number":
+		if _, ok := value.(float64); !ok {
+			return fmt.Errorf("schema says number, response sent %T", value)
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("schema says boolean, response sent %T", value)
+		}
+	case "array":
+		items, ok := value.([]interface{})
+		if !ok {
+			return fmt.Errorf("schema says array, response sent %T", value)
+		}
+		if prop.Items == nil || prop.Items.Type != "string" {
+			return nil
+		}
+		for i, item := range items {
+			if _, ok := item.(string); !ok {
+				return fmt.Errorf("schema says array of string, element %d is %T", i, item)
+			}
+		}
+	}
+	return nil
+}
+
+func strptr(s string) *string { return &s }

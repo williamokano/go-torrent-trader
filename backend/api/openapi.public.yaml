@@ -3083,6 +3083,7 @@ components:
             $ref: '#/components/schemas/Forum'
     Forum:
       type: object
+      required: [id, category_id, name, description, sort_order, topic_count, post_count, min_group_level, min_post_level, created_at]
       properties:
         id:
           type: integer
@@ -3127,6 +3128,7 @@ components:
           description: Absent when the forum has never been posted in
     ForumTopic:
       type: object
+      required: [id, forum_id, user_id, username, title, pinned, locked, post_count, view_count, created_at, updated_at, forum_name]
       properties:
         id:
           type: integer
@@ -3172,6 +3174,7 @@ components:
 
     ForumPost:
       type: object
+      required: [id, topic_id, user_id, username, avatar, group_name, body, mentioned_usernames, created_at, user_created_at, user_post_count, is_deleted, is_first_post]
       properties:
         id:
           type: integer
@@ -3248,6 +3251,7 @@ components:
 
     ForumSearchResult:
       type: object
+      required: [post_id, body, topic_id, topic_title, forum_id, forum_name, user_id, username, created_at, snippet, post_number, page]
       properties:
         post_id:
           type: integer
