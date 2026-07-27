@@ -249,8 +249,31 @@ func refresherFor(profileName, baseURL string, stored config.Credential, warn io
 		mu.Lock()
 		defer mu.Unlock()
 
+		// Before spending a round trip, check whether another tt already did this.
+		// Two invocations that overlap — two cron entries on the same minute, an
+		// xargs -P fan-out, a wrapper looping over profiles — both read the same
+		// pair and both try to spend it. The server rotates on every renewal, so
+		// the second request is refused and that invocation used to fail with a
+		// 401 in exactly the unattended case the login command exists to serve.
+		//
+		// Adopting a newer stored pair costs one file read and makes the common
+		// overlap free. Deliberately not done under a lock held across the HTTP
+		// call: the credential lock gives up after ~1s, far less than a slow
+		// refresh, so that would turn a rare 401 into a common ErrLocked (#239).
+		if fresh, ok := adoptNewerCredential(profileName, refreshToken); ok {
+			refreshToken = fresh.RefreshToken
+			return fresh.Token, nil
+		}
+
 		tokens, err := client.Refresh(ctx, baseURL, refreshToken, opts...)
 		if err != nil {
+			// Losing the race looks exactly like a dead refresh token, so check
+			// whether it was in fact a race: the winner has by now written a pair
+			// this invocation can use. Only then is the error real.
+			if fresh, ok := adoptNewerCredentialSynced(profileName, refreshToken); ok {
+				refreshToken = fresh.RefreshToken
+				return fresh.Token, nil
+			}
 			return "", err
 		}
 		refreshToken = tokens.RefreshToken
@@ -275,6 +298,59 @@ func refresherFor(profileName, baseURL string, stored config.Credential, warn io
 		}
 		return tokens.AccessToken, nil
 	}
+}
+
+// adoptNewerCredential reports a stored credential that another tt invocation has
+// refreshed since this one read its copy.
+//
+// "Newer" means the stored refresh token differs from the one this invocation holds
+// *and* the stored access token is still usable. The first half identifies a
+// rotation; the second stops an expired or half-written record being adopted as
+// though it were fresh.
+//
+// A read failure is not reported: the caller is about to make, or has just made, a
+// network request, and a warning about the credential file would be noise against
+// the error that actually matters.
+func adoptNewerCredential(profileName, currentRefreshToken string) (config.Credential, bool) {
+	stored, err := config.LoadCredentialRecord(profileName)
+	if err != nil {
+		return config.Credential{}, false
+	}
+	return usableAndNewer(stored, currentRefreshToken)
+}
+
+// adoptNewerCredentialSynced is the same check, but waits for any in-flight write to
+// finish first.
+//
+// Used only after a refresh was refused, where the likeliest explanation is that
+// another invocation won the race and is still writing. Reading immediately would see
+// the old pair and report a dead refresh token, which is the failure this is meant to
+// remove. The plain read is kept for the pre-flight check, where there is nothing to
+// wait for and taking a lock on every renewal would be needless contention.
+func adoptNewerCredentialSynced(profileName, currentRefreshToken string) (config.Credential, bool) {
+	stored, err := config.LoadCredentialRecordSynced(profileName)
+	if err != nil {
+		return config.Credential{}, false
+	}
+	return usableAndNewer(stored, currentRefreshToken)
+}
+
+func usableAndNewer(stored config.Credential, currentRefreshToken string) (config.Credential, bool) {
+	if stored.Token == "" || stored.RefreshToken == "" {
+		return config.Credential{}, false
+	}
+	if stored.RefreshToken == currentRefreshToken {
+		return config.Credential{}, false // nobody else has rotated
+	}
+	// Already expired, not merely inside the renewal skew. The skew decides when to
+	// renew *proactively*; here the question is only whether this token is worth
+	// having instead of an error, and one that still works for a few seconds is.
+	// Testing the skew instead would reject a perfectly usable pair and send the
+	// invocation back to the failure this exists to prevent.
+	if stored.ExpiresWithin(0) {
+		return config.Credential{}, false
+	}
+	return stored, true
 }
 
 // promptLine reads a visible line, used for the username.
