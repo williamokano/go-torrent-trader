@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -117,18 +118,98 @@ func checkTarget(cmd *cobra.Command) (target.Schema, bool, error) {
 
 	p := newPrinter(cmd.OutOrStdout())
 	p.printf("\nTarget: %s\n", db)
+
+	broken := false
 	problems := target.Verify(live)
 	if len(problems) == 0 {
 		p.println("  The schema is what this tool expects.")
-		return live, false, p.errf("the target report")
+	} else {
+		p.printf("  %d things the migration writes to are not there:\n", len(problems))
+		for _, problem := range problems {
+			p.printf("    %s\n", problem)
+		}
+		p.println("  Run the backend's migrations against this database first.")
+		broken = true
 	}
 
-	p.printf("  %d things the migration writes to are not there:\n", len(problems))
-	for _, problem := range problems {
-		p.printf("    %s\n", problem)
+	// Everything below is reported even when the schema is wrong, because fixing one
+	// problem per run — each needing two database connections — is not a reasonable
+	// thing to ask of somebody mid-cutover.
+	if reportTargetAlreadyHasData(cmd, p, db, live) {
+		broken = true
 	}
-	p.println("  Run the backend's migrations against this database first.")
-	return live, true, p.errf("the target report")
+	reportWriteOrderHazards(p)
+
+	return live, broken, p.errf("the target report")
+}
+
+// reportTargetAlreadyHasData answers the question the pre-flight was not asking:
+// does this database already contain data?
+//
+// NonEmpty existed and had no production caller, so "the target already has rows"
+// was written and never wired into the check it belongs in. A table with non-seed
+// rows means either a half-finished previous run — re-running duplicates everything
+// — or a live site, which is unrecoverable. It is arguably the most dangerous
+// question after schema drift.
+func reportTargetAlreadyHasData(cmd *cobra.Command, p *printer, db *target.DB, live target.Schema) bool {
+	counts, err := db.RowCounts(cmd.Context(), live)
+	if err != nil {
+		p.printf("  Could not check whether the target already has data: %v\n", err)
+		return false
+	}
+
+	populated := target.NonEmpty(counts)
+	if len(populated) == 0 {
+		p.println("  It holds no data beyond the backend's own seed rows.")
+		return false
+	}
+
+	p.printf("  %d tables already contain data:\n", len(populated))
+	for _, table := range populated {
+		p.printf("    %s: %d rows\n", table, counts[table])
+	}
+	p.println("  That is either a half-finished run or a live site. Re-running over the")
+	p.println("  first duplicates everything; running over the second cannot be undone.")
+	return true
+}
+
+// reportWriteOrderHazards names the two things no table ordering can fix, so an
+// operator meets them here rather than partway through a million rows.
+//
+// Warnings rather than blockers: both are properties of the schema, not of this
+// operator's database, so refusing every run until they are solved would refuse every
+// run. What must not happen is somebody discovering them on the night (#240).
+func reportWriteOrderHazards(p *printer) {
+	if len(target.SelfReferencing) > 0 {
+		p.printf("\n  %d tables reference themselves:\n", len(target.SelfReferencing))
+		for _, table := range sortedKeys(target.SelfReferencing) {
+			p.printf("    %s.%s\n", table, target.SelfReferencing[table])
+		}
+		p.println("  Foreign keys fire at end-of-statement, so one INSERT is safe and a batch")
+		p.println("  boundary is not: a row whose parent lands in a later batch would fail.")
+		p.println("  The writer handles it — the column goes in as NULL and is set once every")
+		p.println("  row exists — so this is for your information, not something to fix. It")
+		p.println("  does mean the id column has to be written alongside it.")
+	}
+
+	seeded := sortedKeys(target.Seeded)
+	if len(seeded) > 0 {
+		p.printf("\n  %d tables the migration writes to ship with seed rows:\n", len(seeded))
+		for _, table := range seeded {
+			p.printf("    %s — %s\n", table, target.Seeded[table])
+		}
+		p.println("  Keeping legacy ids collides with them. Decide per table whether to merge")
+		p.println("  into the seeded row or insert alongside it, and reset the id sequence.")
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // checkMapping validates the mapping file, when one was given, and reports

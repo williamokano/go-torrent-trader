@@ -170,3 +170,33 @@ func (d *DB) Schema(ctx context.Context) (Schema, error) {
 	}
 	return Schema{tables: tables}, nil
 }
+
+// RowCounts counts the rows in each declared table.
+//
+// Feeds NonEmpty, which answers the question the pre-flight was not asking: does this
+// database already have data in it? A table with non-seed rows means either a
+// half-finished previous run or a live site, and the second is unrecoverable — so it
+// is worth stopping for, and it is arguably the most dangerous question after schema
+// drift.
+//
+// Counted per table rather than in one statement because the set is small and fixed,
+// and a table that has gone should be reported by the schema check rather than
+// breaking this one.
+func (d *DB) RowCounts(ctx context.Context, live Schema) (map[string]int64, error) {
+	counts := make(map[string]int64, len(DeclaredTables()))
+	for _, table := range DeclaredTables() {
+		if !live.HasTable(table) {
+			// Missing tables are the schema check's problem, not this one's.
+			continue
+		}
+		var n int64
+		// #nosec G202 -- table comes from this package's own declaration, and is
+		// quoted; it is never operator input.
+		q := "SELECT COUNT(*) FROM " + QuoteIdentifier(table)
+		if err := d.db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+			return nil, fmt.Errorf("counting rows in %s: %w", table, err)
+		}
+		counts[table] = n
+	}
+	return counts, nil
+}

@@ -539,3 +539,114 @@ func TestTargetHarnessIsUsable(t *testing.T) {
 		}
 	}
 }
+
+// #240. A table that references itself cannot be written naively in batches: foreign
+// keys fire at end-of-statement, so one multi-row INSERT is safe while a batch
+// boundary is not. Legacy user 12 invited by user 900, at a batch size of 500, puts
+// the parent in batch 2 and fails batch 1 — and under TxPerBatch the run stops with
+// the table half written.
+//
+// The batch size here is deliberately smaller than the gap between child and parent,
+// because a single-batch test passes whether or not anything was fixed.
+//
+// Worth recording why this is a backfill and not `SET CONSTRAINTS ALL DEFERRED`:
+// nothing in backend/migrations is declared DEFERRABLE, and PostgreSQL silently
+// ignores that statement for a NOT DEFERRABLE constraint. The deferral was written
+// first, looked correct, and did nothing — a probe against a real server is what
+// showed it.
+func TestWriterHandlesASelfReferenceAcrossBatches(t *testing.T) {
+	for _, mode := range []struct {
+		name string
+		mode target.TxMode
+	}{
+		{name: "TxPerBatch", mode: target.TxPerBatch},
+		{name: "TxPerTable", mode: target.TxPerTable},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			db := openTarget(t)
+			ctx := context.Background()
+
+			name := "scratch_selfref_" + strings.ToLower(mode.name)
+			drop := "DROP TABLE IF EXISTS " + target.QuoteIdentifier(name)
+			if _, err := db.SQL().ExecContext(ctx, drop); err != nil {
+				t.Fatalf("dropping: %v", err)
+			}
+			// NOT DEFERRABLE, exactly as backend/migrations declares users.invited_by.
+			if _, err := db.SQL().ExecContext(ctx, "CREATE TABLE "+target.QuoteIdentifier(name)+
+				" (id BIGINT PRIMARY KEY, invited_by BIGINT REFERENCES "+
+				target.QuoteIdentifier(name)+"(id))"); err != nil {
+				t.Fatalf("creating: %v", err)
+			}
+			t.Cleanup(func() { _, _ = db.SQL().ExecContext(context.Background(), drop) })
+
+			// The writer keys off the real table names, so borrow one for the test.
+			target.SelfReferencing[name] = "invited_by"
+			t.Cleanup(func() { delete(target.SelfReferencing, name) })
+
+			w, err := db.NewWriter(name, []string{"id", "invited_by"}, target.WriterOptions{
+				BatchSize: 2,
+				TxMode:    mode.mode,
+			})
+			if err != nil {
+				t.Fatalf("NewWriter: %v", err)
+			}
+
+			// Child at id 1 invited by id 900, which lands several batches later.
+			rows := []struct{ id, parent int64 }{
+				{1, 900}, {2, 0}, {3, 900}, {4, 0}, {900, 0},
+			}
+			for _, r := range rows {
+				var parent any
+				if r.parent != 0 {
+					parent = r.parent
+				}
+				if err := w.Append(ctx, r.id, parent); err != nil {
+					t.Fatalf("Append(%d, %v): %v — a row whose parent is in a later "+
+						"batch must not fail on the way in", r.id, parent, err)
+				}
+			}
+			if err := w.Close(ctx); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+
+			// Every held-back value must have landed, or the migration would have
+			// quietly dropped the invite graph.
+			var got int64
+			if err := db.SQL().QueryRowContext(ctx,
+				"SELECT invited_by FROM "+target.QuoteIdentifier(name)+" WHERE id = 1").Scan(&got); err != nil {
+				t.Fatalf("reading back id 1: %v", err)
+			}
+			if got != 900 {
+				t.Errorf("invited_by = %d for id 1, want 900 — the value was held back "+
+					"and never restored", got)
+			}
+			var nulls int
+			if err := db.SQL().QueryRowContext(ctx,
+				"SELECT COUNT(*) FROM "+target.QuoteIdentifier(name)+
+					" WHERE id IN (1,3) AND invited_by IS NULL").Scan(&nulls); err != nil {
+				t.Fatalf("counting nulls: %v", err)
+			}
+			if nulls != 0 {
+				t.Errorf("%d rows still hold a NULL parent after the backfill", nulls)
+			}
+		})
+	}
+}
+
+// A self-referencing table written without its id column cannot be backfilled, since
+// there is no way to say which row to set the value on. Refused at construction
+// rather than discovered at Close, when the rows are already in.
+func TestWriterRefusesASelfReferenceWithoutTheIDColumn(t *testing.T) {
+	db := openTarget(t)
+
+	target.SelfReferencing["scratch_noid"] = "invited_by"
+	t.Cleanup(func() { delete(target.SelfReferencing, "scratch_noid") })
+
+	_, err := db.NewWriter("scratch_noid", []string{"invited_by"}, target.WriterOptions{})
+	if err == nil {
+		t.Fatal("NewWriter accepted a self-referencing table with no id column")
+	}
+	if !strings.Contains(err.Error(), "id column") {
+		t.Errorf("error = %v, want it to name the missing id column", err)
+	}
+}
