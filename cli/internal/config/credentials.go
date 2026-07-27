@@ -90,6 +90,32 @@ func LoadCredentialRecord(profile string) (Credential, error) {
 }
 
 // StoreCredentialRecord writes a full credential for a profile.
+// LoadCredentialRecordSynced reads a credential after any in-flight write has
+// finished, by taking the same lock the writers hold.
+//
+// The plain read is fine for the ordinary case, where nothing else is running. This
+// exists for the moment after a refresh was refused: another tt invocation has very
+// likely just won the race and is mid-write, and reading immediately would see the
+// old pair and conclude — wrongly — that the refresh token is simply dead. Waiting on
+// the lock is deterministic where polling for the file to change is not.
+//
+// A contended or stale lock falls back to an unsynchronised read rather than
+// failing: the caller is recovering from an error already, and refusing to look is
+// strictly worse than looking at a possibly-stale copy.
+func LoadCredentialRecordSynced(profile string) (Credential, error) {
+	path, err := CredentialsPath()
+	if err != nil {
+		return Credential{}, err
+	}
+	release, lockErr := acquireLock(path + ".lock")
+	if lockErr != nil {
+		return LoadCredentialRecord(profile)
+	}
+	defer release()
+
+	return LoadCredentialRecord(profile)
+}
+
 func StoreCredentialRecord(profile string, c Credential) error {
 	return withCredentialLock(func(f *credentialFile) {
 		f.Profiles[profile] = c
