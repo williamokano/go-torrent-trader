@@ -938,3 +938,138 @@ func TestLogin_DisabledUser(t *testing.T) {
 		t.Errorf("expected ErrInvalidCredentials for disabled user, got %v", err)
 	}
 }
+
+// #228 end to end: a member carrying the hash their old PHP TorrentTrader produced
+// logs in with the password they always had, and comes out the other side on
+// Argon2id — so the legacy path is walked exactly once per member, ever.
+//
+// Driven through Login rather than VerifyPasswordWithScheme, because the upgrade is
+// the half that lives in the service and the half an operator actually depends on:
+// without it a migrated site keeps every weak hash at rest indefinitely.
+func TestLoginUpgradesAMigratedMemberToArgon2id(t *testing.T) {
+	const password = "the-password-they-already-had"
+
+	for _, tc := range []struct {
+		scheme string
+		stored string
+		secret string
+	}{
+		{scheme: SchemeLegacySHA1, stored: sha1Hex(password)},
+		{scheme: SchemeLegacyMD5, stored: md5Hex(password)},
+		{scheme: SchemeLegacyHMACSHA1, stored: hmacSHA1Hex(password, "old-secret"), secret: "old-secret"},
+	} {
+		t.Run(tc.scheme, func(t *testing.T) {
+			repo := newMockUserRepo()
+			svc := NewAuthService(repo, newTestSessionStore(), newTestPasswordResetStore(),
+				&noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+			svc.SetLegacyPasswordSecret(tc.secret)
+
+			// A member exactly as the migration leaves them.
+			migrated := &model.User{
+				Username:       "migrated",
+				Email:          "migrated@example.com",
+				PasswordHash:   tc.stored,
+				PasswordScheme: tc.scheme,
+				Enabled:        true,
+			}
+			if err := repo.Create(context.Background(), migrated); err != nil {
+				t.Fatalf("seeding the migrated member: %v", err)
+			}
+
+			user, _, err := svc.Login(context.Background(), LoginRequest{
+				Username: "migrated",
+				Password: password,
+			}, "127.0.0.1")
+			if err != nil {
+				t.Fatalf("a migrated member could not log in: %v", err)
+			}
+			if user == nil {
+				t.Fatal("Login returned no user")
+			}
+
+			stored, err := repo.GetByUsername(context.Background(), "migrated")
+			if err != nil {
+				t.Fatalf("re-reading the member: %v", err)
+			}
+			if stored.PasswordScheme != SchemeArgon2id {
+				t.Errorf("password_scheme = %q after login, want %q — the member is "+
+					"still on a weak hash and will be on every future login",
+					stored.PasswordScheme, SchemeArgon2id)
+			}
+			if stored.PasswordHash == tc.stored {
+				t.Error("the stored hash is unchanged, so nothing was re-hashed")
+			}
+
+			// And the upgrade has to be usable: the same password must work again
+			// through the ordinary Argon2id path.
+			if _, _, err := svc.Login(context.Background(), LoginRequest{
+				Username: "migrated",
+				Password: password,
+			}, "127.0.0.1"); err != nil {
+				t.Errorf("the second login failed, so the upgrade wrote a hash that "+
+					"does not verify: %v", err)
+			}
+		})
+	}
+}
+
+// The wrong password must still fail for a migrated member — the legacy branch must
+// not become a way in.
+func TestAMigratedMemberStillNeedsTheRightPassword(t *testing.T) {
+	repo := newMockUserRepo()
+	svc := NewAuthService(repo, newTestSessionStore(), newTestPasswordResetStore(),
+		&noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+
+	if err := repo.Create(context.Background(), &model.User{
+		Username:       "migrated",
+		Email:          "migrated@example.com",
+		PasswordHash:   sha1Hex("the-real-password"),
+		PasswordScheme: SchemeLegacySHA1,
+		Enabled:        true,
+	}); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	if _, _, err := svc.Login(context.Background(), LoginRequest{
+		Username: "migrated",
+		Password: "not-the-real-password",
+	}, "127.0.0.1"); err == nil {
+		t.Fatal("a wrong password was accepted for a migrated member")
+	}
+
+	stored, err := repo.GetByUsername(context.Background(), "migrated")
+	if err != nil {
+		t.Fatalf("re-reading: %v", err)
+	}
+	if stored.PasswordScheme != SchemeLegacySHA1 {
+		t.Error("a failed login upgraded the hash, so a wrong guess rewrote the credential")
+	}
+}
+
+// Registering and changing a password must always write Argon2id. A legacy scheme is
+// inbound only — tolerating one inherited from an old site is not the same as
+// choosing a weak hash for a credential created today.
+func TestNothingEverWritesALegacyScheme(t *testing.T) {
+	repo := newMockUserRepo()
+	svc := NewAuthService(repo, newTestSessionStore(), newTestPasswordResetStore(),
+		&noopSender{}, "http://localhost:8080", event.NewInMemoryBus())
+
+	if _, err := svc.Register(context.Background(), RegisterRequest{
+		Username: "fresh",
+		Email:    "fresh@example.com",
+		Password: "password123",
+	}, "127.0.0.1"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	stored, err := repo.GetByUsername(context.Background(), "fresh")
+	if err != nil {
+		t.Fatalf("re-reading: %v", err)
+	}
+	if IsLegacyScheme(stored.PasswordScheme) {
+		t.Errorf("registration wrote %q, a legacy scheme", stored.PasswordScheme)
+	}
+	if stored.PasswordScheme != SchemeArgon2id {
+		t.Errorf("registration wrote %q, want %q", stored.PasswordScheme, SchemeArgon2id)
+	}
+}

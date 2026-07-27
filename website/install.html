@@ -327,15 +327,25 @@ tracker.example.com {
           </p>
           <div class="note">
             <p>
-              <strong>Passwords will not carry over yet.</strong> The tracker
-              currently verifies only its own password format, so a hash brought
-              across from an older install cannot be checked and the member
-              cannot log in. Plan on everyone resetting their password after a
-              migration until that is fixed — it is
-              <a
-                href="https://github.com/williamokano/go-torrent-trader/issues/228"
-                >tracked as issue 228</a
-              >, and this page will say otherwise when it is true.
+              <strong>Passwords carry over.</strong> Members log in with the
+              password they already had. The tracker verifies the hash formats
+              TorrentTrader produced — SHA1, MD5 and the HMAC variant — and
+              quietly re-hashes to its own modern format on that first login, so
+              each member goes through the old path once and never again. Nobody
+              has to reset anything.
+            </p>
+            <p>
+              One thing to set if your old install used the HMAC variant: put its
+              site secret in <code>LEGACY_PASSWORD_SECRET</code> before members
+              start logging in. The SHA1 and MD5 variants need nothing. If it is
+              missing, affected members cannot be verified and the server log
+              says so plainly rather than telling them their password is wrong.
+            </p>
+            <p>
+              If you would rather no old hash sat in the new database at all, the
+              migration can wrap them instead — each one re-hashed at cutover, so
+              members still log in normally and nothing weak is stored. It costs a
+              little extra work per login until each member upgrades.
             </p>
           </div>
           <p>

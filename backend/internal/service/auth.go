@@ -138,6 +138,10 @@ type AuthService struct {
 	inviteService       *InviteService
 	banChecker          BanChecker
 	requireEmailConfirm bool
+	// legacyPasswordSecret is the site secret a TorrentTrader install used with
+	// its HMAC passhash(). Only needed when migrated members carry an HMAC
+	// scheme; the SHA1 and MD5 schemes are unsalted and need nothing.
+	legacyPasswordSecret string
 }
 
 // NewAuthService creates a new AuthService with default token TTLs.
@@ -193,6 +197,15 @@ func (s *AuthService) SetInviteService(svc *InviteService) {
 
 // SetBanChecker sets the ban checker used during registration and login.
 // When nil, ban checks are skipped (backward compatible).
+// SetLegacyPasswordSecret supplies the site secret a migrated TorrentTrader used
+// with its HMAC passhash(), so those members can log in once and be upgraded.
+//
+// Unset is the correct state for a site that was never migrated, and for one whose
+// legacy install used the SHA1 or MD5 variants — neither is salted.
+func (s *AuthService) SetLegacyPasswordSecret(secret string) {
+	s.legacyPasswordSecret = secret
+}
+
 func (s *AuthService) SetBanChecker(checker BanChecker) {
 	s.banChecker = checker
 }
@@ -396,9 +409,32 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 
 	// Verify password BEFORE checking enabled status to prevent user enumeration.
 	// An attacker should not learn account status without providing the correct password.
-	match, err := VerifyPassword(req.Password, user.PasswordHash)
-	if err != nil || !match {
+	//
+	// Scheme-aware, because a member migrated from a PHP TorrentTrader carries the
+	// hash that install produced. Verifying as Argon2id unconditionally meant that
+	// hash never parsed and the member could not authenticate at all (#228).
+	match, needsUpgrade, err := VerifyPasswordWithScheme(
+		req.Password, user.PasswordHash, user.PasswordScheme, s.legacyPasswordSecret)
+	if err != nil {
+		// A missing HMAC secret is an operator misconfiguration, not a bad
+		// password. Logged so it is diagnosable, since the member would otherwise
+		// be sent to the reset form with nothing explaining why.
+		if errors.Is(err, ErrLegacySecretMissing) {
+			slog.Error("a migrated member cannot log in: the legacy HMAC secret is not configured",
+				"user_id", user.ID, "scheme", user.PasswordScheme)
+		}
 		return nil, nil, ErrInvalidCredentials
+	}
+	if !match {
+		return nil, nil, ErrInvalidCredentials
+	}
+
+	// Upgrade on the way through, so each migrated member pays the legacy path
+	// exactly once. Deliberately not fatal: the member typed the right password and
+	// refusing the login because a follow-up write failed would be a worse outcome
+	// than trying again next time.
+	if needsUpgrade {
+		s.upgradePasswordHash(ctx, user, req.Password)
 	}
 
 	if !user.Enabled {
@@ -510,6 +546,32 @@ func (s *AuthService) LogoutByRefreshToken(refreshToken string) bool {
 	}
 	s.sessions.DeleteByRefreshToken(refreshToken)
 	return true
+}
+
+// upgradePasswordHash re-hashes a verified legacy password with Argon2id.
+//
+// Called only after a successful legacy verification, so the plaintext is known
+// good. Best effort by design: the member has already authenticated, and failing
+// their login because a follow-up write failed would trade a working login for a
+// storage problem. A failure just means the next login tries again.
+//
+// This is what makes the legacy schemes strictly transitional — a member touches
+// one once, and every login after this writes Argon2id.
+func (s *AuthService) upgradePasswordHash(ctx context.Context, user *model.User, password string) {
+	hashed, err := HashPassword(password)
+	if err != nil {
+		slog.Error("could not re-hash a migrated password", "user_id", user.ID, "error", err)
+		return
+	}
+
+	user.PasswordHash = hashed
+	user.PasswordScheme = SchemeArgon2id
+	if err := s.users.Update(ctx, user); err != nil {
+		slog.Error("could not store a re-hashed migrated password",
+			"user_id", user.ID, "error", err)
+		return
+	}
+	slog.Info("upgraded a migrated password to argon2id", "user_id", user.ID)
 }
 
 // GetCurrentUser returns the user by ID.
