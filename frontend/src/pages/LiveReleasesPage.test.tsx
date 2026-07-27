@@ -351,8 +351,10 @@ describe("LiveReleasesPage", () => {
 });
 
 describe("LiveReleasesPage feeds", () => {
-  // Deliberately not in slug order: the page must not pick "whichever sorted
-  // first" as the feed it watches.
+  // Note that "default" is first here, and in slug order — so this fixture
+  // cannot distinguish "prefers the legacy default" from "takes whatever is
+  // first". Tests that turn on that distinction build their own fixture; the
+  // rest only need two feeds and use this one.
   const twoFeeds = [
     { slug: "default", name: "Everything" },
     { slug: "no-adult", name: "Safe for work" },
@@ -381,13 +383,29 @@ describe("LiveReleasesPage feeds", () => {
     // Regression: the picker used to show the alphabetically-first feed while
     // the stream was bound to the legacy "default" one. On a private tracker
     // that reads "Safe for work" over the unfiltered feed's releases.
-    mockFeeds(twoFeeds);
+    //
+    // This needs its own fixture, with "default" NOT first. resolveFeed returns
+    // `the legacy default ?? feeds[0]`, so against twoFeeds — where "default" is
+    // feeds[0] — both branches give the same answer and the assertion cannot tell
+    // a working resolution from one that ignores the legacy default entirely.
+    // Mutation-checked: dropping the LEGACY_FEED lookup leaves twoFeeds green.
+    mockFeeds([
+      { slug: "anime", name: "Anime" },
+      { slug: "default", name: "Everything" },
+    ]);
     renderPage();
 
     const picker = (await screen.findByLabelText("Feed")) as HTMLSelectElement;
-    const latest =
-      MockEventSource.instances[MockEventSource.instances.length - 1];
-    expect(latest.url).toContain(`/announce-stream/${picker.value}?`);
+    // The picker rendering and the stream rebinding onto its feed are separate
+    // effects. findByLabelText settles on the first of those, so reading the
+    // EventSource here catches the legacy stream whenever the machine is loaded
+    // enough to interleave them — which is what running 88 files concurrently
+    // does. Settle on the stream, the same way the deleted-feed test below does.
+    await waitFor(() => {
+      const latest =
+        MockEventSource.instances[MockEventSource.instances.length - 1];
+      expect(latest.url).toContain(`/announce-stream/${picker.value}?`);
+    });
     // "everything" sorts first, but "default" is what the legacy route resolves
     // to, so that is the honest default.
     expect(picker.value).toBe("default");
@@ -402,9 +420,12 @@ describe("LiveReleasesPage feeds", () => {
 
     const picker = (await screen.findByLabelText("Feed")) as HTMLSelectElement;
     expect(picker.value).toBe("anime");
-    const latest =
-      MockEventSource.instances[MockEventSource.instances.length - 1];
-    expect(latest.url).toContain("/announce-stream/anime?");
+    // Same two-effect race as above.
+    await waitFor(() => {
+      const latest =
+        MockEventSource.instances[MockEventSource.instances.length - 1];
+      expect(latest.url).toContain("/announce-stream/anime?");
+    });
   });
 
   test("says so when the feed in the URL no longer exists", async () => {
