@@ -458,9 +458,14 @@
                 <td>
                   How long individual announce records are kept. A nightly job
                   totals each day into permanent per-member monthly figures and
-                  then deletes the raw rows past this window, so shortening it
-                  reclaims disk without losing anyone's transfer history. Set it
-                  to 0 to keep every raw announce indefinitely.
+                  then deletes the raw rows past this window, so the log stops
+                  growing without losing anyone's transfer history. It does not
+                  give disk back: once autovacuum has swept them, the deleted
+                  rows' space is reused by later announces rather than returned
+                  to the filesystem. Only <code>VACUUM FULL</code> shrinks the
+                  database itself, and it locks the table while it runs and needs
+                  the table's size again in free space. Set it to 0 to keep every
+                  raw announce indefinitely.
                 </td>
               </tr>
             </tbody>

@@ -1,6 +1,10 @@
 .git
 node_modules/
 dist/
+# Keep the test files out — and note that the image build now *depends* on it.
+# AdminSettingsPage.test.tsx imports ../../../../website/configure.html?raw, which
+# is outside the frontend build context, so copying the tests in would fail
+# `npm run build` inside the image while local builds kept passing.
 *.test.tsx
 *.test.ts
 vitest.config.ts

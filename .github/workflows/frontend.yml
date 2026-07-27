@@ -1,11 +1,17 @@
 name: Frontend CI
+# website/** is in the trigger paths on purpose. AdminSettingsPage.test.tsx reads
+# website/configure.html and asserts that the admin panel and the published site
+# describe the announce-log retention setting the same way. Without this path a
+# website-only change could re-introduce the wrong description and merge green,
+# and the guard would then fail on the next unrelated frontend PR, blaming an
+# author who never touched the file. A guard CI does not run is not a guard.
 on:
   push:
     branches: [main]
-    paths: ['frontend/**', '.github/workflows/frontend.yml']
+    paths: ['frontend/**', 'website/**', '.github/workflows/frontend.yml']
   pull_request:
     branches: [main]
-    paths: ['frontend/**', '.github/workflows/frontend.yml']
+    paths: ['frontend/**', 'website/**', '.github/workflows/frontend.yml']
 
 permissions:
   contents: read
