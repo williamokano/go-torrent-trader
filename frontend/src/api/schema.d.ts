@@ -1421,20 +1421,20 @@ export interface components {
     };
     Forum: {
       /** Format: int64 */
-      id?: number;
+      id: number;
       /** Format: int64 */
-      category_id?: number;
-      name?: string;
-      description?: string;
-      sort_order?: number;
-      topic_count?: number;
-      post_count?: number;
+      category_id: number;
+      name: string;
+      description: string;
+      sort_order: number;
+      topic_count: number;
+      post_count: number;
       /** @description The group level needed to read this forum */
-      min_group_level?: number;
+      min_group_level: number;
       /** @description The group level needed to post in it. Can be higher than `min_group_level`, which is how a read-only announcements forum is configured. */
-      min_post_level?: number;
+      min_post_level: number;
       /** Format: date-time */
-      created_at?: string;
+      created_at: string;
       /**
        * Format: date-time
        * @description Absent when the forum has never been posted in
@@ -1452,26 +1452,26 @@ export interface components {
     };
     ForumTopic: {
       /** Format: int64 */
-      id?: number;
+      id: number;
       /** Format: int64 */
-      forum_id?: number;
-      forum_name?: string;
+      forum_id: number;
+      forum_name: string;
       /**
        * Format: int64
        * @description The member who started the topic
        */
-      user_id?: number;
-      username?: string;
-      title?: string;
-      pinned?: boolean;
+      user_id: number;
+      username: string;
+      title: string;
+      pinned: boolean;
       /** @description A locked topic can still be read; replies are refused */
-      locked?: boolean;
-      post_count?: number;
-      view_count?: number;
+      locked: boolean;
+      post_count: number;
+      view_count: number;
       /** Format: date-time */
-      created_at?: string;
+      created_at: string;
       /** Format: date-time */
-      updated_at?: string;
+      updated_at: string;
       /**
        * Format: date-time
        * @description Points at the opening post from the moment the topic is created, so this is present on every topic — including one with no replies yet. It is not a "has replies" signal; compare `post_count` for that.
@@ -1482,34 +1482,34 @@ export interface components {
     };
     ForumPost: {
       /** Format: int64 */
-      id?: number;
+      id: number;
       /** Format: int64 */
-      topic_id?: number;
+      topic_id: number;
       /** Format: int64 */
-      user_id?: number;
-      username?: string;
+      user_id: number;
+      username: string;
       /** @description Null when the member has not set one */
-      avatar?: string | null;
-      group_name?: string;
+      avatar: string | null;
+      group_name: string;
       /** @description Markdown. **Empty string** on a soft-deleted post for anyone but staff — the post keeps its place in the topic but its content is withheld. */
-      body?: string;
+      body: string;
       /**
        * @description Members `@mentioned` in the body, as resolved when the post was last written **or edited** — an edit re-resolves them against the new body and replaces the stored list, so a mention removed by an edit disappears here. Empty array, not null, for a post with no mentions.
        *     Null on a soft-deleted post for anyone but staff: who a hidden post named is as much of a disclosure as what it said.
        */
-      mentioned_usernames?: string[] | null;
+      mentioned_usernames: string[] | null;
       /** Format: date-time */
-      created_at?: string;
+      created_at: string;
       /**
        * Format: date-time
        * @description When the post's author joined the site, for the post's byline
        */
-      user_created_at?: string;
+      user_created_at: string;
       /** @description The author's total post count, for the byline */
-      user_post_count?: number;
-      is_deleted?: boolean;
+      user_post_count: number;
+      is_deleted: boolean;
       /** @description True for the post that opens the topic. It cannot be deleted on its own — deleting the topic is what removes it. */
-      is_first_post?: boolean;
+      is_first_post: boolean;
       /**
        * Format: int64
        * @description Absent unless this post replies to a specific other post
@@ -1565,29 +1565,29 @@ export interface components {
     };
     ForumSearchResult: {
       /** Format: int64 */
-      post_id?: number;
+      post_id: number;
       /** Format: int64 */
-      topic_id?: number;
-      topic_title?: string;
+      topic_id: number;
+      topic_title: string;
       /** Format: int64 */
-      forum_id?: number;
-      forum_name?: string;
+      forum_id: number;
+      forum_name: string;
       /** Format: int64 */
-      user_id?: number;
-      username?: string;
+      user_id: number;
+      username: string;
       /** @description The full post body */
-      body?: string;
+      body: string;
       /**
        * @description **HTML, not plain text.** The matched terms are wrapped in `<mark>` tags and every other character is escaped, so it is safe to render as markup and will show visible tags if rendered as text.
        * @example the <mark>seedbox</mark> guide everyone links to
        */
-      snippet?: string;
+      snippet: string;
       /** Format: date-time */
-      created_at?: string;
+      created_at: string;
       /** @description The post's 1-based position within its topic */
-      post_number?: number;
+      post_number: number;
       /** @description Which page of the topic `post_number` falls on at 25 posts per page, so a client can deep-link to the post rather than the top of the thread. */
-      page?: number;
+      page: number;
     };
     ForumTopicSubscription: {
       subscribed?: boolean;
