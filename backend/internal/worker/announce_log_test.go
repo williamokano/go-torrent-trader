@@ -25,9 +25,18 @@ type mockAnnounceEventRepo struct {
 	remaining int
 	deleteErr error
 	calls     []deleteCall
+
+	reindexResult repository.ReindexResult
+	reindexErr    error
+	reindexCalls  int
 }
 
 func (m *mockAnnounceEventRepo) Create(context.Context, *model.AnnounceEvent) error { return nil }
+
+func (m *mockAnnounceEventRepo) Reindex(context.Context) (repository.ReindexResult, error) {
+	m.reindexCalls++
+	return m.reindexResult, m.reindexErr
+}
 
 func (m *mockAnnounceEventRepo) ListByUser(context.Context, int64, int, int) ([]repository.AnnounceEventWithTorrent, int64, error) {
 	return nil, 0, nil

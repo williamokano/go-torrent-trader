@@ -15,8 +15,19 @@ func NewScheduler(redisURL string) (*asynq.Scheduler, error) {
 	return asynq.NewScheduler(opt, nil), nil
 }
 
+// TaskScheduler is the slice of *asynq.Scheduler that RegisterPeriodicTasks
+// uses. It is an interface so the registrations themselves can be asserted:
+// asynq only publishes its entries to Redis once the scheduler is running, so
+// with the concrete type there is no way to check that a job is scheduled at all
+// short of standing the whole thing up. A recurring job nobody schedules is as
+// dead as a handler nobody registers, and quieter — every handler test still
+// passes.
+type TaskScheduler interface {
+	Register(cronspec string, task *asynq.Task, opts ...asynq.Option) (string, error)
+}
+
 // RegisterPeriodicTasks registers all recurring tasks with the scheduler.
-func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
+func RegisterPeriodicTasks(scheduler TaskScheduler) error {
 	// Clean stale peers every 15 minutes.
 	cleanupTask, err := NewCleanupPeersTask()
 	if err != nil {
@@ -107,6 +118,29 @@ func RegisterPeriodicTasks(scheduler *asynq.Scheduler) error {
 	}
 	if _, err := scheduler.Register("15 4 * * *", announceLogTask); err != nil {
 		return fmt.Errorf("register announce log maintenance: %w", err)
+	}
+
+	// Rebuild the announce log's indexes on the first of the month. The nightly
+	// prune keeps the heap at a fixed size but cannot keep the indexes there, so
+	// without this they grow indefinitely (#259).
+	//
+	// 01:00 puts it clear of the heavy jobs, which all sit between 04:15 and
+	// 06:00. That gap matters more here than for the other jobs: a rebuild is the
+	// only one whose runtime scales with the entire table, so it is the only one
+	// likely to still be going when the next job starts.
+	//
+	// It is only a gap, not a guarantee. stack.env.example suggests 03:00 for the
+	// backup, so a rebuild that runs past two hours meets it; and the task's own
+	// two-hour timeout is measured from when a worker picks the job up, not from
+	// 01:00, so a worker restarted at 03:30 shifts the whole window. What makes
+	// those survivable is the advisory lock in AnnounceEventRepo.Reindex rather
+	// than the schedule: overlapping runs skip instead of colliding.
+	announceReindexTask, err := NewAnnounceLogReindexTask()
+	if err != nil {
+		return fmt.Errorf("create announce log reindex task: %w", err)
+	}
+	if _, err := scheduler.Register("0 1 1 * *", announceReindexTask); err != nil {
+		return fmt.Errorf("register announce log reindex: %w", err)
 	}
 
 	return nil
