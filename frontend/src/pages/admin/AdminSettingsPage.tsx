@@ -9,6 +9,14 @@ interface SiteSetting {
   key: string;
   value: string;
   updated_at: string;
+  /**
+   * Present only when the site cannot honour the stored value. An operator who
+   * sets a retention window shorter than class promotion needs gets the longer
+   * one, and used to have no way of knowing: the only trace was a warning in the
+   * server log, which is not where anyone is standing when they change a setting.
+   */
+  effective_value?: string;
+  override_reason?: string;
 }
 
 interface SettingConfig {
@@ -297,7 +305,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     key: "announce_log_retention_days",
     label: "Announce Log Retention (days)",
     description:
-      "How many days of individual announce records to keep. A nightly job totals each day into permanent per-member monthly figures and then deletes raw rows past this window — so the log stops growing without losing anyone's transfer totals. It does not give disk back: once autovacuum has swept them, the deleted rows' space is reused by later announces rather than returned to the filesystem. Only VACUUM FULL shrinks the database itself, and it locks the table while it runs and needs the table's size again in free space. Set to 0 to keep every raw announce forever. Default: 90.",
+      "The shortest time individual announce records are kept. A nightly job totals each day into permanent per-member monthly figures and then deletes raw rows past this window — so the log stops growing without losing anyone's transfer totals. A floor, not a guarantee: features that read raw announces can hold the window open for longer, and this page says so when one is. It does not give disk back either — once autovacuum has swept them, the deleted rows' space is reused by later announces rather than returned to the filesystem. Only VACUUM FULL shrinks the database itself, and it locks the table and needs its size again in free space. Set to 0 to keep every raw announce forever. Default: 90.",
     type: "number",
   },
   // Auto class promotion
@@ -493,6 +501,14 @@ export function AdminSettingsPage() {
                       {def.description && (
                         <div className="admin-settings__description">
                           {def.description}
+                        </div>
+                      )}
+                      {s.override_reason && (
+                        <div className="admin-settings__override" role="status">
+                          <strong>
+                            In force: {s.effective_value ?? "—"}, not {s.value}.
+                          </strong>{" "}
+                          {s.override_reason}
                         </div>
                       )}
                     </td>

@@ -17,12 +17,6 @@ import (
 // account's response bounded.
 const announceLogMonthsShown = 120
 
-// defaultAnnounceLogRetentionDays mirrors what migration 052 seeded and what the
-// maintenance worker falls back to. Kept in step with cmd/server's
-// announceLogRetention: the number this endpoint reports is the number the prune
-// acts on.
-const defaultAnnounceLogRetentionDays = 90
-
 // AnnounceLogHandler serves a member's announce log: the raw rows the tracker
 // retained about their client, plus the monthly totals that outlive them.
 //
@@ -119,22 +113,23 @@ func (h *AnnounceLogHandler) authorize(w http.ResponseWriter, r *http.Request) (
 	return userID, true
 }
 
-// retentionDays reports the configured retention window. Zero is meaningful to the
-// caller: it means pruning is disabled and the raw log is kept indefinitely, not
-// that it is kept for no time at all.
+// retentionDays reports how long raw announces actually survive — the effective
+// window, not the configured one. Zero is meaningful to the caller: it means
+// pruning is disabled and the raw log is kept indefinitely, not that it is kept
+// for no time at all.
 //
-// The default matches the worker's, deliberately. Two readers of one setting that
-// disagree on its default is a bug that only shows up as the site telling a member
-// one thing while the prune does another.
+// The comment here used to say that two readers of one setting disagreeing on
+// its default was "a bug that only shows up as the site telling a member one
+// thing while the prune does another". It guarded the default and missed the
+// floor, so the site did exactly that: class promotion holds the window open at
+// 31 days by default, and a member on a site configured for 7 was told 7 about
+// rows that live for 31. Wrong in the direction that matters, since a member
+// reading this is being told how long their transfer history is retained.
+//
+// Both this and the prune now read service.ResolveAnnounceRetention, which is
+// the only place the answer is worked out.
 func (h *AnnounceLogHandler) retentionDays(r *http.Request) int {
-	if h.settings == nil {
-		return defaultAnnounceLogRetentionDays
-	}
-	days := h.settings.GetInt(r.Context(), service.SettingAnnounceLogRetentionDays, defaultAnnounceLogRetentionDays)
-	if days < 0 {
-		return 0
-	}
-	return days
+	return service.ResolveAnnounceRetention(r.Context(), h.settings).EffectiveDays
 }
 
 func announceEventJSON(e *repository.AnnounceEventWithTorrent) map[string]interface{} {

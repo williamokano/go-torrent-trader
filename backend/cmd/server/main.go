@@ -552,8 +552,7 @@ func run() int {
 func announceLogRetention(settings *service.SiteSettingsService) time.Duration {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	days := settings.GetInt(ctx, service.SettingAnnounceLogRetentionDays, 90)
-	return time.Duration(days) * 24 * time.Hour
+	return time.Duration(service.ResolveAnnounceRetention(ctx, settings).ConfiguredDays) * 24 * time.Hour
 }
 
 // announceLogMinWindow reads how far back other features still need raw announce
@@ -564,17 +563,7 @@ func announceLogRetention(settings *service.SiteSettingsService) time.Duration {
 func announceLogMinWindow(settings *service.SiteSettingsService) time.Duration {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if !settings.GetBool(ctx, service.SettingPromotionEnabled, false) {
-		return 0
-	}
-	days := settings.GetInt(ctx, service.SettingPromotionSeedWindowDays, 30)
-	if days < 1 {
-		return 0
-	}
-	// One day of headroom: the seeding estimate needs an announce on each side of
-	// the window's start to measure the first gap, and the prune runs 45 minutes
-	// before the promotion job reads it.
-	return time.Duration(days+1) * 24 * time.Hour
+	return time.Duration(service.ResolveAnnounceRetention(ctx, settings).FloorDays) * 24 * time.Hour
 }
 
 // connectorDeliveryRetention reads how long delivery-log rows are kept. A

@@ -603,7 +603,9 @@ paths:
       description: >
         Returns the raw announces the tracker recorded for this member, newest first, together with their per-month transfer totals.
 
-        The raw rows are pruned once they pass the site's `announce_log_retention_days` window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
+        The raw rows are pruned once they pass the site's retention window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
+
+        `retention_days` is the window the site actually honours, which is not always `announce_log_retention_days`: other features can hold the log open for longer, and automatic class promotion does by default because it reads raw announces over its seeding window. Reporting the configured value here would understate how long a member's transfer detail is kept.
 
         Readable by the member themselves and by staff only: the per-announce byte deltas say what a member is seeding and when they are online. The tracker does not record announce IP addresses.
 
@@ -2798,7 +2800,7 @@ components:
     AnnounceLogEntry:
       type: object
       description: >
-        One announce, exactly as the client reported it. Retained only for `announce_log_retention_days`.
+        One announce, exactly as the client reported it. Retained for the window the response reports as `retention_days`, which may exceed the configured `announce_log_retention_days`.
 
       properties:
         id:

@@ -44,3 +44,17 @@
   outline-offset: 1px;
   border-color: var(--color-accent);
 }
+
+/* A saved value the site is not honouring. Warning-coloured rather than muted
+   like the description above it: this is not background information, it is the
+   field disagreeing with what the operator typed into it. */
+.admin-settings__override {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  border-left: 3px solid var(--color-warning, #d97706);
+  border-radius: 0 4px 4px 0;
+  background: var(--color-warning-bg, rgba(217, 119, 6, 0.08));
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--color-text, inherit);
+}

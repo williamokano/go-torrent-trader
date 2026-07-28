@@ -691,11 +691,17 @@ paths:
         Returns the raw announces the tracker recorded for this member, newest
         first, together with their per-month transfer totals.
 
-        The raw rows are pruned once they pass the site's
-        `announce_log_retention_days` window, so the listing only reaches as far
-        back as `retention_days` (0 means pruning is disabled and rows are kept
-        indefinitely). The monthly totals are aggregated before the prune runs and
-        are kept permanently, so they still cover months whose raw rows are gone.
+        The raw rows are pruned once they pass the site's retention window, so the
+        listing only reaches as far back as `retention_days` (0 means pruning is
+        disabled and rows are kept indefinitely). The monthly totals are
+        aggregated before the prune runs and are kept permanently, so they still
+        cover months whose raw rows are gone.
+
+        `retention_days` is the window the site actually honours, which is not
+        always `announce_log_retention_days`: other features can hold the log open
+        for longer, and automatic class promotion does by default because it reads
+        raw announces over its seeding window. Reporting the configured value here
+        would understate how long a member's transfer detail is kept.
 
         Readable by the member themselves and by staff only: the per-announce byte
         deltas say what a member is seeding and when they are online. The tracker
@@ -1481,6 +1487,74 @@ paths:
   # Report management. Previously documented as GET /api/v1/reports and
   # PUT /api/v1/reports/{id}/resolve, which never existed: the router has always
   # registered them under /api/v1/admin, behind RequireAdmin.
+  /api/v1/admin/settings:
+    get:
+      operationId: listSiteSettings
+      x-audience: internal
+      summary: List every site setting and its stored value
+      description: >
+        Returns each row of `site_settings`. Values are always strings; the type
+        each key expects is documented on the Configure page rather than in the
+        response.
+
+        A setting the site cannot honour as stored also carries `effective_value`
+        and `override_reason`. That happens when another feature requires more than
+        the setting allows — today only `announce_log_retention_days`, which
+        automatic class promotion holds open because it reads raw announces over
+        its seeding window. Both fields are absent when the stored value is the one
+        in force, so their presence is the signal.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every site setting
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings]
+                properties:
+                  settings:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, value, updated_at]
+                      properties:
+                        key:
+                          type: string
+                          example: announce_log_retention_days
+                        value:
+                          type: string
+                          description: The stored value, as an operator set it
+                          example: '7'
+                        updated_at:
+                          type: string
+                          format: date-time
+                        effective_value:
+                          type: string
+                          description: >
+                            The value the site acts on, present only when it differs
+                            from `value`.
+                          example: '31'
+                        override_reason:
+                          type: string
+                          description: >
+                            Why the stored value is not in force, and what to change
+                            to make it so. Present only alongside `effective_value`.
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/torrents:
     get:
       operationId: adminListTorrents
@@ -3799,7 +3873,8 @@ components:
     AnnounceLogEntry:
       type: object
       description: >
-        One announce, exactly as the client reported it. Retained only for
+        One announce, exactly as the client reported it. Retained for the window
+        the response reports as `retention_days`, which may exceed the configured
         `announce_log_retention_days`.
       properties:
         id:

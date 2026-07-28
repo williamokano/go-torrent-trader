@@ -66,7 +66,6 @@ var undocumentedRoutes = map[string]struct{}{
 	"GET /api/v1/admin/moderation/torrents":                    {},
 	"GET /api/v1/admin/news":                                   {},
 	"GET /api/v1/admin/promotion/rules":                        {},
-	"GET /api/v1/admin/settings":                               {},
 	"GET /api/v1/admin/users":                                  {},
 	"GET /api/v1/admin/users/{id}":                             {},
 	"GET /api/v1/admin/users/{id}/edit-history":                {},

@@ -127,6 +127,58 @@ describe("AdminSettingsPage", () => {
     );
   });
 
+  // An operator whose saved value is not in force has to see that on the field
+  // they saved it in. Before #255 the only trace was a slog.Warn in the server
+  // log — somewhere nobody looks after changing an admin setting, which is how
+  // "I set 7 days" and "the site keeps 31" coexisted without anyone noticing.
+  test("says so when a saved setting is not the one in force", async () => {
+    const now = new Date().toISOString();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          {
+            key: "announce_log_retention_days",
+            value: "7",
+            updated_at: now,
+            effective_value: "31",
+            override_reason:
+              "Raw announces are kept for 31 days, not 7: the shorter window is held open by automatic class promotion.",
+          },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/In force: 31, not 7/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/held open by automatic class promotion/),
+    ).toBeInTheDocument();
+  });
+
+  // And a setting that is in force says nothing, so the panel does not cry wolf
+  // on every row.
+  test("says nothing when the saved setting is the one in force", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          {
+            key: "announce_log_retention_days",
+            value: "90",
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    await screen.findByText("Announce Log Retention (days)");
+    expect(screen.queryByText(/In force:/)).not.toBeInTheDocument();
+  });
+
   // The page renders whatever rows the API returns, so a setting without a
   // definition here shows up as its bare key — which is how an operator ends up
   // unable to tell what "chat_system_display_name" does.
