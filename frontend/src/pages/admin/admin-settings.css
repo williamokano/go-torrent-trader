@@ -51,10 +51,13 @@
 .admin-settings__override {
   margin-top: 0.4rem;
   padding: 0.4rem 0.55rem;
-  border-left: 3px solid var(--color-warning, #d97706);
-  border-radius: 0 4px 4px 0;
-  background: var(--color-warning-bg, rgba(217, 119, 6, 0.08));
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  /* color-mix off the warning token, matching torrent-peers.css, so the tint
+     tracks the theme instead of being a fixed light-mode rgba that disappears
+     against the dark surface. */
+  background: color-mix(in srgb, var(--color-warning), transparent 88%);
   font-size: 0.72rem;
   line-height: 1.45;
-  color: var(--color-text, inherit);
+  color: var(--color-text-primary);
 }

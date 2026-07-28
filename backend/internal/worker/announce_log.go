@@ -141,33 +141,35 @@ func rollUpAnnounces(ctx context.Context, deps *WorkerDeps) (time.Time, bool, er
 // pruneAnnounces deletes raw announce rows past the retention window, never past
 // rolledThrough.
 func pruneAnnounces(ctx context.Context, deps *WorkerDeps, rolledThrough time.Time) {
-	if deps.AnnounceEventRepo == nil || deps.AnnounceLogRetention == nil {
+	if deps.AnnounceEventRepo == nil || deps.AnnounceRetention == nil {
 		return
 	}
 
-	// A non-positive retention disables pruning, the same guard the notification
-	// and connector-delivery purges use: without it a misconfigured zero sets the
-	// cutoff to now and deletes the entire log.
-	retention := deps.AnnounceLogRetention()
-	if retention <= 0 {
+	// The resolved window, not the configured one. Other features still read the
+	// raw log and the retention setting does not know about them — class promotion
+	// gap-sums raw announces over its own seeding window, so an operator
+	// shortening retention to a week for privacy reasons would zero every member's
+	// seed hours and silently stop promotions. Resolving that is not this
+	// function's job: it happens once, in service.ResolveAnnounceRetention, and
+	// every surface that reports a window reads the same answer.
+	window := deps.AnnounceRetention()
+
+	// A non-positive window disables pruning, the same guard the notification and
+	// connector-delivery purges use: without it a misconfigured zero sets the
+	// cutoff to now and deletes the entire log. EffectiveDays is zero exactly when
+	// the operator disabled pruning — a floor cannot raise a disabled window,
+	// because there is nothing to delete for it to protect.
+	if window.EffectiveDays <= 0 {
 		return
 	}
-
-	// Other features still read the raw log, and the retention setting does not
-	// know about them. Class promotion gap-sums raw announces over its own seeding
-	// window, so an operator shortening retention to a week for privacy reasons
-	// would zero every member's seed hours and silently stop promotions. Retention
-	// is the operator's floor for how long data is kept, not a licence to break a
-	// feature they did not touch.
-	if deps.AnnounceLogMinWindow != nil {
-		if required := deps.AnnounceLogMinWindow(); required > retention {
-			slog.Warn("announce log: retention is shorter than another feature needs, keeping the longer window",
-				"retention", retention, "required_by_other_features", required)
-			retention = required
-		}
+	if window.Overridden() {
+		slog.Warn("announce log: retention is shorter than another feature needs, keeping the longer window",
+			"configured_days", window.ConfiguredDays,
+			"effective_days", window.EffectiveDays,
+			"required_by", window.FloorReason)
 	}
 
-	cutoff := time.Now().Add(-retention)
+	cutoff := time.Now().Add(-time.Duration(window.EffectiveDays) * 24 * time.Hour)
 	if rolledThrough.Before(cutoff) {
 		// Aggregation is behind retention — a first run on a large history, or a
 		// run of failures. Delete only what has been counted and say so, because

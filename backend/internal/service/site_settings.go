@@ -210,6 +210,26 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 			return fmt.Errorf("%w: %s cannot exceed %d days (use 0 to keep announces indefinitely)",
 				ErrInvalidSetting, key, maxAnnounceLogRetentionDays)
 		}
+	case SettingPromotionSeedWindowDays:
+		// Bounded for the same reason as the retention window above, and it became
+		// the same kind of problem for a second reason: this value now also sets
+		// the *floor* under retention, so it is reported to operators as the
+		// effective window and to members as how long their announces are kept.
+		// Past the int64 overflow the prune reads the wrapped duration as "no
+		// floor" and keeps the short window, while both surfaces confidently
+		// report the enormous number — the setting lying in two places instead of
+		// one. A negative window is meaningless rather than merely large.
+		days, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("%w: %s must be a whole number of days", ErrInvalidSetting, key)
+		}
+		if days < 0 {
+			return fmt.Errorf("%w: %s cannot be negative", ErrInvalidSetting, key)
+		}
+		if days > maxAnnounceLogRetentionDays {
+			return fmt.Errorf("%w: %s cannot exceed %d days",
+				ErrInvalidSetting, key, maxAnnounceLogRetentionDays)
+		}
 	case SettingChatSystemDisplayName:
 		// Blank would render an announcement with no author at all, which reads
 		// as a broken row rather than as a site notice. Counted in runes: the

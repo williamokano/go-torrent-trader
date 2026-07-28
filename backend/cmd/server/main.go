@@ -433,11 +433,8 @@ func run() int {
 		AnnounceRollupRepo: announceRollupRepo,
 		// A func for the same reason as ConnectorDeliveryRetention below: the
 		// retention window is an admin-editable setting, not an env var.
-		AnnounceLogRetention: func() time.Duration {
-			return announceLogRetention(siteSettingsService)
-		},
-		AnnounceLogMinWindow: func() time.Duration {
-			return announceLogMinWindow(siteSettingsService)
+		AnnounceRetention: func() service.AnnounceRetention {
+			return announceRetention(siteSettingsService)
 		},
 
 		ConnectorRegistry:     connectorRegistry,
@@ -546,24 +543,18 @@ func run() int {
 	return 0
 }
 
-// announceLogRetention reads how long raw announce rows are kept. A non-positive
-// value disables pruning, so it is passed straight through rather than clamped —
-// setting it to zero is how an operator turns the prune off.
-func announceLogRetention(settings *service.SiteSettingsService) time.Duration {
+// announceRetention resolves the retention window the prune should act on.
+//
+// This file is excluded from the coverage denominator, so it deliberately does
+// nothing but bound the read and delegate: every decision lives in
+// service.ResolveAnnounceRetention, which is tested. It used to hand the worker
+// the configured window and the floor as two separate numbers, leaving the
+// worker to combine them — one arithmetic in two places, and the copy here was
+// the one that decided what got deleted.
+func announceRetention(settings *service.SiteSettingsService) service.AnnounceRetention {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return time.Duration(service.ResolveAnnounceRetention(ctx, settings).ConfiguredDays) * 24 * time.Hour
-}
-
-// announceLogMinWindow reads how far back other features still need raw announce
-// rows. Only class promotion does today: PromotionRepo.SeedHoursByUser gap-sums
-// announce_events over promotion_seed_window_days, so pruning inside that window
-// would zero every member's seed hours and stop promotions with no other symptom.
-// Returns zero when promotion is off, since nothing then reads the raw rows.
-func announceLogMinWindow(settings *service.SiteSettingsService) time.Duration {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return time.Duration(service.ResolveAnnounceRetention(ctx, settings).FloorDays) * 24 * time.Hour
+	return service.ResolveAnnounceRetention(ctx, settings)
 }
 
 // connectorDeliveryRetention reads how long delivery-log rows are kept. A

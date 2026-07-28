@@ -122,9 +122,15 @@ describe("AdminSettingsPage", () => {
     // The durable assertion. Whatever either surface says about where the space
     // goes, the other has to say it too — so correcting one and forgetting the
     // other fails here, whichever one is edited and whatever the new claim is.
-    expect(diskVocabulary(surfaces["admin settings page"])).toEqual(
-      diskVocabulary(surfaces["website/configure.html"]),
-    );
+    expect(
+      vocabulary(surfaces["admin settings page"], DISK_TERMS),
+      "the two surfaces disagree about where the deleted space goes",
+    ).toEqual(vocabulary(surfaces["website/configure.html"], DISK_TERMS));
+
+    expect(
+      vocabulary(surfaces["admin settings page"], FLOOR_TERMS),
+      "the two surfaces disagree about the window being a floor",
+    ).toEqual(vocabulary(surfaces["website/configure.html"], FLOOR_TERMS));
   });
 
   // An operator whose saved value is not in force has to see that on the field
@@ -219,6 +225,18 @@ function normalize(text: string | null | undefined): string {
 // #221 replaces it with. Comparing the sets between the two surfaces catches a
 // half-finished correction without either surface having to keep a fixed
 // sentence.
+// The second claim these two surfaces now duplicate: that the setting is a floor
+// other features can raise, not a promise. Added in #255 to both descriptions,
+// and without this the pair could drift apart again in the new direction —
+// exactly what the disk vocabulary was introduced to prevent.
+// Only the claim both surfaces must make: that this setting is a floor other
+// features can raise. Deliberately not "class promotion" or "in force" — the
+// website has to name what holds the window open because it is static, while the
+// admin page reports the actual reason at runtime in the override note. A
+// vocabulary that demands everything either surface says would fail on a
+// difference that is correct.
+const FLOOR_TERMS = ["floor", "shortest", "hold the window open"];
+
 const DISK_TERMS = [
   "autovacuum",
   "vacuum full",
@@ -232,9 +250,9 @@ const DISK_TERMS = [
   "reclaim",
 ];
 
-function diskVocabulary(text: string): string[] {
+function vocabulary(text: string, terms: string[]): string[] {
   const lower = text.toLowerCase();
-  return DISK_TERMS.filter((term) => lower.includes(term));
+  return terms.filter((term) => lower.includes(term));
 }
 
 // Pulls a setting's "What it does" cell out of the published configuration page

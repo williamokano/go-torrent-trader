@@ -13,7 +13,6 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
-	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -53,7 +52,7 @@ func (h *SiteSettingsHandler) HandleGetAllSettings(w http.ResponseWriter, r *htt
 		// A saved value the site does not honour has to say so here. Anywhere else
 		// — a log line, a doc — is somewhere the operator is not looking at the
 		// moment they form a belief about what the setting does.
-		if effective, reason, overridden := effectiveOverride(r.Context(), h.settings, s); overridden {
+		if effective, reason, overridden := effectiveOverride(r.Context(), h.settings, s.Key, s.Value); overridden {
 			item["effective_value"] = effective
 			item["override_reason"] = reason
 		}
@@ -110,21 +109,36 @@ func (h *SiteSettingsHandler) HandleUpdateSetting(w http.ResponseWriter, r *http
 // effectiveOverride reports the value the site actually acts on, when that is not
 // the value stored.
 //
-// Only one setting behaves this way today. It is written as a lookup rather than
-// an if so that the next one is added here, where the admin panel already renders
-// it, instead of growing its own private surface — which is how the first one
-// ended up invisible.
-func effectiveOverride(ctx context.Context, settings *service.SiteSettingsService, s model.SiteSetting) (string, string, bool) {
-	if s.Key != service.SettingAnnounceLogRetentionDays {
+// Only one setting behaves this way today, so this is a switch on the key rather
+// than a registry. What matters is that the next one is added here, where the
+// admin panel already renders it, instead of growing its own private surface —
+// which is how the first one ended up invisible. If a second arrives, this
+// becomes a map of key to resolver before it becomes a longer switch.
+func effectiveOverride(ctx context.Context, settings *service.SiteSettingsService, key, stored string) (string, string, bool) {
+	if key != service.SettingAnnounceLogRetentionDays {
 		return "", "", false
 	}
 	retention := service.ResolveAnnounceRetention(ctx, settings)
-	if !retention.Overridden() {
-		return "", "", false
+	effective := strconv.Itoa(retention.EffectiveDays)
+
+	switch {
+	case retention.Overridden():
+		return effective, fmt.Sprintf(
+			"Raw announces are kept for %d days, not %d: the shorter window is held open by %s. "+
+				"Shorten the seeding window, or turn promotion off, to make this setting take effect.",
+			retention.EffectiveDays, retention.ConfiguredDays, retention.FloorReason), true
+
+	// A stored value that does not survive being read is just as much "not the
+	// value in force" as one a floor overrode, and it is likelier to be a
+	// mistake. A negative window reads as disabled, and anything unparseable
+	// falls back to the default — in both cases the panel would otherwise show a
+	// number that nothing acts on. The condition is the general one rather than a
+	// list of the two known cases, so a third cannot slip past silently.
+	case effective != stored:
+		return effective, fmt.Sprintf(
+			"%q is not a usable number of days, so raw announces are kept for %d instead. "+
+				"Set 0 to keep every announce indefinitely, or a positive number of days.",
+			stored, retention.EffectiveDays), true
 	}
-	return strconv.Itoa(retention.EffectiveDays),
-		fmt.Sprintf("Raw announces are kept for %d days, not %d: the shorter window is held open by %s. "+
-			"Shorten the seeding window, or turn promotion off, to make this setting take effect.",
-			retention.EffectiveDays, retention.ConfiguredDays, retention.FloorReason),
-		true
+	return "", "", false
 }

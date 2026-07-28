@@ -322,7 +322,7 @@ export interface paths {
      * Get a member's announce log and monthly transfer totals
      * @description Returns the raw announces the tracker recorded for this member, newest first, together with their per-month transfer totals.
      *     The raw rows are pruned once they pass the site's retention window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
-     *     `retention_days` is the window the site actually honours, which is not always `announce_log_retention_days`: other features can hold the log open for longer, and automatic class promotion does by default because it reads raw announces over its seeding window. Reporting the configured value here would understate how long a member's transfer detail is kept.
+     *     `retention_days` is the window the site actually honours, which is not always `announce_log_retention_days`: other features can hold the log open for longer, and automatic class promotion does whenever it is enabled, because it reads raw announces over its seeding window — 31 days at that window's default. Reporting the configured value here would understate how long a member's transfer detail is kept.
      *     Readable by the member themselves and by staff only: the per-announce byte deltas say what a member is seeding and when they are online. The tracker does not record announce IP addresses.
      */
     get: operations["getUserAnnounceLog"];
@@ -3324,6 +3324,15 @@ export interface operations {
       };
       /** @description Not an administrator */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The settings store could not be read */
+      500: {
         headers: {
           [name: string]: unknown;
         };

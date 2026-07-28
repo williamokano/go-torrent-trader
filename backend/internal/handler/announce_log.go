@@ -122,7 +122,7 @@ func (h *AnnounceLogHandler) authorize(w http.ResponseWriter, r *http.Request) (
 // its default was "a bug that only shows up as the site telling a member one
 // thing while the prune does another". It guarded the default and missed the
 // floor, so the site did exactly that: class promotion holds the window open at
-// 31 days by default, and a member on a site configured for 7 was told 7 about
+// 31 days once class promotion is enabled, and a member on a site configured for 7 was told 7 about
 // rows that live for 31. Wrong in the direction that matters, since a member
 // reading this is being told how long their transfer history is retained.
 //

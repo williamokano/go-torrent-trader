@@ -25,15 +25,26 @@ func settingsFrom(t *testing.T, values map[string]string) *SiteSettingsService {
 // question every caller of this is really asking.
 func TestResolveAnnounceRetention(t *testing.T) {
 	tests := []struct {
-		name          string
-		settings      map[string]string
-		wantEffective int
-		wantOverride  bool
+		name     string
+		settings map[string]string
+		// All three are asserted, not just the effective window. ConfiguredDays is
+		// what cmd/server feeds the prune and what the admin note quotes back as
+		// "not N"; FloorDays is what the prune clamps to. A mutation that set
+		// ConfiguredDays = FloorDays inside the override branch passed the whole
+		// suite when only EffectiveDays was checked — it would have shipped the
+		// operator "kept for 31 days, not 31" and corrupted the prune's input, in
+		// a package excluded from the coverage denominator.
+		wantConfigured int
+		wantFloor      int
+		wantEffective  int
+		wantOverride   bool
 	}{
 		{
-			name:          "the default with promotion off is simply the default",
-			settings:      map[string]string{},
-			wantEffective: DefaultAnnounceLogRetentionDays,
+			name:           "the default with promotion off is simply the default",
+			settings:       map[string]string{},
+			wantConfigured: DefaultAnnounceLogRetentionDays,
+			wantFloor:      0,
+			wantEffective:  DefaultAnnounceLogRetentionDays,
 		},
 		{
 			name: "a short window with promotion off is honoured exactly",
@@ -41,7 +52,9 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingAnnounceLogRetentionDays: "7",
 				SettingPromotionEnabled:         "false",
 			},
-			wantEffective: 7,
+			wantConfigured: 7,
+			wantFloor:      0,
+			wantEffective:  7,
 		},
 		{
 			// The case #255 is about. An operator sets 7; promotion's default 30-day
@@ -51,8 +64,10 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingAnnounceLogRetentionDays: "7",
 				SettingPromotionEnabled:         "true",
 			},
-			wantEffective: 31,
-			wantOverride:  true,
+			wantConfigured: 7,
+			wantFloor:      31,
+			wantEffective:  31,
+			wantOverride:   true,
 		},
 		{
 			name: "a window longer than the floor is untouched",
@@ -60,7 +75,9 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingAnnounceLogRetentionDays: "90",
 				SettingPromotionEnabled:         "true",
 			},
-			wantEffective: 90,
+			wantConfigured: 90,
+			wantFloor:      31,
+			wantEffective:  90,
 		},
 		{
 			// Exactly at the floor is not an override: the operator gets what they
@@ -70,7 +87,9 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingAnnounceLogRetentionDays: "31",
 				SettingPromotionEnabled:         "true",
 			},
-			wantEffective: 31,
+			wantConfigured: 31,
+			wantFloor:      31,
+			wantEffective:  31,
 		},
 		{
 			// Keeping everything forever cannot breach a floor, so there is nothing
@@ -81,7 +100,9 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingAnnounceLogRetentionDays: "0",
 				SettingPromotionEnabled:         "true",
 			},
-			wantEffective: 0,
+			wantConfigured: 0,
+			wantFloor:      31,
+			wantEffective:  0,
 		},
 		{
 			// A negative value is a misconfiguration, not a window in the past. The
@@ -91,16 +112,35 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingAnnounceLogRetentionDays: "-5",
 				SettingPromotionEnabled:         "true",
 			},
-			wantEffective: 0,
+			wantConfigured: 0,
+			wantFloor:      31,
+			wantEffective:  0,
 		},
 		{
-			name: "a nonsensical seeding window does not create a floor",
+			// Asserting FloorDays is what gives the days < 1 guard a job. Without
+			// it a negative seeding window yields a negative floor, which never
+			// wins the max() and so leaves EffectiveDays right — the case passed
+			// either way until the floor itself was asserted.
+			name: "a zero seeding window creates no floor",
 			settings: map[string]string{
 				SettingAnnounceLogRetentionDays: "7",
 				SettingPromotionEnabled:         "true",
 				SettingPromotionSeedWindowDays:  "0",
 			},
-			wantEffective: 7,
+			wantConfigured: 7,
+			wantFloor:      0,
+			wantEffective:  7,
+		},
+		{
+			name: "a negative seeding window reports no floor, not a negative one",
+			settings: map[string]string{
+				SettingAnnounceLogRetentionDays: "7",
+				SettingPromotionEnabled:         "true",
+				SettingPromotionSeedWindowDays:  "-30",
+			},
+			wantConfigured: 7,
+			wantFloor:      0,
+			wantEffective:  7,
 		},
 		{
 			name: "a longer seeding window raises the floor with it",
@@ -109,8 +149,10 @@ func TestResolveAnnounceRetention(t *testing.T) {
 				SettingPromotionEnabled:         "true",
 				SettingPromotionSeedWindowDays:  "60",
 			},
-			wantEffective: 61,
-			wantOverride:  true,
+			wantConfigured: 30,
+			wantFloor:      61,
+			wantEffective:  61,
+			wantOverride:   true,
 		},
 	}
 
@@ -118,6 +160,12 @@ func TestResolveAnnounceRetention(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := ResolveAnnounceRetention(context.Background(), settingsFrom(t, tc.settings))
 
+			if got.ConfiguredDays != tc.wantConfigured {
+				t.Errorf("ConfiguredDays = %d, want %d", got.ConfiguredDays, tc.wantConfigured)
+			}
+			if got.FloorDays != tc.wantFloor {
+				t.Errorf("FloorDays = %d, want %d", got.FloorDays, tc.wantFloor)
+			}
 			if got.EffectiveDays != tc.wantEffective {
 				t.Errorf("EffectiveDays = %d, want %d", got.EffectiveDays, tc.wantEffective)
 			}
@@ -144,5 +192,30 @@ func TestResolveAnnounceRetentionWithoutSettings(t *testing.T) {
 	}
 	if got.Overridden() {
 		t.Error("Overridden() = true with no settings")
+	}
+}
+
+// promotion_seed_window_days sets the floor under retention, so it is now
+// reported to operators as the effective window and to members as how long their
+// announces are kept. Past the int64 overflow in days→duration the prune reads
+// the wrapped value as "no floor" and keeps the short window, while both
+// surfaces report the enormous number — the setting lying in two places rather
+// than one. maxAnnounceLogRetentionDays exists for exactly this on the sibling
+// setting; this pins that the same bound now applies here.
+func TestSetRejectsASeedWindowThatWouldOverflowTheDuration(t *testing.T) {
+	svc := settingsFrom(t, nil)
+	ctx := context.Background()
+
+	for _, value := range []string{"106752", "1000000000"} {
+		if err := svc.Set(ctx, SettingPromotionSeedWindowDays, value, event.Actor{}); err == nil {
+			t.Errorf("Set(%s) was accepted; days*24h overflows int64 and the prune would silently ignore the floor", value)
+		}
+	}
+	if err := svc.Set(ctx, SettingPromotionSeedWindowDays, "-1", event.Actor{}); err == nil {
+		t.Error("Set(-1) was accepted; a negative seeding window is meaningless")
+	}
+	// And a sane value still works, so the bound is not simply refusing everything.
+	if err := svc.Set(ctx, SettingPromotionSeedWindowDays, "60", event.Actor{}); err != nil {
+		t.Errorf("Set(60) was rejected: %v", err)
 	}
 }

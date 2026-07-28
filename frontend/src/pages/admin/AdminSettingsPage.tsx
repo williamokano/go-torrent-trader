@@ -504,7 +504,11 @@ export function AdminSettingsPage() {
                         </div>
                       )}
                       {s.override_reason && (
-                        <div className="admin-settings__override" role="status">
+                        <div
+                          className="admin-settings__override"
+                          id={`${s.key}-override`}
+                          role="note"
+                        >
                           <strong>
                             In force: {s.effective_value ?? "—"}, not {s.value}.
                           </strong>{" "}
@@ -516,6 +520,9 @@ export function AdminSettingsPage() {
                       {def.type === "select" && def.options ? (
                         <select
                           className="admin-settings__input"
+                          aria-describedby={
+                            s.override_reason ? `${s.key}-override` : undefined
+                          }
                           value={editValues[s.key] ?? s.value}
                           onChange={(e) =>
                             setEditValues((prev) => ({
@@ -533,6 +540,9 @@ export function AdminSettingsPage() {
                       ) : def.type === "textarea" ? (
                         <textarea
                           className="admin-settings__input admin-settings__input--textarea"
+                          aria-describedby={
+                            s.override_reason ? `${s.key}-override` : undefined
+                          }
                           value={editValues[s.key] ?? s.value}
                           onChange={(e) =>
                             setEditValues((prev) => ({
@@ -545,6 +555,9 @@ export function AdminSettingsPage() {
                       ) : (
                         <input
                           className={`admin-settings__input${def.type === "number" ? " admin-settings__input--number" : ""}`}
+                          aria-describedby={
+                            s.override_reason ? `${s.key}-override` : undefined
+                          }
                           type={def.type === "number" ? "number" : "text"}
                           maxLength={def.maxLength}
                           value={editValues[s.key] ?? s.value}
