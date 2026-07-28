@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/hibiken/asynq"
+
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
@@ -30,6 +33,37 @@ func TestAnnounceLogReindexTask_HasTheRightType(t *testing.T) {
 	}
 	if task.Type() != TaskAnnounceLogReindex {
 		t.Errorf("task type = %q, want %q", task.Type(), TaskAnnounceLogReindex)
+	}
+}
+
+// The options carry the whole safety story of this job and none of them are
+// readable off *asynq.Task, so they can only be checked by enqueuing it. Without
+// this, deleting MaxRetry(0) restores asynq's default of 25 — twenty-five full
+// rebuilds of the largest table on the site, back to back, each failure leaving
+// fresh wreckage for the next to clear — and every test here stays green.
+func TestAnnounceLogReindexTask_CarriesItsSafetyOptions(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	task, err := NewAnnounceLogReindexTask()
+	if err != nil {
+		t.Fatalf("NewAnnounceLogReindexTask: %v", err)
+	}
+	info, err := client.Enqueue(task)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	// A failed rebuild waits for next month. Retrying re-enters a job that just
+	// ran long and failed, most likely for a reason that has not gone away.
+	if info.MaxRetry != 0 {
+		t.Errorf("MaxRetry = %d, want 0 — a failed rebuild must not retry", info.MaxRetry)
+	}
+	// Bounds a wedged statement. Cancelling the context does abort the REINDEX
+	// server-side, so this is a real bound and not just a Go-side giving up.
+	if info.Timeout != announceReindexTimeout {
+		t.Errorf("Timeout = %s, want %s", info.Timeout, announceReindexTimeout)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -141,18 +142,36 @@ func scanAnnounceEvents(rows *sql.Rows) ([]repository.AnnounceEventWithTorrent, 
 // input may ever reach them.
 const announceEventsTable = "announce_events"
 
+// announceReindexLockKey namespaces the advisory lock that serialises rebuilds.
+// An arbitrary but fixed value; it only has to be distinct from every other
+// advisory lock this application takes.
+const announceReindexLockKey int64 = 0x616E6E5F7278 // "ann_rx"
+
 // Reindex rebuilds the announce log's indexes with REINDEX ... CONCURRENTLY.
 //
 // CONCURRENTLY is what makes this runnable on a live tracker: a plain REINDEX
-// holds the table against writers for the whole rebuild, which on the busiest
-// table on the site would mean announces blocking for minutes. The concurrent
-// form takes only brief locks at the start and the end.
+// holds an ACCESS EXCLUSIVE lock for the whole rebuild, which on the busiest
+// table on the site means announces blocking for minutes.
+//
+// What the concurrent form actually holds is SHARE UPDATE EXCLUSIVE, on the
+// table and on every index, for the *entire* statement — plus a brief ACCESS
+// EXCLUSIVE at the swap. That is not "no lock": it permits reads and writes, so
+// announces keep landing, but it blocks DDL, VACUUM and ANALYZE on this table
+// throughout. It also pins the backend's xmin for each build phase, which holds
+// back the global xmin horizon and so delays dead-tuple reclamation database-
+// wide, not merely here. On a tracker whose peers table is rewritten on every
+// announce that is a real cost, and it is the reason this runs monthly at 01:00
+// rather than nightly alongside everything else.
 //
 // Two consequences follow from that and shape everything here:
 //
 //   - It cannot run inside a transaction, so every statement below is issued on
 //     its own. That is also why a partial failure is possible and has to be
 //     cleaned up rather than rolled back.
+//   - Peak disk is the whole index set duplicated at once, not one index at a
+//     time, because REINDEX TABLE builds every replacement before swapping any
+//     of them. Nothing here checks for the headroom, so the operator-facing page
+//     states it.
 //   - A failed rebuild leaves an *invalid* index behind — "_ccnew" if it died
 //     during the build, "_ccold" if it died just after the swap. Either is dead
 //     weight the planner will not use, and the second is a full-size copy of a
@@ -162,33 +181,88 @@ const announceEventsTable = "announce_events"
 func (r *AnnounceEventRepo) Reindex(ctx context.Context) (repository.ReindexResult, error) {
 	var result repository.ReindexResult
 
-	dropped, err := r.dropInvalidIndexes(ctx)
+	// Everything below runs on one pinned connection, because the advisory lock
+	// is session-scoped. Taking it through the pool would let database/sql hand
+	// the unlock to a different connection, which silently does nothing and
+	// leaves the lock held until that session is recycled — the same pooling
+	// trap tasks/lessons.md records against the leader-election test.
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return result, fmt.Errorf("acquiring a connection for the rebuild: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	var locked bool
+	if err := conn.QueryRowContext(ctx,
+		`SELECT pg_try_advisory_lock($1)`, announceReindexLockKey).Scan(&locked); err != nil {
+		return result, fmt.Errorf("taking the rebuild lock: %w", err)
+	}
+	if !locked {
+		// Someone else is rebuilding: a retry, a second worker, or an operator at
+		// a psql prompt. Skipping is not merely tidier than proceeding — running
+		// the cleanup while a rebuild is in flight deadlocks, because a live
+		// rebuild exposes its own invalid "_ccnew" indexes for the whole build
+		// phase and the cleanup goes straight for them. Whichever side loses is
+		// not deterministic, so the concurrent run could take the real rebuild
+		// down instead of itself.
+		result.Skipped = true
+		return result, nil
+	}
+	defer func() {
+		// context.WithoutCancel covers the cancellation that arrives *between*
+		// statements, where the connection is still healthy and an unlock on the
+		// original context would be refused before it was sent — leaking the lock
+		// until the pool recycled that session.
+		//
+		// It does not rescue a cancellation that lands mid-statement: database/sql
+		// closes a pinned connection whose query was cancelled, so this unlock
+		// fails with "driver: bad connection". The lock is still released, because
+		// closing the connection ends the session and PostgreSQL drops every
+		// session-level advisory lock with it — just not synchronously, which is
+		// why the test polls rather than asserting immediately. That is also why a
+		// failure here is logged rather than returned: by then the lock is already
+		// going away, and the rebuild's own error is the one worth reporting.
+		if _, err := conn.ExecContext(context.WithoutCancel(ctx),
+			`SELECT pg_advisory_unlock($1)`, announceReindexLockKey); err != nil {
+			slog.Warn("announce log: could not release the rebuild lock explicitly; "+
+				"it is released when the connection closes", "error", err)
+		}
+	}()
+
+	dropped, err := r.dropInvalidIndexes(ctx, conn)
 	result.LeftoversDropped = dropped
 	if err != nil {
 		return result, err
 	}
 
-	if result.BytesBefore, err = r.indexesSize(ctx); err != nil {
+	// Measured before the drop as well as after, so the bytes a previous failed
+	// run stranded are reported rather than quietly excluded. A "_ccold" leftover
+	// is a full-size copy of a live index, so it is usually the largest single
+	// thing a run recovers, and measuring only after the drop would credit it to
+	// nobody.
+	if result.BytesBefore, err = r.indexesSize(ctx, conn); err != nil {
 		return result, err
 	}
 
 	// REINDEX TABLE rather than one statement per index: it covers the primary
 	// key as well, and a new index added by a later migration is included without
-	// anyone having to remember to add it here.
-	if _, err := r.db.ExecContext(ctx,
+	// anyone having to remember to add it here. The cost of that choice is peak
+	// disk — every index is duplicated at once rather than one at a time — which
+	// is why the operator-facing page states the headroom needed.
+	if _, err := conn.ExecContext(ctx,
 		`REINDEX TABLE CONCURRENTLY `+quoteIdentifier(announceEventsTable)); err != nil {
 		return result, fmt.Errorf("reindexing %s: %w", announceEventsTable, err)
 	}
 
-	if result.BytesAfter, err = r.indexesSize(ctx); err != nil {
+	if result.BytesAfter, err = r.indexesSize(ctx, conn); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func (r *AnnounceEventRepo) indexesSize(ctx context.Context) (int64, error) {
+func (r *AnnounceEventRepo) indexesSize(ctx context.Context, conn *sql.Conn) (int64, error) {
 	var size int64
-	if err := r.db.QueryRowContext(ctx,
+	if err := conn.QueryRowContext(ctx,
 		`SELECT pg_indexes_size($1::regclass)`, announceEventsTable).Scan(&size); err != nil {
 		return 0, fmt.Errorf("measuring index size: %w", err)
 	}
@@ -220,8 +294,8 @@ func (r *AnnounceEventRepo) indexesSize(ctx context.Context) (int64, error) {
 // PostgreSQL's own generated names, so an invalid index someone is building by
 // hand is left for them. It is a substring rather than a suffix match because
 // PostgreSQL appends a counter ("_ccnew1") when the name is already taken.
-func (r *AnnounceEventRepo) dropInvalidIndexes(ctx context.Context) (int, error) {
-	rows, err := r.db.QueryContext(ctx, `
+func (r *AnnounceEventRepo) dropInvalidIndexes(ctx context.Context, conn *sql.Conn) (int, error) {
+	rows, err := conn.QueryContext(ctx, `
 		SELECT c.relname
 		  FROM pg_class c
 		  JOIN pg_index i ON i.indexrelid = c.oid
@@ -255,7 +329,7 @@ func (r *AnnounceEventRepo) dropInvalidIndexes(ctx context.Context) (int, error)
 	// writes to it constantly.
 	var n int
 	for _, name := range names {
-		if _, err := r.db.ExecContext(ctx,
+		if _, err := conn.ExecContext(ctx,
 			`DROP INDEX CONCURRENTLY IF EXISTS `+quoteIdentifier(name)); err != nil {
 			return n, fmt.Errorf("dropping invalid index %q: %w", name, err)
 		}

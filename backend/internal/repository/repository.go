@@ -158,6 +158,9 @@ type AnnounceEventRepository interface {
 type ReindexResult struct {
 	BytesBefore int64
 	BytesAfter  int64
+	// Skipped reports that another rebuild held the lock, so this run did
+	// nothing. Distinct from a zero-byte success: the work still needs doing.
+	Skipped bool
 	// LeftoversDropped counts invalid indexes cleaned up before the rebuild.
 	// PostgreSQL leaves one behind whenever REINDEX CONCURRENTLY fails, and they
 	// occupy space while being useless to the planner, so a run that only ever

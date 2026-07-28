@@ -238,8 +238,81 @@ func TestAnnounceEventRepo_ReindexClearsACcoldLeftover(t *testing.T) {
 	if result.LeftoversDropped != 1 {
 		t.Errorf("LeftoversDropped = %d, want 1", result.LeftoversDropped)
 	}
-	if _, still := announceIndexes(t)[leftover]; still {
+	after := announceIndexes(t)
+	if _, still := after[leftover]; still {
 		t.Errorf("%q survived the rebuild, want it dropped", leftover)
+	}
+	for _, want := range []string{
+		"announce_events_pkey",
+		"idx_announce_events_user",
+		"idx_announce_events_announced_at",
+	} {
+		if info, ok := after[want]; !ok {
+			t.Errorf("the cleanup removed %q, which it had no business touching", want)
+		} else if !info.valid {
+			t.Errorf("index %q is invalid after the rebuild", want)
+		}
+	}
+}
+
+// What a real cancellation actually leaves. The two single-leftover tests above
+// each cover one arm; a genuine failure mid-REINDEX TABLE strands a marker for
+// every index at once, and the primary key's is the one worth pinning — its
+// constraint dependency moves to the swapped-in index, so the leftover is
+// free-standing and can be dropped, but that is exactly the kind of claim that
+// should be demonstrated rather than reasoned about.
+func TestAnnounceEventRepo_ReindexClearsAWholeFailedRunsWreckage(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewAnnounceEventRepo(db)
+
+	leftovers := map[string]string{
+		"announce_events_pkey_ccold":             "(id)",
+		"idx_announce_events_user_ccnew":         "(user_id, announced_at DESC)",
+		"idx_announce_events_announced_at_ccold": "(announced_at)",
+		// The counter form PostgreSQL uses when the name is already taken, which
+		// is what a second consecutive failure produces.
+		"idx_announce_events_announced_at_ccnew1": "(announced_at)",
+	}
+	for name, cols := range leftovers {
+		if _, err := db.ExecContext(ctx, `CREATE INDEX `+name+` ON announce_events `+cols); err != nil {
+			t.Fatalf("creating leftover %s: %v", name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE pg_index SET indisvalid = false WHERE indexrelid = $1::regclass`, name); err != nil {
+			t.Fatalf("marking %s invalid: %v", name, err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), `DROP INDEX IF EXISTS `+name)
+		})
+	}
+
+	result, err := repo.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex: %v", err)
+	}
+	if result.LeftoversDropped != len(leftovers) {
+		t.Errorf("LeftoversDropped = %d, want %d", result.LeftoversDropped, len(leftovers))
+	}
+
+	after := announceIndexes(t)
+	for name := range leftovers {
+		if _, still := after[name]; still {
+			t.Errorf("%q survived the rebuild", name)
+		}
+	}
+	for _, want := range []string{
+		"announce_events_pkey",
+		"idx_announce_events_user",
+		"idx_announce_events_announced_at",
+	} {
+		if info, ok := after[want]; !ok {
+			t.Errorf("the cleanup removed the real index %q", want)
+		} else if !info.valid {
+			t.Errorf("index %q is invalid after the rebuild", want)
+		}
 	}
 }
 
@@ -276,5 +349,199 @@ func TestAnnounceEventRepo_ReindexLeavesAValidLookalikeAlone(t *testing.T) {
 		t.Errorf("%q was dropped despite being valid", lookalike)
 	} else if !info.valid {
 		t.Errorf("%q is invalid after the rebuild", lookalike)
+	}
+}
+
+// The advisory lock is what makes this job safe to schedule rather than merely
+// well-timed. Two rebuilds on one table do not simply queue: the cleanup goes
+// straight for the "_ccnew" indexes a live rebuild is currently building, and
+// PostgreSQL resolves that as a deadlock. Which side loses is not deterministic,
+// so an unguarded second run can take the real rebuild down instead of itself.
+//
+// The lock is session-scoped, which is why Reindex pins a connection. Holding it
+// from a separate connection here is exactly the state a concurrent run sees.
+func TestAnnounceEventRepo_ReindexSkipsWhenAnotherRebuildHoldsTheLock(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	holder, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("opening the holding connection: %v", err)
+	}
+	defer func() { _ = holder.Close() }()
+
+	var held bool
+	if err := holder.QueryRowContext(ctx,
+		`SELECT pg_try_advisory_lock($1)`, announceReindexLockKey).Scan(&held); err != nil {
+		t.Fatalf("taking the lock: %v", err)
+	}
+	if !held {
+		t.Fatal("could not take the lock, so the contended path would not be exercised")
+	}
+	defer func() {
+		if _, err := holder.ExecContext(context.Background(),
+			`SELECT pg_advisory_unlock($1)`, announceReindexLockKey); err != nil {
+			t.Errorf("releasing the lock: %v", err)
+		}
+	}()
+
+	before := announceIndexes(t)
+
+	result, err := NewAnnounceEventRepo(db).Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex: %v", err)
+	}
+	if !result.Skipped {
+		t.Error("Skipped = false, want true — the rebuild ran while another held the lock")
+	}
+
+	// Skipping has to mean skipping: nothing rebuilt, nothing dropped.
+	if result.LeftoversDropped != 0 {
+		t.Errorf("LeftoversDropped = %d while skipping, want 0", result.LeftoversDropped)
+	}
+	for name, info := range announceIndexes(t) {
+		if was, ok := before[name]; ok && was.relfilenode != info.relfilenode {
+			t.Errorf("index %q was rebuilt despite the lock being held", name)
+		}
+	}
+}
+
+// advisoryLocksHeld counts sessions holding the rebuild lock, read from pg_locks
+// rather than by trying to take it.
+//
+// That distinction is the whole test. PostgreSQL advisory locks are re-entrant
+// per session, and database/sql hands the same pooled connection back, so a
+// second Reindex re-acquires a leaked lock happily and reports success. Asking
+// "can I take it?" therefore cannot detect a leak — only looking at who holds it
+// can. This is the trap tasks/lessons.md records against the leader-election
+// test, and the first cut of this test walked straight into it: removing the
+// unlock entirely left it green.
+func advisoryLocksHeld(t *testing.T) int {
+	t.Helper()
+	db := requireDB(t)
+
+	var n int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT count(*) FROM pg_locks
+		 WHERE locktype = 'advisory'
+		   AND ((classid::bigint << 32) | objid::bigint) = $1`,
+		announceReindexLockKey).Scan(&n); err != nil {
+		t.Fatalf("reading pg_locks: %v", err)
+	}
+	return n
+}
+
+// The lock must not outlive the call. A leaked one is not merely untidy: a
+// second worker process, or the operator's own psql session, would then skip
+// every rebuild forever while the job kept reporting that it had run.
+func TestAnnounceEventRepo_ReindexReleasesTheLock(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	if held := advisoryLocksHeld(t); held != 0 {
+		t.Fatalf("%d sessions already hold the rebuild lock before the test", held)
+	}
+
+	result, err := NewAnnounceEventRepo(db).Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex: %v", err)
+	}
+	if result.Skipped {
+		t.Fatal("the rebuild skipped; nothing should have held the lock")
+	}
+
+	if held := advisoryLocksHeld(t); held != 0 {
+		t.Errorf("%d sessions still hold the rebuild lock after Reindex returned", held)
+	}
+}
+
+// The case the release matters most in: cancelled *after* the lock was taken.
+// That is what the task timeout does, and it is why the unlock runs on
+// context.WithoutCancel — on the original context the unlock statement is itself
+// cancelled, so the lock leaks precisely on the failure path nobody watches.
+//
+// Cancelling before the call proves nothing (the lock is never taken, so there
+// is nothing to leak), so the rebuild is deliberately parked: another session
+// holds ACCESS EXCLUSIVE on the table, which REINDEX must wait for. That gives a
+// deterministic window in which the advisory lock is held and the rebuild is
+// not yet finished.
+func TestAnnounceEventRepo_ReindexReleasesTheLockAfterCancellation(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+
+	if held := advisoryLocksHeld(t); held != 0 {
+		t.Fatalf("%d sessions already hold the rebuild lock before the test", held)
+	}
+
+	// Park the rebuild behind a conflicting lock.
+	blocker, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("opening the blocking connection: %v", err)
+	}
+	defer func() { _ = blocker.Close() }()
+	if _, err := blocker.ExecContext(context.Background(), `BEGIN`); err != nil {
+		t.Fatalf("beginning the blocking transaction: %v", err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_, _ = blocker.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}
+	defer release()
+	if _, err := blocker.ExecContext(context.Background(),
+		`LOCK TABLE announce_events IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("taking the blocking lock: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Bounded, because the subject can block: a regression here must report as a
+	// named failure rather than a stalled package.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = NewAnnounceEventRepo(db).Reindex(ctx)
+	}()
+
+	// Wait until the advisory lock is actually held, so the cancellation lands
+	// inside the window this test exists to cover.
+	deadline := time.Now().Add(10 * time.Second)
+	for advisoryLocksHeld(t) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the rebuild never took the advisory lock")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	cancel()
+	release()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Reindex did not return after cancellation")
+	}
+
+	// Polled, not asserted immediately. A cancellation that lands mid-statement
+	// makes database/sql close the pinned connection, so the explicit unlock
+	// fails and the release happens when the session ends instead — which is
+	// reliable but not synchronous. What must hold is that the lock does not
+	// *stay* held, since that would block every future rebuild.
+	deadline = time.Now().Add(15 * time.Second)
+	for {
+		held := advisoryLocksHeld(t)
+		if held == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("%d sessions still hold the rebuild lock 15s after a cancelled rebuild", held)
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

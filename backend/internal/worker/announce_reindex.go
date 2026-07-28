@@ -49,6 +49,12 @@ func NewAnnounceLogReindexTask() (*asynq.Task, error) {
 // Monthly rather than nightly: the growth is gradual, and a rebuild is the one
 // piece of announce-log maintenance whose cost scales with the whole table
 // rather than with a day of it.
+//
+// Deliberately not gated on announce_log_enabled, unlike the capture path. That
+// setting stops new announces being recorded; it does not stop the prune, which
+// keeps deleting from whatever is already there — and deleting is what causes
+// the index bloat. A site that turned capture off still has a shrinking table
+// whose indexes need rebuilding, and on an empty one the rebuild costs nothing.
 func NewAnnounceLogReindexHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
 	return func(ctx context.Context, _ *asynq.Task) error {
 		if deps.AnnounceEventRepo == nil {
@@ -71,6 +77,14 @@ func NewAnnounceLogReindexHandler(deps *WorkerDeps) func(ctx context.Context, t 
 			// the disk usage instead, months later.
 			slog.Error("announce log: failed to rebuild indexes", "error", err)
 			return err
+		}
+		if result.Skipped {
+			// Not an error: a rebuild is already running. Said out loud anyway,
+			// because "the job ran and did nothing" and "the job did not run" look
+			// identical in a log that stays silent, and if it repeats every month
+			// something is holding the lock that should not be.
+			slog.Warn("announce log: another rebuild is already running, skipped this one")
+			return nil
 		}
 
 		slog.Info("announce log: rebuilt indexes",

@@ -489,10 +489,14 @@
               rows, so the freed pages collect at one end while every new announce
               is added at the other. Left alone they would grow without limit, well
               past what the row count suggests. TorrentTrader rebuilds them on the
-              first of each month, and there is nothing for you to configure or run
-              yourself. Members keep announcing throughout: the rebuild takes a
-              brief exclusive lock as it starts and another as it swaps the new
-              index in, and holds nothing in between.
+              first of each month, at 01:00, and there is nothing for you to
+              configure or run yourself. Members keep announcing throughout — the
+              rebuild deliberately never takes a lock that would stop them, apart
+              from a moment as it swaps each finished index in. Two things are
+              worth knowing before it first runs on a large site: it needs as much
+              free disk as the announce log's indexes currently occupy, because it
+              builds the replacements alongside the originals; and while it runs,
+              routine vacuuming is held back, so pick a quiet hour if you move it.
             </p>
           </div>
         </div>
