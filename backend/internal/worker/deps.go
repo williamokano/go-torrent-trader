@@ -44,18 +44,21 @@ type WorkerDeps struct {
 	// never fail to aggregate before pruning.
 	AnnounceEventRepo  repository.AnnounceEventRepository
 	AnnounceRollupRepo repository.AnnounceRollupRepository
-	// AnnounceLogRetention returns how long raw announce rows are kept. A func for
-	// the same reason as ConnectorDeliveryRetention below: it is an admin-editable
-	// site setting, and reading it once at boot would make an edit appear to work
-	// while doing nothing until the next restart. Non-positive disables pruning.
-	AnnounceLogRetention func() time.Duration
-	// AnnounceLogMinWindow returns the shortest window of raw announces that other
-	// features still need, regardless of what retention says — today, class
-	// promotion's seed-hours estimate, which gap-sums raw announces over
-	// promotion_seed_window_days. The prune takes the longer of the two, so
-	// shortening retention cannot silently switch a feature off. Zero, or a nil
-	// func, means nothing else depends on the raw rows.
-	AnnounceLogMinWindow func() time.Duration
+	// AnnounceRetention returns the resolved retention window: what the operator
+	// configured, what floor other features impose, and therefore how long raw
+	// announce rows actually survive. A func for the same reason as
+	// ConnectorDeliveryRetention below — it is an admin-editable site setting, and
+	// reading it once at boot would make an edit appear to work while doing
+	// nothing until the next restart.
+	//
+	// One value rather than the two this used to take. The prune previously
+	// received the configured window and the floor separately and re-derived the
+	// answer itself, which meant the arithmetic existed twice: once in the
+	// resolver every reporting surface reads, and once here. That is not a
+	// single source of truth, it is a copy — and the copy is the one that decides
+	// what gets deleted. EffectiveDays is zero exactly when pruning is disabled,
+	// so the guard below still reads naturally.
+	AnnounceRetention func() service.AnnounceRetention
 
 	// External notification connectors (BE-10). All nil-checked: a deployment
 	// without them simply has no drain handler work to do.

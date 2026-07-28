@@ -122,9 +122,67 @@ describe("AdminSettingsPage", () => {
     // The durable assertion. Whatever either surface says about where the space
     // goes, the other has to say it too — so correcting one and forgetting the
     // other fails here, whichever one is edited and whatever the new claim is.
-    expect(diskVocabulary(surfaces["admin settings page"])).toEqual(
-      diskVocabulary(surfaces["website/configure.html"]),
-    );
+    expect(
+      vocabulary(surfaces["admin settings page"], DISK_TERMS),
+      "the two surfaces disagree about where the deleted space goes",
+    ).toEqual(vocabulary(surfaces["website/configure.html"], DISK_TERMS));
+
+    expect(
+      vocabulary(surfaces["admin settings page"], FLOOR_TERMS),
+      "the two surfaces disagree about the window being a floor",
+    ).toEqual(vocabulary(surfaces["website/configure.html"], FLOOR_TERMS));
+  });
+
+  // An operator whose saved value is not in force has to see that on the field
+  // they saved it in. Before #255 the only trace was a slog.Warn in the server
+  // log — somewhere nobody looks after changing an admin setting, which is how
+  // "I set 7 days" and "the site keeps 31" coexisted without anyone noticing.
+  test("says so when a saved setting is not the one in force", async () => {
+    const now = new Date().toISOString();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          {
+            key: "announce_log_retention_days",
+            value: "7",
+            updated_at: now,
+            effective_value: "31",
+            override_reason:
+              "Raw announces are kept for 31 days, not 7: the shorter window is held open by automatic class promotion.",
+          },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/In force: 31, not 7/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/held open by automatic class promotion/),
+    ).toBeInTheDocument();
+  });
+
+  // And a setting that is in force says nothing, so the panel does not cry wolf
+  // on every row.
+  test("says nothing when the saved setting is the one in force", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          {
+            key: "announce_log_retention_days",
+            value: "90",
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    await screen.findByText("Announce Log Retention (days)");
+    expect(screen.queryByText(/In force:/)).not.toBeInTheDocument();
   });
 
   // The page renders whatever rows the API returns, so a setting without a
@@ -167,6 +225,18 @@ function normalize(text: string | null | undefined): string {
 // #221 replaces it with. Comparing the sets between the two surfaces catches a
 // half-finished correction without either surface having to keep a fixed
 // sentence.
+// The second claim these two surfaces now duplicate: that the setting is a floor
+// other features can raise, not a promise. Added in #255 to both descriptions,
+// and without this the pair could drift apart again in the new direction —
+// exactly what the disk vocabulary was introduced to prevent.
+// Only the claim both surfaces must make: that this setting is a floor other
+// features can raise. Deliberately not "class promotion" or "in force" — the
+// website has to name what holds the window open because it is static, while the
+// admin page reports the actual reason at runtime in the override note. A
+// vocabulary that demands everything either surface says would fail on a
+// difference that is correct.
+const FLOOR_TERMS = ["floor", "shortest", "hold the window open"];
+
 const DISK_TERMS = [
   "autovacuum",
   "vacuum full",
@@ -180,9 +250,9 @@ const DISK_TERMS = [
   "reclaim",
 ];
 
-function diskVocabulary(text: string): string[] {
+function vocabulary(text: string, terms: string[]): string[] {
   const lower = text.toLowerCase();
-  return DISK_TERMS.filter((term) => lower.includes(term));
+  return terms.filter((term) => lower.includes(term));
 }
 
 // Pulls a setting's "What it does" cell out of the published configuration page

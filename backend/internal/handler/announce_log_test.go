@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // --- stubs ---
@@ -165,9 +167,9 @@ func TestAnnounceLog_OwnerSeesEventsAndMonthlyTotals(t *testing.T) {
 	// worker prunes on. The two readers of one setting must not disagree: reporting
 	// 0 here would tell the member their announces are kept forever while the job
 	// deleted them at 90 days.
-	if body.RetentionDays != defaultAnnounceLogRetentionDays {
+	if body.RetentionDays != service.DefaultAnnounceLogRetentionDays {
 		t.Errorf("retention_days = %d, want the worker's default %d",
-			body.RetentionDays, defaultAnnounceLogRetentionDays)
+			body.RetentionDays, service.DefaultAnnounceLogRetentionDays)
 	}
 }
 
@@ -284,5 +286,73 @@ func TestAnnounceLog_ResponseCarriesNoIPAddress(t *testing.T) {
 		if _, ok := e["ip"]; ok {
 			t.Errorf("event %d serialises an ip field: %v", i, e)
 		}
+	}
+}
+
+// settingsServiceFor builds a settings service holding exactly these rows, so a
+// test states only the settings it is about.
+func settingsServiceFor(t *testing.T, values map[string]string) *service.SiteSettingsService {
+	t.Helper()
+	repo := newStubSiteSettingsRepo()
+	for k, v := range values {
+		repo.values[k] = v
+	}
+	return service.NewSiteSettingsService(repo, event.NewInMemoryBus())
+}
+
+// The defect #255 is about, from the member's side. An operator sets 7 days;
+// class promotion holds the raw log open at 31. The member used to be told 7 —
+// wrong in the direction that matters, since what this number describes is how
+// long their own transfer history is retained.
+//
+// The fixture deliberately sets retention *below* the floor. A fixture above it
+// exercises nothing: both the old and the new code return the configured value.
+func TestAnnounceLog_ReportsTheEffectiveWindowNotTheConfiguredOne(t *testing.T) {
+	settings := settingsServiceFor(t, map[string]string{
+		service.SettingAnnounceLogRetentionDays: "7",
+		service.SettingPromotionEnabled:         "true",
+	})
+	h := NewAnnounceLogHandler(&stubAnnounceEventRepo{}, &stubAnnounceRollupRepo{}, settings)
+
+	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
+	w := httptest.NewRecorder()
+	h.HandleList(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		RetentionDays int `json:"retention_days"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if body.RetentionDays != 31 {
+		t.Errorf("retention_days = %d, want 31 — the member must be told how long "+
+			"their announces really live, not what the setting says", body.RetentionDays)
+	}
+}
+
+// And when nothing holds the window open, the configured value is reported
+// unchanged — so the fix cannot be "always report the floor".
+func TestAnnounceLog_ReportsTheConfiguredWindowWhenNothingRaisesIt(t *testing.T) {
+	settings := settingsServiceFor(t, map[string]string{
+		service.SettingAnnounceLogRetentionDays: "7",
+		service.SettingPromotionEnabled:         "false",
+	})
+	h := NewAnnounceLogHandler(&stubAnnounceEventRepo{}, &stubAnnounceRollupRepo{}, settings)
+
+	r := withAuth(withChiURLParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "42"), 42, false)
+	w := httptest.NewRecorder()
+	h.HandleList(w, r)
+
+	var body struct {
+		RetentionDays int `json:"retention_days"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if body.RetentionDays != 7 {
+		t.Errorf("retention_days = %d, want 7", body.RetentionDays)
 	}
 }

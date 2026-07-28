@@ -44,3 +44,20 @@
   outline-offset: 1px;
   border-color: var(--color-accent);
 }
+
+/* A saved value the site is not honouring. Warning-coloured rather than muted
+   like the description above it: this is not background information, it is the
+   field disagreeing with what the operator typed into it. */
+.admin-settings__override {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  /* color-mix off the warning token, matching torrent-peers.css, so the tint
+     tracks the theme instead of being a fixed light-mode rgba that disappears
+     against the dark surface. */
+  background: color-mix(in srgb, var(--color-warning), transparent 88%);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--color-text-primary);
+}

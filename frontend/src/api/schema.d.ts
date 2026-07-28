@@ -321,7 +321,8 @@ export interface paths {
     /**
      * Get a member's announce log and monthly transfer totals
      * @description Returns the raw announces the tracker recorded for this member, newest first, together with their per-month transfer totals.
-     *     The raw rows are pruned once they pass the site's `announce_log_retention_days` window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
+     *     The raw rows are pruned once they pass the site's retention window, so the listing only reaches as far back as `retention_days` (0 means pruning is disabled and rows are kept indefinitely). The monthly totals are aggregated before the prune runs and are kept permanently, so they still cover months whose raw rows are gone.
+     *     `retention_days` is the window the site actually honours, which is not always `announce_log_retention_days`: other features can hold the log open for longer, and automatic class promotion does whenever it is enabled, because it reads raw announces over its seeding window — 31 days at that window's default. Reporting the configured value here would understate how long a member's transfer detail is kept.
      *     Readable by the member themselves and by staff only: the per-announce byte deltas say what a member is seeding and when they are online. The tracker does not record announce IP addresses.
      */
     get: operations["getUserAnnounceLog"];
@@ -526,6 +527,27 @@ export interface paths {
      *     Requires authentication.
      */
     post: operations["createReport"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List every site setting and its stored value
+     * @description Returns each row of `site_settings`. Values are always strings; the type each key expects is documented on the Configure page rather than in the response.
+     *     A setting the site cannot honour as stored also carries `effective_value` and `override_reason`. That happens when another feature requires more than the setting allows — today only `announce_log_retention_days`, which automatic class promotion holds open because it reads raw announces over its seeding window. Both fields are absent when the stored value is the one in force, so their presence is the signal.
+     */
+    get: operations["listSiteSettings"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1195,7 +1217,7 @@ export interface components {
       /** @description The new password */
       new_password: string;
     };
-    /** @description One announce, exactly as the client reported it. Retained only for `announce_log_retention_days`. */
+    /** @description One announce, exactly as the client reported it. Retained for the window the response reports as `retention_days`, which may exceed the configured `announce_log_retention_days`. */
     AnnounceLogEntry: {
       /** Format: int64 */
       id?: number;
@@ -3244,6 +3266,72 @@ export interface operations {
         };
       };
       /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listSiteSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Every site setting */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            settings: {
+              /** @example announce_log_retention_days */
+              key: string;
+              /**
+               * @description The stored value, as an operator set it
+               * @example 7
+               */
+              value: string;
+              /** Format: date-time */
+              updated_at: string;
+              /**
+               * @description The value the site acts on, present only when it differs from `value`.
+               * @example 31
+               */
+              effective_value?: string;
+              /** @description Why the stored value is not in force, and what to change to make it so. Present only alongside `effective_value`. */
+              override_reason?: string;
+            }[];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The settings store could not be read */
       500: {
         headers: {
           [name: string]: unknown;

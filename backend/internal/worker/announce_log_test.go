@@ -8,6 +8,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // --- mocks -----------------------------------------------------------------
@@ -121,14 +122,36 @@ func utcToday() time.Time {
 
 // --- tests -----------------------------------------------------------------
 
+// fixedRetention hands the prune an already-resolved window with no floor in
+// play. The worker's job is to act on the answer, not to work it out — the
+// arithmetic that produces it is tested in service.ResolveAnnounceRetention, and
+// re-deriving it here would be the same duplication this replaced.
+func fixedRetention(days int) func() service.AnnounceRetention {
+	return func() service.AnnounceRetention {
+		return service.AnnounceRetention{ConfiguredDays: days, EffectiveDays: days}
+	}
+}
+
+// raisedRetention is the resolved window when another feature holds it open.
+func raisedRetention(configured, floor int) func() service.AnnounceRetention {
+	return func() service.AnnounceRetention {
+		return service.AnnounceRetention{
+			ConfiguredDays: configured,
+			FloorDays:      floor,
+			EffectiveDays:  floor,
+			FloorReason:    "automatic class promotion",
+		}
+	}
+}
+
 func TestAnnounceLogMaintenance_RollsUpThenPrunes(t *testing.T) {
 	// A week behind, so one chunk catches up.
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday().AddDate(0, 0, -7), rowsEach: 4}
 	events := &mockAnnounceEventRepo{remaining: 12}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -169,9 +192,9 @@ func TestAnnounceLogMaintenance_PruneNeverPassesTheRollupWatermark(t *testing.T)
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday().AddDate(-10, 0, 0)}
 	events := &mockAnnounceEventRepo{remaining: 1}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -206,9 +229,9 @@ func TestAnnounceLogMaintenance_RollupFailureLimitsPruneToLastGoodWatermark(t *t
 	}
 	events := &mockAnnounceEventRepo{remaining: 1}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(1),
 	}
 
 	// The error is reported to asynq (see RollupFailureIsReturnedToAsynq); what
@@ -228,20 +251,29 @@ func TestAnnounceLogMaintenance_RollupFailureLimitsPruneToLastGoodWatermark(t *t
 // Same guard as the notification and connector purges: a zero window would set the
 // cutoff to now and delete the entire log.
 func TestAnnounceLogMaintenance_NonPositiveRetentionDisablesPrune(t *testing.T) {
-	for _, retention := range []time.Duration{0, -time.Hour} {
+	for _, window := range []service.AnnounceRetention{
+		{ConfiguredDays: 0, EffectiveDays: 0},
+		{ConfiguredDays: -1, EffectiveDays: 0},
+		// The case that mattered and was never constructed: pruning switched off
+		// while another feature still wants a window. A floor cannot raise a
+		// disabled window — there is nothing to delete for it to protect — and
+		// getting that backwards turns "keep every announce forever" into
+		// "delete everything older than 31 days", permanently.
+		{ConfiguredDays: 0, EffectiveDays: 0, FloorDays: 31},
+	} {
 		rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 		events := &mockAnnounceEventRepo{remaining: 100}
 		deps := &WorkerDeps{
-			AnnounceRollupRepo:   rollups,
-			AnnounceEventRepo:    events,
-			AnnounceLogRetention: func() time.Duration { return retention },
+			AnnounceRollupRepo: rollups,
+			AnnounceEventRepo:  events,
+			AnnounceRetention:  func() service.AnnounceRetention { return window },
 		}
 
 		if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
 			t.Fatalf("handler returned error: %v", err)
 		}
 		if len(events.calls) != 0 {
-			t.Errorf("retention %v: pruned anyway (%d calls)", retention, len(events.calls))
+			t.Errorf("window %+v: pruned anyway (%d calls)", window, len(events.calls))
 		}
 	}
 }
@@ -251,12 +283,12 @@ func TestAnnounceLogMaintenance_NilDepsAreInert(t *testing.T) {
 	for name, deps := range map[string]*WorkerDeps{
 		"nothing wired": {},
 		"no rollup repo": {
-			AnnounceEventRepo:    &mockAnnounceEventRepo{remaining: 5},
-			AnnounceLogRetention: func() time.Duration { return time.Hour },
+			AnnounceEventRepo: &mockAnnounceEventRepo{remaining: 5},
+			AnnounceRetention: fixedRetention(1),
 		},
 		"no event repo": {
-			AnnounceRollupRepo:   &mockAnnounceRollupRepo{watermark: utcToday()},
-			AnnounceLogRetention: func() time.Duration { return time.Hour },
+			AnnounceRollupRepo: &mockAnnounceRollupRepo{watermark: utcToday()},
+			AnnounceRetention:  fixedRetention(1),
 		},
 		"no retention func": {
 			AnnounceRollupRepo: &mockAnnounceRollupRepo{watermark: utcToday()},
@@ -277,9 +309,9 @@ func TestAnnounceLogMaintenance_CaughtUpRollupStillPrunes(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 	events := &mockAnnounceEventRepo{remaining: 3}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -295,9 +327,9 @@ func TestAnnounceLogMaintenance_PrunesInBoundedChunks(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 	events := &mockAnnounceEventRepo{remaining: announcePruneChunkRows*2 + 7}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -326,9 +358,9 @@ func TestAnnounceLogMaintenance_PruneStopsAtTheRunCap(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 	events := &mockAnnounceEventRepo{remaining: announcePruneChunkRows * (announcePruneMaxChunks + 5)}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -348,9 +380,9 @@ func TestAnnounceLogMaintenance_PruneStopsOnError(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 	events := &mockAnnounceEventRepo{remaining: 100000, deleteErr: errors.New("boom")}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -366,9 +398,9 @@ func TestAnnounceLogMaintenance_CancelledContextStopsWork(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday().AddDate(0, 0, -3650)}
 	events := &mockAnnounceEventRepo{remaining: 100000}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -389,9 +421,9 @@ func TestAnnounceLogMaintenance_RollupCatchUpIsCapped(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday().AddDate(-10, 0, 0), rowsEach: 1}
 	events := &mockAnnounceEventRepo{remaining: 1}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -421,10 +453,10 @@ func TestAnnounceLogMaintenance_PruneRespectsWhatOtherFeaturesStillNeed(t *testi
 	deps := &WorkerDeps{
 		AnnounceRollupRepo: rollups,
 		AnnounceEventRepo:  events,
-		// An operator shortening retention to a week for privacy reasons...
-		AnnounceLogRetention: func() time.Duration { return 7 * 24 * time.Hour },
-		// ...while promotion still needs 31 days of raw announces.
-		AnnounceLogMinWindow: func() time.Duration { return 31 * 24 * time.Hour },
+		// An operator shortening retention to a week for privacy reasons, while
+		// promotion still needs 31 days of raw announces. The resolver is what
+		// decides that 31 wins; the prune's job is to act on the answer.
+		AnnounceRetention: raisedRetention(7, 31),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -446,10 +478,9 @@ func TestAnnounceLogMaintenance_MinWindowNeverShortensRetention(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 	events := &mockAnnounceEventRepo{remaining: 1}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
-		AnnounceLogMinWindow: func() time.Duration { return 7 * 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -468,10 +499,9 @@ func TestAnnounceLogMaintenance_ZeroMinWindowStillPrunes(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{watermark: utcToday()}
 	events := &mockAnnounceEventRepo{remaining: 3}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
-		AnnounceLogMinWindow: func() time.Duration { return 0 },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(90),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
@@ -494,9 +524,9 @@ func TestAnnounceLogMaintenance_RollupFailureIsReturnedToAsynq(t *testing.T) {
 	}
 	events := &mockAnnounceEventRepo{remaining: 1}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(1),
 	}
 
 	err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil)
@@ -519,9 +549,9 @@ func TestAnnounceLogMaintenance_UnreadableWatermarkIsReturnedToAsynq(t *testing.
 	}
 	events := &mockAnnounceEventRepo{remaining: 100}
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   rollups,
-		AnnounceEventRepo:    events,
-		AnnounceLogRetention: func() time.Duration { return 24 * time.Hour },
+		AnnounceRollupRepo: rollups,
+		AnnounceEventRepo:  events,
+		AnnounceRetention:  fixedRetention(1),
 	}
 
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err == nil {
@@ -535,9 +565,9 @@ func TestAnnounceLogMaintenance_UnreadableWatermarkIsReturnedToAsynq(t *testing.
 // A healthy run reports success, so the failures above are distinguishable.
 func TestAnnounceLogMaintenance_HealthyRunReturnsNil(t *testing.T) {
 	deps := &WorkerDeps{
-		AnnounceRollupRepo:   &mockAnnounceRollupRepo{watermark: utcToday()},
-		AnnounceEventRepo:    &mockAnnounceEventRepo{remaining: 2},
-		AnnounceLogRetention: func() time.Duration { return 90 * 24 * time.Hour },
+		AnnounceRollupRepo: &mockAnnounceRollupRepo{watermark: utcToday()},
+		AnnounceEventRepo:  &mockAnnounceEventRepo{remaining: 2},
+		AnnounceRetention:  fixedRetention(90),
 	}
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err != nil {
 		t.Fatalf("healthy run returned %v, want nil", err)

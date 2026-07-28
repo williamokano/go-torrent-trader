@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -224,5 +225,162 @@ func TestUpdateSettingDoesNotReportSuccessOnStoreFailure(t *testing.T) {
 	}
 	if _, hasErr := decodeBody(t, w)["error"]; !hasErr {
 		t.Error("response has no error object")
+	}
+}
+
+// A setting the site does not honour has to say so where the operator is
+// standing when they form a belief about it — which is this list, not a
+// slog.Warn in the server log nobody reads after changing an admin field.
+func TestGetAllSettingsReportsAnOverriddenRetentionWindow(t *testing.T) {
+	repo := newStubSiteSettingsRepo()
+	repo.values[service.SettingAnnounceLogRetentionDays] = "7"
+	repo.values[service.SettingPromotionEnabled] = "true"
+	// GetAll reads `all` while the resolver's lookups read `values`; the listing
+	// has to contain the row for the override to be attached to anything.
+	repo.all = []model.SiteSetting{
+		{Key: service.SettingAnnounceLogRetentionDays, Value: "7"},
+		{Key: service.SettingPromotionEnabled, Value: "true"},
+	}
+	h := newSiteSettingsHandler(repo)
+
+	w := httptest.NewRecorder()
+	h.HandleGetAllSettings(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Settings []struct {
+			Key            string `json:"key"`
+			Value          string `json:"value"`
+			EffectiveValue string `json:"effective_value"`
+			OverrideReason string `json:"override_reason"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	var found bool
+	for _, s := range body.Settings {
+		if s.Key != service.SettingAnnounceLogRetentionDays {
+			// Nothing else is overridden, and a spurious note on an unrelated
+			// setting would be worse than none.
+			if s.EffectiveValue != "" || s.OverrideReason != "" {
+				t.Errorf("%s reported an override it does not have", s.Key)
+			}
+			continue
+		}
+		found = true
+		if s.Value != "7" {
+			t.Errorf("value = %q, want the stored 7", s.Value)
+		}
+		if s.EffectiveValue != "31" {
+			t.Errorf("effective_value = %q, want 31", s.EffectiveValue)
+		}
+		// The content, not merely its presence. A reason that says "kept for 31
+		// days, not 31" is worse than none — it reads as a bug in the panel and
+		// tells the operator nothing — and only asserting non-emptiness cannot
+		// tell the two apart.
+		if !strings.Contains(s.OverrideReason, "31 days, not 7") {
+			t.Errorf("override_reason = %q, want it to name both the window in force and the one saved",
+				s.OverrideReason)
+		}
+		if !strings.Contains(s.OverrideReason, "class promotion") {
+			t.Errorf("override_reason = %q, want it to name what is holding the window open",
+				s.OverrideReason)
+		}
+	}
+	if !found {
+		t.Fatal("announce_log_retention_days was not in the response")
+	}
+}
+
+// And a setting that is being honoured carries no note, so the panel does not
+// cry wolf on every row.
+func TestGetAllSettingsOmitsTheOverrideWhenTheWindowIsHonoured(t *testing.T) {
+	repo := newStubSiteSettingsRepo()
+	repo.values[service.SettingAnnounceLogRetentionDays] = "90"
+	repo.values[service.SettingPromotionEnabled] = "true"
+	repo.all = []model.SiteSetting{
+		{Key: service.SettingAnnounceLogRetentionDays, Value: "90"},
+		{Key: service.SettingPromotionEnabled, Value: "true"},
+	}
+	h := newSiteSettingsHandler(repo)
+
+	w := httptest.NewRecorder()
+	h.HandleGetAllSettings(w, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	var body struct {
+		Settings []map[string]interface{} `json:"settings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	var seen bool
+	for _, s := range body.Settings {
+		if s["key"] == service.SettingAnnounceLogRetentionDays {
+			seen = true
+		}
+		if _, present := s["effective_value"]; present {
+			t.Errorf("%v carries effective_value while being honoured", s["key"])
+		}
+	}
+	// Without this the test passes on an empty listing, which is how the first
+	// version of it passed while the sibling test was failing.
+	if !seen {
+		t.Fatal("announce_log_retention_days was not in the response")
+	}
+}
+
+// The spec says effective_value is present whenever the stored value is not the
+// one in force. A floor is one way that happens; a value that does not survive
+// being read is another, and it is the likelier mistake. Without this the panel
+// shows a number nothing acts on and says nothing about it — which is the exact
+// defect #255 exists to fix, just arrived at by a different route.
+func TestGetAllSettingsReportsAStoredValueThatIsNotUsable(t *testing.T) {
+	for _, tc := range []struct {
+		name, stored, wantEffective string
+	}{
+		// Set() rejects these, but nothing stops a row being edited directly in
+		// the database, and the panel renders whatever is there.
+		{name: "negative reads as disabled", stored: "-5", wantEffective: "0"},
+		{name: "non-numeric falls back to the default", stored: "abc", wantEffective: "90"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newStubSiteSettingsRepo()
+			repo.values[service.SettingAnnounceLogRetentionDays] = tc.stored
+			repo.all = []model.SiteSetting{
+				{Key: service.SettingAnnounceLogRetentionDays, Value: tc.stored},
+			}
+			h := newSiteSettingsHandler(repo)
+
+			w := httptest.NewRecorder()
+			h.HandleGetAllSettings(w, httptest.NewRequest(http.MethodGet, "/", nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+			}
+
+			var body struct {
+				Settings []struct {
+					Key            string `json:"key"`
+					EffectiveValue string `json:"effective_value"`
+					OverrideReason string `json:"override_reason"`
+				} `json:"settings"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding: %v", err)
+			}
+			if len(body.Settings) != 1 {
+				t.Fatalf("got %d settings, want 1", len(body.Settings))
+			}
+			got := body.Settings[0]
+			if got.EffectiveValue != tc.wantEffective {
+				t.Errorf("effective_value = %q, want %q", got.EffectiveValue, tc.wantEffective)
+			}
+			if got.OverrideReason == "" {
+				t.Error("no override_reason for a value the site cannot use")
+			}
+		})
 	}
 }
