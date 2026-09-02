@@ -66,6 +66,7 @@ func TestRegisterPeriodicTasksRegistersEveryRecurringJob(t *testing.T) {
 		TaskDigest:                 "0 6 * * *",
 		TaskAnnounceLogMaintenance: "15 4 * * *",
 		TaskAnnounceLogReindex:     "0 1 1 * *",
+		TaskHnREvaluate:            "45 * * * *",
 	}
 
 	for taskType, wantSpec := range want {

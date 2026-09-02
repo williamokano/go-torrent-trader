@@ -198,6 +198,7 @@ func run() int {
 	// the admin/member-facing surfaces that need it exist.
 	hnrRepo := postgres.NewHnRRepo(db)
 	trackerService.SetHnRRepo(hnrRepo)
+	hnrService := service.NewHnRService(db, hnrRepo, groupRepo, siteSettingsService)
 
 	promotionRepo := postgres.NewPromotionRepo(db)
 	promotionService := service.NewPromotionService(promotionRepo, groupRepo, siteSettingsService)
@@ -434,6 +435,7 @@ func run() int {
 		BonusSvc:              bonusService,
 		InviteDistributionSvc: inviteDistributionService,
 		DigestSvc:             notificationDigestService,
+		HnRSvc:                hnrService,
 		SendToUser:            chatHub.SendToUser,
 
 		NotificationRepo:      notificationRepo,

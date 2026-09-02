@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
@@ -36,7 +37,11 @@ func hnrTestGroups() []model.Group {
 
 func setupHnRService() (*HnRService, *fakeHnRRepo) {
 	repo := newFakeHnRRepo()
-	svc := NewHnRService(repo, &fakeHnRGroupRepo{groups: hnrTestGroups()}, nil)
+	// db is nil: these tests exercise rule CRUD and the evaluate/mark sweep,
+	// neither of which touches RunDaemon's locking. RunDaemon itself is
+	// validated separately against a live Postgres instance (advisory locks
+	// have no meaningful fake).
+	svc := NewHnRService(nil, repo, &fakeHnRGroupRepo{groups: hnrTestGroups()}, nil)
 	return svc, repo
 }
 
@@ -124,5 +129,151 @@ func TestHnRService_DeleteRule(t *testing.T) {
 	}
 	if err := svc.DeleteRule(context.Background(), 1); !errors.Is(err, ErrHnRRuleNotFound) {
 		t.Errorf("DeleteRule(missing) = %v, want ErrHnRRuleNotFound", err)
+	}
+}
+
+// --- daemon sweep (evaluateAndMark, via RunDaemon with db=nil is not
+// possible — RunDaemon requires a real db for locking, so these tests call
+// runLocked-equivalent behavior through evaluateAndMark directly, which is
+// exactly what runLocked calls once the lock is held) ---
+
+func TestHnRService_EvaluateAndMark_BreachesOverdueRecord(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.setUserGroup(1, 10)
+	repo.setTorrent(100, 1000, false)
+	if err := repo.UpsertRule(context.Background(), &model.HnRRule{
+		GroupID: 10, RequiredSeedHours: 100, RequiredRatio: 1.0,
+		InactivityGraceHours: 1, MaxDaysToSatisfy: 30,
+	}); err != nil {
+		t.Fatalf("upsert rule: %v", err)
+	}
+
+	old := time.Now().Add(-2 * time.Hour)
+	if _, err := repo.CreateIfNotExists(context.Background(), 1, 100, old); err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+	// Backdate last_seen_at so the 1-hour grace is exceeded.
+	rec := repo.recordByUserTorrent(1, 100)
+	rec.LastSeenAt = old
+
+	counts, err := svc.evaluateAndMark(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateAndMark: %v", err)
+	}
+	if counts.Scanned != 1 || counts.Breached != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+	if rec.State != model.HnRStateBreach {
+		t.Errorf("expected state=hnr, got %s", rec.State)
+	}
+}
+
+func TestHnRService_EvaluateAndMark_SatisfiesRecordMeetingPolicy(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.setUserGroup(1, 10)
+	repo.setTorrent(100, 1000, false)
+	if err := repo.UpsertRule(context.Background(), &model.HnRRule{
+		GroupID: 10, RequiredSeedHours: 1, RequiredRatio: 1.0, InactivityGraceHours: 48,
+	}); err != nil {
+		t.Fatalf("upsert rule: %v", err)
+	}
+	if _, err := repo.CreateIfNotExists(context.Background(), 1, 100, time.Now()); err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+	rec := repo.recordByUserTorrent(1, 100)
+	rec.SeededSeconds = 3600 // exactly the 1-hour requirement
+
+	counts, err := svc.evaluateAndMark(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateAndMark: %v", err)
+	}
+	if counts.Satisfied != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+	if rec.State != model.HnRStateSatisfied {
+		t.Errorf("expected state=satisfied, got %s", rec.State)
+	}
+}
+
+func TestHnRService_EvaluateAndMark_WaivesExemptTorrent(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.setUserGroup(1, 10)
+	repo.setTorrent(100, 1000, true) // hnr_exempt=true
+	if _, err := repo.CreateIfNotExists(context.Background(), 1, 100, time.Now()); err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+	// CreateIfNotExists itself refuses to create a record for an exempt
+	// torrent, so force one into existence directly to prove evaluateAndMark
+	// also waives a record that became exempt *after* it was created.
+	if len(repo.records) == 0 {
+		repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateActive, CompletedAt: time.Now(), LastSeenAt: time.Now()}
+		repo.nextID = 2
+	}
+
+	counts, err := svc.evaluateAndMark(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateAndMark: %v", err)
+	}
+	if counts.Scanned != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+	rec := repo.recordByUserTorrent(1, 100)
+	if rec.State != model.HnRStateWaived {
+		t.Errorf("expected state=waived for an exempt torrent, got %s", rec.State)
+	}
+}
+
+func TestHnRService_EvaluateAndMark_WaivesRecordWithNoRuleForClass(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.setUserGroup(1, 10) // no rule registered for group 10 (e.g. VIP)
+	repo.setTorrent(100, 1000, false)
+	if _, err := repo.CreateIfNotExists(context.Background(), 1, 100, time.Now()); err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+
+	counts, err := svc.evaluateAndMark(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateAndMark: %v", err)
+	}
+	if counts.Scanned != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+	rec := repo.recordByUserTorrent(1, 100)
+	if rec.State != model.HnRStateWaived {
+		t.Errorf("expected state=waived when the user's class has no rule, got %s", rec.State)
+	}
+}
+
+func TestHnRService_EvaluateAndMark_LeavesRecordWithinGraceAlone(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.setUserGroup(1, 10)
+	repo.setTorrent(100, 1000, false)
+	if err := repo.UpsertRule(context.Background(), &model.HnRRule{
+		GroupID: 10, RequiredSeedHours: 100, RequiredRatio: 1.0, InactivityGraceHours: 48,
+	}); err != nil {
+		t.Fatalf("upsert rule: %v", err)
+	}
+	if _, err := repo.CreateIfNotExists(context.Background(), 1, 100, time.Now()); err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+
+	counts, err := svc.evaluateAndMark(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateAndMark: %v", err)
+	}
+	if counts.Breached != 0 || counts.Satisfied != 0 {
+		t.Fatalf("expected no transitions for a record still within grace: %+v", counts)
+	}
+	rec := repo.recordByUserTorrent(1, 100)
+	if rec.State != model.HnRStateActive {
+		t.Errorf("expected state to remain active, got %s", rec.State)
+	}
+}
+
+func TestHnRService_RunDaemon_UnavailableWithoutDB(t *testing.T) {
+	svc, _ := setupHnRService()
+	_, err := svc.RunDaemon(context.Background(), model.HnRRunTriggerManual, nil)
+	if !errors.Is(err, ErrHnRDaemonUnavailable) {
+		t.Fatalf("got %v, want ErrHnRDaemonUnavailable", err)
 	}
 }

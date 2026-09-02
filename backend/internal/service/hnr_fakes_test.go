@@ -73,6 +73,12 @@ func (f *fakeHnRRepo) setTorrent(torrentID, size int64, exempt bool) {
 	f.torrentExempt[torrentID] = exempt
 }
 
+func (f *fakeHnRRepo) setUserGroup(userID, groupID int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userGroup[userID] = groupID
+}
+
 func (f *fakeHnRRepo) recordByUserTorrent(userID, torrentID int64) *model.HnRRecord {
 	for _, r := range f.records {
 		if r.UserID == userID && r.TorrentID == torrentID {
