@@ -300,3 +300,94 @@ func (h *HnRHandler) HandleListRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{"runs": runs})
 }
+
+func hnrRecordResponse(rec model.HnRRecord) map[string]interface{} {
+	return map[string]interface{}{
+		"id":             rec.ID,
+		"user_id":        rec.UserID,
+		"username":       rec.Username,
+		"torrent_id":     rec.TorrentID,
+		"torrent_name":   rec.TorrentName,
+		"torrent_size":   rec.TorrentSize,
+		"torrent_exempt": rec.TorrentExempt,
+		"state":          rec.State,
+		"completed_at":   rec.CompletedAt,
+		"last_seen_at":   rec.LastSeenAt,
+		"seeded_seconds": rec.SeededSeconds,
+		"uploaded":       rec.Uploaded,
+		"breached_at":    rec.BreachedAt,
+		"resolved_at":    rec.ResolvedAt,
+	}
+}
+
+// HandleAdminListRecords handles GET /api/v1/admin/hnr/records — the staff
+// records list, filterable by state, user id, or a username/torrent-name
+// search, paginated.
+func (h *HnRHandler) HandleAdminListRecords(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	opts := repository.HnRAdminListOptions{Search: q.Get("search")}
+	if v := q.Get("state"); v != "" {
+		opts.State = &v
+	}
+	if v := q.Get("user_id"); v != "" {
+		if uid, err := strconv.ParseInt(v, 10, 64); err == nil && uid > 0 {
+			opts.UserID = &uid
+		}
+	}
+	if v := q.Get("page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			opts.Page = n
+		}
+	}
+	if v := q.Get("per_page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			opts.PerPage = n
+		}
+	}
+
+	records, total, err := h.svc.AdminList(r.Context(), opts)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list hit-and-run records")
+		return
+	}
+	items := make([]map[string]interface{}, len(records))
+	for i, rec := range records {
+		items[i] = hnrRecordResponse(rec)
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"records": items, "total": total})
+}
+
+// HandleStats handles GET /api/v1/admin/hnr/stats — the staff dashboard's
+// whole-table breakdown and top-offenders leaderboard.
+func (h *HnRHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	stats, err := h.svc.Stats(r.Context(), limit)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to load hit-and-run stats")
+		return
+	}
+	offenders := make([]map[string]interface{}, len(stats.TopOffenders))
+	for i, o := range stats.TopOffenders {
+		offenders[i] = map[string]interface{}{
+			"user_id":       o.UserID,
+			"username":      o.Username,
+			"active_hnr":    o.ActiveHnR,
+			"total_records": o.TotalRecords,
+			"stage":         o.Stage,
+		}
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"active_hnr":     stats.Aggregate.ActiveHnR,
+		"monitored":      stats.Aggregate.Monitored,
+		"satisfied":      stats.Aggregate.Satisfied,
+		"cleared":        stats.Aggregate.Cleared,
+		"waived":         stats.Aggregate.Waived,
+		"breached_today": stats.Aggregate.BreachedToday,
+		"top_offenders":  offenders,
+	})
+}

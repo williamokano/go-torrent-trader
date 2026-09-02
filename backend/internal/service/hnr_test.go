@@ -9,6 +9,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
 
 type fakeHnRGroupRepo struct{ groups []model.Group }
@@ -280,5 +281,118 @@ func TestHnRService_RunDaemon_UnavailableWithoutDB(t *testing.T) {
 	_, err := svc.RunDaemon(context.Background(), model.HnRRunTriggerManual, nil)
 	if !errors.Is(err, ErrHnRDaemonUnavailable) {
 		t.Fatalf("got %v, want ErrHnRDaemonUnavailable", err)
+	}
+}
+
+func TestHnRService_PurgeResolved_DefaultsTo180DaysWithNilSettings(t *testing.T) {
+	svc, repo := setupHnRService() // settings is nil in this helper
+	now := time.Now()
+	old := now.AddDate(0, 0, -181)
+	recent := now.AddDate(0, 0, -10)
+	repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateSatisfied, ResolvedAt: &old}
+	repo.records[2] = &model.HnRRecord{ID: 2, UserID: 1, TorrentID: 101, State: model.HnRStateSatisfied, ResolvedAt: &recent}
+	repo.nextID = 3
+
+	purged, err := svc.purgeResolved(context.Background(), now)
+	if err != nil {
+		t.Fatalf("purgeResolved: %v", err)
+	}
+	if purged != 1 {
+		t.Fatalf("expected 1 purged (the 181-day-old record), got %d", purged)
+	}
+	if _, ok := repo.records[1]; ok {
+		t.Error("expected the 181-day-old record to be purged")
+	}
+	if _, ok := repo.records[2]; !ok {
+		t.Error("expected the 10-day-old record to survive")
+	}
+}
+
+func TestHnRService_PurgeResolved_ZeroDaysMeansKeepForever(t *testing.T) {
+	settings := settingsWith(map[string]string{SettingHnRRetentionDays: "0"})
+	repo := newFakeHnRRepo()
+	svc := NewHnRService(nil, repo, &fakeHnRGroupRepo{groups: hnrTestGroups()}, nil, nil, nil, settings, nil)
+
+	old := time.Now().AddDate(0, 0, -1000)
+	repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateSatisfied, ResolvedAt: &old}
+	repo.nextID = 2
+
+	purged, err := svc.purgeResolved(context.Background(), time.Now())
+	if err != nil {
+		t.Fatalf("purgeResolved: %v", err)
+	}
+	if purged != 0 {
+		t.Fatalf("expected 0 purged when retention is 0 (keep forever), got %d", purged)
+	}
+	if _, ok := repo.records[1]; !ok {
+		t.Error("expected the record to survive")
+	}
+}
+
+func TestHnRService_PurgeResolved_HonorsConfiguredWindow(t *testing.T) {
+	settings := settingsWith(map[string]string{SettingHnRRetentionDays: "30"})
+	repo := newFakeHnRRepo()
+	svc := NewHnRService(nil, repo, &fakeHnRGroupRepo{groups: hnrTestGroups()}, nil, nil, nil, settings, nil)
+
+	now := time.Now()
+	old := now.AddDate(0, 0, -31)
+	repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateCleared, ResolvedAt: &old}
+	repo.nextID = 2
+
+	purged, err := svc.purgeResolved(context.Background(), now)
+	if err != nil {
+		t.Fatalf("purgeResolved: %v", err)
+	}
+	if purged != 1 {
+		t.Fatalf("expected 1 purged under the 30-day window, got %d", purged)
+	}
+}
+
+func TestHnRService_PurgeResolved_NeverTouchesOpenRecords(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateBreach}
+	repo.nextID = 2
+
+	purged, err := svc.purgeResolved(context.Background(), time.Now().AddDate(1, 0, 0))
+	if err != nil {
+		t.Fatalf("purgeResolved: %v", err)
+	}
+	if purged != 0 {
+		t.Fatalf("expected an open (state=hnr) record to never be purged, got purged=%d", purged)
+	}
+}
+
+func TestHnRService_AdminList_FiltersByState(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateBreach}
+	repo.records[2] = &model.HnRRecord{ID: 2, UserID: 1, TorrentID: 101, State: model.HnRStateActive}
+	repo.nextID = 3
+
+	state := model.HnRStateBreach
+	records, total, err := svc.AdminList(context.Background(), repository.HnRAdminListOptions{State: &state, Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatalf("AdminList: %v", err)
+	}
+	if total != 1 || len(records) != 1 || records[0].ID != 1 {
+		t.Fatalf("expected only the breached record, got total=%d records=%+v", total, records)
+	}
+}
+
+func TestHnRService_Stats_ReturnsAggregateAndOffenders(t *testing.T) {
+	svc, repo := setupHnRService()
+	repo.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 100, State: model.HnRStateBreach}
+	repo.records[2] = &model.HnRRecord{ID: 2, UserID: 1, TorrentID: 101, State: model.HnRStateBreach}
+	repo.records[3] = &model.HnRRecord{ID: 3, UserID: 2, TorrentID: 102, State: model.HnRStateActive}
+	repo.nextID = 4
+
+	stats, err := svc.Stats(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.Aggregate.ActiveHnR != 2 || stats.Aggregate.Monitored != 1 {
+		t.Fatalf("unexpected aggregate: %+v", stats.Aggregate)
+	}
+	if len(stats.TopOffenders) != 1 || stats.TopOffenders[0].UserID != 1 || stats.TopOffenders[0].ActiveHnR != 2 {
+		t.Fatalf("unexpected top offenders: %+v", stats.TopOffenders)
 	}
 }

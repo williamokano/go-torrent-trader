@@ -187,14 +187,60 @@ func (s *stubHnRRepo) ClearRecord(_ context.Context, userID, recordID, price int
 	}
 	return 0, repository.ErrHnRRecordNotClearable
 }
-func (s *stubHnRRepo) AdminList(context.Context, repository.HnRAdminListOptions) ([]model.HnRRecord, int64, error) {
-	return nil, 0, nil
+func (s *stubHnRRepo) AdminList(_ context.Context, opts repository.HnRAdminListOptions) ([]model.HnRRecord, int64, error) {
+	var matched []model.HnRRecord
+	for _, r := range s.records {
+		if opts.State != nil && r.State != *opts.State {
+			continue
+		}
+		if opts.UserID != nil && r.UserID != *opts.UserID {
+			continue
+		}
+		matched = append(matched, r)
+	}
+	return matched, int64(len(matched)), nil
 }
-func (s *stubHnRRepo) AggregateStats(context.Context) (repository.HnRAggregateStats, error) {
-	return repository.HnRAggregateStats{}, nil
+func (s *stubHnRRepo) AggregateStats(_ context.Context) (repository.HnRAggregateStats, error) {
+	var stats repository.HnRAggregateStats
+	for _, r := range s.records {
+		switch r.State {
+		case model.HnRStateBreach:
+			stats.ActiveHnR++
+		case model.HnRStateActive:
+			stats.Monitored++
+		case model.HnRStateSatisfied:
+			stats.Satisfied++
+		case model.HnRStateCleared:
+			stats.Cleared++
+		case model.HnRStateWaived:
+			stats.Waived++
+		}
+	}
+	return stats, nil
 }
-func (s *stubHnRRepo) TopOffenders(context.Context, int) ([]repository.HnROffender, error) {
-	return nil, nil
+func (s *stubHnRRepo) TopOffenders(_ context.Context, limit int) ([]repository.HnROffender, error) {
+	byUser := map[int64]*repository.HnROffender{}
+	for _, r := range s.records {
+		o, ok := byUser[r.UserID]
+		if !ok {
+			o = &repository.HnROffender{UserID: r.UserID, Username: r.Username}
+			byUser[r.UserID] = o
+		}
+		o.TotalRecords++
+		if r.State == model.HnRStateBreach {
+			o.ActiveHnR++
+		}
+	}
+	var out []repository.HnROffender
+	for _, o := range byUser {
+		if o.ActiveHnR > 0 {
+			out = append(out, *o)
+		}
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 var _ repository.HnRRepository = (*stubHnRRepo)(nil)
@@ -654,5 +700,70 @@ func TestHnRClearAll_ClearsEverythingAffordable(t *testing.T) {
 	}
 	if resp.Cleared != 2 || resp.StoppedInsufficientPoints {
 		t.Fatalf("expected both records cleared with no shortfall, got %+v", resp)
+	}
+}
+
+func TestHnRAdminRecords_ForbiddenForNonAdmin(t *testing.T) {
+	router, sessions := setupHnRAdminRouter(newStubHnRRepo())
+	regular := createSessionWithGroup(sessions, 5017, 5)
+
+	rec := doGroupRequest(t, router, regular, http.MethodGet, "/api/v1/admin/hnr/records", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRAdminRecords_FiltersByState(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 1, Username: "alice", TorrentName: "A", State: model.HnRStateBreach},
+		{ID: 2, UserID: 2, Username: "bob", TorrentName: "B", State: model.HnRStateActive},
+	}
+	router, sessions := setupHnRAdminRouter(repo)
+	admin := createSessionWithGroup(sessions, 5018, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodGet, "/api/v1/admin/hnr/records?state=hnr", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Records []map[string]interface{} `json:"records"`
+		Total   float64                  `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Total != 1 || len(resp.Records) != 1 || resp.Records[0]["username"] != "alice" {
+		t.Fatalf("expected only alice's breached record, got %+v", resp)
+	}
+}
+
+func TestHnRStats_ReturnsAggregateAndOffenders(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 1, Username: "alice", State: model.HnRStateBreach},
+		{ID: 2, UserID: 1, Username: "alice", State: model.HnRStateBreach},
+		{ID: 3, UserID: 2, Username: "bob", State: model.HnRStateActive},
+	}
+	router, sessions := setupHnRAdminRouter(repo)
+	admin := createSessionWithGroup(sessions, 5019, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodGet, "/api/v1/admin/hnr/stats", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		ActiveHnR    float64                  `json:"active_hnr"`
+		Monitored    float64                  `json:"monitored"`
+		TopOffenders []map[string]interface{} `json:"top_offenders"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.ActiveHnR != 2 || resp.Monitored != 1 {
+		t.Fatalf("unexpected aggregate: %+v", resp)
+	}
+	if len(resp.TopOffenders) != 1 || resp.TopOffenders[0]["username"] != "alice" {
+		t.Fatalf("unexpected top offenders: %+v", resp.TopOffenders)
 	}
 }

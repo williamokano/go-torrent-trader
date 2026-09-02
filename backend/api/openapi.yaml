@@ -2076,6 +2076,148 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/admin/hnr/records:
+    get:
+      operationId: listHnRAdminRecords
+      x-audience: internal
+      summary: List every hit-and-run record, filterable, for staff
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, hnr, satisfied, cleared, waived]
+        - name: user_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Matches username or torrent name.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 25
+      responses:
+        '200':
+          description: A page of records
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [records, total]
+                properties:
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRAdminRecord'
+                  total:
+                    type: integer
+                    format: int64
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/stats:
+    get:
+      operationId: getHnRStats
+      x-audience: internal
+      summary: Site-wide hit-and-run aggregate counts and the top-offenders leaderboard
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+          description: Top-offenders leaderboard size.
+      responses:
+        '200':
+          description: The dashboard's counts and leaderboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active_hnr:
+                    type: integer
+                    format: int64
+                    description: Records currently in breach (state=hnr).
+                  monitored:
+                    type: integer
+                    format: int64
+                  satisfied:
+                    type: integer
+                    format: int64
+                  cleared:
+                    type: integer
+                    format: int64
+                  waived:
+                    type: integer
+                    format: int64
+                  breached_today:
+                    type: integer
+                    format: int64
+                  top_offenders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: integer
+                          format: int64
+                        username:
+                          type: string
+                        active_hnr:
+                          type: integer
+                          format: int64
+                        total_records:
+                          type: integer
+                          format: int64
+                        stage:
+                          type: integer
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/settings:
     get:
       operationId: listSiteSettings
@@ -4751,6 +4893,52 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    HnRAdminRecord:
+      type: object
+      description: One hit-and-run record as shown to staff — every field, unfiltered by live evaluation (that's HnRRecordView, the member's own view).
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        torrent_id:
+          type: integer
+          format: int64
+        torrent_name:
+          type: string
+        torrent_size:
+          type: integer
+          format: int64
+        torrent_exempt:
+          type: boolean
+        state:
+          type: string
+          enum: [active, hnr, satisfied, cleared, waived]
+        completed_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        seeded_seconds:
+          type: integer
+          format: int64
+        uploaded:
+          type: integer
+          format: int64
+        breached_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
 
     HnRRecordView:
       type: object

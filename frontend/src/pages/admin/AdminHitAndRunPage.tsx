@@ -35,6 +35,51 @@ interface HnRRun {
   error?: string;
 }
 
+interface HnRAdminRecord {
+  id: number;
+  user_id: number;
+  username: string;
+  torrent_id: number;
+  torrent_name: string;
+  torrent_size: number;
+  torrent_exempt: boolean;
+  state: string;
+  completed_at: string;
+  last_seen_at: string;
+  seeded_seconds: number;
+  uploaded: number;
+  breached_at?: string;
+  resolved_at?: string;
+}
+
+interface HnROffenderRow {
+  user_id: number;
+  username: string;
+  active_hnr: number;
+  total_records: number;
+  stage: number;
+}
+
+interface HnRStats {
+  active_hnr: number;
+  monitored: number;
+  satisfied: number;
+  cleared: number;
+  waived: number;
+  breached_today: number;
+  top_offenders: HnROffenderRow[];
+}
+
+const STATE_LABELS: Record<string, string> = {
+  active: "Monitoring",
+  hnr: "In breach",
+  satisfied: "Satisfied",
+  cleared: "Cleared",
+  waived: "Waived",
+};
+
+const RECORDS_PER_PAGE = 20;
+
 interface HnRStage {
   stage: number;
   min_active_hnr: number;
@@ -169,6 +214,14 @@ export function AdminHitAndRunPage() {
     useState<StageDraft>(emptyStageDraft);
   const [addingStage, setAddingStage] = useState(false);
 
+  const [stats, setStats] = useState<HnRStats | null>(null);
+  const [records, setRecords] = useState<HnRAdminRecord[]>([]);
+  const [recordsTotal, setRecordsTotal] = useState(0);
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsState, setRecordsState] = useState("");
+  const [recordsSearch, setRecordsSearch] = useState("");
+  const [recordsLoading, setRecordsLoading] = useState(false);
+
   const authHeaders = useCallback((json = false): Record<string, string> => {
     const token = getAccessToken();
     return {
@@ -232,6 +285,59 @@ export function AdminHitAndRunPage() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${getConfig().API_URL}/api/v1/admin/hnr/stats`, {
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setStats({
+          active_hnr: body.active_hnr ?? 0,
+          monitored: body.monitored ?? 0,
+          satisfied: body.satisfied ?? 0,
+          cleared: body.cleared ?? 0,
+          waived: body.waived ?? 0,
+          breached_today: body.breached_today ?? 0,
+          top_offenders: body.top_offenders ?? [],
+        });
+      }
+    } catch {
+      // The overview panel is secondary; a failed fetch just leaves it empty.
+    }
+  }, [authHeaders]);
+
+  const fetchRecords = useCallback(async () => {
+    setRecordsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(recordsPage),
+        per_page: String(RECORDS_PER_PAGE),
+      });
+      if (recordsState) params.set("state", recordsState);
+      if (recordsSearch) params.set("search", recordsSearch);
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/hnr/records?${params}`,
+        { headers: authHeaders() },
+      );
+      if (res.ok) {
+        const body = await res.json();
+        setRecords(body.records ?? []);
+        setRecordsTotal(body.total ?? 0);
+      }
+    } finally {
+      setRecordsLoading(false);
+    }
+  }, [authHeaders, recordsPage, recordsState, recordsSearch]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  useEffect(() => {
+    fetchRecords();
+  }, [fetchRecords]);
 
   // Staff classes can never be subject to HnR; show the rest in level order.
   const candidates = useMemo(
@@ -323,6 +429,8 @@ export function AdminHitAndRunPage() {
         );
       }
       fetchAll();
+      fetchStats();
+      fetchRecords();
     } finally {
       setRunning(false);
     }
@@ -855,6 +963,170 @@ export function AdminHitAndRunPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
+        <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
+          Overview
+        </h2>
+        {stats && (
+          <>
+            <div className="hnr-admin-stats">
+              <div className="hnr-admin-stat">
+                <span className="hnr-admin-stat__value">
+                  {stats.active_hnr}
+                </span>
+                <span className="hnr-admin-stat__label">In breach</span>
+              </div>
+              <div className="hnr-admin-stat">
+                <span className="hnr-admin-stat__value">{stats.monitored}</span>
+                <span className="hnr-admin-stat__label">Monitoring</span>
+              </div>
+              <div className="hnr-admin-stat">
+                <span className="hnr-admin-stat__value">{stats.satisfied}</span>
+                <span className="hnr-admin-stat__label">Satisfied</span>
+              </div>
+              <div className="hnr-admin-stat">
+                <span className="hnr-admin-stat__value">{stats.cleared}</span>
+                <span className="hnr-admin-stat__label">Cleared</span>
+              </div>
+              <div className="hnr-admin-stat">
+                <span className="hnr-admin-stat__value">{stats.waived}</span>
+                <span className="hnr-admin-stat__label">Waived</span>
+              </div>
+              <div className="hnr-admin-stat">
+                <span className="hnr-admin-stat__value">
+                  {stats.breached_today}
+                </span>
+                <span className="hnr-admin-stat__label">Breached today</span>
+              </div>
+            </div>
+
+            <h3 style={{ fontSize: "0.95rem", marginTop: "1.25rem" }}>
+              Top offenders
+            </h3>
+            {stats.top_offenders.length === 0 ? (
+              <p className="admin-page-header__desc">
+                Nobody currently has an active hit-and-run.
+              </p>
+            ) : (
+              <div className="admin-table-scroll">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Member</th>
+                      <th>Active H&amp;R</th>
+                      <th>Total records</th>
+                      <th>Ladder stage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.top_offenders.map((o) => (
+                      <tr key={o.user_id}>
+                        <td>{o.username}</td>
+                        <td className="admin-num">{o.active_hnr}</td>
+                        <td className="admin-num">{o.total_records}</td>
+                        <td className="admin-num">{o.stage}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
+        <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
+          Records
+        </h2>
+        <div className="hnr-admin-filters">
+          <select
+            aria-label="Filter records by state"
+            value={recordsState}
+            onChange={(e) => {
+              setRecordsPage(1);
+              setRecordsState(e.target.value);
+            }}
+          >
+            <option value="">All states</option>
+            <option value="active">Monitoring</option>
+            <option value="hnr">In breach</option>
+            <option value="satisfied">Satisfied</option>
+            <option value="cleared">Cleared</option>
+            <option value="waived">Waived</option>
+          </select>
+          <input
+            className="admin-settings__input"
+            type="search"
+            placeholder="Search member or torrent"
+            aria-label="Search records"
+            value={recordsSearch}
+            onChange={(e) => {
+              setRecordsPage(1);
+              setRecordsSearch(e.target.value);
+            }}
+          />
+        </div>
+        {recordsLoading ? (
+          <p className="admin-page-header__desc">Loading…</p>
+        ) : records.length === 0 ? (
+          <p className="admin-page-header__desc">No matching records.</p>
+        ) : (
+          <div className="admin-table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Torrent</th>
+                  <th>State</th>
+                  <th>Completed</th>
+                  <th>Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.username}</td>
+                    <td>
+                      {r.torrent_name}
+                      {r.torrent_exempt ? " (exempt)" : ""}
+                    </td>
+                    <td>{STATE_LABELS[r.state] ?? r.state}</td>
+                    <td>{new Date(r.completed_at).toLocaleString()}</td>
+                    <td>{new Date(r.last_seen_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {recordsTotal > RECORDS_PER_PAGE && (
+          <div className="hnr-admin-pager">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={recordsPage <= 1}
+              onClick={() => setRecordsPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <span>
+              Page {recordsPage} of {Math.ceil(recordsTotal / RECORDS_PER_PAGE)}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={
+                recordsPage >= Math.ceil(recordsTotal / RECORDS_PER_PAGE)
+              }
+              onClick={() => setRecordsPage((p) => p + 1)}
+            >
+              Next
+            </Button>
           </div>
         )}
       </div>

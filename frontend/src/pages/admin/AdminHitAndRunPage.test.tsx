@@ -101,6 +101,52 @@ function mockApi(stagesOverride = stages) {
     if (url.includes("/hnr/stages/")) {
       return Promise.resolve({ ok: true, json: async () => ({ stage: {} }) });
     }
+    if (method === "GET" && url.includes("/hnr/stats")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          active_hnr: 3,
+          monitored: 5,
+          satisfied: 10,
+          cleared: 2,
+          waived: 1,
+          breached_today: 1,
+          top_offenders: [
+            {
+              user_id: 9,
+              username: "repeat_offender",
+              active_hnr: 3,
+              total_records: 4,
+              stage: 2,
+            },
+          ],
+        }),
+      });
+    }
+    if (method === "GET" && url.includes("/hnr/records")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          records: [
+            {
+              id: 1,
+              user_id: 9,
+              username: "repeat_offender",
+              torrent_id: 100,
+              torrent_name: "Some Release",
+              torrent_size: 1000,
+              torrent_exempt: false,
+              state: "hnr",
+              completed_at: "2026-08-01T00:00:00Z",
+              last_seen_at: "2026-08-02T00:00:00Z",
+              seeded_seconds: 10,
+              uploaded: 5,
+            },
+          ],
+          total: 1,
+        }),
+      });
+    }
     if (url.endsWith("/hnr/run")) {
       return Promise.resolve({
         ok: true,
@@ -317,6 +363,49 @@ describe("AdminHitAndRunPage", () => {
         calls.some(
           (c) => c.method === "PUT" && c.url.endsWith("/hnr/stages/3"),
         ),
+      ).toBe(true);
+    });
+  });
+
+  test("shows the overview stats and the top-offenders leaderboard", async () => {
+    mockApi();
+    renderPage();
+    await screen.findByText("User");
+
+    const overviewHeading = await screen.findByText("Overview");
+    const overviewPanel = overviewHeading.closest(
+      ".admin-panel",
+    ) as HTMLElement;
+    expect(within(overviewPanel).getByText("In breach")).toBeInTheDocument();
+
+    const offenderRow = (
+      await within(overviewPanel).findByText("repeat_offender")
+    ).closest("tr")!;
+    expect(within(offenderRow).getByText("3")).toBeInTheDocument(); // active_hnr
+    expect(within(offenderRow).getByText("4")).toBeInTheDocument(); // total_records
+  });
+
+  test("lists records and filters by state", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("User");
+
+    const recordsHeading = await screen.findByText("Records");
+    const recordsPanel = recordsHeading.closest(".admin-panel") as HTMLElement;
+    const recordRow = within(recordsPanel)
+      .getByText("Some Release")
+      .closest("tr")!;
+    expect(within(recordRow).getByText("In breach")).toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getByLabelText("Filter records by state"),
+      "hnr",
+    );
+
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.method === "GET" && c.url.includes("state=hnr")),
       ).toBe(true);
     });
   });

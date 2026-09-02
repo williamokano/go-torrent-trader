@@ -305,6 +305,19 @@ func (s *HnRService) runLocked(ctx context.Context, trigger string, triggeredBy 
 		}
 	}
 
+	// Retention purge runs last: it is the one step whose only job is
+	// shrinking hnr_records, so it comes after everything else this run
+	// might still want to read a resolved row for (the ladder's
+	// de-escalation, this run's own counts).
+	if evalErr == nil {
+		purged, err := s.purgeResolved(ctx, time.Now())
+		if err != nil {
+			evalErr = fmt.Errorf("purge resolved: %w", err)
+		} else {
+			counts.Purged = purged
+		}
+	}
+
 	status := model.HnRRunStatusSuccess
 	var errMsg *string
 	if evalErr != nil {
@@ -372,6 +385,27 @@ func (s *HnRService) evaluateAndMark(ctx context.Context) (repository.HnRRunCoun
 	}
 
 	return counts, nil
+}
+
+// purgeResolved deletes resolved (satisfied/cleared/waived) records older
+// than hnr_retention_days, so the table doesn't grow forever once the
+// feature has been live a while. 0 means "keep forever" — the same
+// convention announce_log_retention_days already uses — rather than
+// "purge everything immediately", which a bare non-negative-int reading of
+// zero would otherwise mean.
+func (s *HnRService) purgeResolved(ctx context.Context, now time.Time) (int, error) {
+	days := 180
+	if s.settings != nil {
+		days = s.settings.GetInt(ctx, SettingHnRRetentionDays, 180)
+	}
+	if days <= 0 {
+		return 0, nil
+	}
+	n, err := s.hnr.PurgeResolved(ctx, now.AddDate(0, 0, -days))
+	if err != nil {
+		return 0, fmt.Errorf("purge resolved hnr records: %w", err)
+	}
+	return int(n), nil
 }
 
 // HnRRecordView is one obligation as shown to the member who owns it: the
@@ -504,4 +538,34 @@ func (s *HnRService) LastRun(ctx context.Context) (*model.HnRRun, bool, error) {
 
 func (s *HnRService) ListRuns(ctx context.Context, limit int) ([]model.HnRRun, error) {
 	return s.hnr.ListRuns(ctx, limit)
+}
+
+// AdminList is the staff records list: every record, filterable by state,
+// user, or a username/torrent-name search, paginated. A thin pass-through —
+// filtering and paging both live in the repository query, not here.
+func (s *HnRService) AdminList(ctx context.Context, opts repository.HnRAdminListOptions) ([]model.HnRRecord, int64, error) {
+	return s.hnr.AdminList(ctx, opts)
+}
+
+// HnRStatsView bundles the staff dashboard's two read-only queries — the
+// whole-table breakdown and the top-offenders leaderboard — into one call,
+// since a dashboard renders both together.
+type HnRStatsView struct {
+	Aggregate    repository.HnRAggregateStats
+	TopOffenders []repository.HnROffender
+}
+
+// Stats returns the staff dashboard's aggregate counts and top-offenders
+// leaderboard (bounded to topLimit, defaulting to 20 when topLimit <= 0,
+// matching TopOffenders' own default).
+func (s *HnRService) Stats(ctx context.Context, topLimit int) (HnRStatsView, error) {
+	agg, err := s.hnr.AggregateStats(ctx)
+	if err != nil {
+		return HnRStatsView{}, fmt.Errorf("aggregate stats: %w", err)
+	}
+	offenders, err := s.hnr.TopOffenders(ctx, topLimit)
+	if err != nil {
+		return HnRStatsView{}, fmt.Errorf("top offenders: %w", err)
+	}
+	return HnRStatsView{Aggregate: agg, TopOffenders: offenders}, nil
 }

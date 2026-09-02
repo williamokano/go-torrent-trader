@@ -452,3 +452,41 @@
   display: flex;
   gap: var(--space-sm);
 }
+
+.hnr-admin-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.hnr-admin-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 6rem;
+}
+
+.hnr-admin-stat__value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hnr-admin-stat__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.hnr-admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.hnr-admin-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  font-size: var(--text-sm);
+}

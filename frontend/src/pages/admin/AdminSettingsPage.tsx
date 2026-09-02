@@ -450,7 +450,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     section: "Hit-and-run",
     label: "Resolved Record Retention (days)",
     description:
-      "How long a resolved record (satisfied, cleared, or waived) is kept before the daemon purges it. Default: 180.",
+      "How long a resolved record (satisfied, cleared, or waived) is kept before the daemon purges it. Set to 0 to keep resolved records forever. Default: 180.",
     type: "number",
   },
   {

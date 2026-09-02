@@ -508,6 +508,8 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Delete("/hnr/stages/{stage}", hnr.HandleDeleteStage)
 							r.Post("/hnr/run", hnr.HandleRunNow)
 							r.Get("/hnr/runs", hnr.HandleListRuns)
+							r.Get("/hnr/records", hnr.HandleAdminListRecords)
+							r.Get("/hnr/stats", hnr.HandleStats)
 						}
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {
