@@ -68,12 +68,41 @@ CREATE TABLE IF NOT EXISTS hnr_penalty_stages (
     min_active_hnr    INT NOT NULL DEFAULT 1,
     min_days_in_prev  INT NOT NULL DEFAULT 0,
     action            TEXT NOT NULL CHECK (action IN ('notify', 'warn', 'restrict', 'final_notice', 'ban')),
-    restriction_types TEXT[] NOT NULL DEFAULT '{}',
+    -- A JSON array of restriction type strings, not a native TEXT[]: the pgx v5
+    -- stdlib driver this project uses does not decode Postgres arrays into a Go
+    -- []string on Scan (only encodes them as bind parameters), so a real array
+    -- column would need a driver-specific codec. JSON-in-text sidesteps that
+    -- entirely and matches the existing wait_time_tiers setting's approach to
+    -- "a list of values in one column".
+    restriction_types TEXT NOT NULL DEFAULT '[]',
     restriction_days  INT NOT NULL DEFAULT 0, -- 0 = indefinite
     message_template  TEXT NOT NULL DEFAULT '',
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Seed the five-stage ladder the feature is designed around: a lenient
+-- notice, then a warning, then privilege restrictions, then a final notice,
+-- then a ban. Every threshold and message is admin-editable afterwards; this
+-- is the shipped default, not a hardcoded policy.
+INSERT INTO hnr_penalty_stages
+    (stage, min_active_hnr, min_days_in_prev, action, restriction_types, restriction_days, message_template)
+VALUES
+    (1, 1, 0, 'notify', '[]', 0,
+     'Hi {{username}}, our records show you have not finished seeding a torrent you downloaded ' ||
+     'to the required time or ratio. Please resume seeding to avoid further action on your account.'),
+    (2, 1, 3, 'warn', '[]', 0,
+     'Hi {{username}}, this is a formal warning: you still have an unresolved hit-and-run obligation. ' ||
+     'Continued non-compliance will lead to privilege restrictions.'),
+    (3, 1, 7, 'restrict', '["download", "forum", "chat"]', 14,
+     'Hi {{username}}, your download, forum, and chat privileges have been restricted because of an ' ||
+     'unresolved hit-and-run obligation. Resume seeding or clear it to restore your privileges.'),
+    (4, 1, 14, 'final_notice', '[]', 0,
+     'Hi {{username}}, this is a final notice: your account will be banned if this hit-and-run ' ||
+     'obligation remains unresolved.'),
+    (5, 1, 7, 'ban', '[]', 0,
+     'Account banned for an unresolved hit-and-run obligation.')
+ON CONFLICT (stage) DO NOTHING;
 
 -- hnr_user_state: per-user ladder position. The compare-and-swap target that
 -- makes the daemon's escalation/de-escalation idempotent across instances.
@@ -92,7 +121,10 @@ CREATE TABLE IF NOT EXISTS hnr_runs (
     started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished_at     TIMESTAMPTZ,
     status          TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'failed')),
-    trigger         TEXT NOT NULL DEFAULT 'schedule' CHECK (trigger IN ('schedule', 'manual')),
+    -- Named run_trigger, not trigger: TRIGGER is a non-reserved keyword in
+    -- Postgres and would work unquoted, but every tool downstream (drivers,
+    -- linters, ORMs) does not have to agree on that, so it is not worth the risk.
+    run_trigger     TEXT NOT NULL DEFAULT 'schedule' CHECK (run_trigger IN ('schedule', 'manual')),
     triggered_by    BIGINT REFERENCES users(id) ON DELETE SET NULL,
     scanned         INT NOT NULL DEFAULT 0,
     breached        INT NOT NULL DEFAULT 0,

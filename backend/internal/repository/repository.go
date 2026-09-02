@@ -214,6 +214,12 @@ var (
 	ErrBonusKindNotAvailable   = errors.New("bonus item kind not available")
 )
 
+// ErrHnRRecordNotClearable means the record does not belong to the caller, does
+// not exist, or is no longer in an open state (active/hnr) — it originates
+// inside ClearRecord's own compare-and-set UPDATE, mirroring how the bonus
+// purchase sentinels above originate inside PurchaseItem's transaction.
+var ErrHnRRecordNotClearable = errors.New("hnr record not open or not owned by user")
+
 // BonusRepository defines persistence operations for the bonus point economy.
 // All bonus_points writes happen here via atomic statements — never through
 // UserRepository.Update — so awards, purchases, and admin adjustments cannot
@@ -256,15 +262,19 @@ type PromotionRepository interface {
 }
 
 // HnREvalInput is everything the shared evaluator (service.EvaluateHnRRecord)
-// needs to decide a record's status: the record's own accumulators plus the
-// rule in force for the snatching user's class and the torrent's size (the
-// ratio denominator — deliberately not counted/discounted download, so a
-// freeleech torrent remains fully eligible). Rule is nil when the user's
-// class has no HnR rule at all, i.e. is exempt.
+// needs to decide a record's status: the record's own accumulators, the rule
+// in force for the snatching user's class, and the torrent's size (the ratio
+// denominator — deliberately not counted/discounted download, so a freeleech
+// torrent remains fully eligible). Rule is nil when the user's class
+// currently has no HnR rule at all — e.g. promoted to VIP after the snatch —
+// which the evaluator treats the same as a torrent flagged TorrentExempt:
+// both resolve the record via MarkWaived, not MarkSatisfied, because neither
+// means the seeding requirement was actually met.
 type HnREvalInput struct {
-	Record      model.HnRRecord
-	Rule        *model.HnRRule
-	TorrentSize int64
+	Record        model.HnRRecord
+	Rule          *model.HnRRule
+	TorrentSize   int64
+	TorrentExempt bool
 }
 
 // HnRAdminListOptions filters the staff-facing HnR records list.
@@ -326,9 +336,11 @@ type HnRRepository interface {
 	ListOpenForEvaluation(ctx context.Context) ([]HnREvalInput, error)
 	MarkBreached(ctx context.Context, ids []int64, now time.Time) (int64, error)
 	MarkSatisfied(ctx context.Context, ids []int64, now time.Time) (int64, error)
-	// WaiveExempt resolves every open record whose torrent has since been
-	// flagged hnr_exempt. Un-flagging deliberately does not undo this.
-	WaiveExempt(ctx context.Context, now time.Time) (int64, error)
+	// MarkWaived resolves records the evaluator found inapplicable rather than
+	// unmet: a torrent flagged hnr_exempt after the snatch, or a user whose
+	// class currently carries no HnR rule. Un-flagging/re-adding a rule
+	// deliberately does not undo this — a waived record stays waived.
+	MarkWaived(ctx context.Context, ids []int64, now time.Time) (int64, error)
 	// PurgeResolved deletes resolved (satisfied/cleared/waived) records
 	// older than the retention window, for the daemon's housekeeping pass.
 	PurgeResolved(ctx context.Context, olderThan time.Time) (int64, error)
