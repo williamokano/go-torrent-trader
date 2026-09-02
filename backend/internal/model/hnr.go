@@ -66,16 +66,20 @@ type HnRRecord struct {
 }
 
 // HnRPenaltyStage is one ordered rung of the site-wide penalty ladder.
+// Serialized directly (HandleListStages/HandleUpsertStage), so every field
+// needs an explicit tag — an untagged field here would silently emit its Go
+// name instead of snake_case, exactly the bug a handler test caught on
+// HnRRun before this struct existed.
 type HnRPenaltyStage struct {
-	Stage            int
-	MinActiveHnR     int
-	MinDaysInPrev    int
-	Action           string
-	RestrictionTypes []string
-	RestrictionDays  int // 0 = indefinite
-	MessageTemplate  string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	Stage            int       `json:"stage"`
+	MinActiveHnR     int       `json:"min_active_hnr"`
+	MinDaysInPrev    int       `json:"min_days_in_prev"`
+	Action           string    `json:"action"`
+	RestrictionTypes []string  `json:"restriction_types"`
+	RestrictionDays  int       `json:"restriction_days"` // 0 = indefinite
+	MessageTemplate  string    `json:"message_template"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // HnRUserState is a user's current position on the penalty ladder.

@@ -19,6 +19,11 @@ const (
 	// NotifModerationDecision notifies the uploader that their torrent was
 	// approved or rejected.
 	NotifModerationDecision = "moderation_decision"
+	// NotifHitAndRun notifies a member every time the hit-and-run daemon
+	// moves them to a new penalty ladder stage, in either direction —
+	// escalation (notice/warn/restrict/final_notice/ban) or de-escalation
+	// once their active hit-and-run count drops.
+	NotifHitAndRun = "hnr"
 )
 
 // AllNotificationTypes lists all valid notification types for preference management.
@@ -31,6 +36,7 @@ var AllNotificationTypes = []string{
 	NotifSystem,
 	NotifModerationMessage,
 	NotifModerationDecision,
+	NotifHitAndRun,
 }
 
 // Notification represents an in-app notification for a user.

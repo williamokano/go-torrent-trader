@@ -1680,6 +1680,167 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/admin/hnr/stages:
+    get:
+      operationId: listHnRStages
+      x-audience: internal
+      summary: List the site-wide hit-and-run penalty ladder
+      description: >
+        Ordered by stage. Empty means the ladder is unconfigured — the
+        daemon still tracks and breaches records, but never escalates
+        anyone.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every configured stage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stages]
+                properties:
+                  stages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRPenaltyStage'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/stages/{stage}:
+    put:
+      operationId: upsertHnRStage
+      x-audience: internal
+      summary: Create or update one rung of the hit-and-run penalty ladder
+      description: >
+        Escalation always advances exactly one stage per daemon run, gated
+        by this stage's min_days_in_prev dwell against how long the member
+        has sat at the previous stage — never straight to a harsher stage
+        however far their active count has run ahead. De-escalation is not
+        rationed and can drop several rungs in one run. restriction_types is
+        only accepted (and required, at least one) when action is "restrict";
+        every other action rejects a non-empty restriction_types.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stage
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The rung this defines. Must be at least 1 — stage 0 means "off the ladder" and is never a configured row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_active_hnr:
+                  type: integer
+                  description: How many of the member's records must be in state 'hnr' to reach this stage. Must be at least 1.
+                min_days_in_prev:
+                  type: integer
+                  description: Days the member must have already dwelt at the previous stage before advancing into this one. 0 = no dwell.
+                action:
+                  type: string
+                  enum: [notify, warn, restrict, final_notice, ban]
+                restriction_types:
+                  type: array
+                  items:
+                    type: string
+                  description: Only for action=restrict; at least one required.
+                restriction_days:
+                  type: integer
+                  description: Restriction duration for action=restrict. 0 = indefinite (until de-escalated).
+                message_template:
+                  type: string
+                  description: 'Supports {{username}}, {{stage}}, {{count}}, {{restriction_days}}.'
+      responses:
+        '200':
+          description: The saved stage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stage:
+                    $ref: '#/components/schemas/HnRPenaltyStage'
+        '400':
+          description: Invalid stage number or malformed body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteHnRStage
+      x-audience: internal
+      summary: Remove one rung of the hit-and-run penalty ladder
+      description: >
+        A member currently sitting at the deleted stage is left alone until
+        the next run re-evaluates them against the remaining stages.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stage
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '400':
+          description: No stage exists at this number
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/hnr/run:
     post:
       operationId: runHnRDaemon
@@ -4421,6 +4582,35 @@ components:
         error:
           type: string
           nullable: true
+
+    HnRPenaltyStage:
+      type: object
+      description: One ordered rung of the site-wide hit-and-run penalty ladder.
+      properties:
+        stage:
+          type: integer
+        min_active_hnr:
+          type: integer
+        min_days_in_prev:
+          type: integer
+        action:
+          type: string
+          enum: [notify, warn, restrict, final_notice, ban]
+        restriction_types:
+          type: array
+          items:
+            type: string
+        restriction_days:
+          type: integer
+          description: 0 = indefinite (until de-escalated).
+        message_template:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     HnRRecordView:
       type: object

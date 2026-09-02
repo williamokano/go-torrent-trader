@@ -381,9 +381,14 @@ func (r *HnRRepo) GetUserState(ctx context.Context, userID int64) (*model.HnRUse
 	return &s, nil
 }
 
-func (r *HnRRepo) EnsureUserState(ctx context.Context, userID int64) error {
+// EnsureUserState writes now explicitly rather than relying on the column's
+// DEFAULT NOW() — the caller is about to run decideHnRLadderStage against
+// this same now, and a separately-read database clock could land a hair
+// after it, failing a zero-day dwell check for a user reaching the ladder
+// for the first time in this run (see the interface doc).
+func (r *HnRRepo) EnsureUserState(ctx context.Context, userID int64, now time.Time) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO hnr_user_state (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, userID)
+		`INSERT INTO hnr_user_state (user_id, stage_entered_at) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING`, userID, now)
 	if err != nil {
 		return fmt.Errorf("ensure hnr user state: %w", err)
 	}

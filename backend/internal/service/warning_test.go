@@ -404,6 +404,76 @@ func TestIssueRatioWarning(t *testing.T) {
 	}
 }
 
+func TestIssueHnRWarning(t *testing.T) {
+	warnRepo := newMockWarningRepo()
+	userRepo := newMockUserRepoForWarnings()
+	msgRepo := newMockMessageRepoForWarnings()
+	bus := event.NewInMemoryBus()
+
+	user := &model.User{ID: 1, Username: "hnr-offender", Enabled: true}
+	userRepo.addUser(user)
+
+	var notified []model.Notification
+	bus.Subscribe(event.WarningIssued, func(_ context.Context, evt event.Event) error {
+		e := evt.(*event.WarningIssuedEvent)
+		notified = append(notified, model.Notification{UserID: e.UserID, Type: e.WarningType})
+		return nil
+	})
+
+	svc := NewWarningService(warnRepo, userRepo, msgRepo, bus)
+
+	w, err := svc.IssueHnRWarning(context.Background(), 1, "You have 2 active hit-and-runs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if w.Type != model.WarningTypeHnR {
+		t.Errorf("expected type %q, got %q", model.WarningTypeHnR, w.Type)
+	}
+
+	u, _ := userRepo.GetByID(context.Background(), 1)
+	if !u.Warned {
+		t.Error("expected user to be warned")
+	}
+	if len(msgRepo.messages) != 1 {
+		t.Fatalf("expected 1 PM, got %d", len(msgRepo.messages))
+	}
+	if len(notified) != 1 || notified[0].Type != model.WarningTypeHnR {
+		t.Errorf("expected the WarningIssued event to fire for the hnr type, got %+v", notified)
+	}
+}
+
+func TestIssueHnRBan(t *testing.T) {
+	warnRepo := newMockWarningRepo()
+	userRepo := newMockUserRepoForWarnings()
+	msgRepo := newMockMessageRepoForWarnings()
+	bus := event.NewInMemoryBus()
+
+	user := &model.User{ID: 1, Username: "hnr-repeat-offender", Enabled: true}
+	userRepo.addUser(user)
+
+	svc := NewWarningService(warnRepo, userRepo, msgRepo, bus)
+
+	if err := svc.IssueHnRBan(context.Background(), 1, "5 active hit-and-runs"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	u, _ := userRepo.GetByID(context.Background(), 1)
+	if u.Enabled {
+		t.Error("expected user to be disabled after an hnr ban")
+	}
+	if len(msgRepo.messages) != 1 {
+		t.Fatalf("expected 1 PM, got %d", len(msgRepo.messages))
+	}
+
+	all, err := svc.GetAllWarnings(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetAllWarnings: %v", err)
+	}
+	if len(all) != 1 || all[0].Type != model.WarningTypeHnRBan {
+		t.Fatalf("expected an hnr_ban audit-trail warning, got %+v", all)
+	}
+}
+
 func TestEscalateRatioWarning(t *testing.T) {
 	warnRepo := newMockWarningRepo()
 	userRepo := newMockUserRepoForWarnings()

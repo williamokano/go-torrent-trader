@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
@@ -41,7 +42,11 @@ func setupHnRService() (*HnRService, *fakeHnRRepo) {
 	// neither of which touches RunDaemon's locking. RunDaemon itself is
 	// validated separately against a live Postgres instance (advisory locks
 	// have no meaningful fake).
-	svc := NewHnRService(nil, repo, &fakeHnRGroupRepo{groups: hnrTestGroups()}, nil)
+	users := newMockUserRepoForRestrictions()
+	bus := event.NewInMemoryBus()
+	warnings := NewWarningService(newMockWarningRepo(), users, newMockMessageRepoForWarnings(), bus)
+	restrictions := NewRestrictionService(newMockRestrictionRepo(), users, bus)
+	svc := NewHnRService(nil, repo, &fakeHnRGroupRepo{groups: hnrTestGroups()}, users, warnings, restrictions, nil, bus)
 	return svc, repo
 }
 

@@ -26,8 +26,11 @@ func NewHnRHandler(svc *service.HnRService) *HnRHandler {
 
 func hnrErrorStatus(err error) (int, bool) {
 	switch {
-	case errors.Is(err, service.ErrHnRGroupNotFound), errors.Is(err, service.ErrHnRRuleNotFound):
+	case errors.Is(err, service.ErrHnRGroupNotFound), errors.Is(err, service.ErrHnRRuleNotFound),
+		errors.Is(err, service.ErrHnRStageNotFound):
 		return http.StatusNotFound, true
+	case errors.Is(err, service.ErrHnRInvalidStage):
+		return http.StatusBadRequest, true
 	case errors.Is(err, service.ErrHnRStaffGroup):
 		return http.StatusConflict, true
 	case errors.Is(err, service.ErrHnRInvalidThreshold):
@@ -94,6 +97,58 @@ func (h *HnRHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete hit-and-run rule")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"deleted": true})
+}
+
+// HandleListStages handles GET /api/v1/admin/hnr/stages.
+func (h *HnRHandler) HandleListStages(w http.ResponseWriter, r *http.Request) {
+	stages, err := h.svc.ListStages(r.Context())
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list hit-and-run penalty stages")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"stages": stages})
+}
+
+// HandleUpsertStage handles PUT /api/v1/admin/hnr/stages/{stage}.
+func (h *HnRHandler) HandleUpsertStage(w http.ResponseWriter, r *http.Request) {
+	stage, err := strconv.Atoi(chi.URLParam(r, "stage"))
+	if err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid stage")
+		return
+	}
+	var in service.HnRStageInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	row, err := h.svc.UpsertStage(r.Context(), stage, in)
+	if err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to save hit-and-run penalty stage")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"stage": row})
+}
+
+// HandleDeleteStage handles DELETE /api/v1/admin/hnr/stages/{stage}.
+func (h *HnRHandler) HandleDeleteStage(w http.ResponseWriter, r *http.Request) {
+	stage, err := strconv.Atoi(chi.URLParam(r, "stage"))
+	if err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid stage")
+		return
+	}
+	if err := h.svc.DeleteStage(r.Context(), stage); err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete hit-and-run penalty stage")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{"deleted": true})

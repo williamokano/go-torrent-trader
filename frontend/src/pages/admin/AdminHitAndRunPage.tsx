@@ -30,7 +30,77 @@ interface HnRRun {
   scanned: number;
   breached: number;
   satisfied: number;
+  stages_advanced?: number;
+  stages_decayed?: number;
   error?: string;
+}
+
+interface HnRStage {
+  stage: number;
+  min_active_hnr: number;
+  min_days_in_prev: number;
+  action: string;
+  restriction_types: string[];
+  restriction_days: number;
+  message_template: string;
+}
+
+interface StageDraft {
+  min_active_hnr: string;
+  min_days_in_prev: string;
+  action: string;
+  restriction_types: string[];
+  restriction_days: string;
+  message_template: string;
+}
+
+const ACTION_OPTIONS: { value: string; label: string }[] = [
+  { value: "notify", label: "Notify" },
+  { value: "warn", label: "Warn" },
+  { value: "restrict", label: "Restrict" },
+  { value: "final_notice", label: "Final notice" },
+  { value: "ban", label: "Ban" },
+];
+
+const RESTRICTION_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "download", label: "Download" },
+  { value: "upload", label: "Upload" },
+  { value: "chat", label: "Chat" },
+  { value: "invite", label: "Invite" },
+  { value: "feed", label: "Live feeds" },
+  { value: "forum", label: "Forum" },
+];
+
+function stageToDraft(s: HnRStage): StageDraft {
+  return {
+    min_active_hnr: String(s.min_active_hnr),
+    min_days_in_prev: String(s.min_days_in_prev),
+    action: s.action,
+    restriction_types: s.restriction_types ?? [],
+    restriction_days: String(s.restriction_days),
+    message_template: s.message_template,
+  };
+}
+
+const emptyStageDraft: StageDraft = {
+  min_active_hnr: "1",
+  min_days_in_prev: "0",
+  action: "notify",
+  restriction_types: [],
+  restriction_days: "0",
+  message_template: "",
+};
+
+function stageDraftsEqual(a: StageDraft, b: StageDraft): boolean {
+  return (
+    a.min_active_hnr === b.min_active_hnr &&
+    a.min_days_in_prev === b.min_days_in_prev &&
+    a.action === b.action &&
+    a.restriction_days === b.restriction_days &&
+    a.message_template === b.message_template &&
+    a.restriction_types.length === b.restriction_types.length &&
+    a.restriction_types.every((t) => b.restriction_types.includes(t))
+  );
 }
 
 interface RowState {
@@ -88,6 +158,17 @@ export function AdminHitAndRunPage() {
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
+  const [stages, setStages] = useState<HnRStage[]>([]);
+  const [stageInitial, setStageInitial] = useState<Record<number, StageDraft>>(
+    {},
+  );
+  const [stageDraft, setStageDraft] = useState<Record<number, StageDraft>>({});
+  const [stageSavingId, setStageSavingId] = useState<number | null>(null);
+  const [newStageNumber, setNewStageNumber] = useState("");
+  const [newStageDraft, setNewStageDraft] =
+    useState<StageDraft>(emptyStageDraft);
+  const [addingStage, setAddingStage] = useState(false);
+
   const authHeaders = useCallback((json = false): Record<string, string> => {
     const token = getAccessToken();
     return {
@@ -99,7 +180,7 @@ export function AdminHitAndRunPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [gRes, rRes, runsRes] = await Promise.all([
+      const [gRes, rRes, runsRes, stagesRes] = await Promise.all([
         fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
           headers: authHeaders(),
         }),
@@ -109,10 +190,14 @@ export function AdminHitAndRunPage() {
         fetch(`${getConfig().API_URL}/api/v1/admin/hnr/runs?limit=5`, {
           headers: authHeaders(),
         }),
+        fetch(`${getConfig().API_URL}/api/v1/admin/hnr/stages`, {
+          headers: authHeaders(),
+        }),
       ]);
       const gBody = gRes.ok ? await gRes.json() : { groups: [] };
       const rBody = rRes.ok ? await rRes.json() : { rules: [] };
       const runsBody = runsRes.ok ? await runsRes.json() : { runs: [] };
+      const stagesBody = stagesRes.ok ? await stagesRes.json() : { stages: [] };
       const nextGroups: Group[] = gBody.groups ?? [];
       const rules: HnRRule[] = rBody.rules ?? [];
       const ruleById: Record<number, HnRRule> = {};
@@ -128,6 +213,15 @@ export function AdminHitAndRunPage() {
       setInitial(rows);
       setDraft(rows);
       setRuns(runsBody.runs ?? []);
+
+      const nextStages: HnRStage[] = (stagesBody.stages ?? []).sort(
+        (a: HnRStage, b: HnRStage) => a.stage - b.stage,
+      );
+      const stageRows: Record<number, StageDraft> = {};
+      for (const s of nextStages) stageRows[s.stage] = stageToDraft(s);
+      setStages(nextStages);
+      setStageInitial(stageRows);
+      setStageDraft(stageRows);
     } catch {
       toast.error("Couldn't load hit-and-run configuration");
     } finally {
@@ -234,6 +328,112 @@ export function AdminHitAndRunPage() {
     }
   };
 
+  const setStageField = (
+    stage: number,
+    key: keyof StageDraft,
+    value: string | string[],
+  ) => {
+    setStageDraft((prev) => ({
+      ...prev,
+      [stage]: { ...prev[stage], [key]: value },
+    }));
+  };
+
+  const toggleStageRestrictionType = (stage: number, type: string) => {
+    setStageDraft((prev) => {
+      const current = prev[stage].restriction_types;
+      const next = current.includes(type)
+        ? current.filter((t) => t !== type)
+        : [...current, type];
+      return { ...prev, [stage]: { ...prev[stage], restriction_types: next } };
+    });
+  };
+
+  const stageDraftToPayload = (d: StageDraft) => ({
+    min_active_hnr: Number(d.min_active_hnr) || 0,
+    min_days_in_prev: Number(d.min_days_in_prev) || 0,
+    action: d.action,
+    restriction_types: d.action === "restrict" ? d.restriction_types : [],
+    restriction_days: Number(d.restriction_days) || 0,
+    message_template: d.message_template,
+  });
+
+  const saveStage = async (stage: number) => {
+    setStageSavingId(stage);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/hnr/stages/${stage}`,
+        {
+          method: "PUT",
+          headers: authHeaders(true),
+          body: JSON.stringify(stageDraftToPayload(stageDraft[stage])),
+        },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(body?.error?.message ?? `Failed to save stage ${stage}`);
+      } else {
+        toast.success(`Saved stage ${stage}`);
+        fetchAll();
+      }
+    } finally {
+      setStageSavingId(null);
+    }
+  };
+
+  const deleteStage = async (stage: number) => {
+    setStageSavingId(stage);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/hnr/stages/${stage}`,
+        { method: "DELETE", headers: authHeaders() },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(body?.error?.message ?? `Failed to delete stage ${stage}`);
+      } else {
+        toast.success(`Deleted stage ${stage}`);
+        fetchAll();
+      }
+    } finally {
+      setStageSavingId(null);
+    }
+  };
+
+  const addStage = async () => {
+    const stageNum = Number(newStageNumber);
+    if (!stageNum || stageNum < 1) {
+      toast.error("Enter a stage number of at least 1");
+      return;
+    }
+    if (stages.some((s) => s.stage === stageNum)) {
+      toast.error(`Stage ${stageNum} already exists`);
+      return;
+    }
+    setAddingStage(true);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/hnr/stages/${stageNum}`,
+        {
+          method: "PUT",
+          headers: authHeaders(true),
+          body: JSON.stringify(stageDraftToPayload(newStageDraft)),
+        },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(body?.error?.message ?? "Failed to add stage");
+      } else {
+        toast.success(`Added stage ${stageNum}`);
+        setNewStageNumber("");
+        setNewStageDraft(emptyStageDraft);
+        fetchAll();
+      }
+    } finally {
+      setAddingStage(false);
+    }
+  };
+
   if (loading) return <p>Loading…</p>;
 
   const dirty = changedIds.length > 0;
@@ -319,6 +519,306 @@ export function AdminHitAndRunPage() {
 
       <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
         <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
+          Penalty ladder
+        </h2>
+        <p className="admin-page-header__desc">
+          Site-wide, ordered by stage. A member climbs one rung per daemon run —
+          never straight to a harsher stage, however many active hit-and-runs
+          they suddenly have — gated by each stage&apos;s dwell time against the
+          previous one. Falling active counts de-escalate immediately, in as
+          many steps as the drop spans.
+        </p>
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Stage</th>
+                <th>Min active H&amp;R</th>
+                <th>Dwell (days)</th>
+                <th>Action</th>
+                <th>Restriction types</th>
+                <th>Restrict days</th>
+                <th>Message template</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {stages.map((s) => {
+                const row = stageDraft[s.stage] ?? stageToDraft(s);
+                const changed =
+                  stageInitial[s.stage] &&
+                  !stageDraftsEqual(stageInitial[s.stage], row);
+                return (
+                  <tr key={s.stage}>
+                    <td className="admin-num">{s.stage}</td>
+                    <td>
+                      <input
+                        className="admin-num-input"
+                        type="number"
+                        min="1"
+                        aria-label={`Stage ${s.stage} min active hit-and-runs`}
+                        value={row.min_active_hnr}
+                        onChange={(e) =>
+                          setStageField(
+                            s.stage,
+                            "min_active_hnr",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="admin-num-input"
+                        type="number"
+                        min="0"
+                        aria-label={`Stage ${s.stage} dwell days`}
+                        value={row.min_days_in_prev}
+                        onChange={(e) =>
+                          setStageField(
+                            s.stage,
+                            "min_days_in_prev",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <select
+                        aria-label={`Stage ${s.stage} action`}
+                        value={row.action}
+                        onChange={(e) =>
+                          setStageField(s.stage, "action", e.target.value)
+                        }
+                      >
+                        {ACTION_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      {row.action === "restrict" ? (
+                        <div className="admin-checkbox-group">
+                          {RESTRICTION_TYPE_OPTIONS.map((opt) => (
+                            <label key={opt.value}>
+                              <input
+                                type="checkbox"
+                                checked={row.restriction_types.includes(
+                                  opt.value,
+                                )}
+                                onChange={() =>
+                                  toggleStageRestrictionType(s.stage, opt.value)
+                                }
+                              />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="admin-page-header__desc">
+                          only for restrict
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <input
+                        className="admin-num-input"
+                        type="number"
+                        min="0"
+                        disabled={row.action !== "restrict"}
+                        aria-label={`Stage ${s.stage} restriction days`}
+                        value={row.restriction_days}
+                        onChange={(e) =>
+                          setStageField(
+                            s.stage,
+                            "restriction_days",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <textarea
+                        className="admin-settings__input admin-settings__input--textarea"
+                        aria-label={`Stage ${s.stage} message template`}
+                        rows={2}
+                        value={row.message_template}
+                        onChange={(e) =>
+                          setStageField(
+                            s.stage,
+                            "message_template",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={!changed}
+                          loading={stageSavingId === s.stage}
+                          onClick={() => saveStage(s.stage)}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={stageSavingId === s.stage}
+                          onClick={() => deleteStage(s.stage)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <td>
+                  <input
+                    className="admin-num-input"
+                    type="number"
+                    min="1"
+                    placeholder="#"
+                    aria-label="New stage number"
+                    value={newStageNumber}
+                    onChange={(e) => setNewStageNumber(e.target.value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="admin-num-input"
+                    type="number"
+                    min="1"
+                    aria-label="New stage min active hit-and-runs"
+                    value={newStageDraft.min_active_hnr}
+                    onChange={(e) =>
+                      setNewStageDraft((prev) => ({
+                        ...prev,
+                        min_active_hnr: e.target.value,
+                      }))
+                    }
+                  />
+                </td>
+                <td>
+                  <input
+                    className="admin-num-input"
+                    type="number"
+                    min="0"
+                    aria-label="New stage dwell days"
+                    value={newStageDraft.min_days_in_prev}
+                    onChange={(e) =>
+                      setNewStageDraft((prev) => ({
+                        ...prev,
+                        min_days_in_prev: e.target.value,
+                      }))
+                    }
+                  />
+                </td>
+                <td>
+                  <select
+                    aria-label="New stage action"
+                    value={newStageDraft.action}
+                    onChange={(e) =>
+                      setNewStageDraft((prev) => ({
+                        ...prev,
+                        action: e.target.value,
+                      }))
+                    }
+                  >
+                    {ACTION_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  {newStageDraft.action === "restrict" ? (
+                    <div className="admin-checkbox-group">
+                      {RESTRICTION_TYPE_OPTIONS.map((opt) => (
+                        <label key={opt.value}>
+                          <input
+                            type="checkbox"
+                            checked={newStageDraft.restriction_types.includes(
+                              opt.value,
+                            )}
+                            onChange={() =>
+                              setNewStageDraft((prev) => ({
+                                ...prev,
+                                restriction_types:
+                                  prev.restriction_types.includes(opt.value)
+                                    ? prev.restriction_types.filter(
+                                        (t) => t !== opt.value,
+                                      )
+                                    : [...prev.restriction_types, opt.value],
+                              }))
+                            }
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="admin-page-header__desc">
+                      only for restrict
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <input
+                    className="admin-num-input"
+                    type="number"
+                    min="0"
+                    disabled={newStageDraft.action !== "restrict"}
+                    aria-label="New stage restriction days"
+                    value={newStageDraft.restriction_days}
+                    onChange={(e) =>
+                      setNewStageDraft((prev) => ({
+                        ...prev,
+                        restriction_days: e.target.value,
+                      }))
+                    }
+                  />
+                </td>
+                <td>
+                  <textarea
+                    className="admin-settings__input admin-settings__input--textarea"
+                    aria-label="New stage message template"
+                    rows={2}
+                    placeholder="{{username}} has {{count}} active hit-and-runs."
+                    value={newStageDraft.message_template}
+                    onChange={(e) =>
+                      setNewStageDraft((prev) => ({
+                        ...prev,
+                        message_template: e.target.value,
+                      }))
+                    }
+                  />
+                </td>
+                <td>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={addingStage}
+                    onClick={addStage}
+                  >
+                    Add stage
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
+        <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
           Recent runs
         </h2>
         {runs.length === 0 ? (
@@ -336,6 +836,8 @@ export function AdminHitAndRunPage() {
                   <th>Scanned</th>
                   <th>Breached</th>
                   <th>Satisfied</th>
+                  <th>Advanced</th>
+                  <th>Decayed</th>
                 </tr>
               </thead>
               <tbody>
@@ -347,6 +849,8 @@ export function AdminHitAndRunPage() {
                     <td className="admin-num">{r.scanned}</td>
                     <td className="admin-num">{r.breached}</td>
                     <td className="admin-num">{r.satisfied}</td>
+                    <td className="admin-num">{r.stages_advanced ?? 0}</td>
+                    <td className="admin-num">{r.stages_decayed ?? 0}</td>
                   </tr>
                 ))}
               </tbody>

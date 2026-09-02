@@ -356,13 +356,18 @@ type HnRRepository interface {
 	// non-zero stage, including those now absent from ActiveHnRCounts
 	// (count implicitly zero), so decay is evaluated for them too.
 	// EnsureUserState is an idempotent create-if-absent so CASUserStage
-	// always has a row to match against. CASUserStage no-ops (returns
-	// false, nil) when another instance already moved the user off
-	// expectedStage.
+	// always has a row to match against; it takes the same now the caller
+	// is about to evaluate decideHnRLadderStage against — never its own
+	// internal clock read — so a state row created mid-run always reads
+	// back with StageEnteredAt <= that decision's now. A separate read
+	// would let StageEnteredAt land microseconds after now, which fails a
+	// zero-day dwell check on a brand new user's very first stage. CASUserStage
+	// no-ops (returns false, nil) when another instance already moved the
+	// user off expectedStage.
 	ActiveHnRCounts(ctx context.Context) (map[int64]int, error)
 	UsersOnLadder(ctx context.Context) ([]model.HnRUserState, error)
 	GetUserState(ctx context.Context, userID int64) (*model.HnRUserState, error)
-	EnsureUserState(ctx context.Context, userID int64) error
+	EnsureUserState(ctx context.Context, userID int64, now time.Time) error
 	CASUserStage(ctx context.Context, userID int64, expectedStage, newStage int, now time.Time) (bool, error)
 	SetLastNotifiedStage(ctx context.Context, userID int64, stage int) error
 

@@ -7,6 +7,13 @@ const (
 	WarningTypeManual    = "manual"
 	WarningTypeRatioSoft = "ratio_soft"
 	WarningTypeRatioBan  = "ratio_ban"
+	// WarningTypeHnR is issued by the hit-and-run penalty ladder's "warn"
+	// stage — system-issued, like ratio_soft, but a distinct type so staff
+	// can tell the two escalation paths apart in a user's warning history.
+	WarningTypeHnR = "hnr"
+	// WarningTypeHnRBan is the audit-trail record for the ladder's "ban"
+	// stage, mirroring ratio_ban.
+	WarningTypeHnRBan = "hnr_ban"
 )
 
 // Warning statuses

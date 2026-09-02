@@ -459,6 +459,36 @@ func TestWarningIssuedNotifiesWarnedUser(t *testing.T) {
 	}
 }
 
+// Both directions of a hit-and-run ladder move — escalation and
+// de-escalation — produce a NotifHitAndRun for the member, carrying enough
+// for the page to render without a second fetch.
+func TestHnRStageChangedNotifiesTheMember(t *testing.T) {
+	h := newNotifHarness(t, nil, nil)
+
+	h.bus.Publish(context.Background(), &event.HnRStageChangedEvent{
+		Base:     event.NewBase(event.HnRStageChanged, event.Actor{ID: 0, Username: "System"}),
+		UserID:   2,
+		Username: "alice",
+		OldStage: 0,
+		NewStage: 1,
+		Action:   "notify",
+		Message:  "Notice: alice has 1 active hit-and-runs.",
+	})
+
+	notifs := h.store.forUser(2)
+	if len(notifs) != 1 || notifs[0].Type != model.NotifHitAndRun {
+		t.Fatalf("user got %v, want one %s", types(notifs), model.NotifHitAndRun)
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(notifs[0].Data, &data); err != nil {
+		t.Fatalf("notification data is not valid JSON: %v", err)
+	}
+	if data["new_stage"] != float64(1) || data["message"] != "Notice: alice has 1 active hit-and-runs." {
+		t.Errorf("unexpected data: %+v", data)
+	}
+}
+
 // Every created notification is pushed over the WebSocket, which is how the
 // unread badge updates without a refresh.
 func TestNotificationIsPushedOverWebSocket(t *testing.T) {

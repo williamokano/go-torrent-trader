@@ -315,11 +315,11 @@ func (f *fakeHnRRepo) GetUserState(_ context.Context, userID int64) (*model.HnRU
 	return &s, nil
 }
 
-func (f *fakeHnRRepo) EnsureUserState(_ context.Context, userID int64) error {
+func (f *fakeHnRRepo) EnsureUserState(_ context.Context, userID int64, now time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.userStates[userID]; !ok {
-		f.userStates[userID] = model.HnRUserState{UserID: userID, Stage: 0, StageEnteredAt: time.Now()}
+		f.userStates[userID] = model.HnRUserState{UserID: userID, Stage: 0, StageEnteredAt: now}
 	}
 	return nil
 }

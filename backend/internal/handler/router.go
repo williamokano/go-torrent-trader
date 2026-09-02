@@ -500,6 +500,9 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Get("/hnr/rules", hnr.HandleListRules)
 							r.Put("/hnr/rules/{groupId}", hnr.HandleUpsertRule)
 							r.Delete("/hnr/rules/{groupId}", hnr.HandleDeleteRule)
+							r.Get("/hnr/stages", hnr.HandleListStages)
+							r.Put("/hnr/stages/{stage}", hnr.HandleUpsertStage)
+							r.Delete("/hnr/stages/{stage}", hnr.HandleDeleteStage)
 							r.Post("/hnr/run", hnr.HandleRunNow)
 							r.Get("/hnr/runs", hnr.HandleListRuns)
 						}

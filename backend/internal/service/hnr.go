@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -57,15 +58,42 @@ type HnRService struct {
 	// RunDaemon) — every other operation goes through hnr, the repository
 	// interface, exactly like TorrentService holds both db and a repository
 	// for the same reason (a lock/transaction the interface doesn't expose).
-	db       *sql.DB
-	hnr      repository.HnRRepository
-	groups   repository.GroupRepository
-	settings *SiteSettingsService
+	db     *sql.DB
+	hnr    repository.HnRRepository
+	groups repository.GroupRepository
+	// users resolves a username for the penalty-ladder notification event —
+	// the daemon otherwise only ever sees user ids (ActiveHnRCounts is keyed
+	// by id, not joined to users).
+	users repository.UserRepository
+	// warnings and restrictions carry out the ladder's "warn"/"ban" and
+	// "restrict" stage actions respectively, reusing the same services and
+	// the same RestrictionSourceHnR attribution PR1 added — the ladder never
+	// writes a warning or restriction row itself.
+	warnings     *WarningService
+	restrictions *RestrictionService
+	settings     *SiteSettingsService
+	// eventBus publishes HnRStageChangedEvent on every ladder transition, in
+	// both directions, for the notification listener to turn into a
+	// NotifHitAndRun entry — the same "service publishes, listener creates
+	// the notification" shape used everywhere else in this codebase.
+	eventBus event.Bus
 }
 
 // NewHnRService creates a new HnRService.
-func NewHnRService(db *sql.DB, hnr repository.HnRRepository, groups repository.GroupRepository, settings *SiteSettingsService) *HnRService {
-	return &HnRService{db: db, hnr: hnr, groups: groups, settings: settings}
+func NewHnRService(
+	db *sql.DB,
+	hnr repository.HnRRepository,
+	groups repository.GroupRepository,
+	users repository.UserRepository,
+	warnings *WarningService,
+	restrictions *RestrictionService,
+	settings *SiteSettingsService,
+	bus event.Bus,
+) *HnRService {
+	return &HnRService{
+		db: db, hnr: hnr, groups: groups, users: users,
+		warnings: warnings, restrictions: restrictions, settings: settings, eventBus: bus,
+	}
 }
 
 // ListRules returns every rule joined with its group, ordered by level.
@@ -261,6 +289,21 @@ func (s *HnRService) runLocked(ctx context.Context, trigger string, triggeredBy 
 	}
 
 	counts, evalErr := s.evaluateAndMark(ctx)
+
+	// The ladder reads ActiveHnRCounts, which reflects the breach/satisfy
+	// transitions evaluateAndMark just made — so it runs after, in the same
+	// sweep, not as a separate pass. Skipped when the sweep itself failed:
+	// escalating against counts from a table evaluateAndMark couldn't
+	// finish updating would risk acting on a stale picture.
+	if evalErr == nil {
+		advanced, decayed, err := s.runLadder(ctx, time.Now())
+		if err != nil {
+			evalErr = fmt.Errorf("ladder: %w", err)
+		} else {
+			counts.StagesAdvanced = advanced
+			counts.StagesDecayed = decayed
+		}
+	}
 
 	status := model.HnRRunStatusSuccess
 	var errMsg *string

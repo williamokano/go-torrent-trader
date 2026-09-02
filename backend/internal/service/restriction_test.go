@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -201,6 +202,15 @@ func (m *mockUserRepoForRestrictions) SetPrivilegeFlag(_ context.Context, userID
 		u.CanChat = value
 	case model.RestrictionTypeInvite:
 		u.CanInvite = value
+	case model.RestrictionTypeFeed:
+		u.CanFeed = value
+	case model.RestrictionTypeForum:
+		u.CanForum = value
+	default:
+		// Mirror privilegeFlagColumn's production behavior for an unmapped
+		// type exactly (tasks/lessons.md #5): silently no-op here is how a
+		// missing "forum" case went untested until this fake was corrected.
+		return fmt.Errorf("unknown privilege flag: %s", restrictionType)
 	}
 	return nil
 }
@@ -262,6 +272,38 @@ func TestApplyRestriction_Invite(t *testing.T) {
 	user, _ = userRepo.GetByID(context.Background(), 1)
 	if !user.CanInvite {
 		t.Error("user.CanInvite should be true after lift")
+	}
+}
+
+// TestApplyRestriction_Forum guards the gap docs/OPEN_QUESTIONS.md's HnR plan
+// flagged: RestrictionTypeForum was accepted as a valid type (and already
+// wired into the staff restriction handler) but privilegeFlagColumn had no
+// case for it, so SetPrivilegeFlag — and therefore ApplyRestriction and
+// LiftRestriction — errored the moment anything actually tried to restrict
+// forum access. The test fake used to silently no-op instead of erroring the
+// way production did, which is exactly how this went untested.
+func TestApplyRestriction_Forum(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanForum: true})
+	userRepo.addUser(&model.User{ID: 99, Username: "admin"})
+
+	adminID := int64(99)
+	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeForum, "spam", model.RestrictionSourceManual, nil, &adminID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	if user.CanForum {
+		t.Error("user.CanForum should be false after restriction")
+	}
+
+	if err := svc.LiftRestriction(context.Background(), restriction.ID, &adminID); err != nil {
+		t.Fatalf("lift: %v", err)
+	}
+	user, _ = userRepo.GetByID(context.Background(), 1)
+	if !user.CanForum {
+		t.Error("user.CanForum should be true after lift")
 	}
 }
 

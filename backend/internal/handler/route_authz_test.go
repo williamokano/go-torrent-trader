@@ -133,6 +133,8 @@ func fullRouterDeps(t *testing.T) *Deps {
 	t.Cleanup(func() { _ = categoriesDB.Close() })
 
 	messages := newStubMessageRepo()
+	warningSvc := service.NewWarningService(newStubWarningRepo(), users, messages, bus)
+	restrictionSvc := service.NewRestrictionService(newStubRestrictionRepo(), users, bus)
 
 	return &Deps{
 		DB: categoriesDB,
@@ -147,13 +149,13 @@ func fullRouterDeps(t *testing.T) *Deps {
 		ReportService:       service.NewReportService(newStubReportRepo(), &stubTorrentRepo{}, users, bus),
 		CommentService:      service.NewCommentService(nopCommentRepo{}, nopRatingRepo{}, &stubTorrentRepo{}, users, bus),
 		InviteService:       service.NewInviteService(nopInviteRepo{}, users, bus),
-		WarningService:      service.NewWarningService(newStubWarningRepo(), users, messages, bus),
+		WarningService:      warningSvc,
 		SiteSettingsService: settingsSvc,
 		BanService:          service.NewBanService(&stubBanRepo{}, bus),
 		CategoryService:     service.NewCategoryService(&stubCategoryRepo{}),
 		MetadataAuditService: service.NewMetadataAuditService(nopMetadataAuditRepo{},
 			&stubCategoryRepo{}),
-		RestrictionService:  service.NewRestrictionService(newStubRestrictionRepo(), users, bus),
+		RestrictionService:  restrictionSvc,
 		NewsService:         service.NewNewsService(newStubNewsRepo(), users, bus),
 		ActivityLogService:  service.NewActivityLogService(&stubActivityLogRepo{}),
 		MessageService:      service.NewMessageService(messages, users, bus),
@@ -171,7 +173,7 @@ func fullRouterDeps(t *testing.T) *Deps {
 			forums: &forumLookupStub{},
 		}),
 		PromotionService: service.NewPromotionService(nopPromotionRepo{}, groups, settingsSvc),
-		HnRService:       service.NewHnRService(nil, nopHnRRepo{}, groups, settingsSvc),
+		HnRService:       service.NewHnRService(nil, nopHnRRepo{}, groups, users, warningSvc, restrictionSvc, settingsSvc, bus),
 		BonusService:     service.NewBonusService(nopBonusRepo{}, settingsSvc),
 		InviteDistributionService: service.NewInviteDistributionService(nopInviteDistributionRepo{},
 			groups, users, settingsSvc, bus),

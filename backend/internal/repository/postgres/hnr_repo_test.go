@@ -468,11 +468,19 @@ func TestHnRRepo_UserLadderState(t *testing.T) {
 		t.Fatalf("GetUserState(absent) = %v, want sql.ErrNoRows", err)
 	}
 
-	if err := repo.EnsureUserState(ctx, u.ID); err != nil {
+	// A now from an hour ago, deliberately not time.Now(): EnsureUserState
+	// must write exactly what it's given, not its own clock read — the
+	// daemon calls it with the same now it's about to run
+	// decideHnRLadderStage against, and a separately-read database clock
+	// could land a hair after that now, failing a zero-day dwell check for
+	// a user's very first stage. See the interface's doc comment.
+	entryTime := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	if err := repo.EnsureUserState(ctx, u.ID, entryTime); err != nil {
 		t.Fatalf("EnsureUserState: %v", err)
 	}
-	// Idempotent.
-	if err := repo.EnsureUserState(ctx, u.ID); err != nil {
+	// Idempotent, and does not overwrite stage_entered_at on a repeat call
+	// with a different now — ON CONFLICT DO NOTHING.
+	if err := repo.EnsureUserState(ctx, u.ID, time.Now()); err != nil {
 		t.Fatalf("EnsureUserState (repeat): %v", err)
 	}
 
@@ -482,6 +490,9 @@ func TestHnRRepo_UserLadderState(t *testing.T) {
 	}
 	if state.Stage != 0 {
 		t.Fatalf("expected a freshly-ensured state at stage 0, got %d", state.Stage)
+	}
+	if !state.StageEnteredAt.Equal(entryTime) {
+		t.Fatalf("expected stage_entered_at to be exactly the first call's now (%v), got %v", entryTime, state.StageEnteredAt)
 	}
 
 	ok, err := repo.CASUserStage(ctx, u.ID, 0, 1, time.Now())

@@ -195,10 +195,10 @@ func run() int {
 	// (hnr_enabled, default false) is read through the cached
 	// SiteSettingsService.HnREnabled, so this is a no-op until an operator
 	// turns the feature on. hnrRepo is reused below to build HnRService once
-	// the admin/member-facing surfaces that need it exist.
+	// warningService/restrictionService (the ladder's "warn"/"restrict"/"ban"
+	// actions) exist.
 	hnrRepo := postgres.NewHnRRepo(db)
 	trackerService.SetHnRRepo(hnrRepo)
-	hnrService := service.NewHnRService(db, hnrRepo, groupRepo, siteSettingsService)
 
 	promotionRepo := postgres.NewPromotionRepo(db)
 	promotionService := service.NewPromotionService(promotionRepo, groupRepo, siteSettingsService)
@@ -235,6 +235,8 @@ func run() int {
 
 	restrictionRepo := postgres.NewRestrictionRepo(db)
 	restrictionService := service.NewRestrictionService(restrictionRepo, userRepo, eventBus)
+
+	hnrService := service.NewHnRService(db, hnrRepo, groupRepo, userRepo, warningService, restrictionService, siteSettingsService, eventBus)
 
 	// Warning escalation listener — auto-restrict or ban based on manual warning count.
 	listener.RegisterWarningEscalationListener(eventBus, siteSettingsService, warningRepo, restrictionService, userRepo, activityLogService, sessionStore, messageRepo)

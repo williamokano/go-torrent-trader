@@ -160,7 +160,7 @@ func (nopHnRRepo) UsersOnLadder(context.Context) ([]model.HnRUserState, error)  
 func (nopHnRRepo) GetUserState(context.Context, int64) (*model.HnRUserState, error) {
 	return nil, sql.ErrNoRows
 }
-func (nopHnRRepo) EnsureUserState(context.Context, int64) error { return nil }
+func (nopHnRRepo) EnsureUserState(context.Context, int64, time.Time) error { return nil }
 func (nopHnRRepo) CASUserStage(context.Context, int64, int, int, time.Time) (bool, error) {
 	return false, nil
 }

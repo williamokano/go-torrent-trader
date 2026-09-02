@@ -24,12 +24,13 @@ import (
 // internal/service's fakeHnRRepo-backed tests).
 type stubHnRRepo struct {
 	rules   map[int64]model.HnRRule
+	stages  map[int]model.HnRPenaltyStage
 	runs    []model.HnRRun
 	records []model.HnRRecord
 }
 
 func newStubHnRRepo() *stubHnRRepo {
-	return &stubHnRRepo{rules: map[int64]model.HnRRule{}}
+	return &stubHnRRepo{rules: map[int64]model.HnRRule{}, stages: map[int]model.HnRPenaltyStage{}}
 }
 
 func (s *stubHnRRepo) ListRules(_ context.Context) ([]model.HnRRule, error) {
@@ -76,15 +77,30 @@ func (s *stubHnRRepo) MarkSatisfied(context.Context, []int64, time.Time) (int64,
 }
 func (s *stubHnRRepo) MarkWaived(context.Context, []int64, time.Time) (int64, error) { return 0, nil }
 func (s *stubHnRRepo) PurgeResolved(context.Context, time.Time) (int64, error)       { return 0, nil }
-func (s *stubHnRRepo) ListStages(context.Context) ([]model.HnRPenaltyStage, error)   { return nil, nil }
-func (s *stubHnRRepo) UpsertStage(context.Context, *model.HnRPenaltyStage) error     { return nil }
-func (s *stubHnRRepo) DeleteStage(context.Context, int) error                        { return sql.ErrNoRows }
-func (s *stubHnRRepo) ActiveHnRCounts(context.Context) (map[int64]int, error)        { return nil, nil }
-func (s *stubHnRRepo) UsersOnLadder(context.Context) ([]model.HnRUserState, error)   { return nil, nil }
+func (s *stubHnRRepo) ListStages(_ context.Context) ([]model.HnRPenaltyStage, error) {
+	out := make([]model.HnRPenaltyStage, 0, len(s.stages))
+	for _, st := range s.stages {
+		out = append(out, st)
+	}
+	return out, nil
+}
+func (s *stubHnRRepo) UpsertStage(_ context.Context, st *model.HnRPenaltyStage) error {
+	s.stages[st.Stage] = *st
+	return nil
+}
+func (s *stubHnRRepo) DeleteStage(_ context.Context, stage int) error {
+	if _, ok := s.stages[stage]; !ok {
+		return sql.ErrNoRows
+	}
+	delete(s.stages, stage)
+	return nil
+}
+func (s *stubHnRRepo) ActiveHnRCounts(context.Context) (map[int64]int, error)      { return nil, nil }
+func (s *stubHnRRepo) UsersOnLadder(context.Context) ([]model.HnRUserState, error) { return nil, nil }
 func (s *stubHnRRepo) GetUserState(context.Context, int64) (*model.HnRUserState, error) {
 	return nil, sql.ErrNoRows
 }
-func (s *stubHnRRepo) EnsureUserState(context.Context, int64) error { return nil }
+func (s *stubHnRRepo) EnsureUserState(context.Context, int64, time.Time) error { return nil }
 func (s *stubHnRRepo) CASUserStage(context.Context, int64, int, int, time.Time) (bool, error) {
 	return false, nil
 }
@@ -159,6 +175,79 @@ func (s *stubHnRRepo) TopOffenders(context.Context, int) ([]repository.HnROffend
 
 var _ repository.HnRRepository = (*stubHnRRepo)(nil)
 
+// nopWarningRepo, nopRestrictionRepo and nopMessageRepo exist only so
+// WarningService/RestrictionService can be constructed for HnRService's
+// dependency list — none of the rule/run-log CRUD tests below exercise the
+// ladder engine itself (that lives in internal/service's own tests, against
+// the full fake), so these never need to do anything.
+type nopWarningRepo struct{}
+
+func (nopWarningRepo) Create(context.Context, *model.Warning) error { return nil }
+func (nopWarningRepo) GetByID(context.Context, int64) (*model.Warning, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopWarningRepo) ListByUser(context.Context, int64, bool) ([]model.Warning, error) {
+	return nil, nil
+}
+func (nopWarningRepo) ListAll(context.Context, repository.ListWarningsOptions) ([]model.Warning, int64, error) {
+	return nil, 0, nil
+}
+func (nopWarningRepo) Update(context.Context, *model.Warning) error                { return nil }
+func (nopWarningRepo) CountActiveByUser(context.Context, int64) (int, error)       { return 0, nil }
+func (nopWarningRepo) CountActiveManualByUser(context.Context, int64) (int, error) { return 0, nil }
+func (nopWarningRepo) GetActiveRatioWarning(context.Context, int64) (*model.Warning, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopWarningRepo) GetUsersWithLowRatio(context.Context, float64, int64) ([]model.User, error) {
+	return nil, nil
+}
+func (nopWarningRepo) ResolveExpiredManualWarnings(context.Context) ([]int64, error) {
+	return nil, nil
+}
+
+var _ repository.WarningRepository = nopWarningRepo{}
+
+type nopRestrictionRepo struct{}
+
+func (nopRestrictionRepo) Create(context.Context, *model.Restriction) error { return nil }
+func (nopRestrictionRepo) GetByID(context.Context, int64) (*model.Restriction, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopRestrictionRepo) ListByUser(context.Context, int64) ([]model.Restriction, error) {
+	return nil, nil
+}
+func (nopRestrictionRepo) ListActive(context.Context) ([]model.Restriction, error) { return nil, nil }
+func (nopRestrictionRepo) Lift(context.Context, int64, *int64) error               { return nil }
+func (nopRestrictionRepo) LiftExpired(context.Context) ([]model.Restriction, error) {
+	return nil, nil
+}
+func (nopRestrictionRepo) HasActiveByType(context.Context, int64, string) (bool, error) {
+	return false, nil
+}
+func (nopRestrictionRepo) LiftActiveBySource(context.Context, int64, string, string) (int, error) {
+	return 0, nil
+}
+
+var _ repository.RestrictionRepository = nopRestrictionRepo{}
+
+type nopMessageRepo struct{}
+
+func (nopMessageRepo) Create(context.Context, *model.Message) error { return nil }
+func (nopMessageRepo) GetByID(context.Context, int64) (*model.Message, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopMessageRepo) ListInbox(context.Context, int64, int, int) ([]model.Message, int64, error) {
+	return nil, 0, nil
+}
+func (nopMessageRepo) ListOutbox(context.Context, int64, int, int) ([]model.Message, int64, error) {
+	return nil, 0, nil
+}
+func (nopMessageRepo) MarkAsRead(context.Context, int64, int64) error    { return nil }
+func (nopMessageRepo) DeleteForUser(context.Context, int64, int64) error { return nil }
+func (nopMessageRepo) CountUnread(context.Context, int64) (int, error)   { return 0, nil }
+
+var _ repository.MessageRepository = nopMessageRepo{}
+
 func setupHnRAdminRouter(hnrRepo *stubHnRRepo) (http.Handler, service.SessionStore) {
 	userRepo := newMockUserRepo()
 	groupStore := newGroupCRUDStore() // group 1 = admin (staff), 5 = user, 7 = vip
@@ -167,10 +256,12 @@ func setupHnRAdminRouter(hnrRepo *stubHnRRepo) (http.Handler, service.SessionSto
 	settingsSvc := service.NewSiteSettingsService(promoSettingsStub{}, bus)
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, groupStore, bus)
 	adminSvc := service.NewAdminService(userRepo, groupStore, bus)
+	warningSvc := service.NewWarningService(nopWarningRepo{}, userRepo, nopMessageRepo{}, bus)
+	restrictionSvc := service.NewRestrictionService(nopRestrictionRepo{}, userRepo, bus)
 	// db is nil: RunDaemon then returns ErrHnRDaemonUnavailable, exercised
 	// explicitly below rather than worked around, since a handler test has no
 	// real database to lock against anyway.
-	hnrSvc := service.NewHnRService(nil, hnrRepo, groupStore, settingsSvc)
+	hnrSvc := service.NewHnRService(nil, hnrRepo, groupStore, userRepo, warningSvc, restrictionSvc, settingsSvc, bus)
 
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:  authSvc,
@@ -258,6 +349,76 @@ func TestHnRRules_Delete(t *testing.T) {
 	}
 	if _, ok := repo.rules[7]; ok {
 		t.Error("rule not deleted")
+	}
+}
+
+func TestHnRStages_UpsertAndList(t *testing.T) {
+	repo := newStubHnRRepo()
+	router, sessions := setupHnRAdminRouter(repo)
+	admin := createSessionWithGroup(sessions, 5009, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodPut, "/api/v1/admin/hnr/stages/1", map[string]interface{}{
+		"min_active_hnr": 1, "min_days_in_prev": 0, "action": "notify", "message_template": "hi {{username}}",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upsert: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var upsertResp struct {
+		Stage map[string]interface{} `json:"stage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &upsertResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Every field must round-trip snake_case — this is exactly the bug that
+	// hit model.HnRRun before it carried json tags.
+	if upsertResp.Stage["min_active_hnr"] != float64(1) || upsertResp.Stage["action"] != "notify" {
+		t.Fatalf("unexpected upsert response: %+v", upsertResp.Stage)
+	}
+
+	rec = doGroupRequest(t, router, admin, http.MethodGet, "/api/v1/admin/hnr/stages", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: expected 200, got %d", rec.Code)
+	}
+	var listResp struct {
+		Stages []map[string]interface{} `json:"stages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(listResp.Stages) != 1 || listResp.Stages[0]["stage"].(float64) != 1 {
+		t.Fatalf("unexpected stages list: %+v", listResp.Stages)
+	}
+}
+
+func TestHnRStages_UpsertRejectsInvalidAction(t *testing.T) {
+	router, sessions := setupHnRAdminRouter(newStubHnRRepo())
+	admin := createSessionWithGroup(sessions, 5010, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodPut, "/api/v1/admin/hnr/stages/1", map[string]interface{}{
+		"min_active_hnr": 1, "action": "explode",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unknown action, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRStages_Delete(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.stages[1] = model.HnRPenaltyStage{Stage: 1, MinActiveHnR: 1, Action: model.HnRActionNotify}
+	router, sessions := setupHnRAdminRouter(repo)
+	admin := createSessionWithGroup(sessions, 5011, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodDelete, "/api/v1/admin/hnr/stages/1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := repo.stages[1]; ok {
+		t.Error("stage not deleted")
+	}
+
+	rec = doGroupRequest(t, router, admin, http.MethodDelete, "/api/v1/admin/hnr/stages/1", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a missing stage, got %d; body: %s", rec.Code, rec.Body.String())
 	}
 }
 
