@@ -21,6 +21,7 @@ interface AdminTorrent {
   banned: boolean;
   free: boolean;
   silver: boolean;
+  hnr_exempt: boolean;
   visible: boolean;
   created_at: string;
 }
@@ -483,6 +484,11 @@ export function AdminTorrentsPage() {
                         {torrent.silver && (
                           <span className="admin-badge admin-badge--accent">
                             Half
+                          </span>
+                        )}
+                        {torrent.hnr_exempt && (
+                          <span className="admin-badge admin-badge--muted">
+                            No H&amp;R
                           </span>
                         )}
                         {!torrent.visible && (

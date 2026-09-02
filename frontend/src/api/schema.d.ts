@@ -1419,6 +1419,8 @@ export interface components {
       banned?: boolean;
       /** @description Staff-only — enable/disable freeleech */
       free?: boolean;
+      /** @description Staff-only — exempt this torrent from hit-and-run tracking. Waives any open obligation against it; un-exempting does not resurrect a waived one. */
+      hnr_exempt?: boolean;
     };
     DeleteTorrentRequest: {
       /** @description Reason for deleting the torrent */
@@ -1759,6 +1761,8 @@ export interface components {
       free?: boolean;
       /** @description Half credit — downloads count at 50% */
       silver?: boolean;
+      /** @description Whether this torrent is exempt from hit-and-run tracking */
+      hnr_exempt?: boolean;
       visible?: boolean;
       /** Format: date-time */
       created_at?: string;

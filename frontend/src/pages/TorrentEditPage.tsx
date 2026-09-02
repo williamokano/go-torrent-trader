@@ -40,6 +40,7 @@ export function TorrentEditPage() {
   const [banned, setBanned] = useState(false);
   const [free, setFree] = useState(false);
   const [silver, setSilver] = useState(false);
+  const [hnrExempt, setHnrExempt] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [schema, setSchema] = useState<MetadataField[]>([]);
   const [metadata, setMetadata] = useState<MetadataValues>({});
@@ -122,6 +123,7 @@ export function TorrentEditPage() {
       setBanned((raw.banned as boolean) ?? false);
       setFree((raw.free as boolean) ?? false);
       setSilver((raw.silver as boolean) ?? false);
+      setHnrExempt((raw.hnr_exempt as boolean) ?? false);
 
       // Hydrate metadata values + effective schema from the detail response.
       setMetadata((raw.metadata as MetadataValues) ?? {});
@@ -190,6 +192,7 @@ export function TorrentEditPage() {
         body.banned = banned;
         body.free = free;
         body.silver = silver;
+        body.hnr_exempt = hnrExempt;
       }
 
       if (schema.length > 0) {
@@ -315,6 +318,11 @@ export function TorrentEditPage() {
                 label="Silver (50% download)"
                 checked={silver}
                 onChange={(e) => setSilver(e.target.checked)}
+              />
+              <Checkbox
+                label="Exempt from hit-and-run tracking"
+                checked={hnrExempt}
+                onChange={(e) => setHnrExempt(e.target.checked)}
               />
             </div>
           )}
