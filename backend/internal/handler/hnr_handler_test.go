@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -22,8 +23,9 @@ import (
 // exercise the admin endpoints, not the daemon sweep itself (that lives in
 // internal/service's fakeHnRRepo-backed tests).
 type stubHnRRepo struct {
-	rules map[int64]model.HnRRule
-	runs  []model.HnRRun
+	rules   map[int64]model.HnRRule
+	runs    []model.HnRRun
+	records []model.HnRRecord
 }
 
 func newStubHnRRepo() *stubHnRRepo {
@@ -126,13 +128,22 @@ func (s *stubHnRRepo) ListRuns(_ context.Context, limit int) ([]model.HnRRun, er
 	return out, nil
 }
 
-func (s *stubHnRRepo) ListForUser(context.Context, int64) ([]model.HnRRecord, error) { return nil, nil }
+func (s *stubHnRRepo) ListForUser(_ context.Context, userID int64) ([]model.HnRRecord, error) {
+	var out []model.HnRRecord
+	for _, r := range s.records {
+		if r.UserID == userID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
 func (s *stubHnRRepo) GetForUser(context.Context, int64, int64) (*model.HnRRecord, error) {
 	return nil, sql.ErrNoRows
 }
 func (s *stubHnRRepo) LiveSeedingTorrentIDs(context.Context, int64, []int64) (map[int64]bool, error) {
 	return nil, nil
 }
+func (s *stubHnRRepo) GetRuleForUser(context.Context, int64) (*model.HnRRule, error) { return nil, nil }
 func (s *stubHnRRepo) ClearRecord(context.Context, int64, int64, int64) (int64, error) {
 	return 0, repository.ErrHnRRecordNotClearable
 }
@@ -284,5 +295,51 @@ func TestHnRRuns_ListsRecordedRuns(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if len(resp.Runs) != 1 || resp.Runs[0]["scanned"].(float64) != 5 {
 		t.Fatalf("unexpected runs list: %+v", resp.Runs)
+	}
+}
+
+// TestHnRMember_RequiresAuth exercises the member-facing GET /api/v1/hnr,
+// which is a plain endpoint at chi's / for its group in router.go, not a
+// staff-gated one — any authenticated user reads their own records.
+func TestHnRMember_RequiresAuth(t *testing.T) {
+	router, _ := setupHnRAdminRouter(newStubHnRRepo())
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/hnr", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for an unauthenticated request, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRMember_ListsOnlyOwnRecords(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 5009, TorrentID: 100, State: model.HnRStateSatisfied, TorrentName: "mine", CompletedAt: time.Now(), LastSeenAt: time.Now()},
+		{ID: 2, UserID: 9999, TorrentID: 200, State: model.HnRStateSatisfied, TorrentName: "not mine", CompletedAt: time.Now(), LastSeenAt: time.Now()},
+	}
+	router, sessions := setupHnRAdminRouter(repo)
+	member := createSessionWithGroup(sessions, 5009, 5)
+
+	rec := doGroupRequest(t, router, member, http.MethodGet, "/api/v1/hnr", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Records []map[string]interface{} `json:"records"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Records) != 1 {
+		t.Fatalf("expected exactly the caller's own record, got %+v", resp.Records)
+	}
+	if resp.Records[0]["torrent_name"] != "mine" {
+		t.Errorf("expected the caller's own record, got %+v", resp.Records[0])
+	}
+	// display_status must be present (and snake_case) even without a JSON
+	// tag audit — this is exactly the bug that hit model.HnRRun earlier: an
+	// untagged field silently serializes as its Go name instead.
+	if resp.Records[0]["display_status"] != model.HnRStateSatisfied {
+		t.Errorf("expected display_status=satisfied, got %+v", resp.Records[0]["display_status"])
 	}
 }

@@ -720,6 +720,108 @@ func TestHnRRepo_AdminListAndAggregates(t *testing.T) {
 	}
 }
 
+func TestHnRRepo_GetRuleForUser(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	ruledGroup := groupIDBySlug(t, db, "user")
+	unruledGroup := groupIDBySlug(t, db, "vip")
+
+	if err := repo.UpsertRule(ctx, &model.HnRRule{
+		GroupID: ruledGroup, RequiredSeedHours: 240, RequiredRatio: 1.0,
+		InactivityGraceHours: 48, MaxDaysToSatisfy: 30,
+	}); err != nil {
+		t.Fatalf("UpsertRule: %v", err)
+	}
+
+	ruledUser := newUser(t, db)
+	if _, err := db.ExecContext(ctx, `UPDATE users SET group_id = $1 WHERE id = $2`, ruledGroup, ruledUser.ID); err != nil {
+		t.Fatalf("set user group: %v", err)
+	}
+	unruledUser := newUser(t, db)
+	if _, err := db.ExecContext(ctx, `UPDATE users SET group_id = $1 WHERE id = $2`, unruledGroup, unruledUser.ID); err != nil {
+		t.Fatalf("set user group: %v", err)
+	}
+
+	rule, err := repo.GetRuleForUser(ctx, ruledUser.ID)
+	if err != nil {
+		t.Fatalf("GetRuleForUser(ruled): %v", err)
+	}
+	if rule == nil || rule.RequiredSeedHours != 240 {
+		t.Fatalf("expected the ruled group's rule, got %+v", rule)
+	}
+
+	rule, err = repo.GetRuleForUser(ctx, unruledUser.ID)
+	if err != nil {
+		t.Fatalf("GetRuleForUser(unruled): %v", err)
+	}
+	if rule != nil {
+		t.Fatalf("expected nil rule (not an error) for a class with no rule, got %+v", rule)
+	}
+
+	if _, err := repo.GetRuleForUser(ctx, 0); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("GetRuleForUser(missing user) = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestHnRRepo_ListForUser_JoinsTorrentFields(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	if _, err := db.ExecContext(ctx, `UPDATE torrents SET hnr_exempt = true WHERE id = $1`, tor.ID); err != nil {
+		t.Fatalf("flag torrent exempt: %v", err)
+	}
+	if _, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now()); err != nil {
+		// CreateIfNotExists itself refuses an exempt torrent, so insert
+		// directly — this test is only about what ListForUser/GetForUser
+		// join back, not about creation.
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO hnr_records (user_id, torrent_id, state, completed_at, last_seen_at) VALUES ($1, $2, 'active', NOW(), NOW())`,
+		u.ID, tor.ID,
+	); err != nil {
+		t.Fatalf("insert record directly: %v", err)
+	}
+
+	records, err := repo.ListForUser(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	rec := records[0]
+	if rec.TorrentName != tor.Name {
+		t.Errorf("TorrentName = %q, want %q", rec.TorrentName, tor.Name)
+	}
+	if rec.TorrentSize != tor.Size {
+		t.Errorf("TorrentSize = %d, want %d", rec.TorrentSize, tor.Size)
+	}
+	if !rec.TorrentExempt {
+		t.Error("expected TorrentExempt=true to come through the join")
+	}
+
+	got, err := repo.GetForUser(ctx, u.ID, rec.ID)
+	if err != nil {
+		t.Fatalf("GetForUser: %v", err)
+	}
+	if !got.TorrentExempt {
+		t.Error("expected GetForUser to also join TorrentExempt")
+	}
+
+	otherUser := newUser(t, db)
+	if _, err := repo.GetForUser(ctx, otherUser.ID, rec.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("GetForUser(wrong owner) = %v, want sql.ErrNoRows", err)
+	}
+}
+
 // mustRecordID looks up the id of the (user, torrent) hnr_records row a test
 // just created via CreateIfNotExists — a thin helper so tests can chain
 // further operations (MarkBreached, ClearRecord, ...) that need the id.

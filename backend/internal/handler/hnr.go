@@ -127,6 +127,24 @@ func (h *HnRHandler) HandleRunNow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleListForUser handles GET /api/v1/hnr — the authenticated member's own
+// obligations, in the section order the member page needs (breach first,
+// then monitored, then resolved — see hnrStateOrder), with DisplayStatus
+// evaluated live so the page is never stale between daemon runs.
+func (h *HnRHandler) HandleListForUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	views, err := h.svc.ListForUser(r.Context(), userID)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to load hit-and-run records")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"records": views})
+}
+
 // HandleListRuns handles GET /api/v1/admin/hnr/runs — the daemon's run log,
 // most recent first, for staff visibility into when it last ran and what it did.
 func (h *HnRHandler) HandleListRuns(w http.ResponseWriter, r *http.Request) {

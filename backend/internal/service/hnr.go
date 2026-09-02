@@ -331,6 +331,129 @@ func (s *HnRService) evaluateAndMark(ctx context.Context) (repository.HnRRunCoun
 	return counts, nil
 }
 
+// HnRRecordView is one obligation as shown to the member who owns it: the
+// stored record plus a live-evaluated DisplayStatus and, when the member's
+// class currently carries a rule, the thresholds to show progress against.
+// DisplayStatus is computed by the same EvaluateHnRRecord the daemon uses,
+// called fresh on every request rather than read off the stored State — see
+// the "Real-time member status" design note. It can disagree with State
+// (State still "active" but DisplayStatus already "breach") whenever the
+// daemon has not yet run since the grace deadline passed; it should never
+// disagree in the other direction, because the announce path itself flips a
+// breached record back to State "active" the instant a seeding announce
+// proves the member resumed — DisplayStatus only ever gets ahead of State,
+// never behind it.
+type HnRRecordView struct {
+	ID            int64      `json:"id"`
+	TorrentID     int64      `json:"torrent_id"`
+	TorrentName   string     `json:"torrent_name"`
+	TorrentSize   int64      `json:"torrent_size"`
+	State         string     `json:"state"`
+	DisplayStatus string     `json:"display_status"` // breach | monitoring | satisfied | cleared | waived
+	CompletedAt   time.Time  `json:"completed_at"`
+	LastSeenAt    time.Time  `json:"last_seen_at"`
+	SeededSeconds int64      `json:"seeded_seconds"`
+	Uploaded      int64      `json:"uploaded"`
+	BreachedAt    *time.Time `json:"breached_at,omitempty"`
+	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
+	// CurrentlySeeding is the live peers overlay: true when the member has an
+	// active seeding peer for this torrent right now, straight from the
+	// tracker's own peer table — the one place in the schema with zero lag.
+	// It is what makes "start the client and the page clears" true even
+	// before the accumulator's next credited announce lands.
+	CurrentlySeeding bool `json:"currently_seeding"`
+
+	// The class's current thresholds, omitted when the member's class
+	// carries no rule at all (an exempt class, e.g. VIP) — nil, not zero
+	// values, so the frontend can tell "no requirement" apart from "not
+	// applicable".
+	RequiredSeedHours    *int     `json:"required_seed_hours,omitempty"`
+	RequiredRatio        *float64 `json:"required_ratio,omitempty"`
+	InactivityGraceHours *int     `json:"inactivity_grace_hours,omitempty"`
+}
+
+// ListForUser returns every hit-and-run obligation the member has ever had
+// (breach-first, then monitored, then resolved — see hnrStateOrder), with
+// DisplayStatus evaluated live against their current class rule and the
+// live seeding overlay, never the stale daemon-updated State column alone.
+func (s *HnRService) ListForUser(ctx context.Context, userID int64) ([]HnRRecordView, error) {
+	records, err := s.hnr.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list hnr records: %w", err)
+	}
+	if len(records) == 0 {
+		return []HnRRecordView{}, nil
+	}
+
+	rule, err := s.hnr.GetRuleForUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get hnr rule for user: %w", err)
+	}
+
+	var openTorrentIDs []int64
+	for _, rec := range records {
+		if rec.State == model.HnRStateActive || rec.State == model.HnRStateBreach {
+			openTorrentIDs = append(openTorrentIDs, rec.TorrentID)
+		}
+	}
+	liveSeeding, err := s.hnr.LiveSeedingTorrentIDs(ctx, userID, openTorrentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("live seeding overlay: %w", err)
+	}
+
+	now := time.Now()
+	views := make([]HnRRecordView, 0, len(records))
+	for _, rec := range records {
+		views = append(views, buildHnRRecordView(rec, rule, liveSeeding[rec.TorrentID], now))
+	}
+	return views, nil
+}
+
+func buildHnRRecordView(rec model.HnRRecord, rule *model.HnRRule, seeding bool, now time.Time) HnRRecordView {
+	view := HnRRecordView{
+		ID: rec.ID, TorrentID: rec.TorrentID, TorrentName: rec.TorrentName, TorrentSize: rec.TorrentSize,
+		State: rec.State, CompletedAt: rec.CompletedAt, LastSeenAt: rec.LastSeenAt,
+		SeededSeconds: rec.SeededSeconds, Uploaded: rec.Uploaded,
+		BreachedAt: rec.BreachedAt, ResolvedAt: rec.ResolvedAt,
+		CurrentlySeeding: seeding,
+	}
+	if rule != nil {
+		view.RequiredSeedHours = &rule.RequiredSeedHours
+		view.RequiredRatio = &rule.RequiredRatio
+		view.InactivityGraceHours = &rule.InactivityGraceHours
+	}
+
+	switch rec.State {
+	case model.HnRStateActive, model.HnRStateBreach:
+		in := repository.HnREvalInput{
+			Record: rec, Rule: rule, TorrentSize: rec.TorrentSize, TorrentExempt: rec.TorrentExempt,
+		}
+		status := EvaluateHnRRecord(in, now)
+		if seeding && status == HnRStatusBreach {
+			// An active seeding peer right now outranks a stale
+			// last_seen_at: the member has proven they are seeding, so the
+			// display must not say breach even though the accumulator's
+			// next credited announce (which would recover it for real)
+			// hasn't landed yet.
+			status = HnRStatusMonitoring
+		}
+		if status == HnRStatusExempt {
+			// Open in storage but no longer applicable (class or torrent
+			// changed since the snatch) — display it where it is headed
+			// once the daemon catches up, not as still-open.
+			view.DisplayStatus = model.HnRStateWaived
+		} else {
+			view.DisplayStatus = string(status)
+		}
+	default:
+		// satisfied, cleared, waived: already resolved: nothing to
+		// re-evaluate, and re-deriving it live risks disagreeing with the
+		// terminal state actually on record.
+		view.DisplayStatus = rec.State
+	}
+	return view
+}
+
 // LastRun and ListRuns expose the daemon's run log for staff visibility.
 func (s *HnRService) LastRun(ctx context.Context) (*model.HnRRun, bool, error) {
 	return s.hnr.LastRun(ctx)

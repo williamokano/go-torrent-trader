@@ -79,6 +79,15 @@ func (f *fakeHnRRepo) setUserGroup(userID, groupID int64) {
 	f.userGroup[userID] = groupID
 }
 
+func (f *fakeHnRRepo) setLiveSeeding(userID, torrentID int64, seeding bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.liveSeeding[userID] == nil {
+		f.liveSeeding[userID] = map[int64]bool{}
+	}
+	f.liveSeeding[userID][torrentID] = seeding
+}
+
 func (f *fakeHnRRepo) recordByUserTorrent(userID, torrentID int64) *model.HnRRecord {
 	for _, r := range f.records {
 		if r.UserID == userID && r.TorrentID == torrentID {
@@ -399,13 +408,24 @@ func (f *fakeHnRRepo) ListRuns(_ context.Context, limit int) ([]model.HnRRun, er
 
 // --- member-facing read path ---
 
+// withTorrentJoin fills in the fields a real JOIN against torrents would
+// populate — TorrentSize and TorrentExempt matter to the evaluator, so a
+// caller reading them off a record returned by ListForUser/GetForUser must
+// see what the fixtures say, exactly like the daemon path already does via
+// ListOpenForEvaluation. Caller must hold f.mu.
+func (f *fakeHnRRepo) withTorrentJoin(r model.HnRRecord) model.HnRRecord {
+	r.TorrentSize = f.torrentSize[r.TorrentID]
+	r.TorrentExempt = f.torrentExempt[r.TorrentID]
+	return r
+}
+
 func (f *fakeHnRRepo) ListForUser(_ context.Context, userID int64) ([]model.HnRRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []model.HnRRecord
 	for _, r := range f.records {
 		if r.UserID == userID {
-			out = append(out, *r)
+			out = append(out, f.withTorrentJoin(*r))
 		}
 	}
 	return out, nil
@@ -418,8 +438,23 @@ func (f *fakeHnRRepo) GetForUser(_ context.Context, userID, recordID int64) (*mo
 	if !ok || r.UserID != userID {
 		return nil, sql.ErrNoRows
 	}
-	cp := *r
+	cp := f.withTorrentJoin(*r)
 	return &cp, nil
+}
+
+func (f *fakeHnRRepo) GetRuleForUser(_ context.Context, userID int64) (*model.HnRRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	gid, ok := f.userGroup[userID]
+	if !ok {
+		return nil, nil
+	}
+	rule, ok := f.rules[gid]
+	if !ok {
+		return nil, nil
+	}
+	r := rule
+	return &r, nil
 }
 
 func (f *fakeHnRRepo) LiveSeedingTorrentIDs(_ context.Context, userID int64, torrentIDs []int64) (map[int64]bool, error) {
@@ -469,7 +504,7 @@ func (f *fakeHnRRepo) AdminList(_ context.Context, opts repository.HnRAdminListO
 		if opts.UserID != nil && r.UserID != *opts.UserID {
 			continue
 		}
-		matched = append(matched, *r)
+		matched = append(matched, f.withTorrentJoin(*r))
 	}
 	total := int64(len(matched))
 	page, perPage := opts.Page, opts.PerPage

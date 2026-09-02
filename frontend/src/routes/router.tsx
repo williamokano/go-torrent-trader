@@ -32,6 +32,7 @@ import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
 import { InvitesPage } from "@/pages/InvitesPage";
 import { BonusStorePage } from "@/pages/BonusStorePage";
+import { HitAndRunPage } from "@/pages/HitAndRunPage";
 import { MessagesPage } from "@/pages/MessagesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
@@ -318,6 +319,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <BonusStorePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "hit-and-run",
+        element: (
+          <ProtectedRoute>
+            <HitAndRunPage />
           </ProtectedRoute>
         ),
       },

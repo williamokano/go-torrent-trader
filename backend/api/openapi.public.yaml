@@ -1332,6 +1332,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/hnr:
+    get:
+      operationId: listMyHnRRecords
+      summary: List the authenticated member's own hit-and-run obligations
+      description: >
+        Breach first, then monitored, then resolved. display_status is evaluated live on every call — see HnRRecordView — so the page is never stale between the daemon's hourly runs; state is what the daemon last persisted and can lag display_status by up to that interval.
+
+      tags: [hnr]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The member's obligations, oldest-first within each status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [records]
+                properties:
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRRecordView'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/torrents/{id}/comments:
     post:
       operationId: createComment
@@ -2969,6 +2998,67 @@ components:
         updated_at:
           type: string
           format: date-time
+    HnRRecordView:
+      type: object
+      description: >
+        One hit-and-run obligation as shown to the member who owns it. display_status is evaluated live on every request against the member's current class rule (see EvaluateHnRRecord) and the live peers overlay, so it can be ahead of state — never behind it — when the daemon has not yet run since something changed.
+
+      properties:
+        id:
+          type: integer
+          format: int64
+        torrent_id:
+          type: integer
+          format: int64
+        torrent_name:
+          type: string
+        torrent_size:
+          type: integer
+          format: int64
+        state:
+          type: string
+          enum: [active, hnr, satisfied, cleared, waived]
+          description: The daemon-persisted state, as of its last run.
+        display_status:
+          type: string
+          enum: [breach, monitoring, satisfied, cleared, waived]
+          description: The live-evaluated status the page should actually show.
+        completed_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        seeded_seconds:
+          type: integer
+          format: int64
+        uploaded:
+          type: integer
+          format: int64
+        breached_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        currently_seeding:
+          type: boolean
+          description: >
+            True when the member has an active seeding peer for this torrent right now, straight from the peers table.
+
+        required_seed_hours:
+          type: integer
+          nullable: true
+          description: Omitted when the member's current class carries no rule.
+        required_ratio:
+          type: number
+          format: double
+          nullable: true
+        inactivity_grace_hours:
+          type: integer
+          nullable: true
     Category:
       type: object
       properties:

@@ -325,6 +325,16 @@ func NewRouter(deps *Deps) chi.Router {
 				})
 			}
 
+			// Hit-and-run: the member's own obligations (admin config and the
+			// run log are registered separately, under /admin/hnr).
+			if deps.HnRService != nil {
+				hnrMember := NewHnRHandler(deps.HnRService)
+				r.Route("/hnr", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/", hnrMember.HandleListForUser)
+				})
+			}
+
 			// Activity log endpoints (visible to all authenticated users)
 			if deps.ActivityLogService != nil {
 				activityLogs := NewActivityLogHandler(deps.ActivityLogService)

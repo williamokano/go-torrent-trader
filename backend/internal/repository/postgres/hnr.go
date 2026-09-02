@@ -502,14 +502,14 @@ func (r *HnRRepo) ListRuns(ctx context.Context, limit int) ([]model.HnRRun, erro
 // --- member-facing read path --------------------------------------------------
 
 const hnrRecordColumns = `hr.id, hr.user_id, hr.torrent_id, hr.state, hr.completed_at, hr.last_seen_at,
-	hr.seeded_seconds, hr.uploaded, hr.breached_at, hr.resolved_at, t.name, t.size`
+	hr.seeded_seconds, hr.uploaded, hr.breached_at, hr.resolved_at, t.name, t.size, t.hnr_exempt`
 
 func scanHnRRecordWithTorrent(row interface{ Scan(...any) error }) (*model.HnRRecord, error) {
 	var rec model.HnRRecord
 	if err := row.Scan(
 		&rec.ID, &rec.UserID, &rec.TorrentID, &rec.State, &rec.CompletedAt, &rec.LastSeenAt,
 		&rec.SeededSeconds, &rec.Uploaded, &rec.BreachedAt, &rec.ResolvedAt,
-		&rec.TorrentName, &rec.TorrentSize,
+		&rec.TorrentName, &rec.TorrentSize, &rec.TorrentExempt,
 	); err != nil {
 		return nil, err
 	}
@@ -581,6 +581,32 @@ func (r *HnRRepo) LiveSeedingTorrentIDs(ctx context.Context, userID int64, torre
 		return nil, fmt.Errorf("iterate live seeding torrent ids: %w", err)
 	}
 	return result, nil
+}
+
+// GetRuleForUser resolves a rule via the user's current class, the same
+// LEFT JOIN ListOpenForEvaluation uses. seedHours.Valid false means the
+// class carries no rule — reported as (nil, nil), not an error, exactly
+// what the shared evaluator treats as HnRStatusExempt. A genuinely missing
+// user (the inner JOIN on users matches no row) is sql.ErrNoRows.
+func (r *HnRRepo) GetRuleForUser(ctx context.Context, userID int64) (*model.HnRRule, error) {
+	query := `SELECT ru.required_seed_hours, ru.required_ratio, ru.inactivity_grace_hours, ru.max_days_to_satisfy
+		FROM users u
+		LEFT JOIN hnr_rules ru ON ru.group_id = u.group_id
+		WHERE u.id = $1`
+	var seedHours, graceHours, maxDays sql.NullInt64
+	var ratio sql.NullFloat64
+	if err := r.db.QueryRowContext(ctx, query, userID).Scan(&seedHours, &ratio, &graceHours, &maxDays); err != nil {
+		return nil, err
+	}
+	if !seedHours.Valid {
+		return nil, nil
+	}
+	return &model.HnRRule{
+		RequiredSeedHours:    int(seedHours.Int64),
+		RequiredRatio:        ratio.Float64,
+		InactivityGraceHours: int(graceHours.Int64),
+		MaxDaysToSatisfy:     int(maxDays.Int64),
+	}, nil
 }
 
 // --- clearing with bonus points ------------------------------------------------
@@ -678,7 +704,7 @@ func (r *HnRRepo) AdminList(ctx context.Context, opts repository.HnRAdminListOpt
 		if err := rows.Scan(
 			&rec.ID, &rec.UserID, &rec.TorrentID, &rec.State, &rec.CompletedAt, &rec.LastSeenAt,
 			&rec.SeededSeconds, &rec.Uploaded, &rec.BreachedAt, &rec.ResolvedAt,
-			&rec.TorrentName, &rec.TorrentSize, &rec.Username,
+			&rec.TorrentName, &rec.TorrentSize, &rec.TorrentExempt, &rec.Username,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan hnr admin record: %w", err)
 		}

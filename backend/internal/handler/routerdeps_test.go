@@ -178,6 +178,7 @@ func (nopHnRRepo) GetForUser(context.Context, int64, int64) (*model.HnRRecord, e
 func (nopHnRRepo) LiveSeedingTorrentIDs(context.Context, int64, []int64) (map[int64]bool, error) {
 	return nil, nil
 }
+func (nopHnRRepo) GetRuleForUser(context.Context, int64) (*model.HnRRule, error) { return nil, nil }
 func (nopHnRRepo) ClearRecord(context.Context, int64, int64, int64) (int64, error) {
 	return 0, repository.ErrHnRRecordNotClearable
 }

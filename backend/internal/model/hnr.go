@@ -59,9 +59,10 @@ type HnRRecord struct {
 	ResolvedAt    *time.Time
 
 	// Joined fields for display (populated by queries that need them).
-	TorrentName string
-	TorrentSize int64
-	Username    string
+	TorrentName   string
+	TorrentSize   int64
+	TorrentExempt bool
+	Username      string
 }
 
 // HnRPenaltyStage is one ordered rung of the site-wide penalty ladder.

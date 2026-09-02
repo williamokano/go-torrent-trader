@@ -381,6 +381,14 @@ type HnRRepository interface {
 	// the user currently has an active seeding peer for, straight from
 	// peers — the one place in the schema with zero lag.
 	LiveSeedingTorrentIDs(ctx context.Context, userID int64, torrentIDs []int64) (map[int64]bool, error)
+	// GetRuleForUser resolves a rule via the user's *current* class, the
+	// same join ListOpenForEvaluation uses (not the class at snatch time —
+	// a promoted-to-VIP user is exempt going forward, matching the daemon).
+	// A user whose class carries no rule is not an error: it returns
+	// (nil, nil), exactly what the evaluator treats as HnRStatusExempt. Only
+	// a genuinely missing user (deleted between auth and this call) returns
+	// sql.ErrNoRows.
+	GetRuleForUser(ctx context.Context, userID int64) (*model.HnRRule, error)
 
 	// Clearing with bonus points. ClearRecord is one transaction, mirroring
 	// BonusRepo.PurchaseItem: verify the record belongs to userID and is
