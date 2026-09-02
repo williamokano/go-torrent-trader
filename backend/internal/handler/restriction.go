@@ -36,6 +36,7 @@ type setRestrictionsRequest struct {
 	CanChat     *bool   `json:"can_chat"`
 	CanInvite   *bool   `json:"can_invite"`
 	CanFeed     *bool   `json:"can_feed"`
+	CanForum    *bool   `json:"can_forum"`
 	Reason      string  `json:"reason"`
 	ExpiresAt   *string `json:"expires_at"`
 }
@@ -111,10 +112,13 @@ func (h *RestrictionHandler) HandleSetRestrictions(w http.ResponseWriter, r *htt
 	if req.CanFeed != nil {
 		actions = append(actions, restrictionAction{model.RestrictionTypeFeed, !*req.CanFeed})
 	}
+	if req.CanForum != nil {
+		actions = append(actions, restrictionAction{model.RestrictionTypeForum, !*req.CanForum})
+	}
 
 	for _, action := range actions {
 		if action.restrict {
-			if _, err := h.restrictionSvc.ApplyRestriction(r.Context(), userID, action.rType, req.Reason, expiresAt, &actorID); err != nil {
+			if _, err := h.restrictionSvc.ApplyRestriction(r.Context(), userID, action.rType, req.Reason, model.RestrictionSourceManual, expiresAt, &actorID); err != nil {
 				ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to apply restriction: "+err.Error())
 				return
 			}

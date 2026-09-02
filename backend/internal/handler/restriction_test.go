@@ -107,6 +107,20 @@ func (m *mockRestrictionRepoHandler) HasActiveByType(_ context.Context, userID i
 	return false, nil
 }
 
+func (m *mockRestrictionRepoHandler) LiftActiveBySource(_ context.Context, userID int64, restrictionType, source string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	var n int
+	for _, r := range m.restrictions {
+		if r.UserID == userID && r.RestrictionType == restrictionType && r.Source == source && r.LiftedAt == nil {
+			r.LiftedAt = &now
+			n++
+		}
+	}
+	return n, nil
+}
+
 // --- setup ---
 
 func setupRestrictionRouter() (http.Handler, *service.RestrictionService) {
@@ -274,7 +288,7 @@ func TestHandleSetRestrictions_Lift(t *testing.T) {
 
 	// Apply a restriction via service directly.
 	adminID := int64(1)
-	_, err := restrictionSvc.ApplyRestriction(context.Background(), int64(userID), model.RestrictionTypeDownload, "test", nil, &adminID)
+	_, err := restrictionSvc.ApplyRestriction(context.Background(), int64(userID), model.RestrictionTypeDownload, "test", model.RestrictionSourceManual, nil, &adminID)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -302,8 +316,8 @@ func TestHandleListRestrictions(t *testing.T) {
 
 	// Apply some restrictions.
 	adminID := int64(1)
-	_, _ = restrictionSvc.ApplyRestriction(context.Background(), int64(userID), model.RestrictionTypeDownload, "reason1", nil, &adminID)
-	_, _ = restrictionSvc.ApplyRestriction(context.Background(), int64(userID), model.RestrictionTypeUpload, "reason2", nil, &adminID)
+	_, _ = restrictionSvc.ApplyRestriction(context.Background(), int64(userID), model.RestrictionTypeDownload, "reason1", model.RestrictionSourceManual, nil, &adminID)
+	_, _ = restrictionSvc.ApplyRestriction(context.Background(), int64(userID), model.RestrictionTypeUpload, "reason2", model.RestrictionSourceManual, nil, &adminID)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/"+formatID(userID)+"/restrictions", nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken)

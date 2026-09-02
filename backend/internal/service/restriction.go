@@ -50,13 +50,19 @@ func NewRestrictionService(
 }
 
 // ApplyRestriction creates a new restriction and updates the user flag.
-func (s *RestrictionService) ApplyRestriction(ctx context.Context, userID int64, restrictionType, reason string, expiresAt *time.Time, issuedByID *int64) (*model.Restriction, error) {
+// source identifies which system is issuing it (model.RestrictionSource*) so a
+// later automated lift can target exactly its own cause — see migration 082.
+func (s *RestrictionService) ApplyRestriction(ctx context.Context, userID int64, restrictionType, reason, source string, expiresAt *time.Time, issuedByID *int64) (*model.Restriction, error) {
 	if reason == "" {
 		return nil, fmt.Errorf("%w: reason cannot be empty", ErrInvalidRestriction)
 	}
 
 	if !isValidRestrictionType(restrictionType) {
 		return nil, fmt.Errorf("%w: invalid restriction type: %s", ErrInvalidRestriction, restrictionType)
+	}
+
+	if !isValidRestrictionSource(source) {
+		return nil, fmt.Errorf("%w: invalid restriction source: %s", ErrInvalidRestriction, source)
 	}
 
 	user, err := s.users.GetByID(ctx, userID)
@@ -68,6 +74,7 @@ func (s *RestrictionService) ApplyRestriction(ctx context.Context, userID int64,
 		UserID:          userID,
 		RestrictionType: restrictionType,
 		Reason:          reason,
+		Source:          source,
 		IssuedBy:        issuedByID,
 		ExpiresAt:       expiresAt,
 	}
@@ -138,6 +145,51 @@ func (s *RestrictionService) LiftRestriction(ctx context.Context, restrictionID 
 	})
 
 	return nil
+}
+
+// LiftActiveBySource lifts every currently active restriction of
+// restrictionType for userID that was issued by source, then restores the
+// privilege flag if none of any source remain active. Idempotent: matching
+// zero rows is success, not an error — the caller only cares that no active
+// restriction from this source exists afterward, which already holds when
+// nothing matched. This is what HnR (and any future automated issuer) must
+// call instead of LiftRestriction: a lift-by-ID can only safely target a row
+// the caller is already looking at (the staff UI), while an automated system
+// must never guess which row is "its own" by inference.
+func (s *RestrictionService) LiftActiveBySource(ctx context.Context, userID int64, restrictionType, source string, liftedByID *int64) (int, error) {
+	if !isValidRestrictionType(restrictionType) {
+		return 0, fmt.Errorf("%w: invalid restriction type: %s", ErrInvalidRestriction, restrictionType)
+	}
+	if !isValidRestrictionSource(source) {
+		return 0, fmt.Errorf("%w: invalid restriction source: %s", ErrInvalidRestriction, source)
+	}
+
+	n, err := s.restrictions.LiftActiveBySource(ctx, userID, restrictionType, source)
+	if err != nil {
+		return 0, fmt.Errorf("lift active restrictions by source: %w", err)
+	}
+	if n == 0 {
+		return 0, nil
+	}
+
+	if err := s.restoreUserFlagIfNone(ctx, userID, restrictionType); err != nil {
+		return n, err
+	}
+
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return n, fmt.Errorf("get user for event: %w", err)
+	}
+
+	actor := s.actorFromUserID(ctx, liftedByID)
+	s.eventBus.Publish(ctx, &event.RestrictionLiftedEvent{
+		Base:            event.NewBase(event.RestrictionLifted, actor),
+		UserID:          userID,
+		Username:        user.Username,
+		RestrictionType: restrictionType,
+	})
+
+	return n, nil
 }
 
 // ListByUser returns all restrictions for a user.
@@ -230,7 +282,15 @@ func (s *RestrictionService) SyncUserFlag(ctx context.Context, userID int64, res
 func isValidRestrictionType(t string) bool {
 	switch t {
 	case model.RestrictionTypeDownload, model.RestrictionTypeUpload, model.RestrictionTypeChat,
-		model.RestrictionTypeInvite, model.RestrictionTypeFeed:
+		model.RestrictionTypeInvite, model.RestrictionTypeFeed, model.RestrictionTypeForum:
+		return true
+	}
+	return false
+}
+
+func isValidRestrictionSource(s string) bool {
+	switch s {
+	case model.RestrictionSourceManual, model.RestrictionSourceRatioWarning, model.RestrictionSourceHnR:
 		return true
 	}
 	return false

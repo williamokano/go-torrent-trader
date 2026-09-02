@@ -110,6 +110,20 @@ func (m *mockRestrictionRepo) HasActiveByType(_ context.Context, userID int64, r
 	return false, nil
 }
 
+func (m *mockRestrictionRepo) LiftActiveBySource(_ context.Context, userID int64, restrictionType, source string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	var n int
+	for _, r := range m.restrictions {
+		if r.UserID == userID && r.RestrictionType == restrictionType && r.Source == source && r.LiftedAt == nil {
+			r.LiftedAt = &now
+			n++
+		}
+	}
+	return n, nil
+}
+
 // --- mock user repo for restriction tests ---
 
 type mockUserRepoForRestrictions struct {
@@ -208,7 +222,7 @@ func TestApplyRestriction_HappyPath(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true, CanUpload: true, CanChat: true})
 
 	adminID := int64(99)
-	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "bad ratio", nil, &adminID)
+	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "bad ratio", model.RestrictionSourceManual, nil, &adminID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -232,7 +246,7 @@ func TestApplyRestriction_Invite(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 99, Username: "admin"})
 
 	adminID := int64(99)
-	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeInvite, "invite abuse", nil, &adminID)
+	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeInvite, "invite abuse", model.RestrictionSourceManual, nil, &adminID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,7 +285,7 @@ func TestSyncUserFlag_KeepsFlagWhileRestrictionActive(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanInvite: true})
 
 	adminID := int64(99)
-	if _, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeInvite, "abuse", nil, &adminID); err != nil {
+	if _, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeInvite, "abuse", model.RestrictionSourceManual, nil, &adminID); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
@@ -290,7 +304,7 @@ func TestApplyRestriction_EmptyReason(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true})
 
 	adminID := int64(99)
-	_, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "", nil, &adminID)
+	_, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "", model.RestrictionSourceManual, nil, &adminID)
 	if err == nil {
 		t.Fatal("expected error for empty reason")
 	}
@@ -301,7 +315,7 @@ func TestApplyRestriction_InvalidType(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 1, Username: "testuser"})
 
 	adminID := int64(99)
-	_, err := svc.ApplyRestriction(context.Background(), 1, "invalid_type", "reason", nil, &adminID)
+	_, err := svc.ApplyRestriction(context.Background(), 1, "invalid_type", "reason", model.RestrictionSourceManual, nil, &adminID)
 	if err == nil {
 		t.Fatal("expected error for invalid restriction type")
 	}
@@ -313,7 +327,7 @@ func TestLiftRestriction_HappyPath(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 99, Username: "admin"})
 
 	adminID := int64(99)
-	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "bad ratio", nil, &adminID)
+	restriction, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "bad ratio", model.RestrictionSourceManual, nil, &adminID)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -345,11 +359,11 @@ func TestLiftRestriction_RestoreFlagOnlyWhenNoOtherActive(t *testing.T) {
 	adminID := int64(99)
 
 	// Apply two download restrictions.
-	r1, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason 1", nil, &adminID)
+	r1, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason 1", model.RestrictionSourceManual, nil, &adminID)
 	if err != nil {
 		t.Fatalf("apply r1: %v", err)
 	}
-	_, err = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason 2", nil, &adminID)
+	_, err = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason 2", model.RestrictionSourceManual, nil, &adminID)
 	if err != nil {
 		t.Fatalf("apply r2: %v", err)
 	}
@@ -373,7 +387,7 @@ func TestLiftRestriction_AlreadyLifted(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 99, Username: "admin"})
 
 	adminID := int64(99)
-	r, _ := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason", nil, &adminID)
+	r, _ := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason", model.RestrictionSourceManual, nil, &adminID)
 	_ = svc.LiftRestriction(context.Background(), r.ID, &adminID)
 
 	err := svc.LiftRestriction(context.Background(), r.ID, &adminID)
@@ -388,7 +402,7 @@ func TestResolveExpired(t *testing.T) {
 
 	adminID := int64(99)
 	past := time.Now().Add(-1 * time.Hour)
-	_, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "expired", &past, &adminID)
+	_, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "expired", model.RestrictionSourceManual, &past, &adminID)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -420,8 +434,8 @@ func TestListByUser(t *testing.T) {
 	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true, CanUpload: true, CanChat: true})
 
 	adminID := int64(99)
-	_, _ = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason1", nil, &adminID)
-	_, _ = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeUpload, "reason2", nil, &adminID)
+	_, _ = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "reason1", model.RestrictionSourceManual, nil, &adminID)
+	_, _ = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeUpload, "reason2", model.RestrictionSourceManual, nil, &adminID)
 
 	list, err := svc.ListByUser(context.Background(), 1)
 	if err != nil {
@@ -429,5 +443,95 @@ func TestListByUser(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Errorf("expected 2 restrictions, got %d", len(list))
+	}
+}
+
+// TestLiftActiveBySource_OnlyLiftsOwnSource is the exact scenario the
+// user_restrictions.source migration exists for: a manually-issued
+// restriction and an automated (HnR-sourced) one, both of the same type on
+// the same user. Lifting the automated one must not touch the manual one,
+// and the privilege flag — which reflects "no active restriction from
+// anywhere" — must stay false because the manual restriction is still open.
+func TestLiftActiveBySource_OnlyLiftsOwnSource(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true, CanUpload: true, CanChat: true})
+	userRepo.addUser(&model.User{ID: 99, Username: "admin"})
+
+	adminID := int64(99)
+	manual, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "abuse", model.RestrictionSourceManual, nil, &adminID)
+	if err != nil {
+		t.Fatalf("apply manual: %v", err)
+	}
+	_, err = svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "hit and run", model.RestrictionSourceHnR, nil, nil)
+	if err != nil {
+		t.Fatalf("apply hnr: %v", err)
+	}
+
+	n, err := svc.LiftActiveBySource(context.Background(), 1, model.RestrictionTypeDownload, model.RestrictionSourceHnR, nil)
+	if err != nil {
+		t.Fatalf("lift by source: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 restriction lifted, got %d", n)
+	}
+
+	// The manual restriction must still be active.
+	manualNow, err := svc.restrictions.GetByID(context.Background(), manual.ID)
+	if err != nil {
+		t.Fatalf("get manual: %v", err)
+	}
+	if manualNow.LiftedAt != nil {
+		t.Error("manual restriction should not have been lifted by an hnr-source lift")
+	}
+
+	// The flag must stay false — another source's restriction is still open.
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	if user.CanDownload {
+		t.Error("user.CanDownload should still be false while the manual restriction is active")
+	}
+}
+
+// TestLiftActiveBySource_NothingToLiftSucceeds is the idempotency contract:
+// attempting to lift a source that has nothing active for this user/type must
+// succeed with zero lifted, not return an error. HnR's compliance/clear path
+// relies on this — a repeated lift attempt (already lifted, or never applied)
+// is a safe no-op because the desired end state already holds.
+func TestLiftActiveBySource_NothingToLiftSucceeds(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true, CanUpload: true, CanChat: true})
+
+	n, err := svc.LiftActiveBySource(context.Background(), 1, model.RestrictionTypeDownload, model.RestrictionSourceHnR, nil)
+	if err != nil {
+		t.Fatalf("expected no error lifting a source with nothing active, got: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 lifted, got %d", n)
+	}
+}
+
+// TestLiftActiveBySource_RestoresFlagWhenLastOne mirrors
+// TestLiftRestriction_RestoreFlagOnlyWhenNoOtherActive for the source-scoped
+// lift: once the only active restriction of a type is lifted, the flag comes
+// back regardless of which lift method removed it.
+func TestLiftActiveBySource_RestoresFlagWhenLastOne(t *testing.T) {
+	svc, _, userRepo := setupRestrictionService()
+	userRepo.addUser(&model.User{ID: 1, Username: "testuser", CanDownload: true, CanUpload: true, CanChat: true})
+
+	_, err := svc.ApplyRestriction(context.Background(), 1, model.RestrictionTypeDownload, "hit and run", model.RestrictionSourceHnR, nil, nil)
+	if err != nil {
+		t.Fatalf("apply hnr: %v", err)
+	}
+
+	n, err := svc.LiftActiveBySource(context.Background(), 1, model.RestrictionTypeDownload, model.RestrictionSourceHnR, nil)
+	if err != nil {
+		t.Fatalf("lift by source: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 restriction lifted, got %d", n)
+	}
+
+	user, _ := userRepo.GetByID(context.Background(), 1)
+	if !user.CanDownload {
+		t.Error("user.CanDownload should be true once the only active restriction is lifted")
 	}
 }

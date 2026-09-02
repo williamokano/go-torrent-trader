@@ -186,6 +186,20 @@ func (m *mockEscalationRestrictionRepo) HasActiveByType(_ context.Context, userI
 	return false, nil
 }
 
+func (m *mockEscalationRestrictionRepo) LiftActiveBySource(_ context.Context, userID int64, restrictionType, source string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	var n int
+	for _, r := range m.restrictions {
+		if r.UserID == userID && r.RestrictionType == restrictionType && r.Source == source && r.LiftedAt == nil {
+			r.LiftedAt = &now
+			n++
+		}
+	}
+	return n, nil
+}
+
 // --- mock user repo for escalation ---
 
 type mockEscalationUserRepo struct {
@@ -466,6 +480,9 @@ func TestWarningEscalation_AppliesRestriction(t *testing.T) {
 	r := restrictionRepo.restrictions[0]
 	if r.RestrictionType != "download" {
 		t.Errorf("expected download restriction, got %s", r.RestrictionType)
+	}
+	if r.Source != model.RestrictionSourceRatioWarning {
+		t.Errorf("expected source %q, got %q", model.RestrictionSourceRatioWarning, r.Source)
 	}
 	if r.ExpiresAt == nil {
 		t.Error("expected restriction to have an expiry")
