@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useToast } from "@/components/toast";
@@ -28,12 +28,17 @@ interface SettingConfig {
   /** Mirrors a backend length limit so it is enforced while typing rather than
    *  reported as an error toast after Save All. */
   maxLength?: number;
+  /** Groups related settings under one heading. Render order follows this
+   *  array's order (each section's first appearance), not the alphabetical
+   *  order the backend returns settings in. */
+  section: string;
 }
 
 const SETTING_DEFINITIONS: SettingConfig[] = [
   // Registration
   {
     key: "registration_mode",
+    section: "Registration",
     label: "Registration Mode",
     description:
       "Controls whether new users can register freely or need an invite code.",
@@ -46,6 +51,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Torrent submission moderation
   {
     key: "moderation_enabled",
+    section: "Torrent submission moderation",
     label: "Torrent Moderation Enabled",
     description:
       "Master toggle for torrent submission moderation. When enabled, new uploads stay pending — hidden and undownloadable to everyone but the uploader and staff — until a staff member (or a self-approving Uploader) approves them. When disabled, uploads publish immediately.",
@@ -57,6 +63,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "moderation_public_visibility",
+    section: "Torrent submission moderation",
     label: "Show Pending Torrents Publicly",
     description:
       "When enabled, a pending torrent's detail page is visible to everyone (marked as awaiting moderation) instead of returning 404 to non-staff. Pending torrents are never downloadable by non-uploader/non-staff regardless of this setting, and never appear in public listings.",
@@ -69,6 +76,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Ratio warnings
   {
     key: "ratio_warning_threshold",
+    section: "Ratio warnings",
     label: "Ratio Warning Threshold",
     description:
       "Users with a ratio below this value will receive an automatic warning. Example: 0.3 means users downloading 3x more than they upload.",
@@ -76,6 +84,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "ratio_minimum_downloaded",
+    section: "Ratio warnings",
     label: "Ratio Minimum Downloaded (bytes)",
     description:
       "Minimum bytes downloaded before ratio rules apply. Prevents warnings for new users. Default: 5368709120 (5 GB).",
@@ -83,6 +92,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "ratio_warn_days",
+    section: "Ratio warnings",
     label: "Ratio Warning Delay (days)",
     description:
       "Number of days a user must be below the ratio threshold before receiving a soft warning.",
@@ -90,6 +100,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "ratio_ban_days",
+    section: "Ratio warnings",
     label: "Ratio Ban Delay (days)",
     description:
       "Number of days after the soft warning before the user's account is automatically disabled. Must be greater than the warning delay.",
@@ -97,6 +108,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "ratio_warning_message",
+    section: "Ratio warnings",
     label: "Ratio Warning Message",
     description:
       "PM sent when a user receives a ratio warning. Variables: {{username}}, {{ratio}}, {{threshold}}, {{days_elapsed}}, {{days_remaining}}.",
@@ -104,6 +116,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "ratio_ban_message",
+    section: "Ratio warnings",
     label: "Ratio Ban Message",
     description:
       "PM sent when a user is auto-banned for low ratio. Variables: {{username}}, {{ratio}}, {{threshold}}, {{days_elapsed}}.",
@@ -112,6 +125,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Chat anti-spam
   {
     key: "chat_rate_limit_window",
+    section: "Chat anti-spam",
     label: "Chat Rate Limit Window (seconds)",
     description:
       "Time window in seconds for counting chat messages. If a user exceeds the max messages within this window, they get a strike.",
@@ -119,6 +133,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_rate_limit_max",
+    section: "Chat anti-spam",
     label: "Chat Rate Limit Max Messages",
     description:
       "Maximum number of chat messages allowed within the rate limit window before a strike is issued.",
@@ -126,6 +141,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_spam_strike_count",
+    section: "Chat anti-spam",
     label: "Chat Spam Strike Count",
     description:
       "Number of consecutive rate limit violations before the user is automatically muted. Strikes reset when the user sends a message without hitting the limit.",
@@ -133,6 +149,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_spam_mute_minutes",
+    section: "Chat anti-spam",
     label: "Chat Spam Mute Duration (minutes)",
     description:
       "How long a user is automatically muted after exceeding the strike count.",
@@ -140,6 +157,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_strike_reset_seconds",
+    section: "Chat anti-spam",
     label: "Chat Strike Reset Cooldown (seconds)",
     description:
       "Strikes reset to zero after this many seconds of no rate limit violations. Prevents strikes from accumulating across long gaps of normal behavior.",
@@ -147,6 +165,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_rate_limit_message",
+    section: "Chat anti-spam",
     label: "Chat Rate Limit Message",
     description:
       "Message shown to the user when they hit the rate limit. Displayed as a toast notification.",
@@ -154,6 +173,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_spam_mute_message",
+    section: "Chat anti-spam",
     label: "Chat Spam Mute Message",
     description:
       "Reason recorded when a user is auto-muted for spam. Visible to staff in the mute record.",
@@ -161,6 +181,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "chat_system_display_name",
+    section: "Chat anti-spam",
     label: "Shoutbox System Name",
     description:
       "Author label shown on shoutbox announcements posted by the site itself, such as new-torrent lines from a shoutbox connector. Up to 32 characters. Applies to new and existing announcements — the name is not stored on the message. Shared by every shoutbox connector instance.",
@@ -170,6 +191,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Tracker connection limits
   {
     key: "tracker_max_peers_per_torrent",
+    section: "Tracker connection limits",
     label: "Max Peers Per Torrent",
     description:
       "Maximum number of peers allowed on a single torrent. New peers are rejected once this limit is reached. Set to 0 to disable. Default: 50.",
@@ -177,6 +199,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "tracker_max_peers_per_user",
+    section: "Tracker connection limits",
     label: "Max Peers Per User",
     description:
       "Maximum number of concurrent peers a single user can have across all torrents. New peers are rejected once this limit is reached. Set to 0 to disable. Default: 100.",
@@ -185,6 +208,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Warning escalation
   {
     key: "warning_escalation_enabled",
+    section: "Warning escalation",
     label: "Warning Escalation Enabled",
     description:
       "Master toggle for automatic warning escalation. When enabled, accumulating manual warnings can trigger privilege restrictions or account bans.",
@@ -196,6 +220,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "warning_count_restrict",
+    section: "Warning escalation",
     label: "Warnings Before Restriction",
     description:
       "Number of active manual warnings before the user's privileges are automatically restricted.",
@@ -203,6 +228,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "warning_count_ban",
+    section: "Warning escalation",
     label: "Warnings Before Ban",
     description:
       "Number of active manual warnings before the user's account is automatically disabled. Must be greater than the restriction threshold.",
@@ -210,6 +236,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "warning_restrict_type",
+    section: "Warning escalation",
     label: "Restriction Type",
     description:
       "Which privilege to restrict when the warning count reaches the restriction threshold.",
@@ -225,6 +252,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "warning_restrict_days",
+    section: "Warning escalation",
     label: "Restriction Duration (days)",
     description:
       "How many days the automatic privilege restriction lasts. After this period, the restriction is lifted automatically by the maintenance job.",
@@ -233,6 +261,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Cheat detection
   {
     key: "cheat_detection_enabled",
+    section: "Cheat detection",
     label: "Cheat Detection Enabled",
     description:
       "Master toggle for automatic cheat detection. When enabled, each announce is checked for impossible upload speeds, upload with no downloaders, and left/downloaded mismatches, raising staff-visible flags.",
@@ -244,6 +273,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "cheat_max_upload_speed_mb_s",
+    section: "Cheat detection",
     label: "Max Upload Speed (MB/s)",
     description:
       "Maximum plausible upload speed in MB/s. An announce whose upload since the previous announce implies a higher average speed is flagged as a likely cheat. Default: 100.",
@@ -251,6 +281,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "cheat_left_mismatch_tolerance_pct",
+    section: "Cheat detection",
     label: "Left Mismatch Tolerance (%)",
     description:
       "Tolerance percentage for a peer's reported 'left' bytes versus the torrent size. Announces whose remaining bytes are inconsistent beyond this tolerance are flagged. Default: 10.",
@@ -258,6 +289,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "cheat_flag_cooldown_hours",
+    section: "Cheat detection",
     label: "Cheat Flag Cooldown (hours)",
     description:
       "Minimum hours between repeat cheat flags of the same type for the same user and torrent. Prevents one ongoing anomaly from producing dozens of duplicate flags. Default: 6.",
@@ -266,6 +298,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Download wait times
   {
     key: "wait_time_enabled",
+    section: "Download wait times",
     label: "Wait Time Enabled",
     description:
       "Master toggle for download wait times. When enabled, low-ratio users must wait before they can start downloading newly uploaded torrents.",
@@ -277,6 +310,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "wait_time_bypass_ratio",
+    section: "Download wait times",
     label: "Wait Time Bypass Ratio",
     description:
       "Users at or above this ratio skip wait times entirely. Default: 0.95.",
@@ -284,6 +318,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "wait_time_tiers",
+    section: "Download wait times",
     label: "Wait Time Tiers (JSON)",
     description:
       'JSON array of {"ratio", "hours"} tiers, ascending by ratio. A user below a tier\'s ratio must wait that many hours after a torrent is uploaded before downloading it. Example: [{"ratio":0.5,"hours":48},{"ratio":0.8,"hours":12}].',
@@ -292,6 +327,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Announce event log
   {
     key: "announce_log_enabled",
+    section: "Announce event log",
     label: "Announce Log Enabled",
     description:
       "Master toggle for the append-only announce event log. When enabled, every tracker announce is recorded (deltas, peer ID, IP) for data export, bonus reconciliation, and time-windowed reporting. Disabling stops new capture but keeps existing rows.",
@@ -303,6 +339,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "announce_log_retention_days",
+    section: "Announce event log",
     label: "Announce Log Retention (days)",
     description:
       "The shortest time individual announce records are kept. A nightly job totals each day into permanent per-member monthly figures and then deletes raw rows past this window — so the log stops growing without losing anyone's transfer totals. A floor, not a guarantee: features that read raw announces can hold the window open for longer, and this page says so when one is. It does not give disk back either — once autovacuum has swept them, the deleted rows' space is reused by later announces rather than returned to the filesystem. Only VACUUM FULL shrinks the database itself, and it locks the table and needs its size again in free space. Set to 0 to keep every raw announce forever. Default: 90.",
@@ -311,6 +348,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Auto class promotion
   {
     key: "promotion_enabled",
+    section: "Auto class promotion",
     label: "Auto Class Promotion Enabled",
     description:
       "Master toggle for automatic class promotion/demotion. When enabled, the engine periodically moves users one rung up or down the ladder based on the per-class rules configured on the Class Promotion page.",
@@ -322,6 +360,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "promotion_interval_days",
+    section: "Auto class promotion",
     label: "Promotion Cycle (days)",
     description:
       "How often the promotion engine evaluates users. The daily job is a no-op until this many days have elapsed since the last run. Default: 7.",
@@ -329,6 +368,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "promotion_seed_window_days",
+    section: "Auto class promotion",
     label: "Promotion Seed Window (days)",
     description:
       "The trailing window over which seeding time is measured from the announce log for the 'Min Seed (hrs)' promotion rule. Default: 30.",
@@ -337,6 +377,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Auto invite distribution
   {
     key: "invite_distribution_enabled",
+    section: "Auto invite distribution",
     label: "Auto Invite Distribution Enabled",
     description:
       "Master toggle for automatic invite distribution. When enabled, the engine periodically grants +1 invite to eligible users based on the per-class rules configured on the Invite Distribution page.",
@@ -348,6 +389,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "invite_distribution_interval_days",
+    section: "Auto invite distribution",
     label: "Invite Distribution Cycle (days)",
     description:
       "How often the invite distribution engine evaluates users. The daily job is a no-op until this many days have elapsed since the last run. Default: 7.",
@@ -356,6 +398,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   // Bonus point economy
   {
     key: "bonus_enabled",
+    section: "Bonus point economy",
     label: "Bonus System Enabled",
     description:
       "Master toggle for the bonus point economy: the hourly seeding award and all bonus store purchases. Balances and the ledger are kept while disabled.",
@@ -367,9 +410,94 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
   },
   {
     key: "bonus_points_per_seeding_torrent",
+    section: "Bonus point economy",
     label: "Bonus Points per Seeding Torrent",
     description:
       "Points awarded each hourly cycle for every torrent a user is currently seeding. Fractions allowed; per-user totals are rounded per cycle. Default: 1.",
+    type: "number",
+  },
+  // Hit-and-run
+  {
+    key: "hnr_enabled",
+    section: "Hit-and-run",
+    label: "Hit-and-Run Enabled",
+    description:
+      "Master toggle. When enabled, every completed download starts a tracked obligation to seed it for the required time or reach the required ratio, per the per-class rules on the Hit-and-Run page. Tracking only ever applies going forward — nothing already snatched is retroactively tracked.",
+    type: "select",
+    options: [
+      { value: "false", label: "Disabled" },
+      { value: "true", label: "Enabled" },
+    ],
+  },
+  {
+    key: "hnr_seed_credit_cap_minutes",
+    section: "Hit-and-run",
+    label: "Seed Credit Cap (minutes)",
+    description:
+      "The anti-gaming guard: a gap between two seeding announces longer than this earns zero credit for that gap, so seed time can only be earned by actually announcing continuously — reconnecting briefly right before a check cannot fake it. Should exceed the tracker's announce interval with margin. Default: 45.",
+    type: "number",
+  },
+  {
+    key: "hnr_grace_after_complete_hours",
+    section: "Hit-and-run",
+    label: "Grace After Completion (hours)",
+    description:
+      "How long after a snatch completes before the daemon starts evaluating it at all, giving a member time to start seeding before any clock that matters begins. 0 = evaluate from the moment it completes.",
+    type: "number",
+  },
+  {
+    key: "hnr_retention_days",
+    section: "Hit-and-run",
+    label: "Resolved Record Retention (days)",
+    description:
+      "How long a resolved record (satisfied, cleared, or waived) is kept before the daemon purges it. Default: 180.",
+    type: "number",
+  },
+  {
+    key: "hnr_exempt_donors",
+    section: "Hit-and-run",
+    label: "Exempt Donors",
+    description:
+      "Whether donor accounts are exempt from hit-and-run tracking entirely, in addition to any class-level exemption.",
+    type: "select",
+    options: [
+      { value: "false", label: "Not exempt" },
+      { value: "true", label: "Exempt" },
+    ],
+  },
+  {
+    key: "hnr_clear_pricing_mode",
+    section: "Hit-and-run",
+    label: "Clear Pricing Mode",
+    description:
+      "How clearing an obligation with bonus points is priced: a fixed price by torrent size, or a price proportional to the upload still needed to reach the required ratio.",
+    type: "select",
+    options: [
+      { value: "fixed", label: "Fixed (base + per GiB of torrent size)" },
+      { value: "deficit", label: "Deficit (per GiB still needed)" },
+    ],
+  },
+  {
+    key: "hnr_clear_base_points",
+    section: "Hit-and-run",
+    label: "Clear Base Price (points)",
+    description: "Flat component of the fixed clear price. Default: 50.",
+    type: "number",
+  },
+  {
+    key: "hnr_clear_points_per_gib",
+    section: "Hit-and-run",
+    label: "Clear Price per GiB (fixed mode)",
+    description:
+      "Added to the base price for every GiB of the torrent's size, under fixed pricing. Default: 10.",
+    type: "number",
+  },
+  {
+    key: "hnr_clear_points_per_gib_deficit",
+    section: "Hit-and-run",
+    label: "Clear Price per GiB (deficit mode)",
+    description:
+      "Price per GiB of upload still needed to reach the required ratio, under deficit pricing. Default: 25.",
     type: "number",
   },
 ];
@@ -380,6 +508,7 @@ function getSettingDef(key: string): SettingConfig {
       key,
       label: key,
       type: "text",
+      section: "Other",
     }
   );
 }
@@ -390,6 +519,33 @@ export function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  // Grouped by section, in SETTING_DEFINITIONS' order — not the alphabetical
+  // order the backend returns settings in — so a page with dozens of keys
+  // reads as a set of related panels rather than one flat table. A setting
+  // the backend returns that has no definition yet (should not normally
+  // happen; getSettingDef falls back to one) surfaces under "Other" rather
+  // than silently vanishing from the admin UI.
+  const sections = useMemo(() => {
+    const settingByKey = new Map(settings.map((s) => [s.key, s] as const));
+    const bySection = new Map<string, SiteSetting[]>();
+    for (const def of SETTING_DEFINITIONS) {
+      const setting = settingByKey.get(def.key);
+      if (!setting) continue;
+      if (!bySection.has(def.section)) bySection.set(def.section, []);
+      bySection.get(def.section)!.push(setting);
+    }
+    const known = new Set(SETTING_DEFINITIONS.map((d) => d.key));
+    const extras = settings.filter((s) => !known.has(s.key));
+    const result = Array.from(bySection.entries()).map(([section, rows]) => ({
+      section,
+      rows,
+    }));
+    if (extras.length > 0) {
+      result.push({ section: "Other", rows: extras });
+    }
+    return result;
+  }, [settings]);
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -482,101 +638,111 @@ export function AdminSettingsPage() {
         </div>
       </div>
 
-      <div className="admin-panel">
-        <div className="admin-table-scroll">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {settings.map((s) => {
-                const def = getSettingDef(s.key);
-                return (
-                  <tr key={s.key}>
-                    <td className="admin-settings__label-cell">
-                      <div className="admin-settings__label">{def.label}</div>
-                      {def.description && (
-                        <div className="admin-settings__description">
-                          {def.description}
-                        </div>
-                      )}
-                      {s.override_reason && (
-                        <div
-                          className="admin-settings__override"
-                          id={`${s.key}-override`}
-                          role="note"
-                        >
-                          <strong>
-                            In force: {s.effective_value ?? "—"}, not {s.value}.
-                          </strong>{" "}
-                          {s.override_reason}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      {def.type === "select" && def.options ? (
-                        <select
-                          className="admin-settings__input"
-                          aria-describedby={
-                            s.override_reason ? `${s.key}-override` : undefined
-                          }
-                          value={editValues[s.key] ?? s.value}
-                          onChange={(e) =>
-                            setEditValues((prev) => ({
-                              ...prev,
-                              [s.key]: e.target.value,
-                            }))
-                          }
-                        >
-                          {def.options.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : def.type === "textarea" ? (
-                        <textarea
-                          className="admin-settings__input admin-settings__input--textarea"
-                          aria-describedby={
-                            s.override_reason ? `${s.key}-override` : undefined
-                          }
-                          value={editValues[s.key] ?? s.value}
-                          onChange={(e) =>
-                            setEditValues((prev) => ({
-                              ...prev,
-                              [s.key]: e.target.value,
-                            }))
-                          }
-                          rows={3}
-                        />
-                      ) : (
-                        <input
-                          className={`admin-settings__input${def.type === "number" ? " admin-settings__input--number" : ""}`}
-                          aria-describedby={
-                            s.override_reason ? `${s.key}-override` : undefined
-                          }
-                          type={def.type === "number" ? "number" : "text"}
-                          maxLength={def.maxLength}
-                          value={editValues[s.key] ?? s.value}
-                          onChange={(e) =>
-                            setEditValues((prev) => ({
-                              ...prev,
-                              [s.key]: e.target.value,
-                            }))
-                          }
-                        />
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {sections.map(({ section, rows }) => (
+        <div className="admin-panel" key={section}>
+          <h2 className="admin-settings__section-title">{section}</h2>
+          <div className="admin-table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Setting</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s) => {
+                  const def = getSettingDef(s.key);
+                  return (
+                    <tr key={s.key}>
+                      <td className="admin-settings__label-cell">
+                        <div className="admin-settings__label">{def.label}</div>
+                        {def.description && (
+                          <div className="admin-settings__description">
+                            {def.description}
+                          </div>
+                        )}
+                        {s.override_reason && (
+                          <div
+                            className="admin-settings__override"
+                            id={`${s.key}-override`}
+                            role="note"
+                          >
+                            <strong>
+                              In force: {s.effective_value ?? "—"}, not{" "}
+                              {s.value}.
+                            </strong>{" "}
+                            {s.override_reason}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {def.type === "select" && def.options ? (
+                          <select
+                            className="admin-settings__input"
+                            aria-describedby={
+                              s.override_reason
+                                ? `${s.key}-override`
+                                : undefined
+                            }
+                            value={editValues[s.key] ?? s.value}
+                            onChange={(e) =>
+                              setEditValues((prev) => ({
+                                ...prev,
+                                [s.key]: e.target.value,
+                              }))
+                            }
+                          >
+                            {def.options.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : def.type === "textarea" ? (
+                          <textarea
+                            className="admin-settings__input admin-settings__input--textarea"
+                            aria-describedby={
+                              s.override_reason
+                                ? `${s.key}-override`
+                                : undefined
+                            }
+                            value={editValues[s.key] ?? s.value}
+                            onChange={(e) =>
+                              setEditValues((prev) => ({
+                                ...prev,
+                                [s.key]: e.target.value,
+                              }))
+                            }
+                            rows={3}
+                          />
+                        ) : (
+                          <input
+                            className={`admin-settings__input${def.type === "number" ? " admin-settings__input--number" : ""}`}
+                            aria-describedby={
+                              s.override_reason
+                                ? `${s.key}-override`
+                                : undefined
+                            }
+                            type={def.type === "number" ? "number" : "text"}
+                            maxLength={def.maxLength}
+                            value={editValues[s.key] ?? s.value}
+                            onChange={(e) =>
+                              setEditValues((prev) => ({
+                                ...prev,
+                                [s.key]: e.target.value,
+                              }))
+                            }
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   );
 }

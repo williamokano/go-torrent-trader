@@ -185,6 +185,69 @@ describe("AdminSettingsPage", () => {
     expect(screen.queryByText(/In force:/)).not.toBeInTheDocument();
   });
 
+  // Settings render grouped under section headings (added alongside the
+  // hit-and-run feature, which otherwise would have made the previously flat,
+  // alphabetical-by-key table considerably harder to scan), in
+  // SETTING_DEFINITIONS order rather than the alphabetical order the backend
+  // returns rows in.
+  test("groups settings under section headings, not alphabetically", async () => {
+    const now = new Date().toISOString();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          // Alphabetically, bonus_enabled would sort before hnr_enabled, which
+          // would sort before registration_mode — the opposite of the expected
+          // section order (Registration, then ..., then Bonus point economy,
+          // then Hit-and-run last).
+          { key: "hnr_enabled", value: "false", updated_at: now },
+          { key: "bonus_enabled", value: "false", updated_at: now },
+          { key: "registration_mode", value: "invite_only", updated_at: now },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    await screen.findByText("Registration");
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((h) => h.textContent);
+    const registrationIdx = headings.indexOf("Registration");
+    const bonusIdx = headings.indexOf("Bonus point economy");
+    const hnrIdx = headings.indexOf("Hit-and-run");
+
+    expect(registrationIdx).toBeGreaterThanOrEqual(0);
+    expect(bonusIdx).toBeGreaterThan(registrationIdx);
+    expect(hnrIdx).toBeGreaterThan(bonusIdx);
+  });
+
+  test("labels the hit-and-run settings", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: [
+          {
+            key: "hnr_enabled",
+            value: "false",
+            updated_at: new Date().toISOString(),
+          },
+          {
+            key: "hnr_seed_credit_cap_minutes",
+            value: "45",
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Hit-and-Run Enabled")).toBeInTheDocument();
+    expect(screen.getByText("Seed Credit Cap (minutes)")).toBeInTheDocument();
+    expect(screen.getByText(/anti-gaming guard/i)).toBeInTheDocument();
+  });
+
   // The page renders whatever rows the API returns, so a setting without a
   // definition here shows up as its bare key — which is how an operator ends up
   // unable to tell what "chat_system_display_name" does.
