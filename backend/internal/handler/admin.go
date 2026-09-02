@@ -617,6 +617,7 @@ func (h *AdminHandler) HandleListTorrents(w http.ResponseWriter, r *http.Request
 			"banned":      t.Banned,
 			"free":        t.Free,
 			"silver":      t.Silver,
+			"hnr_exempt":  t.HnRExempt,
 			"visible":     t.Visible,
 			"created_at":  t.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}

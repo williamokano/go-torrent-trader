@@ -49,6 +49,11 @@ type Torrent struct {
 	Banned           bool
 	Free             bool
 	Silver           bool
+	// HnRExempt marks this torrent as never generating hit-and-run
+	// obligations, staff-settable in the same shape as Free/Silver. Set
+	// after a snatch, it resolves any open hnr_records for this torrent as
+	// waived; unsetting it does not resurrect them (see migration 081).
+	HnRExempt        bool
 	FileCount        int
 	Files            *json.RawMessage // JSONB array of TorrentFile, nullable
 	Metadata         json.RawMessage  // JSONB object of category-schema field values (defaults to {})

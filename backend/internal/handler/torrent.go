@@ -434,6 +434,7 @@ func torrentResponse(t *model.Torrent) map[string]interface{} {
 		"file_count":         t.FileCount,
 		"free":               t.Free,
 		"silver":             t.Silver,
+		"hnr_exempt":         t.HnRExempt,
 		"banned":             t.Banned,
 		"created_at":         t.CreatedAt,
 		"updated_at":         t.UpdatedAt,

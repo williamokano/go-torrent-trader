@@ -3048,6 +3048,11 @@ components:
         free:
           type: boolean
           description: Staff-only — enable/disable freeleech
+        hnr_exempt:
+          type: boolean
+          description: >
+            Staff-only — exempt this torrent from hit-and-run tracking. Waives any open obligation against it; un-exempting does not resurrect a waived one.
+
     DeleteTorrentRequest:
       type: object
       required: [reason]
