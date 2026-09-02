@@ -171,6 +171,7 @@ func fullRouterDeps(t *testing.T) *Deps {
 			forums: &forumLookupStub{},
 		}),
 		PromotionService: service.NewPromotionService(nopPromotionRepo{}, groups, settingsSvc),
+		HnRService:       service.NewHnRService(nil, nopHnRRepo{}, groups, settingsSvc),
 		BonusService:     service.NewBonusService(nopBonusRepo{}, settingsSvc),
 		InviteDistributionService: service.NewInviteDistributionService(nopInviteDistributionRepo{},
 			groups, users, settingsSvc, bus),

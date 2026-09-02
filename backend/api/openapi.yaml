@@ -1488,6 +1488,259 @@ paths:
   # Report management. Previously documented as GET /api/v1/reports and
   # PUT /api/v1/reports/{id}/resolve, which never existed: the router has always
   # registered them under /api/v1/admin, behind RequireAdmin.
+  /api/v1/admin/hnr/rules:
+    get:
+      operationId: listHnRRules
+      x-audience: internal
+      summary: List every class's hit-and-run rule
+      description: >
+        A class is subject to hit-and-run tracking if and only if it has a rule
+        here — a class with none (VIP, by default) is exempt, with no other
+        configuration needed. Ordered by group level.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every configured rule
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRRuleView'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/rules/{groupId}:
+    put:
+      operationId: upsertHnRRule
+      x-audience: internal
+      summary: Create or update a class's hit-and-run rule
+      description: >
+        Refuses staff groups (admin/moderator) and negative thresholds. A
+        threshold of 0 is unconstrained on that dimension — a rule with both
+        required_seed_hours and required_ratio at 0 has no requirement at all
+        and every snatch is immediately satisfied.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The group (class) this rule applies to
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                required_seed_hours:
+                  type: integer
+                  description: Seed-time requirement in hours; 0 = unconstrained
+                required_ratio:
+                  type: number
+                  format: double
+                  description: >
+                    Ratio requirement, checked against the torrent's raw size —
+                    not counted/freeleech-discounted download — so freeleech
+                    torrents remain fully eligible. 0 = unconstrained.
+                inactivity_grace_hours:
+                  type: integer
+                  description: >
+                    How long a member may go without a seeding announce before
+                    breaching, once the requirement above is unmet. 0 means zero
+                    tolerance, not "disabled".
+                max_days_to_satisfy:
+                  type: integer
+                  description: >
+                    Hard cap from the snatch's completion, regardless of recent
+                    activity. 0 = no hard cap.
+      responses:
+        '200':
+          description: The saved rule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule:
+                    $ref: '#/components/schemas/HnRRule'
+        '400':
+          description: Invalid group ID, negative threshold, or malformed body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteHnRRule
+      x-audience: internal
+      summary: Remove a class from hit-and-run tracking entirely
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '400':
+          description: Invalid group ID, or no rule exists for this group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/run:
+    post:
+      operationId: runHnRDaemon
+      x-audience: internal
+      summary: Force an immediate hit-and-run evaluation sweep
+      description: >
+        Goes through the same two-stage advisory lock as the scheduled hourly
+        run, so it is always safe to press even while a scheduled run happens
+        to be in flight — it either runs immediately or queues behind exactly
+        one other run and then runs.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: >
+            The run's outcome. skipped=true means another run was already
+            queued and this invocation dropped rather than waiting behind the
+            queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skipped:
+                    type: boolean
+                  run_id:
+                    type: integer
+                    format: int64
+                  scanned:
+                    type: integer
+                  breached:
+                    type: integer
+                  satisfied:
+                    type: integer
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: The daemon has no database handle for locking (misconfigured deployment)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/runs:
+    get:
+      operationId: listHnRRuns
+      x-audience: internal
+      summary: List recent hit-and-run daemon runs, most recent first
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: The run log
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRRun'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/settings:
     get:
       operationId: listSiteSettings
@@ -4053,6 +4306,87 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    HnRRule:
+      type: object
+      description: One class's hit-and-run policy.
+      properties:
+        group_id:
+          type: integer
+          format: int64
+        required_seed_hours:
+          type: integer
+        required_ratio:
+          type: number
+          format: double
+        inactivity_grace_hours:
+          type: integer
+        max_days_to_satisfy:
+          type: integer
+
+    HnRRuleView:
+      type: object
+      description: A hit-and-run rule joined with its group, for the admin UI.
+      properties:
+        group_id:
+          type: integer
+          format: int64
+        group_name:
+          type: string
+        group_level:
+          type: integer
+        is_staff:
+          type: boolean
+        required_seed_hours:
+          type: integer
+        required_ratio:
+          type: number
+          format: double
+        inactivity_grace_hours:
+          type: integer
+        max_days_to_satisfy:
+          type: integer
+
+    HnRRun:
+      type: object
+      description: One recorded run of the hit-and-run daemon.
+      properties:
+        id:
+          type: integer
+          format: int64
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [running, success, failed]
+        trigger:
+          type: string
+          enum: [schedule, manual]
+        triggered_by:
+          type: integer
+          format: int64
+          nullable: true
+          description: Admin user id, present only for a manually-triggered run
+        scanned:
+          type: integer
+        breached:
+          type: integer
+        satisfied:
+          type: integer
+        stages_advanced:
+          type: integer
+        stages_decayed:
+          type: integer
+        purged:
+          type: integer
+        error:
+          type: string
+          nullable: true
 
     Category:
       type: object

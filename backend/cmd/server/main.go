@@ -398,6 +398,7 @@ func run() int {
 		CheatFlagRepo:             cheatFlagRepo,
 		NotificationService:       notificationService,
 		PromotionService:          promotionService,
+		HnRService:                hnrService,
 		BonusService:              bonusService,
 		InviteDistributionService: inviteDistributionService,
 		ConnectorService:          connectorService,

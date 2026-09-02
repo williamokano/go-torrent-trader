@@ -88,17 +88,17 @@ type HnRUserState struct {
 
 // HnRRun is one daemon run's audit trail.
 type HnRRun struct {
-	ID             int64
-	StartedAt      time.Time
-	FinishedAt     *time.Time
-	Status         string
-	Trigger        string
-	TriggeredBy    *int64
-	Scanned        int
-	Breached       int
-	Satisfied      int
-	StagesAdvanced int
-	StagesDecayed  int
-	Purged         int
-	Error          *string
+	ID             int64      `json:"id"`
+	StartedAt      time.Time  `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	Status         string     `json:"status"`
+	Trigger        string     `json:"trigger"`
+	TriggeredBy    *int64     `json:"triggered_by,omitempty"`
+	Scanned        int        `json:"scanned"`
+	Breached       int        `json:"breached"`
+	Satisfied      int        `json:"satisfied"`
+	StagesAdvanced int        `json:"stages_advanced"`
+	StagesDecayed  int        `json:"stages_decayed"`
+	Purged         int        `json:"purged"`
+	Error          *string    `json:"error,omitempty"`
 }

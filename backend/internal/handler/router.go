@@ -48,6 +48,7 @@ type Deps struct {
 	CheatFlagRepo             repository.CheatFlagRepository
 	NotificationService       *service.NotificationService
 	PromotionService          *service.PromotionService
+	HnRService                *service.HnRService
 	BonusService              *service.BonusService
 	InviteDistributionService *service.InviteDistributionService
 	BackupService             BackupManager
@@ -483,6 +484,14 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Put("/invite-distribution/rules/{groupId}", inviteDist.HandleUpsertRule)
 							r.Delete("/invite-distribution/rules/{groupId}", inviteDist.HandleDeleteRule)
 							r.Post("/invite-distribution/run", inviteDist.HandleRunNow)
+						}
+						if deps.HnRService != nil {
+							hnr := NewHnRHandler(deps.HnRService)
+							r.Get("/hnr/rules", hnr.HandleListRules)
+							r.Put("/hnr/rules/{groupId}", hnr.HandleUpsertRule)
+							r.Delete("/hnr/rules/{groupId}", hnr.HandleDeleteRule)
+							r.Post("/hnr/run", hnr.HandleRunNow)
+							r.Get("/hnr/runs", hnr.HandleListRuns)
 						}
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {

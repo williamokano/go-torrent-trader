@@ -126,3 +126,69 @@ var (
 	_ repository.PromotionRepository          = nopPromotionRepo{}
 	_ repository.InviteDistributionRepository = nopInviteDistributionRepo{}
 )
+
+// nopHnRRepo is the HnR-tracking equivalent of nopPromotionRepo above:
+// exists only so HnRService can be constructed for the router-walking tests,
+// with every method deliberately inert. Real behavior is exercised in
+// internal/service (fakeHnRRepo) and internal/repository/postgres, not here.
+type nopHnRRepo struct{}
+
+func (nopHnRRepo) ListRules(context.Context) ([]model.HnRRule, error) { return nil, nil }
+func (nopHnRRepo) GetRuleForGroup(context.Context, int64) (*model.HnRRule, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopHnRRepo) UpsertRule(context.Context, *model.HnRRule) error { return nil }
+func (nopHnRRepo) DeleteRule(context.Context, int64) error          { return sql.ErrNoRows }
+func (nopHnRRepo) CreateIfNotExists(context.Context, int64, int64, time.Time) (bool, error) {
+	return false, nil
+}
+func (nopHnRRepo) Accumulate(context.Context, int64, int64, int64, time.Duration, time.Time) error {
+	return nil
+}
+func (nopHnRRepo) ListOpenForEvaluation(context.Context) ([]repository.HnREvalInput, error) {
+	return nil, nil
+}
+func (nopHnRRepo) MarkBreached(context.Context, []int64, time.Time) (int64, error)  { return 0, nil }
+func (nopHnRRepo) MarkSatisfied(context.Context, []int64, time.Time) (int64, error) { return 0, nil }
+func (nopHnRRepo) MarkWaived(context.Context, []int64, time.Time) (int64, error)    { return 0, nil }
+func (nopHnRRepo) PurgeResolved(context.Context, time.Time) (int64, error)          { return 0, nil }
+func (nopHnRRepo) ListStages(context.Context) ([]model.HnRPenaltyStage, error)      { return nil, nil }
+func (nopHnRRepo) UpsertStage(context.Context, *model.HnRPenaltyStage) error        { return nil }
+func (nopHnRRepo) DeleteStage(context.Context, int) error                           { return sql.ErrNoRows }
+func (nopHnRRepo) ActiveHnRCounts(context.Context) (map[int64]int, error)           { return nil, nil }
+func (nopHnRRepo) UsersOnLadder(context.Context) ([]model.HnRUserState, error)      { return nil, nil }
+func (nopHnRRepo) GetUserState(context.Context, int64) (*model.HnRUserState, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopHnRRepo) EnsureUserState(context.Context, int64) error { return nil }
+func (nopHnRRepo) CASUserStage(context.Context, int64, int, int, time.Time) (bool, error) {
+	return false, nil
+}
+func (nopHnRRepo) SetLastNotifiedStage(context.Context, int64, int) error  { return nil }
+func (nopHnRRepo) StartRun(context.Context, string, *int64) (int64, error) { return 0, nil }
+func (nopHnRRepo) FinishRun(context.Context, int64, string, repository.HnRRunCounts, *string) error {
+	return nil
+}
+func (nopHnRRepo) LastRun(context.Context) (*model.HnRRun, bool, error)          { return nil, false, nil }
+func (nopHnRRepo) ListRuns(context.Context, int) ([]model.HnRRun, error)         { return nil, nil }
+func (nopHnRRepo) ListForUser(context.Context, int64) ([]model.HnRRecord, error) { return nil, nil }
+func (nopHnRRepo) GetForUser(context.Context, int64, int64) (*model.HnRRecord, error) {
+	return nil, sql.ErrNoRows
+}
+func (nopHnRRepo) LiveSeedingTorrentIDs(context.Context, int64, []int64) (map[int64]bool, error) {
+	return nil, nil
+}
+func (nopHnRRepo) ClearRecord(context.Context, int64, int64, int64) (int64, error) {
+	return 0, repository.ErrHnRRecordNotClearable
+}
+func (nopHnRRepo) AdminList(context.Context, repository.HnRAdminListOptions) ([]model.HnRRecord, int64, error) {
+	return nil, 0, nil
+}
+func (nopHnRRepo) AggregateStats(context.Context) (repository.HnRAggregateStats, error) {
+	return repository.HnRAggregateStats{}, nil
+}
+func (nopHnRRepo) TopOffenders(context.Context, int) ([]repository.HnROffender, error) {
+	return nil, nil
+}
+
+var _ repository.HnRRepository = nopHnRRepo{}
