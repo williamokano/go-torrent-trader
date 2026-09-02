@@ -40,6 +40,12 @@ type fakeHnRRepo struct {
 	// bonusTransactions records every ledger entry ClearRecord writes, for
 	// tests that assert on it.
 	bonusTransactions []model.BonusTransaction
+
+	// Call counters so a caller can assert "this was never invoked" (e.g. the
+	// HnR-disabled announce path) precisely, rather than only inferring it
+	// from unchanged state.
+	createCalls     int
+	accumulateCalls int
 }
 
 func newFakeHnRRepo() *fakeHnRRepo {
@@ -141,6 +147,7 @@ func (f *fakeHnRRepo) DeleteRule(_ context.Context, groupID int64) error {
 func (f *fakeHnRRepo) CreateIfNotExists(_ context.Context, userID, torrentID int64, completedAt time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.createCalls++
 	if f.torrentExempt[torrentID] {
 		return false, nil
 	}
@@ -159,6 +166,7 @@ func (f *fakeHnRRepo) CreateIfNotExists(_ context.Context, userID, torrentID int
 func (f *fakeHnRRepo) Accumulate(_ context.Context, userID, torrentID int64, uploadDelta int64, creditCap time.Duration, now time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.accumulateCalls++
 	rec := f.recordByUserTorrent(userID, torrentID)
 	if rec == nil || (rec.State != model.HnRStateActive && rec.State != model.HnRStateBreach) {
 		return nil
