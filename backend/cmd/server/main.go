@@ -189,6 +189,16 @@ func run() int {
 	cheatDetectionService := service.NewCheatDetectionService(cheatFlagRepo, siteSettingsService, eventBus)
 	trackerService.SetCheatDetection(cheatDetectionService)
 
+	// Hit-and-run (HnR) announce-path accounting. Wired directly into
+	// TrackerService like TransferHistoryRepo/AnnounceEventRepo above — the
+	// repository is nil-checked in Announce, and the master switch
+	// (hnr_enabled, default false) is read through the cached
+	// SiteSettingsService.HnREnabled, so this is a no-op until an operator
+	// turns the feature on. hnrRepo is reused below to build HnRService once
+	// the admin/member-facing surfaces that need it exist.
+	hnrRepo := postgres.NewHnRRepo(db)
+	trackerService.SetHnRRepo(hnrRepo)
+
 	promotionRepo := postgres.NewPromotionRepo(db)
 	promotionService := service.NewPromotionService(promotionRepo, groupRepo, siteSettingsService)
 
