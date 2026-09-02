@@ -1,15 +1,35 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { HitAndRunPage } from "@/pages/HitAndRunPage";
+import { ToastProvider } from "@/components/toast";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+const mockRefreshUser = vi.fn();
+let mockBalance = 1000;
+
+vi.mock("@/features/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/auth")>();
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: { id: 1, username: "member", bonus_points: mockBalance },
+      isAuthenticated: true,
+      isLoading: false,
+      refreshUser: mockRefreshUser,
+    }),
+  };
+});
+
 function renderPage() {
   return render(
     <MemoryRouter>
-      <HitAndRunPage />
+      <ToastProvider>
+        <HitAndRunPage />
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
@@ -17,6 +37,8 @@ function renderPage() {
 afterEach(() => {
   cleanup();
   mockFetch.mockReset();
+  mockRefreshUser.mockReset();
+  mockBalance = 1000;
   vi.useRealTimers();
 });
 
@@ -182,5 +204,144 @@ describe("HitAndRunPage", () => {
       }),
     );
     localStorage.removeItem("torrenttrader-access-token");
+  });
+});
+
+describe("HitAndRunPage clearing with points", () => {
+  interface FetchInit {
+    method?: string;
+  }
+
+  function mockClearApi(options?: {
+    breachRecord?: Record<string, unknown>;
+    price?: number;
+    clearOk?: boolean;
+    clearBody?: Record<string, unknown>;
+  }) {
+    const price = options?.price ?? 60;
+    const calls: { method: string; url: string }[] = [];
+    const record = options?.breachRecord ?? {
+      id: 1,
+      torrent_id: 100,
+      torrent_name: "Breached Release",
+      torrent_size: 1_000_000_000,
+      state: "hnr",
+      display_status: "breach",
+      completed_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      breached_at: new Date().toISOString(),
+      seeded_seconds: 100,
+      uploaded: 500,
+      currently_seeding: false,
+    };
+    mockFetch.mockImplementation((url: string, init?: FetchInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ method, url });
+      if (method === "GET" && url.endsWith("/api/v1/hnr")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ records: [record] }),
+        });
+      }
+      if (method === "GET" && url.includes("/clear-price")) {
+        return Promise.resolve({ ok: true, json: async () => ({ price }) });
+      }
+      if (method === "POST" && url.includes("/clear-all")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            cleared: 1,
+            total_spent: price,
+            new_balance: 1000 - price,
+            stopped_insufficient_points: false,
+            ...options?.clearBody,
+          }),
+        });
+      }
+      if (method === "POST" && url.includes("/clear")) {
+        if (options?.clearOk === false) {
+          return Promise.resolve({
+            ok: false,
+            json: async () => ({ error: { message: "insufficient points" } }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            price,
+            new_balance: 1000 - price,
+            ...options?.clearBody,
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+    return calls;
+  }
+
+  test("shows the quoted price on the clear button for an open record", async () => {
+    mockClearApi({ price: 60 });
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Clear for 60 pts" }),
+    ).toBeInTheDocument();
+  });
+
+  test("clearing a record posts to its clear endpoint and refreshes", async () => {
+    const calls = mockClearApi({ price: 60 });
+    const user = userEvent.setup();
+    renderPage();
+
+    const button = await screen.findByRole("button", {
+      name: "Clear for 60 pts",
+    });
+    await user.click(button);
+
+    expect(await screen.findByText("Cleared for 60 pts")).toBeInTheDocument();
+    expect(
+      calls.some((c) => c.method === "POST" && c.url.endsWith("/1/clear")),
+    ).toBe(true);
+    expect(mockRefreshUser).toHaveBeenCalled();
+  });
+
+  test("the clear button is disabled when the balance can't cover the price", async () => {
+    mockBalance = 10;
+    mockClearApi({ price: 60 });
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Clear for 60 pts" }),
+    ).toBeDisabled();
+  });
+
+  test("clear all affordable posts to the clear-all endpoint", async () => {
+    const calls = mockClearApi({ price: 60 });
+    const user = userEvent.setup();
+    renderPage();
+
+    const button = await screen.findByRole("button", {
+      name: "Clear all affordable",
+    });
+    await user.click(button);
+
+    expect(await screen.findByText("Cleared 1 for 60 pts")).toBeInTheDocument();
+    expect(
+      calls.some((c) => c.method === "POST" && c.url.endsWith("/clear-all")),
+    ).toBe(true);
+  });
+
+  test("a failed clear shows an error and does not refresh the balance", async () => {
+    mockClearApi({ price: 60, clearOk: false });
+    const user = userEvent.setup();
+    renderPage();
+
+    const button = await screen.findByRole("button", {
+      name: "Clear for 60 pts",
+    });
+    await user.click(button);
+
+    expect(await screen.findByText("insufficient points")).toBeInTheDocument();
+    expect(mockRefreshUser).not.toHaveBeenCalled();
   });
 });

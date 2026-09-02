@@ -4,6 +4,10 @@
 }
 
 .hnr-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
   margin-bottom: var(--space-lg);
 }
 
@@ -108,6 +112,10 @@
 
 .hnr-card__footer-muted {
   font-style: italic;
+}
+
+.hnr-card__actions {
+  margin-top: var(--space-sm);
 }
 
 .hnr-badge {

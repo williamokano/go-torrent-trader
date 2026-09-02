@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
+import { useAuth } from "@/features/auth";
+import { useToast } from "@/components/toast";
+import { Button } from "@/components/form";
 import { formatBytes, formatRatio, timeAgo } from "@/utils/format";
 import "./hit-and-run.css";
 
@@ -63,7 +66,50 @@ function projectedClear(rec: HnRRecordView): string | null {
   return eta.toLocaleString();
 }
 
-function MonitoredCard({ rec }: { rec: HnRRecordView }) {
+interface ClearButtonProps {
+  price: number | undefined;
+  balance: number;
+  clearing: boolean;
+  onClear: () => void;
+}
+
+function ClearButton({ price, balance, clearing, onClear }: ClearButtonProps) {
+  const affordable = price !== undefined && balance >= price;
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      onClick={onClear}
+      disabled={price === undefined || !affordable}
+      loading={clearing}
+      title={
+        price === undefined
+          ? undefined
+          : affordable
+            ? undefined
+            : "Not enough points"
+      }
+    >
+      {price === undefined
+        ? "Clear with points"
+        : `Clear for ${price.toLocaleString()} pts`}
+    </Button>
+  );
+}
+
+function MonitoredCard({
+  rec,
+  price,
+  balance,
+  clearing,
+  onClear,
+}: {
+  rec: HnRRecordView;
+  price: number | undefined;
+  balance: number;
+  clearing: boolean;
+  onClear: () => void;
+}) {
   const needsSeedHours = rec.required_seed_hours ?? 0;
   const needsRatio = rec.required_ratio ?? 0;
   const seedPct = percent(rec.seeded_seconds / 3600, needsSeedHours);
@@ -110,11 +156,31 @@ function MonitoredCard({ rec }: { rec: HnRRecordView }) {
           </span>
         )}
       </div>
+      <div className="hnr-card__actions">
+        <ClearButton
+          price={price}
+          balance={balance}
+          clearing={clearing}
+          onClear={onClear}
+        />
+      </div>
     </div>
   );
 }
 
-function BreachCard({ rec }: { rec: HnRRecordView }) {
+function BreachCard({
+  rec,
+  price,
+  balance,
+  clearing,
+  onClear,
+}: {
+  rec: HnRRecordView;
+  price: number | undefined;
+  balance: number;
+  clearing: boolean;
+  onClear: () => void;
+}) {
   return (
     <div className="hnr-card hnr-card--breach">
       <div className="hnr-card__header">
@@ -133,6 +199,14 @@ function BreachCard({ rec }: { rec: HnRRecordView }) {
           {formatBytes(rec.uploaded)} (ratio{" "}
           {formatRatio(rec.uploaded / Math.max(1, rec.torrent_size))})
         </span>
+      </div>
+      <div className="hnr-card__actions">
+        <ClearButton
+          price={price}
+          balance={balance}
+          clearing={clearing}
+          onClear={onClear}
+        />
       </div>
     </div>
   );
@@ -160,23 +234,68 @@ function ResolvedRow({ rec }: { rec: HnRRecordView }) {
   );
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export function HitAndRunPage() {
+  const { user, refreshUser } = useAuth();
+  const toast = useToast();
   const [records, setRecords] = useState<HnRRecordView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Record<number, number>>({});
+  const [clearingId, setClearingId] = useState<number | null>(null);
+  const [clearingAll, setClearingAll] = useState(false);
   const initialLoad = useRef(true);
+
+  const balance = user?.bonus_points ?? 0;
+
+  const fetchQuotes = useCallback(async (ids: number[]) => {
+    const entries = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const res = await fetch(
+            `${getConfig().API_URL}/api/v1/hnr/${id}/clear-price`,
+            { headers: authHeaders() },
+          );
+          if (!res.ok) return null;
+          const body = await res.json();
+          return [id, body?.price as number] as const;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    setPrices((prev) => {
+      const next = { ...prev };
+      for (const entry of entries) {
+        if (entry) next[entry[0]] = entry[1];
+      }
+      return next;
+    });
+  }, []);
 
   const fetchRecords = useCallback(async () => {
     if (initialLoad.current) setLoading(true);
     try {
-      const token = getAccessToken();
       const res = await fetch(`${getConfig().API_URL}/api/v1/hnr`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
       });
       if (res.ok) {
         const body = await res.json();
-        setRecords(body?.records ?? []);
+        const items: HnRRecordView[] = body?.records ?? [];
+        setRecords(items);
         setError(null);
+        const openIds = items
+          .filter(
+            (r) =>
+              r.display_status === "breach" ||
+              r.display_status === "monitoring",
+          )
+          .map((r) => r.id);
+        if (openIds.length > 0) fetchQuotes(openIds);
       } else if (initialLoad.current) {
         setError("Failed to load hit-and-run records");
       }
@@ -186,7 +305,7 @@ export function HitAndRunPage() {
       setLoading(false);
       initialLoad.current = false;
     }
-  }, []);
+  }, [fetchQuotes]);
 
   useEffect(() => {
     fetchRecords();
@@ -204,6 +323,56 @@ export function HitAndRunPage() {
     };
   }, [fetchRecords]);
 
+  const handleClear = async (id: number) => {
+    setClearingId(id);
+    try {
+      const res = await fetch(`${getConfig().API_URL}/api/v1/hnr/${id}/clear`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok) {
+        toast.success(`Cleared for ${(body?.price ?? 0).toLocaleString()} pts`);
+        await refreshUser();
+        fetchRecords();
+      } else {
+        toast.error(body?.error?.message ?? "Failed to clear");
+      }
+    } finally {
+      setClearingId(null);
+    }
+  };
+
+  const handleClearAll = async () => {
+    setClearingAll(true);
+    try {
+      const res = await fetch(`${getConfig().API_URL}/api/v1/hnr/clear-all`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok) {
+        const cleared = body?.cleared ?? 0;
+        if (cleared === 0) {
+          toast.info("Nothing affordable to clear right now");
+        } else {
+          toast.success(
+            `Cleared ${cleared} for ${(body?.total_spent ?? 0).toLocaleString()} pts` +
+              (body?.stopped_insufficient_points
+                ? " — ran out of points before the rest"
+                : ""),
+          );
+        }
+        await refreshUser();
+        fetchRecords();
+      } else {
+        toast.error(body?.error?.message ?? "Failed to clear");
+      }
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
   const breach = records.filter((r) => r.display_status === "breach");
   const monitoring = records.filter((r) => r.display_status === "monitoring");
   const resolved = records.filter(
@@ -212,16 +381,29 @@ export function HitAndRunPage() {
       r.display_status === "cleared" ||
       r.display_status === "waived",
   );
+  const openCount = breach.length + monitoring.length;
 
   return (
     <div className="hnr-page">
       <div className="hnr-page__header">
-        <h1 className="hnr-page__title">Hit &amp; Run</h1>
-        <p className="hnr-page__desc">
-          Every download you've completed carries an obligation to seed it back,
-          per your class's rules. This page reflects your live seeding state,
-          not just the last hourly check.
-        </p>
+        <div>
+          <h1 className="hnr-page__title">Hit &amp; Run</h1>
+          <p className="hnr-page__desc">
+            Every download you've completed carries an obligation to seed it
+            back, per your class's rules. This page reflects your live seeding
+            state, not just the last hourly check. Your balance:{" "}
+            {balance.toLocaleString()} pts.
+          </p>
+        </div>
+        {openCount > 0 && (
+          <Button
+            variant="secondary"
+            onClick={handleClearAll}
+            loading={clearingAll}
+          >
+            Clear all affordable
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -245,7 +427,14 @@ export function HitAndRunPage() {
             ) : (
               <div className="hnr-card-grid">
                 {breach.map((rec) => (
-                  <BreachCard key={rec.id} rec={rec} />
+                  <BreachCard
+                    key={rec.id}
+                    rec={rec}
+                    price={prices[rec.id]}
+                    balance={balance}
+                    clearing={clearingId === rec.id}
+                    onClear={() => handleClear(rec.id)}
+                  />
                 ))}
               </div>
             )}
@@ -263,7 +452,14 @@ export function HitAndRunPage() {
             ) : (
               <div className="hnr-card-grid">
                 {monitoring.map((rec) => (
-                  <MonitoredCard key={rec.id} rec={rec} />
+                  <MonitoredCard
+                    key={rec.id}
+                    rec={rec}
+                    price={prices[rec.id]}
+                    balance={balance}
+                    clearing={clearingId === rec.id}
+                    onClear={() => handleClear(rec.id)}
+                  />
                 ))}
               </div>
             )}

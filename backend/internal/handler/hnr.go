@@ -10,6 +10,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
+	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -37,6 +38,12 @@ func hnrErrorStatus(err error) (int, bool) {
 		return http.StatusBadRequest, true
 	case errors.Is(err, service.ErrHnRDaemonUnavailable):
 		return http.StatusServiceUnavailable, true
+	case errors.Is(err, repository.ErrHnRRecordNotClearable):
+		return http.StatusNotFound, true
+	case errors.Is(err, repository.ErrInsufficientBonusPoints):
+		// Matches BonusStoreHandler's mapping of the same sentinel for a
+		// store purchase — one convention across every "spend points" path.
+		return http.StatusConflict, true
 	default:
 		return 0, false
 	}
@@ -198,6 +205,83 @@ func (h *HnRHandler) HandleListForUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{"records": views})
+}
+
+// HandleClearRecord handles POST /api/v1/hnr/{id}/clear — pays off one open
+// obligation with bonus points. The price is always computed server-side
+// (see service.ClearRecord); the request body carries nothing to trust.
+func (h *HnRHandler) HandleClearRecord(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	recordID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || recordID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid record ID")
+		return
+	}
+	result, err := h.svc.ClearRecord(r.Context(), userID, recordID)
+	if err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to clear the record")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"price":       result.Price,
+		"new_balance": result.NewBalance,
+	})
+}
+
+// HandleClearAll handles POST /api/v1/hnr/clear-all — clears every open
+// obligation the member can currently afford, cheapest first. A partial
+// clear is still a 200: the response says how many actually cleared and
+// whether the balance ran out before the rest.
+func (h *HnRHandler) HandleClearAll(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	result, err := h.svc.ClearAll(r.Context(), userID)
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to clear records")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"cleared":                     result.Cleared,
+		"total_spent":                 result.TotalSpent,
+		"new_balance":                 result.NewBalance,
+		"stopped_insufficient_points": result.StoppedInsufficientPoints,
+	})
+}
+
+// HandleQuoteClear handles GET /api/v1/hnr/{id}/clear-price — what clearing
+// this record would cost right now, without spending anything.
+func (h *HnRHandler) HandleQuoteClear(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+	recordID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || recordID <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid record ID")
+		return
+	}
+	price, err := h.svc.QuoteClear(r.Context(), userID, recordID)
+	if err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to price the clear")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"price": price})
 }
 
 // HandleListRuns handles GET /api/v1/admin/hnr/runs — the daemon's run log,

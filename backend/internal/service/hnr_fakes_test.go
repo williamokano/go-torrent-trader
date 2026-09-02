@@ -88,6 +88,12 @@ func (f *fakeHnRRepo) setLiveSeeding(userID, torrentID int64, seeding bool) {
 	f.liveSeeding[userID][torrentID] = seeding
 }
 
+func (f *fakeHnRRepo) setBonusPoints(userID, points int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.bonusPoints[userID] = points
+}
+
 func (f *fakeHnRRepo) recordByUserTorrent(userID, torrentID int64) *model.HnRRecord {
 	for _, r := range f.records {
 		if r.UserID == userID && r.TorrentID == torrentID {

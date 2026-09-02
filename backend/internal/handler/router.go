@@ -332,6 +332,9 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Route("/hnr", func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/", hnrMember.HandleListForUser)
+					r.Get("/{id}/clear-price", hnrMember.HandleQuoteClear)
+					r.Post("/{id}/clear", hnrMember.HandleClearRecord)
+					r.Post("/clear-all", hnrMember.HandleClearAll)
 				})
 			}
 

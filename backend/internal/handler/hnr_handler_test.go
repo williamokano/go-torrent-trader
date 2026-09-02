@@ -23,14 +23,18 @@ import (
 // exercise the admin endpoints, not the daemon sweep itself (that lives in
 // internal/service's fakeHnRRepo-backed tests).
 type stubHnRRepo struct {
-	rules   map[int64]model.HnRRule
-	stages  map[int]model.HnRPenaltyStage
-	runs    []model.HnRRun
-	records []model.HnRRecord
+	rules       map[int64]model.HnRRule
+	stages      map[int]model.HnRPenaltyStage
+	runs        []model.HnRRun
+	records     []model.HnRRecord
+	bonusPoints map[int64]int64
 }
 
 func newStubHnRRepo() *stubHnRRepo {
-	return &stubHnRRepo{rules: map[int64]model.HnRRule{}, stages: map[int]model.HnRPenaltyStage{}}
+	return &stubHnRRepo{
+		rules: map[int64]model.HnRRule{}, stages: map[int]model.HnRPenaltyStage{},
+		bonusPoints: map[int64]int64{},
+	}
 }
 
 func (s *stubHnRRepo) ListRules(_ context.Context) ([]model.HnRRule, error) {
@@ -153,14 +157,34 @@ func (s *stubHnRRepo) ListForUser(_ context.Context, userID int64) ([]model.HnRR
 	}
 	return out, nil
 }
-func (s *stubHnRRepo) GetForUser(context.Context, int64, int64) (*model.HnRRecord, error) {
+func (s *stubHnRRepo) GetForUser(_ context.Context, userID, recordID int64) (*model.HnRRecord, error) {
+	for i := range s.records {
+		if s.records[i].ID == recordID && s.records[i].UserID == userID {
+			return &s.records[i], nil
+		}
+	}
 	return nil, sql.ErrNoRows
 }
 func (s *stubHnRRepo) LiveSeedingTorrentIDs(context.Context, int64, []int64) (map[int64]bool, error) {
 	return nil, nil
 }
 func (s *stubHnRRepo) GetRuleForUser(context.Context, int64) (*model.HnRRule, error) { return nil, nil }
-func (s *stubHnRRepo) ClearRecord(context.Context, int64, int64, int64) (int64, error) {
+func (s *stubHnRRepo) ClearRecord(_ context.Context, userID, recordID, price int64) (int64, error) {
+	for i := range s.records {
+		if s.records[i].ID != recordID || s.records[i].UserID != userID {
+			continue
+		}
+		rec := &s.records[i]
+		if rec.State != model.HnRStateActive && rec.State != model.HnRStateBreach {
+			return 0, repository.ErrHnRRecordNotClearable
+		}
+		if s.bonusPoints[userID] < price {
+			return 0, repository.ErrInsufficientBonusPoints
+		}
+		s.bonusPoints[userID] -= price
+		rec.State = model.HnRStateCleared
+		return s.bonusPoints[userID], nil
+	}
 	return 0, repository.ErrHnRRecordNotClearable
 }
 func (s *stubHnRRepo) AdminList(context.Context, repository.HnRAdminListOptions) ([]model.HnRRecord, int64, error) {
@@ -502,5 +526,133 @@ func TestHnRMember_ListsOnlyOwnRecords(t *testing.T) {
 	// untagged field silently serializes as its Go name instead.
 	if resp.Records[0]["display_status"] != model.HnRStateSatisfied {
 		t.Errorf("expected display_status=satisfied, got %+v", resp.Records[0]["display_status"])
+	}
+}
+
+func TestHnRClear_RequiresAuth(t *testing.T) {
+	router, _ := setupHnRAdminRouter(newStubHnRRepo())
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/hnr/1/clear", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRClear_HappyPath(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 5012, TorrentID: 100, State: model.HnRStateBreach, TorrentSize: 1 << 30},
+	}
+	repo.bonusPoints[5012] = 1000
+	router, sessions := setupHnRAdminRouter(repo)
+	member := createSessionWithGroup(sessions, 5012, 5)
+
+	rec := doGroupRequest(t, router, member, http.MethodPost, "/api/v1/hnr/1/clear", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Price      float64 `json:"price"`
+		NewBalance float64 `json:"new_balance"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Price != 60 { // base 50 + per-gib 10 * 1 GiB
+		t.Errorf("expected price 60, got %v", resp.Price)
+	}
+	if resp.NewBalance != 940 {
+		t.Errorf("expected new_balance 940, got %v", resp.NewBalance)
+	}
+	if repo.records[0].State != model.HnRStateCleared {
+		t.Errorf("expected the record to be cleared, got state=%s", repo.records[0].State)
+	}
+}
+
+func TestHnRClear_NotOwnedByCallerReturns400(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 9999, TorrentID: 100, State: model.HnRStateBreach, TorrentSize: 1 << 30},
+	}
+	router, sessions := setupHnRAdminRouter(repo)
+	member := createSessionWithGroup(sessions, 5013, 5)
+
+	rec := doGroupRequest(t, router, member, http.MethodPost, "/api/v1/hnr/1/clear", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a record owned by someone else, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRClear_InsufficientPointsReturns409(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 5014, TorrentID: 100, State: model.HnRStateBreach, TorrentSize: 1 << 30},
+	}
+	repo.bonusPoints[5014] = 1 // far less than the price
+	router, sessions := setupHnRAdminRouter(repo)
+	member := createSessionWithGroup(sessions, 5014, 5)
+
+	rec := doGroupRequest(t, router, member, http.MethodPost, "/api/v1/hnr/1/clear", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for insufficient points, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRQuoteClear_MatchesTheActualPrice(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 5015, TorrentID: 100, State: model.HnRStateBreach, TorrentSize: 1 << 30},
+	}
+	repo.bonusPoints[5015] = 1000
+	router, sessions := setupHnRAdminRouter(repo)
+	member := createSessionWithGroup(sessions, 5015, 5)
+
+	rec := doGroupRequest(t, router, member, http.MethodGet, "/api/v1/hnr/1/clear-price", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var quote struct {
+		Price float64 `json:"price"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &quote); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	clearRec := doGroupRequest(t, router, member, http.MethodPost, "/api/v1/hnr/1/clear", nil)
+	var clearResp struct {
+		Price float64 `json:"price"`
+	}
+	if err := json.Unmarshal(clearRec.Body.Bytes(), &clearResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if quote.Price != clearResp.Price {
+		t.Errorf("quote (%v) and actual charge (%v) disagree", quote.Price, clearResp.Price)
+	}
+}
+
+func TestHnRClearAll_ClearsEverythingAffordable(t *testing.T) {
+	repo := newStubHnRRepo()
+	repo.records = []model.HnRRecord{
+		{ID: 1, UserID: 5016, TorrentID: 100, State: model.HnRStateBreach, TorrentSize: 1 << 30},
+		{ID: 2, UserID: 5016, TorrentID: 101, State: model.HnRStateBreach, TorrentSize: 1 << 30},
+	}
+	repo.bonusPoints[5016] = 1000
+	router, sessions := setupHnRAdminRouter(repo)
+	member := createSessionWithGroup(sessions, 5016, 5)
+
+	rec := doGroupRequest(t, router, member, http.MethodPost, "/api/v1/hnr/clear-all", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Cleared                   float64 `json:"cleared"`
+		StoppedInsufficientPoints bool    `json:"stopped_insufficient_points"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Cleared != 2 || resp.StoppedInsufficientPoints {
+		t.Fatalf("expected both records cleared with no shortfall, got %+v", resp)
 	}
 }

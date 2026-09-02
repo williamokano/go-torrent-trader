@@ -135,41 +135,77 @@ func (s *HnRService) runLadder(ctx context.Context, now time.Time) (advanced, de
 	}
 
 	for uid := range candidates {
-		if err := s.hnr.EnsureUserState(ctx, uid, now); err != nil {
-			slog.Error("hnr ladder: ensure user state", "user_id", uid, "error", err)
-			continue
-		}
-		state, err := s.hnr.GetUserState(ctx, uid)
-		if err != nil {
-			slog.Error("hnr ladder: get user state", "user_id", uid, "error", err)
-			continue
-		}
-
-		newStage, changed := decideHnRLadderStage(stages, counts[uid], *state, now)
-		if !changed {
-			continue
-		}
-
-		ok, err := s.hnr.CASUserStage(ctx, uid, state.Stage, newStage, now)
-		if err != nil {
-			slog.Error("hnr ladder: cas user stage", "user_id", uid, "error", err)
-			continue
-		}
-		if !ok {
-			// Another instance already moved this user this run — the CAS
-			// is what makes a double-run safe, exactly like MarkBreached.
-			continue
-		}
-
-		if newStage > state.Stage {
-			s.escalate(ctx, uid, state.Stage, newStage, stages, counts[uid])
+		didAdvance, didDecay := s.evaluateUserLadderStage(ctx, uid, stages, counts[uid], now)
+		if didAdvance {
 			advanced++
-		} else {
-			s.deescalate(ctx, uid, state.Stage, newStage, stages)
+		}
+		if didDecay {
 			decayed++
 		}
 	}
 	return advanced, decayed, nil
+}
+
+// evaluateUserLadderStage is one user's step of runLadder's loop, factored
+// out so a member clearing an obligation with points (HnRService.ClearRecord)
+// can re-evaluate just their own position immediately — through this exact
+// function, never a re-derived copy — instead of waiting for the next
+// scheduled sweep to lift a restriction paying off just earned them.
+func (s *HnRService) evaluateUserLadderStage(ctx context.Context, userID int64, stages []model.HnRPenaltyStage, activeCount int, now time.Time) (advanced, decayed bool) {
+	if err := s.hnr.EnsureUserState(ctx, userID, now); err != nil {
+		slog.Error("hnr ladder: ensure user state", "user_id", userID, "error", err)
+		return false, false
+	}
+	state, err := s.hnr.GetUserState(ctx, userID)
+	if err != nil {
+		slog.Error("hnr ladder: get user state", "user_id", userID, "error", err)
+		return false, false
+	}
+
+	newStage, changed := decideHnRLadderStage(stages, activeCount, *state, now)
+	if !changed {
+		return false, false
+	}
+
+	ok, err := s.hnr.CASUserStage(ctx, userID, state.Stage, newStage, now)
+	if err != nil {
+		slog.Error("hnr ladder: cas user stage", "user_id", userID, "error", err)
+		return false, false
+	}
+	if !ok {
+		// Another instance already moved this user this run — the CAS is
+		// what makes a double-run safe, exactly like MarkBreached.
+		return false, false
+	}
+
+	if newStage > state.Stage {
+		s.escalate(ctx, userID, state.Stage, newStage, stages, activeCount)
+		return true, false
+	}
+	s.deescalate(ctx, userID, state.Stage, newStage, stages)
+	return false, true
+}
+
+// reevaluateLadderForUser re-runs the ladder decision for exactly one user,
+// against a freshly-loaded ladder and active-hnr count — what
+// HnRService.ClearRecord calls right after a successful clear, so a
+// restriction paid off with points lifts in the same request rather than
+// waiting for the next scheduled run. A no-op (not an error) when the
+// ladder is unconfigured, matching runLadder.
+func (s *HnRService) reevaluateLadderForUser(ctx context.Context, userID int64, now time.Time) error {
+	stages, err := s.hnr.ListStages(ctx)
+	if err != nil {
+		return fmt.Errorf("list stages: %w", err)
+	}
+	if len(stages) == 0 {
+		return nil
+	}
+	counts, err := s.hnr.ActiveHnRCounts(ctx)
+	if err != nil {
+		return fmt.Errorf("active hnr counts: %w", err)
+	}
+	s.evaluateUserLadderStage(ctx, userID, stages, counts[userID], now)
+	return nil
 }
 
 // escalate executes the newly-entered stage's configured action and always
