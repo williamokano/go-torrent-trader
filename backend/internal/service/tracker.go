@@ -155,6 +155,16 @@ func (s *TrackerService) SetHnRRepo(repo repository.HnRRepository) {
 	s.hnr = repo
 }
 
+// shouldTrackHnR reports whether completing a download for user should
+// establish a hit-and-run obligation: the feature is on, a repository is
+// wired up, and the user isn't a donor exempted by hnr_exempt_donors. Shared
+// by both call sites that create an hnr_records row (handleCompleted and the
+// leecher->seeder transition in handleAnnounce) so they can't drift apart.
+func (s *TrackerService) shouldTrackHnR(ctx context.Context, user *model.User) bool {
+	return s.hnr != nil && s.siteSettings != nil && s.siteSettings.HnREnabled(ctx) &&
+		(!user.Donor || !s.siteSettings.HnRExemptDonors(ctx))
+}
+
 // canAnnounceUnapproved reports whether user may announce a not-yet-approved
 // torrent: only its uploader or a staff member (admin/moderator).
 func (s *TrackerService) canAnnounceUnapproved(ctx context.Context, torrent *model.Torrent, user *model.User) bool {
@@ -455,7 +465,11 @@ func (s *TrackerService) handleCompleted(
 	// exact instant — whether they go on to seed is exactly what the record
 	// tracks. CreateIfNotExists no-ops if a record already exists or the
 	// torrent is hnr_exempt, so a repeat completed event is harmless.
-	if s.hnr != nil && s.siteSettings != nil && s.siteSettings.HnREnabled(ctx) {
+	// hnr_exempt_donors is checked here rather than in the evaluator: a donor
+	// is exempt from tracking entirely, so no record — and no history of one
+	// — should exist for them at all, the same way an hnr_exempt torrent
+	// never gets a row in the first place.
+	if s.shouldTrackHnR(ctx, user) {
 		if _, err := s.hnr.CreateIfNotExists(ctx, user.ID, torrent.ID, now); err != nil {
 			slog.Error("failed to create hnr record", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
 		}
@@ -536,7 +550,7 @@ func (s *TrackerService) handleAnnounce(
 			// torrent finished downloading, so it establishes the hit-and-run
 			// obligation the same way handleCompleted does. A no-op if
 			// handleCompleted already created the record.
-			if s.hnr != nil && s.siteSettings != nil && s.siteSettings.HnREnabled(ctx) {
+			if s.shouldTrackHnR(ctx, user) {
 				if _, err := s.hnr.CreateIfNotExists(ctx, user.ID, torrent.ID, now); err != nil {
 					slog.Error("failed to create hnr record on leecher->seeder transition",
 						"torrent_id", torrent.ID, "user_id", user.ID, "error", err)

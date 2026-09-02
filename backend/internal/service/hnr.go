@@ -350,9 +350,10 @@ func (s *HnRService) evaluateAndMark(ctx context.Context) (repository.HnRRunCoun
 	counts.Scanned = len(inputs)
 
 	now := time.Now()
+	graceAfterComplete := s.hnrGraceAfterComplete(ctx)
 	var breachIDs, satisfiedIDs, waivedIDs []int64
 	for _, in := range inputs {
-		switch EvaluateHnRRecord(in, now) {
+		switch EvaluateHnRRecord(in, graceAfterComplete, now) {
 		case HnRStatusBreach:
 			breachIDs = append(breachIDs, in.Record.ID)
 		case HnRStatusSatisfied:
@@ -479,14 +480,26 @@ func (s *HnRService) ListForUser(ctx context.Context, userID int64) ([]HnRRecord
 	}
 
 	now := time.Now()
+	graceAfterComplete := s.hnrGraceAfterComplete(ctx)
 	views := make([]HnRRecordView, 0, len(records))
 	for _, rec := range records {
-		views = append(views, buildHnRRecordView(rec, rule, liveSeeding[rec.TorrentID], now))
+		views = append(views, buildHnRRecordView(rec, rule, liveSeeding[rec.TorrentID], graceAfterComplete, now))
 	}
 	return views, nil
 }
 
-func buildHnRRecordView(rec model.HnRRecord, rule *model.HnRRule, seeding bool, now time.Time) HnRRecordView {
+// hnrGraceAfterComplete reads hnr_grace_after_complete_hours for the shared
+// evaluator (see EvaluateHnRRecord) — the one place both the daemon and the
+// member-facing read path source this setting from, so they can't disagree
+// about how long a fresh snatch stays ungraded.
+func (s *HnRService) hnrGraceAfterComplete(ctx context.Context) time.Duration {
+	if s.settings == nil {
+		return 0
+	}
+	return time.Duration(s.settings.GetInt(ctx, SettingHnRGraceAfterCompleteHours, 0)) * time.Hour
+}
+
+func buildHnRRecordView(rec model.HnRRecord, rule *model.HnRRule, seeding bool, graceAfterComplete time.Duration, now time.Time) HnRRecordView {
 	view := HnRRecordView{
 		ID: rec.ID, TorrentID: rec.TorrentID, TorrentName: rec.TorrentName, TorrentSize: rec.TorrentSize,
 		State: rec.State, CompletedAt: rec.CompletedAt, LastSeenAt: rec.LastSeenAt,
@@ -505,7 +518,7 @@ func buildHnRRecordView(rec model.HnRRecord, rule *model.HnRRule, seeding bool, 
 		in := repository.HnREvalInput{
 			Record: rec, Rule: rule, TorrentSize: rec.TorrentSize, TorrentExempt: rec.TorrentExempt,
 		}
-		status := EvaluateHnRRecord(in, now)
+		status := EvaluateHnRRecord(in, graceAfterComplete, now)
 		if seeding && status == HnRStatusBreach {
 			// An active seeding peer right now outranks a stale
 			// last_seen_at: the member has proven they are seeding, so the

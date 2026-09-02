@@ -91,6 +91,21 @@ func (s *HnRService) QuoteClear(ctx context.Context, userID, recordID int64) (in
 // paid off lifts in this same request rather than waiting for the next
 // scheduled run.
 func (s *HnRService) ClearRecord(ctx context.Context, userID, recordID int64) (HnRClearResult, error) {
+	result, err := s.clearOneRecord(ctx, userID, recordID)
+	if err != nil {
+		return HnRClearResult{}, err
+	}
+	if err := s.reevaluateLadderForUser(ctx, userID, time.Now()); err != nil {
+		slog.Error("hnr clear: ladder re-evaluation failed", "user_id", userID, "record_id", recordID, "error", err)
+	}
+	return result, nil
+}
+
+// clearOneRecord is ClearRecord without the ladder re-evaluation, so ClearAll
+// can spend against each open record in its sweep without redoing that
+// re-evaluation (a full active-count scan plus a stage lookup) once per
+// record — see ClearAll, which re-evaluates a single time after the sweep.
+func (s *HnRService) clearOneRecord(ctx context.Context, userID, recordID int64) (HnRClearResult, error) {
 	rec, err := s.hnr.GetForUser(ctx, userID, recordID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -114,11 +129,6 @@ func (s *HnRService) ClearRecord(ctx context.Context, userID, recordID int64) (H
 		// pass straight through — the handler maps them.
 		return HnRClearResult{}, err
 	}
-
-	if err := s.reevaluateLadderForUser(ctx, userID, time.Now()); err != nil {
-		slog.Error("hnr clear: ladder re-evaluation failed", "user_id", userID, "record_id", recordID, "error", err)
-	}
-
 	return HnRClearResult{Price: price, NewBalance: newBalance}, nil
 }
 
@@ -137,10 +147,12 @@ type HnRClearAllResult struct {
 
 // ClearAll clears every open obligation the member can currently afford,
 // cheapest first, stopping the moment the balance can't cover the next one.
-// Each record is priced and spent through the exact same ClearRecord this
-// clears one at a time — a clear-all is not a separate, unaudited code path,
-// it is this one called in a loop, so it can never total a price a client
-// could have sent instead of computing.
+// Each record is priced and spent through the exact same clearOneRecord
+// ClearRecord itself calls — a clear-all is not a separate, unaudited code
+// path, it is that one called in a loop, so it can never total a price a
+// client could have sent instead of computing. The ladder is re-evaluated
+// once after the sweep rather than once per record (clearOneRecord skips it)
+// since the decision only depends on the final active count.
 func (s *HnRService) ClearAll(ctx context.Context, userID int64) (HnRClearAllResult, error) {
 	records, err := s.hnr.ListForUser(ctx, userID)
 	if err != nil {
@@ -175,7 +187,7 @@ func (s *HnRService) ClearAll(ctx context.Context, userID int64) (HnRClearAllRes
 
 	var result HnRClearAllResult
 	for _, p := range open {
-		res, err := s.ClearRecord(ctx, userID, p.id)
+		res, err := s.clearOneRecord(ctx, userID, p.id)
 		if err != nil {
 			if errors.Is(err, repository.ErrInsufficientBonusPoints) {
 				result.StoppedInsufficientPoints = true
@@ -192,6 +204,27 @@ func (s *HnRService) ClearAll(ctx context.Context, userID int64) (HnRClearAllRes
 		result.Cleared++
 		result.TotalSpent += res.Price
 		result.NewBalance = res.NewBalance
+	}
+	if result.Cleared > 0 {
+		// One re-evaluation for the whole sweep, not one per record cleared
+		// — the ladder decision only needs the final active count, which is
+		// unchanged by re-running it mid-sweep.
+		if err := s.reevaluateLadderForUser(ctx, userID, time.Now()); err != nil {
+			slog.Error("hnr clear-all: ladder re-evaluation failed", "user_id", userID, "error", err)
+		}
+	} else {
+		// Nothing was cleared (nothing open, or even the cheapest was
+		// unaffordable) — NewBalance would otherwise sit at its zero value,
+		// which is not the member's actual balance and this is a
+		// documented, unconditional response field. Report the real one.
+		// Fetched only here, not unconditionally up front, since every
+		// successful clear already carries the post-spend balance for free
+		// from the same transaction (res.NewBalance below).
+		user, err := s.users.GetByID(ctx, userID)
+		if err != nil {
+			return result, fmt.Errorf("get user balance: %w", err)
+		}
+		result.NewBalance = user.BonusPoints
 	}
 	return result, nil
 }

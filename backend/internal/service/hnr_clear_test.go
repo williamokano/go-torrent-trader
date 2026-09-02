@@ -269,8 +269,30 @@ func TestHnRService_ClearAll_CheapestFirstStopsOnInsufficientBalance(t *testing.
 	}
 }
 
+func TestHnRService_ClearAll_EvenCheapestUnaffordableReportsRealBalance(t *testing.T) {
+	svc, hnr, _, users := setupHnRServiceForClearing()
+	hnr.setTorrent(100, 1*gibBytes, false) // price 60
+	hnr.setBonusPoints(1, 10)              // can't afford even this one
+	users.addUser(&model.User{ID: 1, BonusPoints: 10})
+	if _, err := hnr.CreateIfNotExists(context.Background(), 1, 100, time.Now()); err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+
+	result, err := svc.ClearAll(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ClearAll: %v", err)
+	}
+	if result.Cleared != 0 || !result.StoppedInsufficientPoints {
+		t.Fatalf("expected nothing cleared, stopped for insufficient points, got %+v", result)
+	}
+	if result.NewBalance != 10 {
+		t.Errorf("expected untouched balance 10, got %d", result.NewBalance)
+	}
+}
+
 func TestHnRService_ClearAll_ClearsEverythingAffordable(t *testing.T) {
 	svc, hnr, _, _ := setupHnRServiceForClearing()
+	seedStages(t, hnr, standardLadder())
 	hnr.setTorrent(100, 1*gibBytes, false)
 	hnr.setTorrent(101, 1*gibBytes, false)
 	hnr.setBonusPoints(1, 1000)
@@ -287,15 +309,29 @@ func TestHnRService_ClearAll_ClearsEverythingAffordable(t *testing.T) {
 	if result.Cleared != 2 || result.StoppedInsufficientPoints {
 		t.Fatalf("expected both cleared with no shortfall, got %+v", result)
 	}
+	// The ladder re-evaluation (a full active-count scan) must run once for
+	// the whole sweep, not once per record cleared.
+	if hnr.activeCountsCalls != 1 {
+		t.Errorf("expected exactly 1 ladder re-evaluation for a 2-record clear-all, got %d", hnr.activeCountsCalls)
+	}
 }
 
 func TestHnRService_ClearAll_NothingOpenIsANoop(t *testing.T) {
-	svc, _, _, _ := setupHnRServiceForClearing()
+	svc, _, _, users := setupHnRServiceForClearing()
+	users.addUser(&model.User{ID: 1, BonusPoints: 5000})
+
 	result, err := svc.ClearAll(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("ClearAll: %v", err)
 	}
 	if result.Cleared != 0 || result.StoppedInsufficientPoints {
 		t.Fatalf("expected a no-op result, got %+v", result)
+	}
+	// NewBalance must reflect the member's real balance even when nothing was
+	// cleared — it is an unconditional field in the documented response, and
+	// leaving it at its zero value would misreport a member who simply has
+	// nothing to clear.
+	if result.NewBalance != 5000 {
+		t.Errorf("expected new balance 5000 (untouched), got %d", result.NewBalance)
 	}
 }

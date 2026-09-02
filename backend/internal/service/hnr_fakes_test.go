@@ -44,8 +44,9 @@ type fakeHnRRepo struct {
 	// Call counters so a caller can assert "this was never invoked" (e.g. the
 	// HnR-disabled announce path) precisely, rather than only inferring it
 	// from unchanged state.
-	createCalls     int
-	accumulateCalls int
+	createCalls       int
+	accumulateCalls   int
+	activeCountsCalls int
 }
 
 func newFakeHnRRepo() *fakeHnRRepo {
@@ -290,6 +291,7 @@ func (f *fakeHnRRepo) DeleteStage(_ context.Context, stage int) error {
 func (f *fakeHnRRepo) ActiveHnRCounts(_ context.Context) (map[int64]int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.activeCountsCalls++
 	counts := map[int64]int{}
 	for _, rec := range f.records {
 		if rec.State == model.HnRStateBreach {

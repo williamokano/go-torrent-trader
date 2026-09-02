@@ -192,3 +192,56 @@ func TestAnnounce_HnR_SkipsExemptTorrent(t *testing.T) {
 		t.Fatalf("expected no hnr record for an hnr_exempt torrent, got %d", len(records))
 	}
 }
+
+func TestAnnounce_HnR_SkipsExemptDonor(t *testing.T) {
+	// Unlike torrents.hnr_exempt (enforced in CreateIfNotExists' own SQL),
+	// hnr_exempt_donors is a plain site setting checked by TrackerService
+	// itself against the announcing user's Donor flag — so this is set up by
+	// hand rather than through setupTrackerWithHnR, to get at the user repo.
+	svc, userRepo, _, _ := setupTrackerWithSettings(map[string]string{
+		SettingHnREnabled:      "true",
+		SettingHnRExemptDonors: "true",
+	})
+	hnrRepo := newFakeHnRRepo()
+	svc.SetHnRRepo(hnrRepo)
+	u, err := userRepo.GetByID(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	u.Donor = true
+
+	completeDownload(t, svc, 500, 1000)
+
+	records, err := hnrRepo.ListForUser(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected no hnr record for a donor when hnr_exempt_donors is on, got %d", len(records))
+	}
+}
+
+func TestAnnounce_HnR_TracksDonorWhenExemptionOff(t *testing.T) {
+	// hnr_exempt_donors defaults to false — a donor is tracked exactly like
+	// anyone else unless an operator opts in.
+	svc, userRepo, _, _ := setupTrackerWithSettings(map[string]string{
+		SettingHnREnabled: "true",
+	})
+	hnrRepo := newFakeHnRRepo()
+	svc.SetHnRRepo(hnrRepo)
+	u, err := userRepo.GetByID(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	u.Donor = true
+
+	completeDownload(t, svc, 500, 1000)
+
+	records, err := hnrRepo.ListForUser(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected a donor to be tracked when hnr_exempt_donors is off, got %d records", len(records))
+	}
+}

@@ -354,6 +354,14 @@ func (s *SiteSettingsService) HnREnabled(ctx context.Context) bool {
 	return s.cachedString(ctx, SettingHnREnabled, "false") == "true"
 }
 
+// HnRExemptDonors is the announce path's hot-path read of hnr_exempt_donors —
+// cached for the same reason HnREnabled is: TrackerService.Announce checks
+// this on every completed/leecher-to-seeder transition and cannot afford a
+// settings round trip there.
+func (s *SiteSettingsService) HnRExemptDonors(ctx context.Context) bool {
+	return s.cachedString(ctx, SettingHnRExemptDonors, "false") == "true"
+}
+
 // cachedString memoises one setting for cacheTTL.
 //
 // "No such row" is a stable answer and is cached as the fallback; any other

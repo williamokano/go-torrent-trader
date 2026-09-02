@@ -25,7 +25,7 @@ func TestEvaluateHnRRecord_ExemptWhenTorrentFlagged(t *testing.T) {
 		TorrentSize:   1000,
 		TorrentExempt: true,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusExempt {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusExempt {
 		t.Errorf("got %s, want exempt", got)
 	}
 }
@@ -37,7 +37,7 @@ func TestEvaluateHnRRecord_ExemptWhenNoRuleForClass(t *testing.T) {
 		Rule:        nil,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusExempt {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusExempt {
 		t.Errorf("got %s, want exempt (nil rule = user's class not subject to HnR)", got)
 	}
 }
@@ -54,7 +54,7 @@ func TestEvaluateHnRRecord_SatisfiedBySeedTime(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusSatisfied {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusSatisfied {
 		t.Errorf("got %s, want satisfied (met seed-hours exactly)", got)
 	}
 }
@@ -77,7 +77,7 @@ func TestEvaluateHnRRecord_SatisfiedByRatio_IgnoresFreeleech(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusSatisfied {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusSatisfied {
 		t.Errorf("got %s, want satisfied (met ratio exactly)", got)
 	}
 }
@@ -93,7 +93,7 @@ func TestEvaluateHnRRecord_MonitoringWithinGrace(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusMonitoring {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusMonitoring {
 		t.Errorf("got %s, want monitoring (unmet but within grace)", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestEvaluateHnRRecord_BreachAfterInactivityGrace(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusBreach {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusBreach {
 		t.Errorf("got %s, want breach (inactivity grace exceeded)", got)
 	}
 }
@@ -129,7 +129,7 @@ func TestEvaluateHnRRecord_ZeroGraceIsZeroTolerance(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusBreach {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusBreach {
 		t.Errorf("got %s, want breach (zero grace tolerates no inactivity)", got)
 	}
 }
@@ -147,7 +147,7 @@ func TestEvaluateHnRRecord_BreachAtHardCapEvenIfStillWithinGrace(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusBreach {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusBreach {
 		t.Errorf("got %s, want breach (hard cap exceeded, regardless of recent activity)", got)
 	}
 }
@@ -165,8 +165,46 @@ func TestEvaluateHnRRecord_NoHardCapWhenZero(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusMonitoring {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusMonitoring {
 		t.Errorf("got %s, want monitoring (no hard cap, still within inactivity grace)", got)
+	}
+}
+
+func TestEvaluateHnRRecord_MonitoringWithinGraceAfterComplete(t *testing.T) {
+	// hnr_grace_after_complete_hours: a record is not evaluated at all while
+	// still within this window of completion, even though nothing here would
+	// otherwise satisfy or breach it — the inactivity grace has nothing to do
+	// with this check.
+	now := time.Now()
+	rule := baseRule()
+	rule.InactivityGraceHours = 0 // would breach instantly if the complete-grace didn't short-circuit first
+	in := repository.HnREvalInput{
+		Record: model.HnRRecord{
+			CompletedAt: now.Add(-time.Hour),
+			LastSeenAt:  now.Add(-time.Hour), // no announce since completion
+		},
+		Rule:        rule,
+		TorrentSize: 1000,
+	}
+	if got := EvaluateHnRRecord(in, 2*time.Hour, now); got != HnRStatusMonitoring {
+		t.Errorf("got %s, want monitoring (still within the 2h post-complete grace)", got)
+	}
+}
+
+func TestEvaluateHnRRecord_BreachAfterGraceAfterCompleteElapses(t *testing.T) {
+	now := time.Now()
+	rule := baseRule()
+	rule.InactivityGraceHours = 0
+	in := repository.HnREvalInput{
+		Record: model.HnRRecord{
+			CompletedAt: now.Add(-3 * time.Hour),
+			LastSeenAt:  now.Add(-3 * time.Hour),
+		},
+		Rule:        rule,
+		TorrentSize: 1000,
+	}
+	if got := EvaluateHnRRecord(in, 2*time.Hour, now); got != HnRStatusBreach {
+		t.Errorf("got %s, want breach (2h post-complete grace has elapsed)", got)
 	}
 }
 
@@ -178,7 +216,7 @@ func TestEvaluateHnRRecord_ZeroThresholdRuleIsAlwaysSatisfied(t *testing.T) {
 		Rule:        rule,
 		TorrentSize: 1000,
 	}
-	if got := EvaluateHnRRecord(in, now); got != HnRStatusSatisfied {
+	if got := EvaluateHnRRecord(in, 0, now); got != HnRStatusSatisfied {
 		t.Errorf("got %s, want satisfied (a rule with both thresholds at zero has no requirement)", got)
 	}
 }

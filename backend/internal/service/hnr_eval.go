@@ -48,9 +48,19 @@ const (
 // RequiredRatio<=0 makes the ratio arm trivially true the same way. A rule
 // with both at zero is a valid (if unusual) "no requirement" configuration,
 // not a bug to guard against.
-func EvaluateHnRRecord(in repository.HnREvalInput, now time.Time) HnRStatus {
+//
+// graceAfterComplete is hnr_grace_after_complete_hours: while now is still
+// within that window of Record.CompletedAt, the record is not evaluated at
+// all — it reads as HnRStatusMonitoring regardless of its accumulators —
+// giving a member time to start seeding before any clock that matters
+// begins. A zero duration (the setting's default) disables this and falls
+// straight through to the ordinary evaluation below.
+func EvaluateHnRRecord(in repository.HnREvalInput, graceAfterComplete time.Duration, now time.Time) HnRStatus {
 	if in.TorrentExempt || in.Rule == nil {
 		return HnRStatusExempt
+	}
+	if graceAfterComplete > 0 && now.Before(in.Record.CompletedAt.Add(graceAfterComplete)) {
+		return HnRStatusMonitoring
 	}
 
 	requiredSeedSeconds := int64(in.Rule.RequiredSeedHours) * 3600
