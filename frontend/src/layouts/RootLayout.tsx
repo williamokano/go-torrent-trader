@@ -270,6 +270,13 @@ export function RootLayout() {
             >
               Bonus Store
             </NavLink>
+            <NavLink
+              to="/hit-and-run"
+              className="header__dropdown-item"
+              onClick={closeMenu}
+            >
+              Hit &amp; Run
+            </NavLink>
           </Dropdown>
 
           <Dropdown

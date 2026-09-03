@@ -515,3 +515,63 @@ func TestSystemChatName_InFlightReadDoesNotResurrectAnEvictedValue(t *testing.T)
 		t.Fatalf("SystemChatName = %q, want %q — a stale read was written back over the eviction", got, "Announcer")
 	}
 }
+
+// --- HnREnabled: the announce path's cached read of the HnR master switch ---
+
+func TestHnREnabled_DefaultsFalseWhenUnset(t *testing.T) {
+	svc := NewSiteSettingsService(newMockSiteSettingsRepo(), event.NewInMemoryBus())
+	if svc.HnREnabled(context.Background()) {
+		t.Fatal("HnREnabled should default to false when the setting has never been written")
+	}
+}
+
+func TestHnREnabled_ReadsTheSetting(t *testing.T) {
+	repo := newMockSiteSettingsRepo()
+	svc := NewSiteSettingsService(repo, event.NewInMemoryBus())
+	ctx := context.Background()
+
+	_ = repo.Set(ctx, SettingHnREnabled, "true")
+	if !svc.HnREnabled(ctx) {
+		t.Fatal("HnREnabled should be true once the setting is true")
+	}
+}
+
+// The announce path calls this on every seeding announce, so the point of the
+// cache is that repeated reads do not each become a query.
+func TestHnREnabled_SecondReadIsCached(t *testing.T) {
+	repo := newMockSiteSettingsRepo()
+	svc := NewSiteSettingsService(repo, event.NewInMemoryBus())
+	ctx := context.Background()
+	_ = repo.Set(ctx, SettingHnREnabled, "true")
+
+	for range 5 {
+		if !svc.HnREnabled(ctx) {
+			t.Fatal("HnREnabled should stay true across cached reads")
+		}
+	}
+	if got := repo.getCount(); got != 1 {
+		t.Fatalf("hit storage %d times, want 1 — the value is not being cached", got)
+	}
+}
+
+func TestHnREnabled_TogglingOffIsObservedAfterEviction(t *testing.T) {
+	repo := newMockSiteSettingsRepo()
+	svc := NewSiteSettingsService(repo, event.NewInMemoryBus())
+	ctx := context.Background()
+
+	if err := svc.Set(ctx, SettingHnREnabled, "true", event.Actor{ID: 1}); err != nil {
+		t.Fatalf("Set true: %v", err)
+	}
+	if !svc.HnREnabled(ctx) {
+		t.Fatal("expected true right after Set")
+	}
+
+	// Set evicts the cache entry (see evict/Set), so the very next read must
+	// see the new value rather than the stale cached true.
+	if err := svc.Set(ctx, SettingHnREnabled, "false", event.Actor{ID: 1}); err != nil {
+		t.Fatalf("Set false: %v", err)
+	}
+	if svc.HnREnabled(ctx) {
+		t.Fatal("expected false immediately after Set evicted the cache")
+	}
+}

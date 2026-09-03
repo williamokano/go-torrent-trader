@@ -1,6 +1,13 @@
 /* Page-specific styles for the admin site settings page. Surface primitives
    come from admin-ui.css. */
 
+.admin-settings__section-title {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
 .admin-settings__label-cell {
   max-width: 480px;
 }

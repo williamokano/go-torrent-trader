@@ -20,18 +20,26 @@ func NewRestrictionRepo(db *sql.DB) repository.RestrictionRepository {
 }
 
 func (r *RestrictionRepo) Create(ctx context.Context, restriction *model.Restriction) error {
-	query := `INSERT INTO user_restrictions (user_id, restriction_type, reason, issued_by, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
+	source := restriction.Source
+	if source == "" {
+		source = model.RestrictionSourceManual
+	}
+	query := `INSERT INTO user_restrictions (user_id, restriction_type, reason, source, issued_by, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at`
 
-	return r.db.QueryRowContext(ctx, query,
-		restriction.UserID, restriction.RestrictionType, restriction.Reason,
+	if err := r.db.QueryRowContext(ctx, query,
+		restriction.UserID, restriction.RestrictionType, restriction.Reason, source,
 		restriction.IssuedBy, restriction.ExpiresAt,
-	).Scan(&restriction.ID, &restriction.CreatedAt)
+	).Scan(&restriction.ID, &restriction.CreatedAt); err != nil {
+		return err
+	}
+	restriction.Source = source
+	return nil
 }
 
 func (r *RestrictionRepo) GetByID(ctx context.Context, id int64) (*model.Restriction, error) {
-	query := `SELECT ur.id, ur.user_id, ur.restriction_type, ur.reason, ur.issued_by,
+	query := `SELECT ur.id, ur.user_id, ur.restriction_type, ur.reason, ur.source, ur.issued_by,
 		ur.expires_at, ur.lifted_at, ur.lifted_by, ur.created_at,
 		COALESCE(iu.username, ''), COALESCE(lu.username, '')
 		FROM user_restrictions ur
@@ -42,7 +50,7 @@ func (r *RestrictionRepo) GetByID(ctx context.Context, id int64) (*model.Restric
 	var restriction model.Restriction
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&restriction.ID, &restriction.UserID, &restriction.RestrictionType,
-		&restriction.Reason, &restriction.IssuedBy, &restriction.ExpiresAt,
+		&restriction.Reason, &restriction.Source, &restriction.IssuedBy, &restriction.ExpiresAt,
 		&restriction.LiftedAt, &restriction.LiftedBy, &restriction.CreatedAt,
 		&restriction.IssuedByUsername, &restriction.LiftedByUsername,
 	)
@@ -53,7 +61,7 @@ func (r *RestrictionRepo) GetByID(ctx context.Context, id int64) (*model.Restric
 }
 
 func (r *RestrictionRepo) ListByUser(ctx context.Context, userID int64) ([]model.Restriction, error) {
-	query := `SELECT ur.id, ur.user_id, ur.restriction_type, ur.reason, ur.issued_by,
+	query := `SELECT ur.id, ur.user_id, ur.restriction_type, ur.reason, ur.source, ur.issued_by,
 		ur.expires_at, ur.lifted_at, ur.lifted_by, ur.created_at,
 		COALESCE(iu.username, ''), COALESCE(lu.username, '')
 		FROM user_restrictions ur
@@ -73,7 +81,7 @@ func (r *RestrictionRepo) ListByUser(ctx context.Context, userID int64) ([]model
 		var restriction model.Restriction
 		if err := rows.Scan(
 			&restriction.ID, &restriction.UserID, &restriction.RestrictionType,
-			&restriction.Reason, &restriction.IssuedBy, &restriction.ExpiresAt,
+			&restriction.Reason, &restriction.Source, &restriction.IssuedBy, &restriction.ExpiresAt,
 			&restriction.LiftedAt, &restriction.LiftedBy, &restriction.CreatedAt,
 			&restriction.IssuedByUsername, &restriction.LiftedByUsername,
 		); err != nil {
@@ -88,7 +96,7 @@ func (r *RestrictionRepo) ListByUser(ctx context.Context, userID int64) ([]model
 }
 
 func (r *RestrictionRepo) ListActive(ctx context.Context) ([]model.Restriction, error) {
-	query := `SELECT ur.id, ur.user_id, ur.restriction_type, ur.reason, ur.issued_by,
+	query := `SELECT ur.id, ur.user_id, ur.restriction_type, ur.reason, ur.source, ur.issued_by,
 		ur.expires_at, ur.lifted_at, ur.lifted_by, ur.created_at,
 		COALESCE(iu.username, ''), COALESCE(lu.username, '')
 		FROM user_restrictions ur
@@ -108,7 +116,7 @@ func (r *RestrictionRepo) ListActive(ctx context.Context) ([]model.Restriction, 
 		var restriction model.Restriction
 		if err := rows.Scan(
 			&restriction.ID, &restriction.UserID, &restriction.RestrictionType,
-			&restriction.Reason, &restriction.IssuedBy, &restriction.ExpiresAt,
+			&restriction.Reason, &restriction.Source, &restriction.IssuedBy, &restriction.ExpiresAt,
 			&restriction.LiftedAt, &restriction.LiftedBy, &restriction.CreatedAt,
 			&restriction.IssuedByUsername, &restriction.LiftedByUsername,
 		); err != nil {
@@ -120,6 +128,23 @@ func (r *RestrictionRepo) ListActive(ctx context.Context) ([]model.Restriction, 
 		return nil, fmt.Errorf("iterate restrictions: %w", err)
 	}
 	return restrictions, nil
+}
+
+// LiftActiveBySource lifts every currently active restriction of
+// restrictionType for userID that was issued by source. Matching zero rows is
+// a normal, successful outcome, not an error — see model.RestrictionSource*.
+func (r *RestrictionRepo) LiftActiveBySource(ctx context.Context, userID int64, restrictionType, source string) (int, error) {
+	query := `UPDATE user_restrictions SET lifted_at = NOW()
+		WHERE user_id = $1 AND restriction_type = $2 AND source = $3 AND lifted_at IS NULL`
+	result, err := r.db.ExecContext(ctx, query, userID, restrictionType, source)
+	if err != nil {
+		return 0, fmt.Errorf("lift active restrictions by source: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("check rows affected: %w", err)
+	}
+	return int(n), nil
 }
 
 func (r *RestrictionRepo) Lift(ctx context.Context, id int64, liftedBy *int64) error {

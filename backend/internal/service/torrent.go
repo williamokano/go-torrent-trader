@@ -95,6 +95,10 @@ type EditTorrentRequest struct {
 	Banned *bool `json:"banned"`
 	Free   *bool `json:"free"`
 	Silver *bool `json:"silver"`
+	// HnRExempt marks this torrent as never generating hit-and-run
+	// obligations. A pointer like every other staff-only flag here, so a
+	// client that omits it never silently clears an exemption someone else set.
+	HnRExempt *bool `json:"hnr_exempt"`
 }
 
 // TorrentService handles torrent business logic.
@@ -519,7 +523,7 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 
 	// Reject staff-only fields from non-admins
 	if !perms.IsAdmin {
-		if req.Banned != nil || req.Free != nil || req.Silver != nil {
+		if req.Banned != nil || req.Free != nil || req.Silver != nil || req.HnRExempt != nil {
 			return nil, ErrForbidden
 		}
 	}
@@ -555,6 +559,9 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 	}
 	if req.Silver != nil {
 		torrent.Silver = *req.Silver
+	}
+	if req.HnRExempt != nil {
+		torrent.HnRExempt = *req.HnRExempt
 	}
 
 	// Metadata, when provided, replaces the whole object and is validated against

@@ -192,8 +192,9 @@ func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
 }
 
 // privilegeFlagColumn maps a validated restriction type to its users table
-// column. The switch is closed over four known columns — never built from
-// caller input — so the fmt.Sprintf below is not a SQL-injection risk.
+// column. The switch is closed over a fixed set of known columns — never
+// built from caller input — so the fmt.Sprintf below is not a
+// SQL-injection risk.
 func privilegeFlagColumn(restrictionType string) (string, bool) {
 	switch restrictionType {
 	case model.RestrictionTypeDownload:
@@ -206,6 +207,8 @@ func privilegeFlagColumn(restrictionType string) (string, bool) {
 		return "can_invite", true
 	case model.RestrictionTypeFeed:
 		return "can_feed", true
+	case model.RestrictionTypeForum:
+		return "can_forum", true
 	default:
 		return "", false
 	}

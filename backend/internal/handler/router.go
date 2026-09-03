@@ -48,6 +48,7 @@ type Deps struct {
 	CheatFlagRepo             repository.CheatFlagRepository
 	NotificationService       *service.NotificationService
 	PromotionService          *service.PromotionService
+	HnRService                *service.HnRService
 	BonusService              *service.BonusService
 	InviteDistributionService *service.InviteDistributionService
 	BackupService             BackupManager
@@ -324,6 +325,19 @@ func NewRouter(deps *Deps) chi.Router {
 				})
 			}
 
+			// Hit-and-run: the member's own obligations (admin config and the
+			// run log are registered separately, under /admin/hnr).
+			if deps.HnRService != nil {
+				hnrMember := NewHnRHandler(deps.HnRService)
+				r.Route("/hnr", func(r chi.Router) {
+					authMiddleware(r)
+					r.Get("/", hnrMember.HandleListForUser)
+					r.Get("/{id}/clear-price", hnrMember.HandleQuoteClear)
+					r.Post("/{id}/clear", hnrMember.HandleClearRecord)
+					r.Post("/clear-all", hnrMember.HandleClearAll)
+				})
+			}
+
 			// Activity log endpoints (visible to all authenticated users)
 			if deps.ActivityLogService != nil {
 				activityLogs := NewActivityLogHandler(deps.ActivityLogService)
@@ -483,6 +497,19 @@ func NewRouter(deps *Deps) chi.Router {
 							r.Put("/invite-distribution/rules/{groupId}", inviteDist.HandleUpsertRule)
 							r.Delete("/invite-distribution/rules/{groupId}", inviteDist.HandleDeleteRule)
 							r.Post("/invite-distribution/run", inviteDist.HandleRunNow)
+						}
+						if deps.HnRService != nil {
+							hnr := NewHnRHandler(deps.HnRService)
+							r.Get("/hnr/rules", hnr.HandleListRules)
+							r.Put("/hnr/rules/{groupId}", hnr.HandleUpsertRule)
+							r.Delete("/hnr/rules/{groupId}", hnr.HandleDeleteRule)
+							r.Get("/hnr/stages", hnr.HandleListStages)
+							r.Put("/hnr/stages/{stage}", hnr.HandleUpsertStage)
+							r.Delete("/hnr/stages/{stage}", hnr.HandleDeleteStage)
+							r.Post("/hnr/run", hnr.HandleRunNow)
+							r.Get("/hnr/runs", hnr.HandleListRuns)
+							r.Get("/hnr/records", hnr.HandleAdminListRecords)
+							r.Get("/hnr/stats", hnr.HandleStats)
 						}
 						r.Get("/torrents", admin.HandleListTorrents)
 						if deps.TorrentService != nil {

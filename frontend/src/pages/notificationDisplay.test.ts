@@ -118,6 +118,24 @@ describe("mention notification rendering", () => {
       'Your torrent "Big Buck Bunny" was rejected',
     );
   });
+
+  test("hnr links to the member's hit-and-run page and shows the server message", () => {
+    const n = notif("hnr", {
+      old_stage: 0,
+      new_stage: 1,
+      action: "notify",
+      message: "Notice: alice has 1 active hit-and-runs.",
+    });
+    expect(notificationLink(n)).toBe("/hit-and-run");
+    expect(notificationMessage(n)).toBe(
+      "Notice: alice has 1 active hit-and-runs.",
+    );
+  });
+
+  test("hnr falls back to a generic message when the server didn't send one", () => {
+    const n = notif("hnr", { old_stage: 1, new_stage: 0 });
+    expect(notificationMessage(n)).toBe("Your hit-and-run status changed");
+  });
 });
 
 describe("notification group rendering (BE-9.14)", () => {

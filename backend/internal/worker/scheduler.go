@@ -120,6 +120,22 @@ func RegisterPeriodicTasks(scheduler TaskScheduler) error {
 		return fmt.Errorf("register announce log maintenance: %w", err)
 	}
 
+	// Evaluate hit-and-run obligations hourly, at :45 — clear of the other
+	// jobs, which sit at :00, :15, :30, and the nightly/monthly window between
+	// 04:15 and 06:00. hnr_records only ever gains rows when the announce
+	// path's own cached HnREnabled() check passes, so on a site that hasn't
+	// turned the feature on this is a cheap scan of an empty table, not a
+	// second place the master switch is read. The service's two-stage
+	// advisory lock (not asynq.Unique) is what keeps concurrent invocations
+	// across multiple worker processes safe.
+	hnrTask, err := NewHnREvaluateTask()
+	if err != nil {
+		return fmt.Errorf("create hnr evaluate task: %w", err)
+	}
+	if _, err := scheduler.Register("45 * * * *", hnrTask); err != nil {
+		return fmt.Errorf("register hnr evaluate: %w", err)
+	}
+
 	// Rebuild the announce log's indexes on the first of the month. The nightly
 	// prune keeps the heap at a fixed size but cannot keep the indexes there, so
 	// without this they grow indefinitely (#259).

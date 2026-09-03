@@ -73,6 +73,7 @@ const (
 	BackupCreated           Type = "backup_created"
 	BackupDeleted           Type = "backup_deleted"
 	BackupDownloaded        Type = "backup_downloaded"
+	HnRStageChanged         Type = "hnr_stage_changed"
 )
 
 // Event is the base interface for all domain events.
@@ -422,6 +423,23 @@ type PasskeyResetEvent struct {
 	Base
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+}
+
+// HnRStageChangedEvent fires every time the hit-and-run daemon moves a user
+// to a new penalty ladder stage, escalation or de-escalation alike — the
+// notification listener treats both directions the same way, since the
+// member should hear about either.
+type HnRStageChangedEvent struct {
+	Base
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+	OldStage int    `json:"old_stage"`
+	NewStage int    `json:"new_stage"`
+	// Action is the stage's configured action (notify/warn/restrict/
+	// final_notice/ban) when escalating, empty when de-escalating — there is
+	// no "action" to speak of when a stage is being left, only entered.
+	Action  string `json:"action,omitempty"`
+	Message string `json:"message"`
 }
 
 type RestrictionAppliedEvent struct {

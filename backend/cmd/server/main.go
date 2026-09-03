@@ -189,6 +189,17 @@ func run() int {
 	cheatDetectionService := service.NewCheatDetectionService(cheatFlagRepo, siteSettingsService, eventBus)
 	trackerService.SetCheatDetection(cheatDetectionService)
 
+	// Hit-and-run (HnR) announce-path accounting. Wired directly into
+	// TrackerService like TransferHistoryRepo/AnnounceEventRepo above — the
+	// repository is nil-checked in Announce, and the master switch
+	// (hnr_enabled, default false) is read through the cached
+	// SiteSettingsService.HnREnabled, so this is a no-op until an operator
+	// turns the feature on. hnrRepo is reused below to build HnRService once
+	// warningService/restrictionService (the ladder's "warn"/"restrict"/"ban"
+	// actions) exist.
+	hnrRepo := postgres.NewHnRRepo(db)
+	trackerService.SetHnRRepo(hnrRepo)
+
 	promotionRepo := postgres.NewPromotionRepo(db)
 	promotionService := service.NewPromotionService(promotionRepo, groupRepo, siteSettingsService)
 
@@ -224,6 +235,8 @@ func run() int {
 
 	restrictionRepo := postgres.NewRestrictionRepo(db)
 	restrictionService := service.NewRestrictionService(restrictionRepo, userRepo, eventBus)
+
+	hnrService := service.NewHnRService(db, hnrRepo, groupRepo, userRepo, warningService, restrictionService, siteSettingsService, eventBus)
 
 	// Warning escalation listener — auto-restrict or ban based on manual warning count.
 	listener.RegisterWarningEscalationListener(eventBus, siteSettingsService, warningRepo, restrictionService, userRepo, activityLogService, sessionStore, messageRepo)
@@ -387,6 +400,7 @@ func run() int {
 		CheatFlagRepo:             cheatFlagRepo,
 		NotificationService:       notificationService,
 		PromotionService:          promotionService,
+		HnRService:                hnrService,
 		BonusService:              bonusService,
 		InviteDistributionService: inviteDistributionService,
 		ConnectorService:          connectorService,
@@ -424,6 +438,7 @@ func run() int {
 		BonusSvc:              bonusService,
 		InviteDistributionSvc: inviteDistributionService,
 		DigestSvc:             notificationDigestService,
+		HnRSvc:                hnrService,
 		SendToUser:            chatHub.SendToUser,
 
 		NotificationRepo:      notificationRepo,

@@ -172,7 +172,7 @@ func RegisterWarningEscalationListener(
 					continue
 				}
 
-				if _, err := restrictionSvc.ApplyRestriction(ctx, e.UserID, rt, reason, &expiresAt, nil); err != nil {
+				if _, err := restrictionSvc.ApplyRestriction(ctx, e.UserID, rt, reason, model.RestrictionSourceRatioWarning, &expiresAt, nil); err != nil {
 					slog.Error("warning_escalation: failed to apply restriction",
 						"user_id", e.UserID,
 						"restriction_type", rt,

@@ -106,6 +106,7 @@ type TrackerService struct {
 	groups          repository.GroupRepository
 	siteSettings    *SiteSettingsService
 	cheatDetection  *CheatDetectionService
+	hnr             repository.HnRRepository
 }
 
 // NewTrackerService creates a new TrackerService.
@@ -144,6 +145,24 @@ func (s *TrackerService) SetGroupRepo(repo repository.GroupRepository) {
 // SetCheatDetection sets the cheat detection service for announce-time checks.
 func (s *TrackerService) SetCheatDetection(cd *CheatDetectionService) {
 	s.cheatDetection = cd
+}
+
+// SetHnRRepo sets the hit-and-run repository for announce-path accounting
+// (record creation on completion, seed-time/upload accumulation on every
+// seeding announce). Nil-checked everywhere it is used, like every other
+// optional dependency here: without it the hook is simply skipped.
+func (s *TrackerService) SetHnRRepo(repo repository.HnRRepository) {
+	s.hnr = repo
+}
+
+// shouldTrackHnR reports whether completing a download for user should
+// establish a hit-and-run obligation: the feature is on, a repository is
+// wired up, and the user isn't a donor exempted by hnr_exempt_donors. Shared
+// by both call sites that create an hnr_records row (handleCompleted and the
+// leecher->seeder transition in handleAnnounce) so they can't drift apart.
+func (s *TrackerService) shouldTrackHnR(ctx context.Context, user *model.User) bool {
+	return s.hnr != nil && s.siteSettings != nil && s.siteSettings.HnREnabled(ctx) &&
+		(!user.Donor || !s.siteSettings.HnRExemptDonors(ctx))
 }
 
 // canAnnounceUnapproved reports whether user may announce a not-yet-approved
@@ -279,6 +298,23 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 		// started or regular announce
 		if err := s.handleAnnounce(ctx, torrent, user, existingPeer, req, isSeeder); err != nil {
 			return nil, fmt.Errorf("handle announce: %w", err)
+		}
+	}
+
+	// Hit-and-run accounting: every seeding announce (never a stopped one —
+	// by definition nothing was seeded during the instant that ends a
+	// session) credits seed time and upload against any open record for this
+	// (user, torrent). uploadDelta is deliberately the raw delta computed
+	// above, not a freeleech-discounted figure: only the ratio requirement's
+	// denominator (torrent size) is freeleech-blind, upload itself is never
+	// discounted anywhere in this codebase. One cached bool read gates the
+	// whole thing, so a site with the feature off (or entirely unconfigured
+	// — s.hnr is nil in that case) pays nothing extra on its hottest path.
+	if s.hnr != nil && isSeeder && req.Event != EventStopped && s.siteSettings != nil && s.siteSettings.HnREnabled(ctx) {
+		creditCapMinutes := s.siteSettings.GetInt(ctx, SettingHnRSeedCreditCapMinutes, 45)
+		creditCap := time.Duration(creditCapMinutes) * time.Minute
+		if err := s.hnr.Accumulate(ctx, user.ID, torrent.ID, uploadDelta, creditCap, time.Now()); err != nil {
+			slog.Error("failed to accumulate hnr record", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
 		}
 	}
 
@@ -424,6 +460,21 @@ func (s *TrackerService) handleCompleted(
 		}
 	}
 
+	// Establish the hit-and-run obligation: completing a download is the
+	// event that starts it, regardless of the peer's seeder status at this
+	// exact instant — whether they go on to seed is exactly what the record
+	// tracks. CreateIfNotExists no-ops if a record already exists or the
+	// torrent is hnr_exempt, so a repeat completed event is harmless.
+	// hnr_exempt_donors is checked here rather than in the evaluator: a donor
+	// is exempt from tracking entirely, so no record — and no history of one
+	// — should exist for them at all, the same way an hnr_exempt torrent
+	// never gets a row in the first place.
+	if s.shouldTrackHnR(ctx, user) {
+		if _, err := s.hnr.CreateIfNotExists(ctx, user.ID, torrent.ID, now); err != nil {
+			slog.Error("failed to create hnr record", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
+		}
+	}
+
 	// Transition from leecher to seeder if applicable.
 	if existingPeer != nil && !existingPeer.Seeder && isSeeder {
 		if err := s.torrents.IncrementLeechers(ctx, torrent.ID, -1); err != nil {
@@ -493,6 +544,17 @@ func (s *TrackerService) handleAnnounce(
 			}
 			if err := s.torrents.IncrementSeeders(ctx, torrent.ID, 1); err != nil {
 				slog.Error("failed to increment seeders", "torrent_id", torrent.ID, "error", err)
+			}
+			// Belt-and-braces for a client that never sends a completed
+			// event: the leecher->seeder transition is itself proof the
+			// torrent finished downloading, so it establishes the hit-and-run
+			// obligation the same way handleCompleted does. A no-op if
+			// handleCompleted already created the record.
+			if s.shouldTrackHnR(ctx, user) {
+				if _, err := s.hnr.CreateIfNotExists(ctx, user.ID, torrent.ID, now); err != nil {
+					slog.Error("failed to create hnr record on leecher->seeder transition",
+						"torrent_id", torrent.ID, "user_id", user.ID, "error", err)
+				}
 			}
 		} else {
 			if err := s.torrents.IncrementSeeders(ctx, torrent.ID, -1); err != nil {

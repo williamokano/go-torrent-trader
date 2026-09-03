@@ -31,6 +31,7 @@ function torrentRow(overrides: Record<string, unknown> = {}) {
     banned: false,
     free: false,
     silver: false,
+    hnr_exempt: false,
     visible: true,
     created_at: "2024-05-01T00:00:00Z",
     ...overrides,
@@ -154,6 +155,25 @@ describe("AdminTorrentsPage", () => {
       expect(screen.getByText("Free")).toBeInTheDocument();
     });
     expect(screen.getByText("Half")).toBeInTheDocument();
+  });
+
+  test("shows the hit-and-run exemption flag", async () => {
+    mockApi({ torrents: [torrentRow({ hnr_exempt: true })] });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("No H&R")).toBeInTheDocument();
+    });
+  });
+
+  test("does not show the hit-and-run exemption flag for a non-exempt torrent", async () => {
+    mockApi({ torrents: [torrentRow({ hnr_exempt: false })] });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(HASH_A)).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No H&R")).not.toBeInTheDocument();
   });
 
   test("renders search input", async () => {

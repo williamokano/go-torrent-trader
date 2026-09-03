@@ -214,6 +214,12 @@ var (
 	ErrBonusKindNotAvailable   = errors.New("bonus item kind not available")
 )
 
+// ErrHnRRecordNotClearable means the record does not belong to the caller, does
+// not exist, or is no longer in an open state (active/hnr) — it originates
+// inside ClearRecord's own compare-and-set UPDATE, mirroring how the bonus
+// purchase sentinels above originate inside PurchaseItem's transaction.
+var ErrHnRRecordNotClearable = errors.New("hnr record not open or not owned by user")
+
 // BonusRepository defines persistence operations for the bonus point economy.
 // All bonus_points writes happen here via atomic statements — never through
 // UserRepository.Update — so awards, purchases, and admin adjustments cannot
@@ -253,6 +259,164 @@ type PromotionRepository interface {
 	// Run bookkeeping.
 	LastRunAt(ctx context.Context) (time.Time, bool, error)
 	RecordRun(ctx context.Context, promoted, demoted int) error
+}
+
+// HnREvalInput is everything the shared evaluator (service.EvaluateHnRRecord)
+// needs to decide a record's status: the record's own accumulators, the rule
+// in force for the snatching user's class, and the torrent's size (the ratio
+// denominator — deliberately not counted/discounted download, so a freeleech
+// torrent remains fully eligible). Rule is nil when the user's class
+// currently has no HnR rule at all — e.g. promoted to VIP after the snatch —
+// which the evaluator treats the same as a torrent flagged TorrentExempt:
+// both resolve the record via MarkWaived, not MarkSatisfied, because neither
+// means the seeding requirement was actually met.
+type HnREvalInput struct {
+	Record        model.HnRRecord
+	Rule          *model.HnRRule
+	TorrentSize   int64
+	TorrentExempt bool
+}
+
+// HnRAdminListOptions filters the staff-facing HnR records list.
+type HnRAdminListOptions struct {
+	State   *string
+	UserID  *int64
+	Search  string // matches username or torrent name
+	Page    int
+	PerPage int
+}
+
+// HnRAggregateStats summarises the whole HnR table for the staff dashboard.
+type HnRAggregateStats struct {
+	ActiveHnR     int64 // state = 'hnr'
+	Monitored     int64 // state = 'active'
+	Satisfied     int64
+	Cleared       int64
+	Waived        int64
+	BreachedToday int64
+}
+
+// HnROffender is one row of the staff "top offenders" leaderboard.
+type HnROffender struct {
+	UserID       int64
+	Username     string
+	ActiveHnR    int64
+	TotalRecords int64
+	Stage        int
+}
+
+// HnRRepository defines persistence operations for hit-and-run tracking:
+// per-class rules, the per-snatch accumulator/state machine, the penalty
+// ladder and per-user ladder position, and the daemon's run log.
+type HnRRepository interface {
+	// Rule configuration. A group is subject to HnR if and only if it has a
+	// row here, mirroring PromotionRepository.
+	ListRules(ctx context.Context) ([]model.HnRRule, error)
+	GetRuleForGroup(ctx context.Context, groupID int64) (*model.HnRRule, error)
+	UpsertRule(ctx context.Context, rule *model.HnRRule) error
+	DeleteRule(ctx context.Context, groupID int64) error
+
+	// Announce-path accounting. CreateIfNotExists is called on torrent
+	// completion (and on the leecher->seeder transition as belt-and-braces);
+	// it is a no-op when a record already exists or the torrent is
+	// hnr_exempt. Accumulate is the one atomic UPDATE that both credits
+	// seed time/upload since the last seeding announce (capped at
+	// creditCap, crediting nothing across a longer gap) and, in the same
+	// statement, recovers a 'hnr' record straight back to 'active' — a
+	// seeding announce is unambiguous proof of resumed seeding.
+	CreateIfNotExists(ctx context.Context, userID, torrentID int64, completedAt time.Time) (bool, error)
+	Accumulate(ctx context.Context, userID, torrentID int64, uploadDelta int64, creditCap time.Duration, now time.Time) error
+
+	// Daemon inputs and CAS transitions. ListOpenForEvaluation returns every
+	// record in state active/hnr joined with its user's class rule and the
+	// torrent's size, for the shared evaluator to decide against. The two
+	// Mark* methods are compare-and-swap by id list — a row not still in the
+	// expected starting state (because another instance already moved it)
+	// is silently skipped, which is what makes a double-run safe.
+	ListOpenForEvaluation(ctx context.Context) ([]HnREvalInput, error)
+	MarkBreached(ctx context.Context, ids []int64, now time.Time) (int64, error)
+	MarkSatisfied(ctx context.Context, ids []int64, now time.Time) (int64, error)
+	// MarkWaived resolves records the evaluator found inapplicable rather than
+	// unmet: a torrent flagged hnr_exempt after the snatch, or a user whose
+	// class currently carries no HnR rule. Un-flagging/re-adding a rule
+	// deliberately does not undo this — a waived record stays waived.
+	MarkWaived(ctx context.Context, ids []int64, now time.Time) (int64, error)
+	// PurgeResolved deletes resolved (satisfied/cleared/waived) records
+	// older than the retention window, for the daemon's housekeeping pass.
+	PurgeResolved(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// Penalty ladder configuration.
+	ListStages(ctx context.Context) ([]model.HnRPenaltyStage, error)
+	UpsertStage(ctx context.Context, stage *model.HnRPenaltyStage) error
+	DeleteStage(ctx context.Context, stage int) error
+
+	// Per-user ladder position. ActiveHnRCounts returns, for every user with
+	// at least one record in state 'hnr', that count — the daemon's
+	// escalation input. UsersOnLadder returns everyone currently at a
+	// non-zero stage, including those now absent from ActiveHnRCounts
+	// (count implicitly zero), so decay is evaluated for them too.
+	// EnsureUserState is an idempotent create-if-absent so CASUserStage
+	// always has a row to match against; it takes the same now the caller
+	// is about to evaluate decideHnRLadderStage against — never its own
+	// internal clock read — so a state row created mid-run always reads
+	// back with StageEnteredAt <= that decision's now. A separate read
+	// would let StageEnteredAt land microseconds after now, which fails a
+	// zero-day dwell check on a brand new user's very first stage. CASUserStage
+	// no-ops (returns false, nil) when another instance already moved the
+	// user off expectedStage.
+	ActiveHnRCounts(ctx context.Context) (map[int64]int, error)
+	UsersOnLadder(ctx context.Context) ([]model.HnRUserState, error)
+	GetUserState(ctx context.Context, userID int64) (*model.HnRUserState, error)
+	EnsureUserState(ctx context.Context, userID int64, now time.Time) error
+	CASUserStage(ctx context.Context, userID int64, expectedStage, newStage int, now time.Time) (bool, error)
+	SetLastNotifiedStage(ctx context.Context, userID int64, stage int) error
+
+	// Run bookkeeping, mirroring PromotionRepository's shape but richer: HnR
+	// needs a status and outcome counts for staff visibility, not just a
+	// timestamp.
+	StartRun(ctx context.Context, trigger string, triggeredBy *int64) (int64, error)
+	FinishRun(ctx context.Context, runID int64, status string, counts HnRRunCounts, errMsg *string) error
+	LastRun(ctx context.Context) (*model.HnRRun, bool, error)
+	ListRuns(ctx context.Context, limit int) ([]model.HnRRun, error)
+
+	// Member-facing read path.
+	ListForUser(ctx context.Context, userID int64) ([]model.HnRRecord, error)
+	GetForUser(ctx context.Context, userID, recordID int64) (*model.HnRRecord, error)
+	// LiveSeedingTorrentIDs is the real-time overlay: which of torrentIDs
+	// the user currently has an active seeding peer for, straight from
+	// peers — the one place in the schema with zero lag.
+	LiveSeedingTorrentIDs(ctx context.Context, userID int64, torrentIDs []int64) (map[int64]bool, error)
+	// GetRuleForUser resolves a rule via the user's *current* class, the
+	// same join ListOpenForEvaluation uses (not the class at snatch time —
+	// a promoted-to-VIP user is exempt going forward, matching the daemon).
+	// A user whose class carries no rule is not an error: it returns
+	// (nil, nil), exactly what the evaluator treats as HnRStatusExempt. Only
+	// a genuinely missing user (deleted between auth and this call) returns
+	// sql.ErrNoRows.
+	GetRuleForUser(ctx context.Context, userID int64) (*model.HnRRule, error)
+
+	// Clearing with bonus points. ClearRecord is one transaction, mirroring
+	// BonusRepo.PurchaseItem: verify the record belongs to userID and is
+	// still open, race-safe spend against users.bonus_points, mark the
+	// record cleared, and write the bonus_transactions ledger row. price is
+	// computed by the caller (server-side, inside the same request) and
+	// never trusted from the client.
+	ClearRecord(ctx context.Context, userID, recordID, price int64) (newBalance int64, err error)
+
+	// Staff visibility.
+	AdminList(ctx context.Context, opts HnRAdminListOptions) ([]model.HnRRecord, int64, error)
+	AggregateStats(ctx context.Context) (HnRAggregateStats, error)
+	TopOffenders(ctx context.Context, limit int) ([]HnROffender, error)
+}
+
+// HnRRunCounts is FinishRun's outcome tally for one daemon run.
+type HnRRunCounts struct {
+	Scanned        int
+	Breached       int
+	Satisfied      int
+	StagesAdvanced int
+	StagesDecayed  int
+	Purged         int
 }
 
 // InviteDistributionRepository defines persistence operations for the auto
@@ -590,6 +754,12 @@ type RestrictionRepository interface {
 	Lift(ctx context.Context, id int64, liftedBy *int64) error
 	LiftExpired(ctx context.Context) ([]model.Restriction, error)
 	HasActiveByType(ctx context.Context, userID int64, restrictionType string) (bool, error)
+	// LiftActiveBySource lifts every currently active restriction of
+	// restrictionType for userID that was issued by source, and returns how
+	// many rows it lifted. Zero is a normal, successful result — the caller
+	// only cares that no active restriction from this source exists
+	// afterward, which already holds when nothing matched.
+	LiftActiveBySource(ctx context.Context, userID int64, restrictionType, source string) (int, error)
 }
 
 // ForumCategoryRepository defines persistence operations for forum categories.

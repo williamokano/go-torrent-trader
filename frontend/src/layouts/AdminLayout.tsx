@@ -57,6 +57,11 @@ export function AdminLayout() {
           </NavLink>
         )}
         {isAdmin && (
+          <NavLink to="/admin/hit-and-run" className={navLinkClass}>
+            Hit-and-Run
+          </NavLink>
+        )}
+        {isAdmin && (
           <NavLink to="/admin/invite-distribution" className={navLinkClass}>
             Invite Distribution
           </NavLink>

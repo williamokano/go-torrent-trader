@@ -1485,9 +1485,739 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/hnr:
+    get:
+      operationId: listMyHnRRecords
+      x-audience: public
+      summary: List the authenticated member's own hit-and-run obligations
+      description: >
+        Breach first, then monitored, then resolved. display_status is
+        evaluated live on every call — see HnRRecordView — so the page is
+        never stale between the daemon's hourly runs; state is what the
+        daemon last persisted and can lag display_status by up to that
+        interval.
+      tags: [hnr]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The member's obligations, oldest-first within each status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [records]
+                properties:
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRRecordView'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/hnr/{id}/clear-price:
+    get:
+      operationId: quoteHnRClear
+      x-audience: public
+      summary: Price clearing one obligation with bonus points, without spending
+      description: >
+        What POST .../clear would charge right now, computed the same way —
+        server-side, from the site's hnr_clear_pricing_mode — so the member
+        page can quote a price before the member commits.
+      tags: [hnr]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The current price, in bonus points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  price:
+                    type: integer
+                    format: int64
+        '400':
+          description: Invalid record ID, or the record is not open (already resolved) or not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/hnr/{id}/clear:
+    post:
+      operationId: clearHnRRecord
+      x-audience: public
+      summary: Pay off one open hit-and-run obligation with bonus points
+      description: >
+        The price is always computed server-side, freshly, inside the same
+        request the points are spent in — the request body carries nothing
+        to trust. The spend is race-safe against the balance (mirrors the
+        bonus store's purchase flow). On success the penalty ladder is
+        re-evaluated for the member immediately, so a restriction the clear
+        paid off lifts in this response rather than waiting for the next
+        daemon run.
+      tags: [hnr]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  price:
+                    type: integer
+                    format: int64
+                  new_balance:
+                    type: integer
+                    format: int64
+        '400':
+          description: Invalid record ID, or the record is not open or not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Insufficient bonus points
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/hnr/clear-all:
+    post:
+      operationId: clearAllHnRRecords
+      x-audience: public
+      summary: Clear every open obligation the member can currently afford
+      description: >
+        Cheapest first, stopping the moment the balance can't cover the
+        next one. A partial clear is a 200, not an error — everything
+        affordable got cleared, and stopped_insufficient_points says
+        whether the balance ran out before the rest. Each record is priced
+        and spent through the exact same path as POST .../clear, called in
+        a loop — never a separately-computed total.
+      tags: [hnr]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The sweep's outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared:
+                    type: integer
+                    description: How many obligations were cleared.
+                  total_spent:
+                    type: integer
+                    format: int64
+                  new_balance:
+                    type: integer
+                    format: int64
+                  stopped_insufficient_points:
+                    type: boolean
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   # Report management. Previously documented as GET /api/v1/reports and
   # PUT /api/v1/reports/{id}/resolve, which never existed: the router has always
   # registered them under /api/v1/admin, behind RequireAdmin.
+  /api/v1/admin/hnr/rules:
+    get:
+      operationId: listHnRRules
+      x-audience: internal
+      summary: List every class's hit-and-run rule
+      description: >
+        A class is subject to hit-and-run tracking if and only if it has a rule
+        here — a class with none (VIP, by default) is exempt, with no other
+        configuration needed. Ordered by group level.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every configured rule
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRRuleView'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/rules/{groupId}:
+    put:
+      operationId: upsertHnRRule
+      x-audience: internal
+      summary: Create or update a class's hit-and-run rule
+      description: >
+        Refuses staff groups (admin/moderator) and negative thresholds. A
+        threshold of 0 is unconstrained on that dimension — a rule with both
+        required_seed_hours and required_ratio at 0 has no requirement at all
+        and every snatch is immediately satisfied.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The group (class) this rule applies to
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                required_seed_hours:
+                  type: integer
+                  description: Seed-time requirement in hours; 0 = unconstrained
+                required_ratio:
+                  type: number
+                  format: double
+                  description: >
+                    Ratio requirement, checked against the torrent's raw size —
+                    not counted/freeleech-discounted download — so freeleech
+                    torrents remain fully eligible. 0 = unconstrained.
+                inactivity_grace_hours:
+                  type: integer
+                  description: >
+                    How long a member may go without a seeding announce before
+                    breaching, once the requirement above is unmet. 0 means zero
+                    tolerance, not "disabled".
+                max_days_to_satisfy:
+                  type: integer
+                  description: >
+                    Hard cap from the snatch's completion, regardless of recent
+                    activity. 0 = no hard cap.
+      responses:
+        '200':
+          description: The saved rule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule:
+                    $ref: '#/components/schemas/HnRRule'
+        '400':
+          description: Invalid group ID, negative threshold, or malformed body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteHnRRule
+      x-audience: internal
+      summary: Remove a class from hit-and-run tracking entirely
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '400':
+          description: Invalid group ID, or no rule exists for this group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/stages:
+    get:
+      operationId: listHnRStages
+      x-audience: internal
+      summary: List the site-wide hit-and-run penalty ladder
+      description: >
+        Ordered by stage. Empty means the ladder is unconfigured — the
+        daemon still tracks and breaches records, but never escalates
+        anyone.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every configured stage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stages]
+                properties:
+                  stages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRPenaltyStage'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/stages/{stage}:
+    put:
+      operationId: upsertHnRStage
+      x-audience: internal
+      summary: Create or update one rung of the hit-and-run penalty ladder
+      description: >
+        Escalation always advances exactly one stage per daemon run, gated
+        by this stage's min_days_in_prev dwell against how long the member
+        has sat at the previous stage — never straight to a harsher stage
+        however far their active count has run ahead. De-escalation is not
+        rationed and can drop several rungs in one run. restriction_types is
+        only accepted (and required, at least one) when action is "restrict";
+        every other action rejects a non-empty restriction_types.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stage
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The rung this defines. Must be at least 1 — stage 0 means "off the ladder" and is never a configured row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_active_hnr:
+                  type: integer
+                  description: How many of the member's records must be in state 'hnr' to reach this stage. Must be at least 1.
+                min_days_in_prev:
+                  type: integer
+                  description: Days the member must have already dwelt at the previous stage before advancing into this one. 0 = no dwell.
+                action:
+                  type: string
+                  enum: [notify, warn, restrict, final_notice, ban]
+                restriction_types:
+                  type: array
+                  items:
+                    type: string
+                  description: Only for action=restrict; at least one required.
+                restriction_days:
+                  type: integer
+                  description: Restriction duration for action=restrict. 0 = indefinite (until de-escalated).
+                message_template:
+                  type: string
+                  description: 'Supports {{username}}, {{stage}}, {{count}}, {{restriction_days}}.'
+      responses:
+        '200':
+          description: The saved stage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stage:
+                    $ref: '#/components/schemas/HnRPenaltyStage'
+        '400':
+          description: Invalid stage number or malformed body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteHnRStage
+      x-audience: internal
+      summary: Remove one rung of the hit-and-run penalty ladder
+      description: >
+        A member currently sitting at the deleted stage is left alone until
+        the next run re-evaluates them against the remaining stages.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stage
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '400':
+          description: No stage exists at this number
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/run:
+    post:
+      operationId: runHnRDaemon
+      x-audience: internal
+      summary: Force an immediate hit-and-run evaluation sweep
+      description: >
+        Goes through the same two-stage advisory lock as the scheduled hourly
+        run, so it is always safe to press even while a scheduled run happens
+        to be in flight — it either runs immediately or queues behind exactly
+        one other run and then runs.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: >
+            The run's outcome. skipped=true means another run was already
+            queued and this invocation dropped rather than waiting behind the
+            queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skipped:
+                    type: boolean
+                  run_id:
+                    type: integer
+                    format: int64
+                  scanned:
+                    type: integer
+                  breached:
+                    type: integer
+                  satisfied:
+                    type: integer
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: The daemon has no database handle for locking (misconfigured deployment)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/runs:
+    get:
+      operationId: listHnRRuns
+      x-audience: internal
+      summary: List recent hit-and-run daemon runs, most recent first
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: The run log
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRRun'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/records:
+    get:
+      operationId: listHnRAdminRecords
+      x-audience: internal
+      summary: List every hit-and-run record, filterable, for staff
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, hnr, satisfied, cleared, waived]
+        - name: user_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Matches username or torrent name.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 25
+      responses:
+        '200':
+          description: A page of records
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [records, total]
+                properties:
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRAdminRecord'
+                  total:
+                    type: integer
+                    format: int64
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/stats:
+    get:
+      operationId: getHnRStats
+      x-audience: internal
+      summary: Site-wide hit-and-run aggregate counts and the top-offenders leaderboard
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+          description: Top-offenders leaderboard size.
+      responses:
+        '200':
+          description: The dashboard's counts and leaderboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active_hnr:
+                    type: integer
+                    format: int64
+                    description: Records currently in breach (state=hnr).
+                  monitored:
+                    type: integer
+                    format: int64
+                  satisfied:
+                    type: integer
+                    format: int64
+                  cleared:
+                    type: integer
+                    format: int64
+                  waived:
+                    type: integer
+                    format: int64
+                  breached_today:
+                    type: integer
+                    format: int64
+                  top_offenders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: integer
+                          format: int64
+                        username:
+                          type: string
+                        active_hnr:
+                          type: integer
+                          format: int64
+                        total_records:
+                          type: integer
+                          format: int64
+                        stage:
+                          type: integer
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/settings:
     get:
       operationId: listSiteSettings
@@ -4054,6 +4784,227 @@ components:
           type: string
           format: date-time
 
+    HnRRule:
+      type: object
+      description: One class's hit-and-run policy.
+      properties:
+        group_id:
+          type: integer
+          format: int64
+        required_seed_hours:
+          type: integer
+        required_ratio:
+          type: number
+          format: double
+        inactivity_grace_hours:
+          type: integer
+        max_days_to_satisfy:
+          type: integer
+
+    HnRRuleView:
+      type: object
+      description: A hit-and-run rule joined with its group, for the admin UI.
+      properties:
+        group_id:
+          type: integer
+          format: int64
+        group_name:
+          type: string
+        group_level:
+          type: integer
+        is_staff:
+          type: boolean
+        required_seed_hours:
+          type: integer
+        required_ratio:
+          type: number
+          format: double
+        inactivity_grace_hours:
+          type: integer
+        max_days_to_satisfy:
+          type: integer
+
+    HnRRun:
+      type: object
+      description: One recorded run of the hit-and-run daemon.
+      properties:
+        id:
+          type: integer
+          format: int64
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [running, success, failed]
+        trigger:
+          type: string
+          enum: [schedule, manual]
+        triggered_by:
+          type: integer
+          format: int64
+          nullable: true
+          description: Admin user id, present only for a manually-triggered run
+        scanned:
+          type: integer
+        breached:
+          type: integer
+        satisfied:
+          type: integer
+        stages_advanced:
+          type: integer
+        stages_decayed:
+          type: integer
+        purged:
+          type: integer
+        error:
+          type: string
+          nullable: true
+
+    HnRPenaltyStage:
+      type: object
+      description: One ordered rung of the site-wide hit-and-run penalty ladder.
+      properties:
+        stage:
+          type: integer
+        min_active_hnr:
+          type: integer
+        min_days_in_prev:
+          type: integer
+        action:
+          type: string
+          enum: [notify, warn, restrict, final_notice, ban]
+        restriction_types:
+          type: array
+          items:
+            type: string
+        restriction_days:
+          type: integer
+          description: 0 = indefinite (until de-escalated).
+        message_template:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    HnRAdminRecord:
+      type: object
+      description: One hit-and-run record as shown to staff — every field, unfiltered by live evaluation (that's HnRRecordView, the member's own view).
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        torrent_id:
+          type: integer
+          format: int64
+        torrent_name:
+          type: string
+        torrent_size:
+          type: integer
+          format: int64
+        torrent_exempt:
+          type: boolean
+        state:
+          type: string
+          enum: [active, hnr, satisfied, cleared, waived]
+        completed_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        seeded_seconds:
+          type: integer
+          format: int64
+        uploaded:
+          type: integer
+          format: int64
+        breached_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    HnRRecordView:
+      type: object
+      description: >
+        One hit-and-run obligation as shown to the member who owns it.
+        display_status is evaluated live on every request against the
+        member's current class rule (see EvaluateHnRRecord) and the live
+        peers overlay, so it can be ahead of state — never behind it — when
+        the daemon has not yet run since something changed.
+      properties:
+        id:
+          type: integer
+          format: int64
+        torrent_id:
+          type: integer
+          format: int64
+        torrent_name:
+          type: string
+        torrent_size:
+          type: integer
+          format: int64
+        state:
+          type: string
+          enum: [active, hnr, satisfied, cleared, waived]
+          description: The daemon-persisted state, as of its last run.
+        display_status:
+          type: string
+          enum: [breach, monitoring, satisfied, cleared, waived]
+          description: The live-evaluated status the page should actually show.
+        completed_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        seeded_seconds:
+          type: integer
+          format: int64
+        uploaded:
+          type: integer
+          format: int64
+        breached_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        currently_seeding:
+          type: boolean
+          description: >
+            True when the member has an active seeding peer for this torrent
+            right now, straight from the peers table.
+        required_seed_hours:
+          type: integer
+          nullable: true
+          description: Omitted when the member's current class carries no rule.
+        required_ratio:
+          type: number
+          format: double
+          nullable: true
+        inactivity_grace_hours:
+          type: integer
+          nullable: true
+
     Category:
       type: object
       properties:
@@ -4138,6 +5089,12 @@ components:
         free:
           type: boolean
           description: Staff-only — enable/disable freeleech
+        hnr_exempt:
+          type: boolean
+          description: >
+            Staff-only — exempt this torrent from hit-and-run tracking. Waives
+            any open obligation against it; un-exempting does not resurrect a
+            waived one.
 
     DeleteTorrentRequest:
       type: object
@@ -4711,6 +5668,9 @@ components:
         silver:
           type: boolean
           description: Half credit — downloads count at 50%
+        hnr_exempt:
+          type: boolean
+          description: Whether this torrent is exempt from hit-and-run tracking
         visible:
           type: boolean
         created_at:

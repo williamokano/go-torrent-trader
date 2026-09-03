@@ -116,6 +116,10 @@ func (s *stubUserRepo) SetPrivilegeFlag(_ context.Context, userID int64, restric
 		u.CanChat = value
 	case "invite":
 		u.CanInvite = value
+	case "feed":
+		u.CanFeed = value
+	case "forum":
+		u.CanForum = value
 	}
 	return nil
 }

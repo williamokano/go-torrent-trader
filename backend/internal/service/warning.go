@@ -132,6 +132,88 @@ func (s *WarningService) IssueRatioWarning(ctx context.Context, userID int64, me
 	return w, nil
 }
 
+// IssueHnRWarning creates a system-issued warning for the hit-and-run
+// penalty ladder's "warn" stage, mirroring IssueRatioWarning — system actor,
+// no antecedent warning to reference, a PM carrying the message, and the
+// same WarningIssued event the notification listener already turns into a
+// member-facing NotifSystem entry.
+func (s *WarningService) IssueHnRWarning(ctx context.Context, userID int64, message string) (*model.Warning, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+
+	w := &model.Warning{
+		UserID: userID,
+		Type:   model.WarningTypeHnR,
+		Reason: message,
+		Status: model.WarningStatusActive,
+	}
+	if err := s.warnings.Create(ctx, w); err != nil {
+		return nil, fmt.Errorf("create hnr warning: %w", err)
+	}
+
+	user.Warned = true
+	if err := s.users.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("update user warned flag: %w", err)
+	}
+
+	s.sendSystemPM(ctx, userID, "Hit-and-Run Warning", message)
+
+	actor := event.Actor{ID: 0, Username: "System"}
+	s.eventBus.Publish(ctx, &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, actor),
+		WarningID:   w.ID,
+		UserID:      userID,
+		Username:    user.Username,
+		WarningType: model.WarningTypeHnR,
+	})
+
+	return w, nil
+}
+
+// IssueHnRBan disables a user's account for reaching the hit-and-run penalty
+// ladder's "ban" stage. Unlike EscalateRatioWarning there is no antecedent
+// warning to mark escalated — the ladder's own state (hnr_user_state) is
+// what tracked the climb here, not a Warning row — so this only writes the
+// audit-trail record and disables the account, mirroring the rest of
+// EscalateRatioWarning's shape (PM before disabling, then the ban record,
+// then the event the notification listener turns into a NotifSystem entry).
+func (s *WarningService) IssueHnRBan(ctx context.Context, userID int64, reason string) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user for ban: %w", err)
+	}
+
+	s.sendSystemPM(ctx, userID, "Account Disabled - Hit-and-Run", reason)
+
+	user.Enabled = false
+	if err := s.users.Update(ctx, user); err != nil {
+		return fmt.Errorf("disable user: %w", err)
+	}
+
+	banWarning := &model.Warning{
+		UserID: userID,
+		Type:   model.WarningTypeHnRBan,
+		Reason: reason,
+		Status: model.WarningStatusActive,
+	}
+	if err := s.warnings.Create(ctx, banWarning); err != nil {
+		return fmt.Errorf("create hnr ban warning: %w", err)
+	}
+
+	actor := event.Actor{ID: 0, Username: "System"}
+	s.eventBus.Publish(ctx, &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, actor),
+		WarningID:   banWarning.ID,
+		UserID:      userID,
+		Username:    user.Username,
+		WarningType: model.WarningTypeHnRBan,
+	})
+
+	return nil
+}
+
 // EscalateRatioWarning escalates a ratio_soft warning to a ban.
 func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int64, banMessage string) error {
 	w, err := s.warnings.GetByID(ctx, warningID)

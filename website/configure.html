@@ -315,6 +315,100 @@
 
       <section>
         <div class="wrap">
+          <p class="eyebrow">Enforcement</p>
+          <h2>Hit-and-run</h2>
+          <p>
+            Off by default. Tracking only ever starts from the moment this is
+            turned on — nothing already snatched is retroactively tracked.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>What it does</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>hnr_enabled</code></td>
+                <td>off</td>
+                <td>
+                  Starts a tracked seed obligation on every completed
+                  download, per the per-class rules on the Hit-and-Run admin
+                  page.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_seed_credit_cap_minutes</code></td>
+                <td>45</td>
+                <td>
+                  The anti-gaming guard. A gap between two seeding announces
+                  longer than this earns zero credit for that gap, so seed
+                  time can only be earned by actually announcing
+                  continuously.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_grace_after_complete_hours</code></td>
+                <td>—</td>
+                <td>
+                  How long after a snatch completes before it is evaluated at
+                  all, giving a member time to start seeding before any clock
+                  that matters begins.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_retention_days</code></td>
+                <td>180</td>
+                <td>
+                  How long a resolved record (satisfied, cleared, or waived)
+                  is kept before it is purged. 0 keeps resolved records
+                  forever.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_exempt_donors</code></td>
+                <td>off</td>
+                <td>Whether donor accounts are exempt from tracking entirely.</td>
+              </tr>
+              <tr>
+                <td><code>hnr_clear_pricing_mode</code></td>
+                <td>fixed</td>
+                <td>
+                  How clearing an obligation with bonus points is priced: a
+                  fixed price by torrent size, or a price proportional to the
+                  upload still needed to reach the required ratio.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_clear_base_points</code></td>
+                <td>50</td>
+                <td>Flat component of the fixed clear price.</td>
+              </tr>
+              <tr>
+                <td><code>hnr_clear_points_per_gib</code></td>
+                <td>10</td>
+                <td>
+                  Added to the base price for every GiB of the torrent's
+                  size, under fixed pricing.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_clear_points_per_gib_deficit</code></td>
+                <td>25</td>
+                <td>
+                  Price per GiB of upload still needed to reach the required
+                  ratio, under deficit pricing.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
           <p class="eyebrow">Moderation and chat</p>
           <h2>Uploads and the shoutbox</h2>
           <table>

@@ -49,11 +49,16 @@ type Torrent struct {
 	Banned           bool
 	Free             bool
 	Silver           bool
-	FileCount        int
-	Files            *json.RawMessage // JSONB array of TorrentFile, nullable
-	Metadata         json.RawMessage  // JSONB object of category-schema field values (defaults to {})
-	UploaderName     string           // Resolved via JOIN; "Anonymous" when anonymous=true
-	UploaderWarned   bool             // Resolved via JOIN; false when anonymous=true
+	// HnRExempt marks this torrent as never generating hit-and-run
+	// obligations, staff-settable in the same shape as Free/Silver. Set
+	// after a snatch, it resolves any open hnr_records for this torrent as
+	// waived; unsetting it does not resurrect them (see migration 081).
+	HnRExempt      bool
+	FileCount      int
+	Files          *json.RawMessage // JSONB array of TorrentFile, nullable
+	Metadata       json.RawMessage  // JSONB object of category-schema field values (defaults to {})
+	UploaderName   string           // Resolved via JOIN; "Anonymous" when anonymous=true
+	UploaderWarned bool             // Resolved via JOIN; false when anonymous=true
 	// Moderation (BE-8.22). ModerationStatus is one of the Moderation* constants.
 	ModerationStatus      string
 	AssignedModeratorID   *int64 // staff member who claimed the review; nil when unassigned

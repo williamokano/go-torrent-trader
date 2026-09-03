@@ -20,6 +20,7 @@ import { AdminReportsPage } from "@/pages/admin/AdminReportsPage";
 import { AdminModerationPage } from "@/pages/admin/AdminModerationPage";
 import { AdminGroupsPage } from "@/pages/admin/AdminGroupsPage";
 import { AdminPromotionPage } from "@/pages/admin/AdminPromotionPage";
+import { AdminHitAndRunPage } from "@/pages/admin/AdminHitAndRunPage";
 import { AdminInviteDistributionPage } from "@/pages/admin/AdminInviteDistributionPage";
 import { AdminSettingsPage } from "@/pages/admin/AdminSettingsPage";
 import { AdminBansPage } from "@/pages/admin/AdminBansPage";
@@ -31,6 +32,7 @@ import { MembersPage } from "@/pages/MembersPage";
 import { StaffPage } from "@/pages/StaffPage";
 import { InvitesPage } from "@/pages/InvitesPage";
 import { BonusStorePage } from "@/pages/BonusStorePage";
+import { HitAndRunPage } from "@/pages/HitAndRunPage";
 import { MessagesPage } from "@/pages/MessagesPage";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { TodaysTorrentsPage } from "@/pages/TodaysTorrentsPage";
@@ -208,6 +210,7 @@ export const router = createBrowserRouter([
           { path: "categories/:id/edit", element: <AdminCategoryEditPage /> },
           { path: "groups", element: <AdminGroupsPage /> },
           { path: "promotion", element: <AdminPromotionPage /> },
+          { path: "hit-and-run", element: <AdminHitAndRunPage /> },
           {
             path: "invite-distribution",
             element: <AdminInviteDistributionPage />,
@@ -316,6 +319,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <BonusStorePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "hit-and-run",
+        element: (
+          <ProtectedRoute>
+            <HitAndRunPage />
           </ProtectedRoute>
         ),
       },

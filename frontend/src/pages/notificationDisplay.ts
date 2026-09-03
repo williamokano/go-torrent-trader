@@ -51,6 +51,8 @@ export function notificationLink(n: Notification): string | null {
       break;
     case "pm_received":
       return "/messages";
+    case "hnr":
+      return "/hit-and-run";
   }
   return null;
 }
@@ -83,6 +85,8 @@ export function notificationMessage(n: Notification): string {
     case "system":
       if (d.warning_type) return "You received a warning";
       return "System notification";
+    case "hnr":
+      return (d.message as string) || "Your hit-and-run status changed";
     default:
       return "New notification";
   }

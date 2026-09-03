@@ -385,6 +385,34 @@ describe("TorrentEditPage", () => {
     expect(body).toHaveProperty("silver", true);
   });
 
+  test("admin can toggle hit-and-run exemption and it is sent in the submit body", async () => {
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ torrent: FAKE_TORRENT }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const adminUser = makeUser({ isAdmin: true });
+    renderEditPage("1", makeAuthContext(adminUser));
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Exempt from hit-and-run tracking"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Exempt from hit-and-run tracking"));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+    expect(body).toHaveProperty("hnr_exempt", true);
+  });
+
   test("shows error on fetch torrent failure", async () => {
     mockGET.mockImplementation((url: string) => {
       if (url === "/api/v1/categories") {

@@ -75,6 +75,19 @@ func (s *stubRestrictionRepo) HasActiveByType(_ context.Context, _ int64, _ stri
 	return false, nil
 }
 
+func (s *stubRestrictionRepo) LiftActiveBySource(_ context.Context, userID int64, restrictionType, source string) (int, error) {
+	var n int
+	for _, r := range s.byID {
+		if r.UserID == userID && r.RestrictionType == restrictionType && r.Source == source && r.LiftedAt == nil {
+			now := time.Now()
+			r.LiftedAt = &now
+			s.lifted = append(s.lifted, r.ID)
+			n++
+		}
+	}
+	return n, nil
+}
+
 func newRestrictionHandler(restrictions *stubRestrictionRepo, users *stubUserRepo, hub *ChatHub) *RestrictionHandler {
 	return NewRestrictionHandler(
 		service.NewRestrictionService(restrictions, users, event.NewInMemoryBus()), hub,

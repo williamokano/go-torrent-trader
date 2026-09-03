@@ -228,6 +228,29 @@ func RegisterNotificationListeners(
 		return nil
 	})
 
+	// Hit-and-run stage changed: notify the member in either direction —
+	// escalation and de-escalation alike, since both are worth knowing
+	// about. This is the one notification every stage action produces
+	// unconditionally (see HnRService.escalate/deescalate); "warn" and
+	// "ban" additionally get a NotifSystem entry through the WarningIssued
+	// subscription below, since they also write a Warning row.
+	bus.Subscribe(event.HnRStageChanged, func(_ context.Context, evt event.Event) error {
+		e := evt.(*event.HnRStageChangedEvent)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		data := marshalData(map[string]interface{}{
+			"old_stage": e.OldStage,
+			"new_stage": e.NewStage,
+			"action":    e.Action,
+			"message":   e.Message,
+		})
+		if _, err := notifSvc.Create(ctx, e.UserID, e.Actor.ID, model.NotifHitAndRun, data); err != nil {
+			slog.Error("notification: failed to create hnr stage-change notification", "error", err)
+		}
+		return nil
+	})
+
 	// Warning issued: notify the warned user (system notification)
 	bus.Subscribe(event.WarningIssued, func(_ context.Context, evt event.Event) error {
 		e := evt.(*event.WarningIssuedEvent)

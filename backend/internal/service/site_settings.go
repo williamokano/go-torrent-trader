@@ -100,6 +100,30 @@ const (
 	SettingConnectorsEnabled              = "connectors_enabled"
 	SettingConnectorDeliveryRetentionDays = "connector_delivery_retention_days"
 	SettingConnectorsAllowPrivateNetworks = "connectors_allow_private_networks"
+
+	// Hit-and-run (HnR) tracking settings keys. SettingHnREnabled is the
+	// master switch (default false — tracking starts only from the migration
+	// forward, deliberately no backfill of pre-existing transfer_history).
+	// SettingHnRSeedCreditCapMinutes bounds how large a gap between two
+	// seeding announces may still be credited as continuous seed time — the
+	// anti-gaming guard: announcing once every few days cannot be stitched
+	// into a continuous seeding session. SettingHnRClearPricingMode selects
+	// between "fixed" (base + per-GiB of torrent size) and "deficit"
+	// (per-GiB of upload still needed to reach the required ratio).
+	SettingHnREnabled                  = "hnr_enabled"
+	SettingHnRGraceAfterCompleteHours  = "hnr_grace_after_complete_hours"
+	SettingHnRSeedCreditCapMinutes     = "hnr_seed_credit_cap_minutes"
+	SettingHnRRetentionDays            = "hnr_retention_days"
+	SettingHnRExemptDonors             = "hnr_exempt_donors"
+	SettingHnRClearPricingMode         = "hnr_clear_pricing_mode"
+	SettingHnRClearBasePoints          = "hnr_clear_base_points"
+	SettingHnRClearPointsPerGiB        = "hnr_clear_points_per_gib"
+	SettingHnRClearPointsPerGiBDeficit = "hnr_clear_points_per_gib_deficit"
+
+	// HnRClearPricingModeFixed and HnRClearPricingModeDeficit are the two
+	// valid values of SettingHnRClearPricingMode.
+	HnRClearPricingModeFixed   = "fixed"
+	HnRClearPricingModeDeficit = "deficit"
 )
 
 // maxSystemChatNameLength bounds the shoutbox author label. It shares a flex row
@@ -185,9 +209,28 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 				ErrInvalidSetting, RegistrationModeOpen, RegistrationModeInviteOnly)
 		}
 	case SettingModerationEnabled, SettingModerationPublicVisibility,
-		SettingConnectorsEnabled, SettingConnectorsAllowPrivateNetworks:
+		SettingConnectorsEnabled, SettingConnectorsAllowPrivateNetworks,
+		SettingHnREnabled, SettingHnRExemptDonors:
 		if value != "true" && value != "false" {
 			return fmt.Errorf("%w: %s must be %q or %q", ErrInvalidSetting, key, "true", "false")
+		}
+	case SettingHnRClearPricingMode:
+		if value != HnRClearPricingModeFixed && value != HnRClearPricingModeDeficit {
+			return fmt.Errorf("%w: %s must be %q or %q",
+				ErrInvalidSetting, key, HnRClearPricingModeFixed, HnRClearPricingModeDeficit)
+		}
+	case SettingHnRGraceAfterCompleteHours, SettingHnRSeedCreditCapMinutes, SettingHnRRetentionDays,
+		SettingHnRClearBasePoints, SettingHnRClearPointsPerGiB, SettingHnRClearPointsPerGiBDeficit:
+		// Every HnR numeric tunable is a non-negative whole number: a grace, a
+		// cap, a retention window, or a point price. None has a meaningful
+		// negative value, unlike the connector/announce-log retention keys
+		// above where negative disables pruning.
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("%w: %s must be a whole number", ErrInvalidSetting, key)
+		}
+		if n < 0 {
+			return fmt.Errorf("%w: %s cannot be negative", ErrInvalidSetting, key)
 		}
 	case SettingConnectorDeliveryRetentionDays:
 		// Zero or negative is meaningful (it disables pruning), so only
@@ -292,6 +335,31 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 // site to obey now.
 func (s *SiteSettingsService) SystemChatName(ctx context.Context) string {
 	return s.cachedString(ctx, SettingChatSystemDisplayName, model.SystemChatUsername)
+}
+
+// HnREnabled is the announce path's hot-path read of the HnR master switch —
+// cached for the same reason SystemChatName is: TrackerService.Announce
+// cannot afford a settings round trip on the busiest write path the site has.
+// With the flag off, every hnr_records write in Announce is skipped entirely,
+// so this one cached bool read is the whole cost of shipping the feature dark.
+//
+// This is deliberately the second exception to "no general cached getter"
+// (see the comment above), not a reversal of it: the connectors kill-switch
+// stays uncached because an operator flipping it expects the site to obey
+// now, and that argument does not weaken for HnR — an admin turning HnR on
+// or off is content with it taking up to cachedSettingTTL to apply, in
+// exchange for the announce path never paying a query for a feature that is
+// off by default and, once on, changes rarely.
+func (s *SiteSettingsService) HnREnabled(ctx context.Context) bool {
+	return s.cachedString(ctx, SettingHnREnabled, "false") == "true"
+}
+
+// HnRExemptDonors is the announce path's hot-path read of hnr_exempt_donors —
+// cached for the same reason HnREnabled is: TrackerService.Announce checks
+// this on every completed/leecher-to-seeder transition and cannot afford a
+// settings round trip there.
+func (s *SiteSettingsService) HnRExemptDonors(ctx context.Context) bool {
+	return s.cachedString(ctx, SettingHnRExemptDonors, "false") == "true"
 }
 
 // cachedString memoises one setting for cacheTTL.

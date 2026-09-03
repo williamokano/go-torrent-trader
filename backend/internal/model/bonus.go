@@ -17,6 +17,9 @@ const (
 	BonusReasonSeeding     = "seeding"
 	BonusReasonPurchase    = "purchase"
 	BonusReasonAdminAdjust = "admin_adjust"
+	// BonusReasonHnRClear marks a spend that paid off a hit-and-run
+	// obligation. RefID on the transaction is the hnr_records id cleared.
+	BonusReasonHnRClear = "hnr_clear"
 )
 
 // BonusStoreItem is one purchasable entry in the bonus store catalogue.
