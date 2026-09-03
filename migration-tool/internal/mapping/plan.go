@@ -201,8 +201,8 @@ func usersPlan() TablePlan {
 
 func groupsPlan() TablePlan {
 	return TablePlan{
-		Action:  TableMigrate,
-		Target:  "groups",
+		Action: TableMigrate,
+		Target: "groups",
 		Comment: "The legacy permission flags are finer-grained than the target's. Several collapse onto is_moderator and is_admin, which loses detail — check the result against your staff roster before going live.\n\n" +
 			"The target seeds this table with 7 groups whose name and slug are UNIQUE, so legacy ids and names collide. Decide per group whether to merge into the seeded row or insert alongside it, and reset the id sequence afterwards.\n\n" +
 			"If you merge into the seeded rows, level stops being the legacy group_id — the seeded groups sit at levels 10-100. Every forum's min_group_level and min_post_level is compared against this column and is migrated as the legacy class number, so merging without renumbering the forums makes private forums readable: a staff forum at minclassread=5 opens to an ordinary member at level 20. Whichever option you take, the two have to agree.",
@@ -250,6 +250,7 @@ func torrentsPlan() TablePlan {
 		Comment: "info_hash is the one column that cannot be got wrong: the target stores the 20 raw bytes where the legacy schema stores 40 hex characters, and a torrent whose hash does not survive stops announcing.",
 		Derived: map[string]string{
 			"silver":                "false — no legacy equivalent",
+			"hnr_exempt":            "false — no legacy equivalent",
 			"files":                 "the legacy files table, grouped by torrent into one JSONB document",
 			"moderation_status":     "approved for a visible torrent, rejected for a banned one",
 			"search_vector":         "maintained by the backend; leave it to the trigger rather than writing it",
@@ -363,8 +364,8 @@ func messagesPlan() TablePlan {
 
 func forumForumsPlan() TablePlan {
 	return TablePlan{
-		Action:  TableMigrate,
-		Target:  "forums",
+		Action: TableMigrate,
+		Target: "forums",
 		Comment: "Read and write levels both carry across: minclassread becomes min_group_level and minclasswrite becomes min_post_level.\n\n" +
 			"READ THIS BEFORE GOING LIVE. These two numbers are compared directly against groups.level, so they only mean what they meant on the old site if groups.level keeps the legacy group_id — which is what the groups mapping derives by default. If you take the other option offered there and merge legacy groups into the target's seeded rows, every number here silently changes meaning: the seeded groups are at levels 10-100, so a staff forum that was minclassread=5 becomes readable by an ordinary member at level 20. Moderator discussion, ban appeals and staff-only forums are the ones that leak, and nothing about the migrated site looks wrong afterwards. Renumber these to match whatever scale groups.level ends up on, and check the private forums by logging in as an ordinary member.\n\n" +
 			"The target also seeds this table with 6 forums at ids 1-6 (Announcements, General Discussion, Torrent Requests, Torrent Talk, Help & Support, Bug Reports). Keeping legacy ids therefore collides on the primary key. If your ids happen to start above 6 the load will appear to succeed and leave those 6 stock forums in place alongside yours, with a BIGSERIAL that has never advanced — so the first forum created after cutover collides too. Decide per forum whether to merge into a seeded row or insert alongside it, then reset the sequence.",
