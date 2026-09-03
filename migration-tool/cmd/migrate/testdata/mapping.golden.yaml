@@ -751,6 +751,7 @@ tables:
             approved_by: NULL — the legacy schema records no approver
             assigned_moderator_id: NULL — nothing arrives in a moderation queue
             files: the legacy files table, grouped by torrent into one JSONB document
+            hnr_exempt: false — no legacy equivalent
             moderation_status: approved for a visible torrent, rejected for a banned one
             search_vector: maintained by the backend; leave it to the trigger rather than writing it
             silver: false — no legacy equivalent
