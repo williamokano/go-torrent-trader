@@ -101,12 +101,37 @@ func (r *HnRRepo) DeleteRule(ctx context.Context, groupID int64) error {
 // --- announce-path accounting ------------------------------------------------
 
 // CreateIfNotExists inserts a new open hnr_records row for (userID, torrentID)
-// unless one already exists (ON CONFLICT DO NOTHING on the unique pair) or the
-// torrent is currently hnr_exempt. Returns whether a row was actually inserted.
+// unless one already exists (ON CONFLICT DO NOTHING on the unique pair), the
+// torrent is currently hnr_exempt, or the snatch list already records an older
+// completion of this torrent by this user. Returns whether a row was actually
+// inserted.
+//
+// The transfer_history guard is what stops an obligation being opened for a
+// snatch that happened long ago. ON CONFLICT alone only holds while the
+// hnr_records row survives, and it does not always survive: purgeResolved
+// deletes resolved records past hnr_retention_days, a site that enabled HnR
+// after the snatch never had one (there is deliberately no backfill — see
+// migration 081 and the reasoning that closed #267), and a torrent that was
+// hnr_exempt at snatch time never got one either. Without this guard, a
+// client re-sending 'completed' after a recheck, or merely crossing the
+// leecher->seeder transition on a re-added torrent, would open a fresh
+// obligation dated today for content the member downloaded and seeded off a
+// year ago — and walk them up the penalty ladder for it.
+//
+// Strictly older, not merely present, is the distinction that makes this
+// safe: on a genuine first snatch handleCompleted writes the transfer_history
+// row moments earlier from the same `now` value, so the stored completed_at
+// equals $3 and the guard does not fire. Only a completion that predates this
+// announce suppresses the record. transfer_history.completed_at is never
+// refreshed on conflict (see TransferHistoryRepo.Upsert), so it keeps the
+// original snatch date however many times the member re-announces.
 func (r *HnRRepo) CreateIfNotExists(ctx context.Context, userID, torrentID int64, completedAt time.Time) (bool, error) {
 	query := `INSERT INTO hnr_records (user_id, torrent_id, completed_at, last_seen_at)
 		SELECT $1, $2, $3, $3
 		WHERE NOT EXISTS (SELECT 1 FROM torrents WHERE id = $2 AND hnr_exempt = true)
+		  AND NOT EXISTS (
+			SELECT 1 FROM transfer_history
+			WHERE user_id = $1 AND torrent_id = $2 AND completed_at < $3)
 		ON CONFLICT (user_id, torrent_id) DO NOTHING`
 	res, err := r.db.ExecContext(ctx, query, userID, torrentID, completedAt)
 	if err != nil {

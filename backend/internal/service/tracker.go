@@ -463,8 +463,15 @@ func (s *TrackerService) handleCompleted(
 	// Establish the hit-and-run obligation: completing a download is the
 	// event that starts it, regardless of the peer's seeder status at this
 	// exact instant — whether they go on to seed is exactly what the record
-	// tracks. CreateIfNotExists no-ops if a record already exists or the
-	// torrent is hnr_exempt, so a repeat completed event is harmless.
+	// tracks. CreateIfNotExists no-ops if a record already exists, the
+	// torrent is hnr_exempt, or transfer_history already carries an older
+	// completion of this torrent by this user — so a repeat completed event
+	// is harmless, including the one a client sends after rechecking a
+	// torrent it snatched long enough ago that the original record has
+	// since been purged. Note the ordering: the transfer_history upsert
+	// above runs first and writes the same `now`, which is precisely why
+	// the guard is "strictly older" rather than "exists" — a genuine first
+	// snatch must not suppress its own record.
 	// hnr_exempt_donors is checked here rather than in the evaluator: a donor
 	// is exempt from tracking entirely, so no record — and no history of one
 	// — should exist for them at all, the same way an hnr_exempt torrent
@@ -549,7 +556,10 @@ func (s *TrackerService) handleAnnounce(
 			// event: the leecher->seeder transition is itself proof the
 			// torrent finished downloading, so it establishes the hit-and-run
 			// obligation the same way handleCompleted does. A no-op if
-			// handleCompleted already created the record.
+			// handleCompleted already created the record — and, thanks to
+			// the same transfer_history guard, also a no-op when this
+			// transition is just a re-added old snatch finishing its
+			// recheck rather than a download completing for the first time.
 			if s.shouldTrackHnR(ctx, user) {
 				if _, err := s.hnr.CreateIfNotExists(ctx, user.ID, torrent.ID, now); err != nil {
 					slog.Error("failed to create hnr record on leecher->seeder transition",

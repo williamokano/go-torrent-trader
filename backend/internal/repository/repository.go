@@ -318,12 +318,16 @@ type HnRRepository interface {
 
 	// Announce-path accounting. CreateIfNotExists is called on torrent
 	// completion (and on the leecher->seeder transition as belt-and-braces);
-	// it is a no-op when a record already exists or the torrent is
-	// hnr_exempt. Accumulate is the one atomic UPDATE that both credits
-	// seed time/upload since the last seeding announce (capped at
-	// creditCap, crediting nothing across a longer gap) and, in the same
-	// statement, recovers a 'hnr' record straight back to 'active' — a
-	// seeding announce is unambiguous proof of resumed seeding.
+	// it is a no-op when a record already exists, the torrent is
+	// hnr_exempt, or the snatch list already records an older completion of
+	// this torrent by this user — the last of which is what keeps a
+	// re-announce of an old snatch from opening an obligation dated today
+	// once the original record has been purged (or never existed, on a site
+	// that enabled HnR after the snatch). Accumulate is the one atomic
+	// UPDATE that both credits seed time/upload since the last seeding
+	// announce (capped at creditCap, crediting nothing across a longer gap)
+	// and, in the same statement, recovers a 'hnr' record straight back to
+	// 'active' — a seeding announce is unambiguous proof of resumed seeding.
 	CreateIfNotExists(ctx context.Context, userID, torrentID int64, completedAt time.Time) (bool, error)
 	Accumulate(ctx context.Context, userID, torrentID int64, uploadDelta int64, creditCap time.Duration, now time.Time) error
 

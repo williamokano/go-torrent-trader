@@ -118,6 +118,89 @@ func TestHnRRepo_CreateIfNotExists_SkipsExemptTorrent(t *testing.T) {
 	}
 }
 
+// TestHnRRepo_CreateIfNotExists_SkipsOlderSnatch covers the case ON CONFLICT
+// cannot: the hnr_records row is gone (purged by retention, or never created
+// because HnR was enabled after the snatch), but transfer_history still
+// remembers that the member completed this torrent long ago. Re-announcing it
+// must not open an obligation dated today.
+func TestHnRRepo_CreateIfNotExists_SkipsOlderSnatch(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	snatchedAt := time.Now().Add(-365 * 24 * time.Hour)
+	insertSnatch(t, db, u.ID, tor.ID, snatchedAt)
+
+	created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now())
+	if err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if created {
+		t.Fatal("expected no record for a torrent snatched a year ago")
+	}
+
+	records, err := repo.ListForUser(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
+	}
+}
+
+// TestHnRRepo_CreateIfNotExists_SameTimestampSnatchStillCreates pins the
+// "strictly older" half of the guard. handleCompleted writes the
+// transfer_history row and calls CreateIfNotExists with the same `now`, so a
+// genuine first snatch always has a transfer_history row bearing exactly the
+// announce's timestamp by the time the insert runs. That must still create the
+// obligation — an "exists" guard rather than an "older than" one would
+// suppress every record the feature is supposed to open.
+func TestHnRRepo_CreateIfNotExists_SameTimestampSnatchStillCreates(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	now := time.Now()
+	insertSnatch(t, db, u.ID, tor.ID, now)
+
+	created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, now)
+	if err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if !created {
+		t.Fatal("expected a record for a first snatch whose transfer_history row shares this announce's timestamp")
+	}
+}
+
+// TestHnRRepo_CreateIfNotExists_OtherUsersSnatchIsIrrelevant guards the join
+// keys: the guard is scoped to (user, torrent), so one member's old snatch
+// must not stop another member's fresh one from being tracked.
+func TestHnRRepo_CreateIfNotExists_OtherUsersSnatchIsIrrelevant(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	owner := newUser(t, db)
+	tor := newTorrent(t, db, owner.ID)
+	insertSnatch(t, db, owner.ID, tor.ID, time.Now().Add(-365*24*time.Hour))
+
+	newcomer := newUser(t, db)
+	created, err := repo.CreateIfNotExists(ctx, newcomer.ID, tor.ID, time.Now())
+	if err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if !created {
+		t.Fatal("expected a record: another user's old snatch says nothing about this one")
+	}
+}
+
 func TestHnRRepo_Accumulate(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
@@ -830,6 +913,22 @@ func TestHnRRepo_ListForUser_JoinsTorrentFields(t *testing.T) {
 	otherUser := newUser(t, db)
 	if _, err := repo.GetForUser(ctx, otherUser.ID, rec.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("GetForUser(wrong owner) = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// insertSnatch writes the transfer_history row the announce path would have
+// written when the member completed the torrent — the snatch list entry
+// CreateIfNotExists consults. Written directly rather than through
+// TransferHistoryRepo.Upsert because these tests need to control completed_at,
+// which Upsert deliberately never lets a caller refresh.
+func insertSnatch(t *testing.T, db *sql.DB, userID, torrentID int64, completedAt time.Time) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT INTO transfer_history (user_id, torrent_id, completed_at, last_announce)
+		 VALUES ($1, $2, $3, $3)`,
+		userID, torrentID, completedAt,
+	); err != nil {
+		t.Fatalf("inserting transfer_history for user=%d torrent=%d: %v", userID, torrentID, err)
 	}
 }
 
