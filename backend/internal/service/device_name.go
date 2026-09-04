@@ -10,25 +10,29 @@ import (
 // bounded on the way in rather than trusted to be reasonable.
 const maxDeviceNameLen = 64
 
-// DeviceLabel decides what a session is called in "where am I logged in".
+// DeviceLabel is the last gate before a device label is stored: it bounds and
+// cleans whatever it is given, and substitutes a placeholder for nothing.
 //
-// A client may name itself — a phone and a laptop are otherwise two identical
-// rows of an IP and a timestamp, and telling them apart is the whole point of
-// the list. When it does not, the User-Agent is the only thing left, so it is
-// reduced to a browser and an operating system: enough for a member to
-// recognise a device, and short enough to sit in a table cell.
+// Kept separate from DeviceLabelFromUserAgent so that the sanitising is on the
+// path of every session, not only the ones whose label was derived here.
+func DeviceLabel(label string) string {
+	if cleaned := sanitizeDeviceName(label); cleaned != "" {
+		return cleaned
+	}
+	return "Unknown device"
+}
+
+// DeviceLabelFromUserAgent renders a User-Agent as a label a member can
+// recognise — a browser and an operating system, which is enough to tell a
+// phone from a laptop and short enough to sit in a table cell.
 //
 // Never returns raw User-Agent text. It is attacker-controlled, it is echoed
 // back into a page and into logs, and a browser name drawn from a fixed list
-// cannot carry anything through.
-func DeviceLabel(supplied, userAgent string) string {
-	if name := sanitizeDeviceName(supplied); name != "" {
-		return name
-	}
-	if derived := deviceFromUserAgent(userAgent); derived != "" {
-		return derived
-	}
-	return "Unknown device"
+// cannot carry anything through. The list is deliberately the only source of a
+// device label: a client-supplied name would let whoever logged in write their
+// own row in the list a member reads to work out which row is not theirs.
+func DeviceLabelFromUserAgent(userAgent string) string {
+	return DeviceLabel(deviceFromUserAgent(userAgent))
 }
 
 // sanitizeDeviceName strips control characters, collapses runs of whitespace,

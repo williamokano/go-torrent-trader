@@ -177,22 +177,32 @@ func (r *RedisSessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken s
 	r.deleteUserSessions(userID, keepAccessToken)
 }
 
-// ListByUserID returns every session in the user's set that still resolves.
+// ListByUserID returns every session in the user's set that still resolves, and
+// prunes the members that no longer do.
 //
-// Read-only on purpose. Members that resolve to nothing are sessions whose keys
-// have already expired — there is nothing left to show and nothing left to
-// revoke — and tidying them here would put writes on the path of a plain GET.
-// Draining them is deleteUserSessions' job.
-func (r *RedisSessionStore) ListByUserID(userID int64) []*Session {
+// The set has no TTL and is only ever trimmed by an explicit delete, so a
+// session that simply expires leaves its token in the set for good: one dead
+// member per login, forever, and this read pays for all of them with a round
+// trip each. Dropping a member that resolves to neither key costs one SREM and
+// keeps the set proportional to the sessions that actually exist. Nothing is
+// lost by it — a member that resolves to nothing is a session with no keys
+// left, which cannot be shown and cannot be revoked.
+//
+// An error is returned rather than an empty list: this feeds the page a member
+// opens to find out whether somebody else is on their account, and answering a
+// Redis outage with "no other sessions" is the one answer that must never be
+// given wrongly.
+func (r *RedisSessionStore) ListByUserID(userID int64) ([]*Session, error) {
 	ctx := context.Background()
+	uKey := userKey(userID)
 
-	members, err := r.client.SMembers(ctx, userKey(userID)).Result()
+	members, err := r.client.SMembers(ctx, uKey).Result()
 	if err != nil {
-		slog.Error("redis: failed to list user sessions", "user_id", userID, "error", err)
-		return nil
+		return nil, fmt.Errorf("redis list user sessions: %w", err)
 	}
 
 	sessions := make([]*Session, 0, len(members))
+	var dead []string
 	for _, member := range members {
 		// A member is a refresh token; sets written before that changed hold
 		// access tokens, so fall back to reading it as one (see Create).
@@ -202,36 +212,52 @@ func (r *RedisSessionStore) ListByUserID(userID int64) []*Session {
 		}
 		if sess != nil {
 			sessions = append(sessions, sess)
+			continue
+		}
+		dead = append(dead, member)
+	}
+
+	if len(dead) > 0 {
+		if err := r.client.SRem(ctx, uKey, dead).Err(); err != nil {
+			// The listing is still correct, so this is not the caller's problem.
+			slog.Error("redis: failed to prune expired session set members",
+				"user_id", userID, "error", err)
 		}
 	}
-	return sessions
+	return sessions, nil
 }
 
 // TouchLastActive updates the session's LastActive timestamp in Redis.
+//
+// Both copies of the session are written. The session JSON lives under two
+// independent keys, and the listing resolves through the refresh key because
+// that is the half that outlives the other — so touching only the access key
+// left every row of the member's session list reporting the time the session
+// was created or last rotated, never when it was used.
+//
+// SETXX is what keeps that from resurrecting a revoked session: a plain SET
+// would recreate a key that revocation had just deleted, handing back a
+// credential the member had explicitly killed. KeepTTL leaves each key's own
+// expiry alone, so a busy session neither becomes immortal nor dies early.
 func (r *RedisSessionStore) TouchLastActive(accessToken string) {
 	ctx := context.Background()
-	data, err := r.client.Get(ctx, keyPrefixAccess+accessToken).Bytes()
-	if err != nil {
-		return
-	}
 
-	var sess Session
-	if err := json.Unmarshal(data, &sess); err != nil {
+	sess := r.GetByAccessToken(accessToken)
+	if sess == nil {
 		return
 	}
 
 	sess.LastActive = time.Now()
-	updated, err := json.Marshal(&sess)
+	updated, err := json.Marshal(sess)
 	if err != nil {
+		slog.Error("redis touch last active: marshal failed", "error", err)
 		return
 	}
 
-	// Preserve the remaining TTL on the key.
-	ttl := r.client.TTL(ctx, keyPrefixAccess+accessToken).Val()
-	if ttl <= 0 {
-		ttl = r.accessTokenTTL
-	}
-	if err := r.client.Set(ctx, keyPrefixAccess+accessToken, updated, ttl).Err(); err != nil {
+	pipe := r.client.Pipeline()
+	pipe.SetXX(ctx, keyPrefixAccess+accessToken, updated, redis.KeepTTL)
+	pipe.SetXX(ctx, keyPrefixRefresh+sess.RefreshToken, updated, redis.KeepTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
 		slog.Error("redis touch last active failed", "error", err)
 	}
 }

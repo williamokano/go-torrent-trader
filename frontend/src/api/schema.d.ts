@@ -1402,22 +1402,12 @@ export interface components {
       email: string;
       /** @example mysecurepassword */
       password: string;
-      /**
-       * @description Optional label for the session this creates, shown in the member's session list. Omit it and the label is derived from the User-Agent.
-       * @example Work laptop
-       */
-      device_name?: string;
     };
     LoginRequest: {
       /** @example johndoe */
       username: string;
       /** @example mysecurepassword */
       password: string;
-      /**
-       * @description Optional label for the session this creates, shown in the member's session list. Omit it and the label is derived from the User-Agent.
-       * @example Work laptop
-       */
-      device_name?: string;
     };
     RefreshRequest: {
       /** @example abc123def456... */
@@ -1426,28 +1416,28 @@ export interface components {
     /** @description One row of "where am I signed in". Carries no credential: the tokens stay in the store, and `id` is an opaque handle that is only meaningful to the member who owns the session. */
     SessionInfo: {
       /** @description Opaque session handle, stable across token refreshes. Pass it to DELETE /api/v1/auth/sessions/{id}. */
-      id?: string;
+      id: string;
       /**
-       * @description The label the client gave at login, or one derived from its User-Agent ("Firefox on Windows"), or "Unknown device".
+       * @description A label derived from the session's User-Agent ("Firefox on Windows"), or "Unknown device" when nothing in it was recognised. Derived rather than supplied: a client-chosen name would let whoever signed in label their own row in the list a member reads to work out which row is not theirs.
        * @example Firefox on Windows
        */
-      device_name?: string;
+      device_name: string;
       /**
        * @description The address the session was last issued from.
        * @example 203.0.113.7
        */
-      ip?: string;
+      ip: string;
       /** Format: date-time */
-      created_at?: string;
+      created_at: string;
       /** Format: date-time */
-      last_active?: string;
+      last_active: string;
       /**
        * Format: date-time
-       * @description When the access token expires. The session itself can be renewed until its refresh token expires.
+       * @description When the session itself ends — its refresh expiry, not the hourly access-token one. A session past this point cannot be renewed and no longer appears in the list.
        */
-      expires_at?: string;
+      expires_at: string;
       /** @description True for the session making the request. */
-      current?: boolean;
+      current: boolean;
     };
     AuthTokens: {
       /** @description 64-character hex token, expires in 1 hour */

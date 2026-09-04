@@ -27,7 +27,11 @@ type SessionStore interface {
 	// The per-user index this reads already existed so that sessions could be
 	// revoked together; the missing piece was ever letting the member see them.
 	// Order is unspecified — callers that show the list sort it themselves.
-	ListByUserID(userID int64) []*Session
+	//
+	// The error matters: this backs the page a member opens to find out whether
+	// somebody else is signed in as them, and a storage failure rendered as an
+	// empty list would answer that question wrongly in the reassuring direction.
+	ListByUserID(userID int64) ([]*Session, error)
 	Rotate(oldRefreshToken string, newSession *Session) error
 	TouchLastActive(accessToken string)
 }
@@ -58,14 +62,22 @@ type Session struct {
 // Sessions created before Session.ID existed unmarshal with an empty one, and
 // they stay usable for up to thirty days, so they need an identifier too: a hash
 // of the refresh token is stable for the life of that session, opaque, and not
-// reversible into the credential it comes from. Such a session mints a real ID
-// the first time it rotates at /auth/refresh, so the fallback drains itself.
+// reversible into the credential it comes from. Refresh persists whatever this
+// returns, so such a session keeps its hash-derived id for the rest of its life
+// rather than being renamed under the member mid-list.
+//
+// A session with neither an id nor a refresh token has no identity at all —
+// hashing the empty string would give every one of them the same well-known
+// digest — so it is deliberately unaddressable.
 func SessionID(s *Session) string {
 	if s == nil {
 		return ""
 	}
 	if s.ID != "" {
 		return s.ID
+	}
+	if s.RefreshToken == "" {
+		return ""
 	}
 	sum := sha256.Sum256([]byte(s.RefreshToken))
 	return hex.EncodeToString(sum[:16])

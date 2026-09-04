@@ -296,7 +296,9 @@ func (m *mockEscalationSessionStore) DeleteByRefreshToken(_ string)             
 func (m *mockEscalationSessionStore) DeleteByUserIDExcept(_ int64, _ string)    {}
 func (m *mockEscalationSessionStore) Rotate(_ string, _ *service.Session) error { return nil }
 func (m *mockEscalationSessionStore) TouchLastActive(_ string)                  {}
-func (m *mockEscalationSessionStore) ListByUserID(_ int64) []*service.Session   { return nil }
+func (m *mockEscalationSessionStore) ListByUserID(_ int64) ([]*service.Session, error) {
+	return nil, nil
+}
 
 func (m *mockEscalationSessionStore) DeleteByUserID(userID int64) {
 	m.mu.Lock()

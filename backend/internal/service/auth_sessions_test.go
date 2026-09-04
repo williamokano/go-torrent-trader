@@ -48,7 +48,10 @@ func TestListSessionsOrdersByLastActiveAndMarksTheCaller(t *testing.T) {
 		testSession(2, "other", "acc-other", "ref-other", now),
 	)
 
-	got := auth.ListSessions(1, "acc-here")
+	got, err := auth.ListSessions(1, "acc-here")
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
 
 	if len(got) != 3 {
 		t.Fatalf("got %d sessions, want 3 — another member's session must not appear", len(got))
@@ -74,7 +77,11 @@ func TestListSessionsOrdersByLastActiveAndMarksTheCaller(t *testing.T) {
 func TestListSessionsMarksNothingCurrentWithoutAnAccessToken(t *testing.T) {
 	auth, _ := sessionsFor(t, testSession(1, "a", "acc-a", "ref-a", time.Now()))
 
-	for _, row := range auth.ListSessions(1, "") {
+	rows, err := auth.ListSessions(1, "")
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	for _, row := range rows {
 		if row.Current {
 			t.Error("a row was marked current for a caller that named no session")
 		}
@@ -84,7 +91,10 @@ func TestListSessionsMarksNothingCurrentWithoutAnAccessToken(t *testing.T) {
 func TestListSessionsCarriesNoCredential(t *testing.T) {
 	auth, _ := sessionsFor(t, testSession(1, "a", "acc-a", "ref-a", time.Now()))
 
-	got := auth.ListSessions(1, "acc-a")
+	got, err := auth.ListSessions(1, "acc-a")
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("got %d sessions, want 1", len(got))
 	}
@@ -99,7 +109,10 @@ func TestSessionsPredatingTheIDFieldAreStillAddressable(t *testing.T) {
 	legacy := testSession(1, "", "acc-legacy", "ref-legacy", time.Now())
 	auth, store := sessionsFor(t, legacy)
 
-	got := auth.ListSessions(1, "")
+	got, err := auth.ListSessions(1, "")
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("got %d sessions, want 1", len(got))
 	}
@@ -165,7 +178,11 @@ func TestRevokeOtherSessionsKeepsTheCallerAndCountsTheRest(t *testing.T) {
 		testSession(2, "stranger", "acc-stranger", "ref-stranger", time.Now()),
 	)
 
-	if got := auth.RevokeOtherSessions(1, "acc-here"); got != 2 {
+	got, err := auth.RevokeOtherSessions(1, "acc-here")
+	if err != nil {
+		t.Fatalf("RevokeOtherSessions: %v", err)
+	}
+	if got != 2 {
 		t.Errorf("revoked = %d, want 2", got)
 	}
 	if store.GetByAccessToken("acc-here") == nil {
@@ -180,10 +197,88 @@ func TestRevokeOtherSessionsKeepsTheCallerAndCountsTheRest(t *testing.T) {
 	}
 }
 
+// A store whose delete silently misses — which is what a session rotating at
+// /auth/refresh in the window between the listing and the delete looks like —
+// must not produce a 204 over a session that is still alive.
+type missingDeleteStore struct {
+	*memorySessionStore
+	misses int // how many DeleteByRefreshToken calls to swallow
+}
+
+func (s *missingDeleteStore) DeleteByRefreshToken(refreshToken string) {
+	if s.misses > 0 {
+		s.misses--
+		return
+	}
+	s.memorySessionStore.DeleteByRefreshToken(refreshToken)
+}
+
+func TestRevokeSessionRetriesWhenTheDeleteMisses(t *testing.T) {
+	inner := newTestSessionStore()
+	if err := inner.Create(testSession(1, "target", "acc-t", "ref-t", time.Now())); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	store := &missingDeleteStore{memorySessionStore: inner, misses: 1}
+	auth := NewAuthService(nil, store, nil, nil, "", nil)
+
+	if err := auth.RevokeSession(1, "target"); err != nil {
+		t.Fatalf("RevokeSession: %v", err)
+	}
+	if inner.GetByRefreshToken("ref-t") != nil {
+		t.Error("the session survived a revoke that reported success")
+	}
+}
+
+func TestRevokeSessionReportsAFailureRatherThanA204(t *testing.T) {
+	inner := newTestSessionStore()
+	if err := inner.Create(testSession(1, "target", "acc-t", "ref-t", time.Now())); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	// Every attempt misses, as a session refreshing in a tight loop or a
+	// degraded store would.
+	store := &missingDeleteStore{memorySessionStore: inner, misses: 100}
+	auth := NewAuthService(nil, store, nil, nil, "", nil)
+
+	err := auth.RevokeSession(1, "target")
+	if err == nil {
+		t.Fatal("RevokeSession reported success over a session that is still live")
+	}
+	if err == ErrSessionNotFound {
+		t.Errorf("err = %v; a surviving session is not a missing one", err)
+	}
+}
+
+// The panic button must fail closed. The store's own DeleteByUserIDExcept is
+// told which session to keep by access token and, when it cannot resolve one,
+// keeps nothing and deletes everything — including the caller's. Revoking by
+// name instead means an unidentifiable caller revokes nothing at all.
+func TestRevokeOtherSessionsRefusesWhenTheCallerCannotBeIdentified(t *testing.T) {
+	auth, store := sessionsFor(t,
+		testSession(1, "here", "acc-here", "ref-here", time.Now()),
+		testSession(1, "phone", "acc-phone", "ref-phone", time.Now()),
+	)
+
+	revoked, err := auth.RevokeOtherSessions(1, "acc-not-a-session")
+	if err == nil {
+		t.Fatal("RevokeOtherSessions proceeded without identifying the calling session")
+	}
+	if revoked != 0 {
+		t.Errorf("revoked = %d, want 0", revoked)
+	}
+	if store.GetByAccessToken("acc-here") == nil || store.GetByAccessToken("acc-phone") == nil {
+		t.Error("sessions were revoked despite the caller being unidentifiable — this is " +
+			"the path that signs a member out of every device mid-panic")
+	}
+}
+
 func TestRevokeOtherSessionsWithNothingElseToRevokeIsZero(t *testing.T) {
 	auth, _ := sessionsFor(t, testSession(1, "here", "acc-here", "ref-here", time.Now()))
 
-	if got := auth.RevokeOtherSessions(1, "acc-here"); got != 0 {
+	got, err := auth.RevokeOtherSessions(1, "acc-here")
+	if err != nil {
+		t.Fatalf("RevokeOtherSessions: %v", err)
+	}
+	if got != 0 {
 		t.Errorf("revoked = %d, want 0", got)
 	}
 }

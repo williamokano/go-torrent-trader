@@ -24,7 +24,11 @@ type SessionRow = {
 async function apiFetch(
   path: string,
   options: RequestInit = {},
-): Promise<{ data?: unknown; error?: { error?: { message?: string } } }> {
+): Promise<{
+  data?: unknown;
+  status?: number;
+  error?: { error?: { message?: string } };
+}> {
   const token = getAccessToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -43,13 +47,14 @@ async function apiFetch(
 
   if (!res.ok) {
     return {
+      status: res.status,
       error: (body as { error?: { message?: string } } | null) ?? {
         error: { message: `Request failed (${res.status})` },
       },
     };
   }
 
-  return { data: body ?? undefined };
+  return { data: body ?? undefined, status: res.status };
 }
 
 export function UserSettingsPage() {
@@ -74,6 +79,8 @@ export function UserSettingsPage() {
   const [sessionsError, setSessionsError] = useState("");
   const [revokingID, setRevokingID] = useState<string | null>(null);
   const [revokeOthersModalOpen, setRevokeOthersModalOpen] = useState(false);
+  const [signOutHereSession, setSignOutHereSession] =
+    useState<SessionRow | null>(null);
   const [revokeOthersSubmitting, setRevokeOthersSubmitting] = useState(false);
 
   // Passkey
@@ -101,6 +108,13 @@ export function UserSettingsPage() {
     setSessionsLoading(true);
     try {
       const result = await apiFetch("/api/v1/auth/sessions");
+      if (result.status === 401) {
+        // This page's own session is gone — revoked from another device, or
+        // expired. Showing a red error box and carrying on with dead tokens
+        // strands the member; send them to the login screen instead.
+        await logout();
+        return;
+      }
       if (result.error) {
         throw new Error(
           result.error?.error?.message ?? "Failed to load sessions",
@@ -110,13 +124,16 @@ export function UserSettingsPage() {
       setSessions(d?.sessions ?? []);
       setSessionsError("");
     } catch (err) {
+      // Clear the rows as well: an error message above a list the server no
+      // longer vouches for invites the member to act on stale rows.
+      setSessions([]);
       setSessionsError(
         err instanceof Error ? err.message : "Failed to load sessions",
       );
     } finally {
       setSessionsLoading(false);
     }
-  }, []);
+  }, [logout]);
 
   useEffect(() => {
     loadSessions();
@@ -137,13 +154,17 @@ export function UserSettingsPage() {
         },
       );
 
-      if (result.error) {
+      // 404 means that session is already gone — another tab revoked it, or it
+      // expired while this list sat on screen. The member asked for it to not
+      // exist and it does not, so this is a success with a stale list, not an
+      // error.
+      if (result.error && result.status !== 404) {
         throw new Error(
           result.error?.error?.message ?? "Failed to revoke session",
         );
       }
 
-      if (session.current) {
+      if (session.current && !result.error) {
         // Revoking your own session is a logout, and the tokens this page holds
         // are dead the moment the call returns.
         toast.success("Signed out of this device");
@@ -151,14 +172,19 @@ export function UserSettingsPage() {
         return;
       }
 
-      toast.success("Session revoked");
-      await loadSessions();
+      toast.success(
+        result.error ? "That session was already gone" : "Session revoked",
+      );
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to revoke session",
       );
     } finally {
       setRevokingID(null);
+      // On every path, including failure: a member acting on this list because
+      // they do not trust it must not be left looking at a row that no longer
+      // reflects the server.
+      await loadSessions();
     }
   }
 
@@ -183,7 +209,6 @@ export function UserSettingsPage() {
           ? "Signed out of 1 other device"
           : `Signed out of ${revoked} other devices`,
       );
-      await loadSessions();
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to sign out other devices",
@@ -191,6 +216,7 @@ export function UserSettingsPage() {
     } finally {
       setRevokeOthersSubmitting(false);
       setRevokeOthersModalOpen(false);
+      await loadSessions();
     }
   }
 
@@ -448,8 +474,15 @@ export function UserSettingsPage() {
                 <button
                   type="button"
                   className="settings-session__revoke"
-                  onClick={() => handleRevokeSession(session)}
-                  disabled={revokingID !== null}
+                  onClick={() =>
+                    // Ending the session you are reading this from is the one
+                    // action here that immediately logs the member out, and the
+                    // button sits in the same place as every other row's. Ask.
+                    session.current
+                      ? setSignOutHereSession(session)
+                      : handleRevokeSession(session)
+                  }
+                  disabled={revokingID !== null || sessionsLoading}
                 >
                   {revokingID === session.id
                     ? "Revoking..."
@@ -466,7 +499,11 @@ export function UserSettingsPage() {
           type="button"
           className="settings-sessions__revoke-all"
           onClick={() => setRevokeOthersModalOpen(true)}
-          disabled={sessions.filter((s) => !s.current).length === 0}
+          disabled={
+            sessionsLoading ||
+            sessionsError !== "" ||
+            sessions.filter((s) => !s.current).length === 0
+          }
         >
           Sign out of all other devices
         </button>
@@ -480,7 +517,10 @@ export function UserSettingsPage() {
       >
         <div className="settings-modal__body">
           Every other device signed in as you will be signed out immediately.
-          This device stays signed in, so you can change your password next.
+          This device stays signed in, so you can change your password next. If
+          you think someone else had access to your account, regenerate your
+          passkey too — signing a device out does not stop a client that already
+          has it.
         </div>
         <div className="settings-modal__footer">
           <button
@@ -495,6 +535,39 @@ export function UserSettingsPage() {
             disabled={revokeOthersSubmitting}
           >
             {revokeOthersSubmitting ? "Signing out..." : "Sign Out Others"}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Sign-out-this-device Confirmation Modal */}
+      <Modal
+        isOpen={signOutHereSession !== null}
+        onClose={() => setSignOutHereSession(null)}
+        title="Sign out of this device"
+      >
+        <div className="settings-modal__body">
+          This is the device you are using now. Signing it out ends this session
+          immediately and returns you to the login page.
+        </div>
+        <div className="settings-modal__footer">
+          <button
+            className="settings-modal__cancel"
+            onClick={() => setSignOutHereSession(null)}
+          >
+            Cancel
+          </button>
+          <button
+            className="settings-modal__confirm"
+            onClick={() => {
+              const session = signOutHereSession;
+              setSignOutHereSession(null);
+              if (session) {
+                handleRevokeSession(session);
+              }
+            }}
+            disabled={revokingID !== null}
+          >
+            Sign Out
           </button>
         </div>
       </Modal>

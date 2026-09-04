@@ -219,7 +219,10 @@ func TestRedisSessionListByUserID(t *testing.T) {
 		}
 	}
 
-	got := store.ListByUserID(1)
+	got, err := store.ListByUserID(1)
+	if err != nil {
+		t.Fatalf("ListByUserID: %v", err)
+	}
 	if len(got) != 2 {
 		t.Fatalf("got %d sessions for user 1, want 2", len(got))
 	}
@@ -249,15 +252,21 @@ func TestRedisSessionListIncludesSessionsWhoseAccessTokenHasExpired(t *testing.T
 		t.Fatal("fixture: the refresh token must still resolve, or this proves nothing")
 	}
 
-	if got := store.ListByUserID(1); len(got) != 1 {
+	got, err := store.ListByUserID(1)
+	if err != nil {
+		t.Fatalf("ListByUserID: %v", err)
+	}
+	if len(got) != 1 {
 		t.Fatalf("got %d sessions, want 1 — a session that can still mint access tokens "+
 			"has to be visible to the member who wants it gone", len(got))
 	}
 }
 
 // A member of the set whose keys have both expired is a session that no longer
-// exists. It must not appear as an empty row.
-func TestRedisSessionListSkipsFullyExpiredSessions(t *testing.T) {
+// exists. It must not appear as an empty row — and it must not stay in the set
+// either: nothing else ever removes it, so one dead member accumulates per
+// login, forever, and this read pays a round trip for each of them.
+func TestRedisSessionListSkipsAndPrunesFullyExpiredSessions(t *testing.T) {
 	store, mr := newRedisSessions(t)
 
 	if err := store.Create(newSession(1, "acc-1", "ref-1")); err != nil {
@@ -266,8 +275,92 @@ func TestRedisSessionListSkipsFullyExpiredSessions(t *testing.T) {
 
 	mr.FastForward(48 * time.Hour) // past both TTLs in this fixture
 
-	if got := store.ListByUserID(1); len(got) != 0 {
+	got, err := store.ListByUserID(1)
+	if err != nil {
+		t.Fatalf("ListByUserID: %v", err)
+	}
+	if len(got) != 0 {
 		t.Errorf("got %d sessions, want 0 — the set entry outlives the keys it points at", len(got))
+	}
+	if members, _ := mr.SMembers("session:user:1"); len(members) != 0 {
+		t.Errorf("the user set still holds %v, so it grows by one entry per expired "+
+			"session and never shrinks", members)
+	}
+}
+
+// The timestamp the panel shows as "active X ago" has to be the session's last
+// activity. The session JSON lives under two keys and the listing reads the
+// refresh one, so a touch that wrote only the access key left every row
+// reporting when the session was created (#171 review).
+func TestRedisSessionListReflectsTouchLastActive(t *testing.T) {
+	store, _ := newRedisSessions(t)
+
+	sess := newSession(1, "acc-1", "ref-1")
+	sess.CreatedAt = time.Now().Add(-3 * time.Hour)
+	sess.LastActive = sess.CreatedAt
+	if err := store.Create(sess); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	store.TouchLastActive("acc-1")
+
+	got, err := store.ListByUserID(1)
+	if err != nil {
+		t.Fatalf("ListByUserID: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(got))
+	}
+	if !got[0].LastActive.After(got[0].CreatedAt) {
+		t.Errorf("listed LastActive = %v, same as CreatedAt (%v) — the list is showing "+
+			"when the session was created, not when it was last used",
+			got[0].LastActive, got[0].CreatedAt)
+	}
+}
+
+// ...but a touch must never bring a revoked session back. Both keys are written
+// with SETXX precisely so that a write cannot recreate a key revocation deleted.
+func TestRedisSessionTouchDoesNotResurrectARevokedSession(t *testing.T) {
+	store, _ := newRedisSessions(t)
+
+	if err := store.Create(newSession(1, "acc-1", "ref-1")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	store.DeleteByRefreshToken("ref-1")
+
+	store.TouchLastActive("acc-1") // the racing request that was already in flight
+
+	if store.GetByRefreshToken("ref-1") != nil {
+		t.Error("the refresh key came back after revocation, handing the member's " +
+			"revoked session another twenty-nine days")
+	}
+	if store.GetByAccessToken("acc-1") != nil {
+		t.Error("the access key came back after revocation")
+	}
+}
+
+// A session stored before Session.ID existed carries an empty one, and stays
+// usable for the rest of its thirty days. Against the real store, not only an
+// in-memory double: the fallback id is derived from the refresh token, which is
+// the field the Redis listing resolves by.
+func TestRedisSessionListAddressesSessionsPredatingTheIDField(t *testing.T) {
+	store, _ := newRedisSessions(t)
+
+	legacy := newSession(1, "acc-legacy", "ref-legacy")
+	legacy.ID = "" // as it unmarshals from a session written before the field
+	if err := store.Create(legacy); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := store.ListByUserID(1)
+	if err != nil {
+		t.Fatalf("ListByUserID: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(got))
+	}
+	if id := service.SessionID(got[0]); id == "" {
+		t.Error("a session with no id and no derived id cannot be revoked at all")
 	}
 }
 
@@ -275,7 +368,11 @@ func TestRedisSessionListSkipsFullyExpiredSessions(t *testing.T) {
 func TestRedisSessionListForUnknownUserIsEmpty(t *testing.T) {
 	store, _ := newRedisSessions(t)
 
-	if got := store.ListByUserID(999); len(got) != 0 {
+	got, err := store.ListByUserID(999)
+	if err != nil {
+		t.Fatalf("ListByUserID: %v", err)
+	}
+	if len(got) != 0 {
 		t.Errorf("got %d sessions for a user who has never logged in", len(got))
 	}
 }

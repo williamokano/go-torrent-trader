@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -30,8 +31,18 @@ func (h *AuthHandler) HandleListSessions(w http.ResponseWriter, r *http.Request)
 	}
 
 	current, _ := middleware.AccessTokenFromContext(r.Context())
+	sessions, err := h.auth.ListSessions(userID, current)
+	if err != nil {
+		// Never an empty list on failure. "No other sessions" is the most
+		// reassuring answer this endpoint can give, and giving it wrongly is
+		// the one outcome that would send a compromised member away satisfied.
+		slog.Error("could not list a member's sessions", "user_id", userID, "error", err)
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list sessions")
+		return
+	}
+
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"sessions": h.auth.ListSessions(userID, current),
+		"sessions": sessions,
 	})
 }
 
@@ -59,6 +70,9 @@ func (h *AuthHandler) HandleRevokeSession(w http.ResponseWriter, r *http.Request
 		// probe for somebody else's.
 		ErrorResponse(w, http.StatusNotFound, "not_found", "no such session")
 	default:
+		// The session is still there. Saying 204 over a credential that is
+		// still live is worse than admitting the failure.
+		slog.Error("could not revoke a session", "user_id", userID, "error", err)
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to revoke session")
 	}
 }
@@ -86,7 +100,15 @@ func (h *AuthHandler) HandleRevokeOtherSessions(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	revoked, err := h.auth.RevokeOtherSessions(userID, current)
+	if err != nil {
+		slog.Error("could not revoke a member's other sessions", "user_id", userID, "error", err)
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error",
+			"failed to sign out other devices")
+		return
+	}
+
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"revoked": h.auth.RevokeOtherSessions(userID, current),
+		"revoked": revoked,
 	})
 }

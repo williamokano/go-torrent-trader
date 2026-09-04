@@ -361,6 +361,29 @@ describe("UserSettingsPage", () => {
   });
 
   test("revokes another device and reloads the list", async () => {
+    // The revoke endpoint answers 204 with no body, so res.json() rejects.
+    // Answering it with JSON here would exercise a path the server never takes
+    // and leave the guard in apiFetch untested.
+    mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+      if (options?.method === "DELETE") {
+        return Promise.resolve({
+          ok: true,
+          status: 204,
+          json: () =>
+            Promise.reject(new SyntaxError("Unexpected end of JSON input")),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            String(url).includes("/auth/sessions")
+              ? { sessions: [currentSession, otherSession] }
+              : { user: {} },
+          ),
+      });
+    });
     renderSettingsPage();
 
     await waitFor(() => {
@@ -398,7 +421,13 @@ describe("UserSettingsPage", () => {
       expect(screen.getByText("Firefox on Linux")).toBeInTheDocument();
     });
 
+    // Ending the session you are reading this from is confirmed first: the
+    // button sits in the same place as every other row's Revoke.
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(
+      screen.getByText(/This is the device you are using now/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -448,6 +477,54 @@ describe("UserSettingsPage", () => {
     });
     // And it must not sign the caller out: they still have a password to change.
     expect(mockLogout).not.toHaveBeenCalled();
+  });
+
+  // Two tabs, one list: the row the member clicks may already be gone. They
+  // asked for it to not exist and it does not, so this is not an error — but
+  // the stale list must not survive the click.
+  test("a revoke of an already-gone session reloads instead of erroring", async () => {
+    respondByUrl((url) =>
+      String(url).includes("/auth/sessions/")
+        ? {
+            ok: false,
+            status: 404,
+            body: { error: { message: "no such session" } },
+          }
+        : { body: { sessions: [currentSession, otherSession] } },
+    );
+    renderSettingsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Chrome on Android")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("That session was already gone"),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("no such session")).not.toBeInTheDocument();
+  });
+
+  // The page's own session can be revoked from another device while this list
+  // is open. Carrying on with dead tokens strands the member on a red error box.
+  test("a 401 from the session list signs the member out", async () => {
+    respondByUrl((url) =>
+      String(url).includes("/auth/sessions")
+        ? {
+            ok: false,
+            status: 401,
+            body: { error: { message: "unauthorized" } },
+          }
+        : { body: { user: {} } },
+    );
+    renderSettingsPage();
+
+    await waitFor(() => {
+      expect(mockLogout).toHaveBeenCalled();
+    });
   });
 
   test("the panic button is disabled when this is the only session", async () => {

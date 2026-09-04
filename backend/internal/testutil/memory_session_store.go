@@ -119,7 +119,7 @@ func (s *MemorySessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken 
 // Iterates the refresh index, which is the one that holds every session: the
 // access index legitimately misses a session whose access token has expired,
 // and those are exactly the ones a member most needs to see and revoke.
-func (s *MemorySessionStore) ListByUserID(userID int64) []*service.Session {
+func (s *MemorySessionStore) ListByUserID(userID int64) ([]*service.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -133,9 +133,14 @@ func (s *MemorySessionStore) ListByUserID(userID int64) []*service.Session {
 			delete(s.byAccessToken, sess.AccessToken)
 			continue
 		}
-		out = append(out, sess)
+		// A copy, because Redis hands back a copy: the store holds serialised
+		// sessions, and a caller that mutated a listed one there would change
+		// nothing. Returning the live pointer here would let a test pass over
+		// behaviour that cannot work against the real store.
+		listed := *sess
+		out = append(out, &listed)
 	}
-	return out
+	return out, nil
 }
 
 func (s *MemorySessionStore) TouchLastActive(accessToken string) {

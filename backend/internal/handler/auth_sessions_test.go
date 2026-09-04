@@ -329,12 +329,14 @@ func TestSessionsAreLabelledFromTheUserAgentWhenTheClientDoesNotNameItself(t *te
 	}
 }
 
-// A client that names itself keeps that name.
-func TestAClientCanNameItsOwnSession(t *testing.T) {
+// The label is derived from the User-Agent and only from there. A name in the
+// request body is ignored: it would let whoever logs in write their own row in
+// the list a member reads to work out which row is not theirs.
+func TestALoginCannotNameItsOwnSession(t *testing.T) {
 	_, _, router := setupRouter()
 	registerForTokens(t, router, "namedclient")
 
-	body := `{"username":"namedclient","password":"password123","device_name":"Work laptop"}`
+	body := `{"username":"namedclient","password":"password123","device_name":"This device"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh) Chrome/120.0 Safari/537.36")
@@ -356,8 +358,9 @@ func TestAClientCanNameItsOwnSession(t *testing.T) {
 	rows, _ := listSessions(t, router, resp.Tokens.Access)
 	for _, row := range rows {
 		if row.Current {
-			if row.DeviceName != "Work laptop" {
-				t.Errorf("device_name = %q, want the name the client gave", row.DeviceName)
+			if row.DeviceName != "Chrome on macOS" {
+				t.Errorf("device_name = %q, want the derived label — a login named its "+
+					"own session", row.DeviceName)
 			}
 			return
 		}

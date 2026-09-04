@@ -4542,13 +4542,6 @@ components:
           minLength: 8
           maxLength: 1024
           example: mysecurepassword
-        device_name:
-          type: string
-          maxLength: 64
-          description: >
-            Optional label for the session this creates, shown in the member's
-            session list. Omit it and the label is derived from the User-Agent.
-          example: Work laptop
 
     LoginRequest:
       type: object
@@ -4560,13 +4553,6 @@ components:
         password:
           type: string
           example: mysecurepassword
-        device_name:
-          type: string
-          maxLength: 64
-          description: >
-            Optional label for the session this creates, shown in the member's
-            session list. Omit it and the label is derived from the User-Agent.
-          example: Work laptop
 
     RefreshRequest:
       type: object
@@ -4582,6 +4568,7 @@ components:
         One row of "where am I signed in". Carries no credential: the tokens
         stay in the store, and `id` is an opaque handle that is only meaningful
         to the member who owns the session.
+      required: [id, device_name, ip, created_at, last_active, expires_at, current]
       properties:
         id:
           type: string
@@ -4591,8 +4578,11 @@ components:
         device_name:
           type: string
           description: >
-            The label the client gave at login, or one derived from its
-            User-Agent ("Firefox on Windows"), or "Unknown device".
+            A label derived from the session's User-Agent ("Firefox on
+            Windows"), or "Unknown device" when nothing in it was recognised.
+            Derived rather than supplied: a client-chosen name would let
+            whoever signed in label their own row in the list a member reads to
+            work out which row is not theirs.
           example: Firefox on Windows
         ip:
           type: string
@@ -4607,7 +4597,10 @@ components:
         expires_at:
           type: string
           format: date-time
-          description: When the access token expires. The session itself can be renewed until its refresh token expires.
+          description: >
+            When the session itself ends — its refresh expiry, not the hourly
+            access-token one. A session past this point cannot be renewed and no
+            longer appears in the list.
         current:
           type: boolean
           description: True for the session making the request.

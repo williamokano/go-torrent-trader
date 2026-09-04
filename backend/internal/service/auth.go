@@ -65,19 +65,24 @@ type RegisterRequest struct {
 	Email      string `json:"email"`
 	Password   string `json:"password"`
 	InviteCode string `json:"invite_code"`
-	// DeviceName optionally names the device this session belongs to, so the
-	// member can recognise it in their session list. Ignored when blank, in
-	// which case the label is derived from the User-Agent.
-	DeviceName string `json:"device_name"`
+	// DeviceName labels the session this creates, for the member's session
+	// list. `json:"-"` is the point of it: the label is derived from the
+	// User-Agent by the handler and cannot be supplied by the client.
+	//
+	// A client-chosen label would be text an intruder writes into the very list
+	// a member reads to pick the intruder out — "Chrome on Windows" next to the
+	// real ones, or "This device" — so the one thing this field must not be is
+	// attacker-controlled.
+	DeviceName string `json:"-"`
 }
 
 // LoginRequest holds the input for user login.
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
-	// DeviceName optionally names the device this session belongs to. See
-	// RegisterRequest.DeviceName.
-	DeviceName string `json:"device_name"`
+	// DeviceName labels the session this creates. See RegisterRequest.DeviceName
+	// — it is set by the handler, never by the client.
+	DeviceName string `json:"-"`
 }
 
 // RefreshRequest holds the input for token refresh.
@@ -389,7 +394,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 	}
 
 	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip,
-		DeviceLabel(req.DeviceName, ""))
+		DeviceLabel(req.DeviceName))
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
@@ -459,7 +464,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	}
 
 	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip,
-		DeviceLabel(req.DeviceName, ""))
+		DeviceLabel(req.DeviceName))
 	if err != nil {
 		return nil, nil, fmt.Errorf("create session: %w", err)
 	}

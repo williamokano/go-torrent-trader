@@ -113,16 +113,17 @@ func (s *memorySessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken 
 	}
 }
 
-func (s *memorySessionStore) ListByUserID(userID int64) []*Session {
+func (s *memorySessionStore) ListByUserID(userID int64) ([]*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []*Session
 	for _, sess := range s.byRefreshToken {
 		if sess.UserID == userID {
-			out = append(out, sess)
+			listed := *sess // a copy, as the Redis store returns (see testutil)
+			out = append(out, &listed)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *memorySessionStore) TouchLastActive(accessToken string) {

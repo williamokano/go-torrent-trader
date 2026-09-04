@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -8,18 +9,11 @@ import (
 )
 
 // The session list is only useful if a member can tell which row is their phone
-// and which is not theirs at all. DeviceLabel is what puts something in that
-// column, and it is fed two pieces of attacker-controlled text — so it is also
-// the place where that text stops being dangerous.
+// and which is not theirs at all. These two functions are what put something in
+// that column, and their input is attacker-controlled text — so they are also
+// where that text stops being dangerous.
 
-func TestDeviceLabelPrefersTheNameTheClientGave(t *testing.T) {
-	got := service.DeviceLabel("Work laptop", "Mozilla/5.0 (Windows NT 10.0) Firefox/128.0")
-	if got != "Work laptop" {
-		t.Errorf("DeviceLabel = %q, want the client's own name", got)
-	}
-}
-
-func TestDeviceLabelDerivesFromTheUserAgent(t *testing.T) {
+func TestDeviceLabelFromUserAgentDerivesFromTheUserAgent(t *testing.T) {
 	tests := map[string]struct {
 		ua   string
 		want string
@@ -68,18 +62,17 @@ func TestDeviceLabelDerivesFromTheUserAgent(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := service.DeviceLabel("", tc.ua); got != tc.want {
-				t.Errorf("DeviceLabel(%q) = %q, want %q", tc.ua, got, tc.want)
+			if got := service.DeviceLabelFromUserAgent(tc.ua); got != tc.want {
+				t.Errorf("DeviceLabelFromUserAgent(%q) = %q, want %q", tc.ua, got, tc.want)
 			}
 		})
 	}
 }
 
-// The label is stored, rendered back into a page, and logged. Everything a
-// client supplies about itself is text it chose, so none of it may carry a line
-// break into a log or an unbounded blob into the session list.
-func TestDeviceLabelSanitizesWhatTheClientSupplies(t *testing.T) {
-	got := service.DeviceLabel("Work\r\nlaptop\x00\t", "")
+// The label is stored, rendered back into a page, and logged, so it is bounded
+// and stripped on the way in — whatever produced it.
+func TestDeviceLabelSanitizesItsInput(t *testing.T) {
+	got := service.DeviceLabel("Work\r\nlaptop\x00\t")
 	if strings.ContainsAny(got, "\r\n\x00\t") {
 		t.Errorf("DeviceLabel = %q, which still carries a control character", got)
 	}
@@ -87,15 +80,15 @@ func TestDeviceLabelSanitizesWhatTheClientSupplies(t *testing.T) {
 		t.Errorf("DeviceLabel = %q, want %q", got, "Work laptop")
 	}
 
-	long := service.DeviceLabel(strings.Repeat("a", 500), "")
+	long := service.DeviceLabel(strings.Repeat("a", 500))
 	if n := len([]rune(long)); n > 64 {
 		t.Errorf("DeviceLabel kept %d runes; the column is bounded at 64", n)
 	}
 
-	// A name that is only whitespace and control characters is no name at all,
-	// so it must fall through to the User-Agent rather than blanking the row.
-	if got := service.DeviceLabel(" \n ", "Mozilla/5.0 (Windows NT 10.0) Firefox/128.0"); got != "Firefox on Windows" {
-		t.Errorf("DeviceLabel = %q, want the derived label", got)
+	// Whitespace and control characters are no label at all, and a blank row
+	// tells the member nothing.
+	if got := service.DeviceLabel(" \n "); got != "Unknown device" {
+		t.Errorf("DeviceLabel = %q, want the placeholder", got)
 	}
 }
 
@@ -103,8 +96,32 @@ func TestDeviceLabelSanitizesWhatTheClientSupplies(t *testing.T) {
 // back into the member's session list is how a header ends up on a page.
 func TestDeviceLabelNeverEchoesTheRawUserAgent(t *testing.T) {
 	ua := `Mozilla/5.0 <script>alert(1)</script> (Windows NT 10.0) Firefox/128.0`
-	got := service.DeviceLabel("", ua)
+	got := service.DeviceLabelFromUserAgent(ua)
 	if strings.Contains(got, "script") {
-		t.Errorf("DeviceLabel = %q, which carries User-Agent text through verbatim", got)
+		t.Errorf("DeviceLabelFromUserAgent = %q, which carries User-Agent text through verbatim", got)
+	}
+}
+
+// The label is derived, never accepted. A client-chosen name would be text an
+// intruder writes into the very list a member reads to work out which row is
+// not theirs — "Chrome on Windows" beside the genuine ones, or "This device".
+func TestALoginCannotChooseItsOwnDeviceLabel(t *testing.T) {
+	body := `{"username":"u","password":"p","device_name":"This device"}`
+
+	var req service.LoginRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if req.DeviceName != "" {
+		t.Errorf("DeviceName = %q — the request body set the label an intruder's "+
+			"session shows up as", req.DeviceName)
+	}
+
+	var reg service.RegisterRequest
+	if err := json.Unmarshal([]byte(`{"username":"u","device_name":"This device"}`), &reg); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if reg.DeviceName != "" {
+		t.Errorf("DeviceName = %q on register", reg.DeviceName)
 	}
 }
