@@ -32,6 +32,7 @@ var (
 	ErrInvalidConfirmToken     = errors.New("invalid or expired confirmation token")
 	ErrConfirmRateLimitExceed  = errors.New("too many confirmation email requests, please wait 5 minutes")
 	ErrAccountAlreadyConfirmed = errors.New("account is already confirmed")
+	ErrSessionNotFound         = errors.New("session not found")
 )
 
 // BanChecker checks whether an email or IP is banned.
@@ -64,12 +65,19 @@ type RegisterRequest struct {
 	Email      string `json:"email"`
 	Password   string `json:"password"`
 	InviteCode string `json:"invite_code"`
+	// DeviceName optionally names the device this session belongs to, so the
+	// member can recognise it in their session list. Ignored when blank, in
+	// which case the label is derived from the User-Agent.
+	DeviceName string `json:"device_name"`
 }
 
 // LoginRequest holds the input for user login.
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// DeviceName optionally names the device this session belongs to. See
+	// RegisterRequest.DeviceName.
+	DeviceName string `json:"device_name"`
 }
 
 // RefreshRequest holds the input for token refresh.
@@ -380,7 +388,8 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		}, nil
 	}
 
-	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip)
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip,
+		DeviceLabel(req.DeviceName, ""))
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
@@ -449,7 +458,8 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 		return nil, nil, ErrInvalidCredentials
 	}
 
-	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip)
+	tokens, err := s.createSession(ctx, user.ID, user.GroupID, user.Username, ip,
+		DeviceLabel(req.DeviceName, ""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("create session: %w", err)
 	}
@@ -496,6 +506,10 @@ func (s *AuthService) Refresh(req RefreshRequest, ip string) (*AuthTokens, error
 
 	now := time.Now()
 	newSession := &Session{
+		// The same session, with new credentials — so it keeps its identity.
+		// Re-minting the ID here would silently rename every row of the
+		// member's session list once an hour.
+		ID:               SessionID(sess),
 		UserID:           sess.UserID,
 		GroupID:          sess.GroupID,
 		Permissions:      sess.Permissions,
@@ -860,12 +874,19 @@ func hashToken(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, username, ip string) (*AuthTokens, error) {
+func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, username, ip, deviceName string) (*AuthTokens, error) {
 	accessToken, err := GenerateToken()
 	if err != nil {
 		return nil, err
 	}
 	refreshToken, err := GenerateToken()
+	if err != nil {
+		return nil, err
+	}
+	// The handle the member revokes by. Minted here rather than derived from a
+	// token so that it survives every rotation at /auth/refresh: a list whose
+	// rows changed identity each hour would be useless to point at.
+	sessionID, err := GenerateToken()
 	if err != nil {
 		return nil, err
 	}
@@ -883,11 +904,13 @@ func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, 
 
 	now := time.Now()
 	session := &Session{
+		ID:               sessionID,
 		UserID:           userID,
 		GroupID:          groupID,
 		Permissions:      perms,
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
+		DeviceName:       deviceName,
 		IP:               ip,
 		CreatedAt:        now,
 		LastActive:       now,

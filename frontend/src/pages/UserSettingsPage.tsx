@@ -1,11 +1,25 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getConfig } from "@/config";
 import { getAccessToken } from "@/features/auth/token";
 import { useAuth } from "@/features/auth";
 import { useToast } from "@/components/toast";
 import { Input, Textarea } from "@/components/form";
 import { Modal } from "@/components/modal";
+import { formatDate, timeAgo } from "@/utils/format";
 import "./settings.css";
+
+// One row of "where am I signed in". Mirrors SessionInfo in the API: an opaque
+// id and enough detail to recognise a device, and deliberately no token — the
+// point of the panel is to evict an intruder, not to hand out credentials.
+type SessionRow = {
+  id: string;
+  device_name: string;
+  ip: string;
+  created_at: string;
+  last_active: string;
+  expires_at: string;
+  current: boolean;
+};
 
 async function apiFetch(
   path: string,
@@ -23,17 +37,23 @@ async function apiFetch(
     headers,
   });
 
-  const body = await res.json();
+  // 204 has no body at all, and an error page may not be JSON. Either would
+  // throw out of res.json() and surface as "Unexpected end of JSON input".
+  const body = res.status === 204 ? null : await res.json().catch(() => null);
 
   if (!res.ok) {
-    return { error: body };
+    return {
+      error: (body as { error?: { message?: string } } | null) ?? {
+        error: { message: `Request failed (${res.status})` },
+      },
+    };
   }
 
-  return { data: body };
+  return { data: body ?? undefined };
 }
 
 export function UserSettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
   const toast = useToast();
 
   // Profile form
@@ -47,6 +67,14 @@ export function UserSettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+
+  // Sessions
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState("");
+  const [revokingID, setRevokingID] = useState<string | null>(null);
+  const [revokeOthersModalOpen, setRevokeOthersModalOpen] = useState(false);
+  const [revokeOthersSubmitting, setRevokeOthersSubmitting] = useState(false);
 
   // Passkey
   const [passkey, setPasskey] = useState("");
@@ -68,6 +96,103 @@ export function UserSettingsPage() {
   useEffect(() => {
     refreshUser();
   }, [refreshUser]);
+
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const result = await apiFetch("/api/v1/auth/sessions");
+      if (result.error) {
+        throw new Error(
+          result.error?.error?.message ?? "Failed to load sessions",
+        );
+      }
+      const d = result.data as { sessions?: SessionRow[] } | undefined;
+      setSessions(d?.sessions ?? []);
+      setSessionsError("");
+    } catch (err) {
+      setSessionsError(
+        err instanceof Error ? err.message : "Failed to load sessions",
+      );
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  // Revoking one session. The list is re-fetched rather than patched locally:
+  // sessions change without this page's help — another device signs in, a token
+  // rotates — so the server's answer is the only one worth showing after an
+  // action taken because the member does not trust what they are looking at.
+  async function handleRevokeSession(session: SessionRow) {
+    setRevokingID(session.id);
+
+    try {
+      const result = await apiFetch(
+        `/api/v1/auth/sessions/${encodeURIComponent(session.id)}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (result.error) {
+        throw new Error(
+          result.error?.error?.message ?? "Failed to revoke session",
+        );
+      }
+
+      if (session.current) {
+        // Revoking your own session is a logout, and the tokens this page holds
+        // are dead the moment the call returns.
+        toast.success("Signed out of this device");
+        await logout();
+        return;
+      }
+
+      toast.success("Session revoked");
+      await loadSessions();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to revoke session",
+      );
+    } finally {
+      setRevokingID(null);
+    }
+  }
+
+  async function handleRevokeOtherSessions() {
+    setRevokeOthersSubmitting(true);
+
+    try {
+      const result = await apiFetch("/api/v1/auth/sessions", {
+        method: "DELETE",
+      });
+
+      if (result.error) {
+        throw new Error(
+          result.error?.error?.message ?? "Failed to sign out other devices",
+        );
+      }
+
+      const d = result.data as { revoked?: number } | undefined;
+      const revoked = d?.revoked ?? 0;
+      toast.success(
+        revoked === 1
+          ? "Signed out of 1 other device"
+          : `Signed out of ${revoked} other devices`,
+      );
+      await loadSessions();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to sign out other devices",
+      );
+    } finally {
+      setRevokeOthersSubmitting(false);
+      setRevokeOthersModalOpen(false);
+    }
+  }
 
   async function handleProfileSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -284,6 +409,95 @@ export function UserSettingsPage() {
           </button>
         </div>
       </section>
+
+      {/* Sessions Section */}
+      <section className="settings-section">
+        <h2 className="settings-section__title">Active Sessions</h2>
+        <p className="settings-sessions__intro">
+          Every device currently signed in as you. If you see one you do not
+          recognise, revoke it and change your password.
+        </p>
+
+        {sessionsLoading ? (
+          <p className="settings-sessions__status">Loading sessions...</p>
+        ) : sessionsError ? (
+          <p className="settings-sessions__status settings-sessions__status--error">
+            {sessionsError}
+          </p>
+        ) : sessions.length === 0 ? (
+          <p className="settings-sessions__status">No active sessions.</p>
+        ) : (
+          <ul className="settings-sessions__list">
+            {sessions.map((session) => (
+              <li key={session.id} className="settings-session">
+                <div className="settings-session__details">
+                  <div className="settings-session__device">
+                    {session.device_name || "Unknown device"}
+                    {session.current && (
+                      <span className="settings-session__badge">
+                        This device
+                      </span>
+                    )}
+                  </div>
+                  <div className="settings-session__meta">
+                    {session.ip || "unknown address"} &middot; active{" "}
+                    {timeAgo(session.last_active)} &middot; signed in{" "}
+                    {formatDate(session.created_at)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="settings-session__revoke"
+                  onClick={() => handleRevokeSession(session)}
+                  disabled={revokingID !== null}
+                >
+                  {revokingID === session.id
+                    ? "Revoking..."
+                    : session.current
+                      ? "Sign out"
+                      : "Revoke"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <button
+          type="button"
+          className="settings-sessions__revoke-all"
+          onClick={() => setRevokeOthersModalOpen(true)}
+          disabled={sessions.filter((s) => !s.current).length === 0}
+        >
+          Sign out of all other devices
+        </button>
+      </section>
+
+      {/* Sign-out-everywhere Confirmation Modal */}
+      <Modal
+        isOpen={revokeOthersModalOpen}
+        onClose={() => setRevokeOthersModalOpen(false)}
+        title="Sign out of all other devices"
+      >
+        <div className="settings-modal__body">
+          Every other device signed in as you will be signed out immediately.
+          This device stays signed in, so you can change your password next.
+        </div>
+        <div className="settings-modal__footer">
+          <button
+            className="settings-modal__cancel"
+            onClick={() => setRevokeOthersModalOpen(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="settings-modal__confirm"
+            onClick={handleRevokeOtherSessions}
+            disabled={revokeOthersSubmitting}
+          >
+            {revokeOthersSubmitting ? "Signing out..." : "Sign Out Others"}
+          </button>
+        </div>
+      </Modal>
 
       {/* Passkey Confirmation Modal */}
       <Modal

@@ -203,6 +203,83 @@ func TestRedisSessionDeleteByUserIDExceptKeepsCurrent(t *testing.T) {
 	}
 }
 
+// ListByUserID is what makes the session list possible: the per-user set had
+// always been maintained so sessions could be revoked together, and nothing had
+// ever read it back (#171).
+func TestRedisSessionListByUserID(t *testing.T) {
+	store, _ := newRedisSessions(t)
+
+	for _, s := range []*service.Session{
+		newSession(1, "acc-a", "ref-a"),
+		newSession(1, "acc-b", "ref-b"),
+		newSession(2, "acc-c", "ref-c"), // another member's session must not appear
+	} {
+		if err := store.Create(s); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	got := store.ListByUserID(1)
+	if len(got) != 2 {
+		t.Fatalf("got %d sessions for user 1, want 2", len(got))
+	}
+	for _, sess := range got {
+		if sess.UserID != 1 {
+			t.Errorf("ListByUserID(1) returned a session belonging to user %d", sess.UserID)
+		}
+	}
+}
+
+// The session a member most needs to see is the one whose access token has
+// already expired — it stays usable at /auth/refresh for another twenty-nine
+// days, and it is invisible to anything that looks sessions up by access token
+// (#231). Listing must resolve through the refresh key, which outlives it.
+func TestRedisSessionListIncludesSessionsWhoseAccessTokenHasExpired(t *testing.T) {
+	store, mr := newRedisSessions(t)
+
+	if err := store.Create(newSession(1, "acc-1", "ref-1")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	mr.FastForward(2 * time.Hour) // past the access TTL, well inside the refresh TTL
+	if store.GetByAccessToken("acc-1") != nil {
+		t.Fatal("fixture: the access token should have expired")
+	}
+	if store.GetByRefreshToken("ref-1") == nil {
+		t.Fatal("fixture: the refresh token must still resolve, or this proves nothing")
+	}
+
+	if got := store.ListByUserID(1); len(got) != 1 {
+		t.Fatalf("got %d sessions, want 1 — a session that can still mint access tokens "+
+			"has to be visible to the member who wants it gone", len(got))
+	}
+}
+
+// A member of the set whose keys have both expired is a session that no longer
+// exists. It must not appear as an empty row.
+func TestRedisSessionListSkipsFullyExpiredSessions(t *testing.T) {
+	store, mr := newRedisSessions(t)
+
+	if err := store.Create(newSession(1, "acc-1", "ref-1")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	mr.FastForward(48 * time.Hour) // past both TTLs in this fixture
+
+	if got := store.ListByUserID(1); len(got) != 0 {
+		t.Errorf("got %d sessions, want 0 — the set entry outlives the keys it points at", len(got))
+	}
+}
+
+// A user with no sessions is an empty list, not a nil-pointer panic.
+func TestRedisSessionListForUnknownUserIsEmpty(t *testing.T) {
+	store, _ := newRedisSessions(t)
+
+	if got := store.ListByUserID(999); len(got) != 0 {
+		t.Errorf("got %d sessions for a user who has never logged in", len(got))
+	}
+}
+
 // TouchLastActive updates the timestamp without resetting the TTL — a busy
 // session must not become immortal, nor be logged out early.
 func TestRedisSessionTouchLastActivePreservesTTL(t *testing.T) {

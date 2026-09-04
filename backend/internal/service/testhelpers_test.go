@@ -113,6 +113,18 @@ func (s *memorySessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken 
 	}
 }
 
+func (s *memorySessionStore) ListByUserID(userID int64) []*Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*Session
+	for _, sess := range s.byRefreshToken {
+		if sess.UserID == userID {
+			out = append(out, sess)
+		}
+	}
+	return out
+}
+
 func (s *memorySessionStore) TouchLastActive(accessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

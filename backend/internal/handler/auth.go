@@ -30,6 +30,8 @@ func (h *AuthHandler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.DeviceName = service.DeviceLabel(req.DeviceName, r.UserAgent())
+
 	ip := clientIP(r)
 	result, err := h.auth.Register(r.Context(), req, ip)
 	if err != nil {
@@ -58,6 +60,12 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
 		return
 	}
+
+	// The label the session shows up as in the member's session list. A client
+	// that named itself keeps that name; anything else is reduced to a browser
+	// and an OS, because two rows of an IP and a timestamp are impossible to
+	// tell apart when you are trying to decide which one is not you.
+	req.DeviceName = service.DeviceLabel(req.DeviceName, r.UserAgent())
 
 	ip := clientIP(r)
 	user, tokens, err := h.auth.Login(r.Context(), req, ip)

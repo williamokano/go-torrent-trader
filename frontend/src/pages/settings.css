@@ -127,6 +127,115 @@
   cursor: not-allowed;
 }
 
+/* Sessions section */
+.settings-sessions__intro {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-md) 0;
+}
+
+.settings-sessions__status {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-md) 0;
+}
+
+.settings-sessions__status--error {
+  color: var(--color-error);
+}
+
+.settings-sessions__list {
+  list-style: none;
+  margin: 0 0 var(--space-md) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.settings-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.settings-session__details {
+  min-width: 0;
+}
+
+.settings-session__device {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.settings-session__badge {
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-session__meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.settings-session__revoke {
+  flex-shrink: 0;
+  padding: var(--space-xs) var(--space-md);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.settings-session__revoke:hover:not(:disabled) {
+  background-color: var(--color-bg-secondary);
+}
+
+.settings-session__revoke:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-sessions__revoke-all {
+  align-self: flex-start;
+  padding: var(--space-sm) var(--space-lg);
+  background-color: var(--color-error);
+  color: var(--color-bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.settings-sessions__revoke-all:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.settings-sessions__revoke-all:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Modal body / footer */
 .settings-modal__body {
   margin-bottom: var(--space-lg);

@@ -114,6 +114,30 @@ func (s *MemorySessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken 
 	}
 }
 
+// ListByUserID returns the user's live sessions.
+//
+// Iterates the refresh index, which is the one that holds every session: the
+// access index legitimately misses a session whose access token has expired,
+// and those are exactly the ones a member most needs to see and revoke.
+func (s *MemorySessionStore) ListByUserID(userID int64) []*service.Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	var out []*service.Session
+	for token, sess := range s.byRefreshToken {
+		if sess.UserID != userID {
+			continue
+		}
+		if now.After(sess.RefreshExpiresAt) {
+			delete(s.byRefreshToken, token)
+			delete(s.byAccessToken, sess.AccessToken)
+			continue
+		}
+		out = append(out, sess)
+	}
+	return out
+}
+
 func (s *MemorySessionStore) TouchLastActive(accessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

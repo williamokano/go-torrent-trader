@@ -177,6 +177,36 @@ func (r *RedisSessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken s
 	r.deleteUserSessions(userID, keepAccessToken)
 }
 
+// ListByUserID returns every session in the user's set that still resolves.
+//
+// Read-only on purpose. Members that resolve to nothing are sessions whose keys
+// have already expired — there is nothing left to show and nothing left to
+// revoke — and tidying them here would put writes on the path of a plain GET.
+// Draining them is deleteUserSessions' job.
+func (r *RedisSessionStore) ListByUserID(userID int64) []*Session {
+	ctx := context.Background()
+
+	members, err := r.client.SMembers(ctx, userKey(userID)).Result()
+	if err != nil {
+		slog.Error("redis: failed to list user sessions", "user_id", userID, "error", err)
+		return nil
+	}
+
+	sessions := make([]*Session, 0, len(members))
+	for _, member := range members {
+		// A member is a refresh token; sets written before that changed hold
+		// access tokens, so fall back to reading it as one (see Create).
+		sess := r.GetByRefreshToken(member)
+		if sess == nil {
+			sess = r.GetByAccessToken(member)
+		}
+		if sess != nil {
+			sessions = append(sessions, sess)
+		}
+	}
+	return sessions
+}
+
 // TouchLastActive updates the session's LastActive timestamp in Redis.
 func (r *RedisSessionStore) TouchLastActive(accessToken string) {
 	ctx := context.Background()

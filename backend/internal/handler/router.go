@@ -168,6 +168,14 @@ func NewRouter(deps *Deps) chi.Router {
 				r.Group(func(r chi.Router) {
 					authMiddleware(r)
 					r.Get("/me", auth.HandleMe)
+
+					// Seeing and ending your own sessions. Behind RequireAuth
+					// rather than the looser guard /auth/logout uses: these act
+					// on sessions other than the caller's, so holding a refresh
+					// token is not enough — you have to be signed in now (#171).
+					r.Get("/sessions", auth.HandleListSessions)
+					r.Delete("/sessions", auth.HandleRevokeOtherSessions)
+					r.Delete("/sessions/{id}", auth.HandleRevokeSession)
 				})
 			})
 
