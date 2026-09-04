@@ -123,50 +123,78 @@ func (s *AuthService) RevokeSession(userID int64, sessionID string) error {
 // person is on their account, so it must not log the caller out in the process —
 // they still have a password to change.
 //
-// Which is why it revokes each session by name instead of calling
-// DeleteByUserIDExcept. That helper is told which session to keep by access
-// token and resolves it through the access key; if that lookup misses — the
-// caller's own session rotated in another tab, the key expired, the store
-// hiccuped — it keeps nothing and deletes everything, including the session
-// making the request. Failing closed is the only safe reading: if the caller's
-// own session cannot be found, nothing is revoked.
+// Which is why it revokes by name instead of calling DeleteByUserIDExcept. That
+// helper is told which session to keep by access token and resolves it through
+// the access key; if that lookup misses — the caller's own session rotated in
+// another tab, the key expired, the store hiccuped — it keeps nothing and
+// deletes everything, including the session making the request. Failing closed
+// is the only safe reading: a caller who cannot be identified revokes nothing.
+//
+// The pass is repeated rather than delegated to RevokeSession per session,
+// which would re-read the whole list once per device. Each pass deletes what it
+// found and the next one checks; a pass that finds nothing left to revoke is
+// the proof that it worked. After the first pass the caller is identified by
+// session ID, which survives a rotation, so their own device refreshing
+// mid-operation cannot turn into "identify nobody, keep nobody".
 func (s *AuthService) RevokeOtherSessions(userID int64, keepAccessToken string) (int, error) {
 	if keepAccessToken == "" {
 		return 0, fmt.Errorf("revoke other sessions: no session to keep")
 	}
 
-	sessions, err := s.sessions.ListByUserID(userID)
-	if err != nil {
-		return 0, fmt.Errorf("revoke other sessions: %w", err)
-	}
+	revoked := make(map[string]struct{})
+	keepID := ""
 
-	var keep *Session
-	for _, sess := range sessions {
-		if sess != nil && sess.AccessToken == keepAccessToken {
-			keep = sess
-			break
+	for attempt := 0; attempt < revokeAttempts; attempt++ {
+		sessions, err := s.sessions.ListByUserID(userID)
+		if err != nil {
+			return len(revoked), fmt.Errorf("revoke other sessions: %w", err)
 		}
-	}
-	if keep == nil {
-		return 0, fmt.Errorf("revoke other sessions: the calling session could not be identified")
-	}
 
-	revoked := 0
-	for _, sess := range sessions {
-		if sess == nil || sess.RefreshToken == keep.RefreshToken {
-			continue
+		keep := findKeeper(sessions, keepAccessToken, keepID)
+		if keep == nil {
+			// On the first pass this means the caller cannot be identified, so
+			// nothing may be revoked. Later it means their session went away
+			// under them — the work already done stands, but there is nobody
+			// left to protect from it, so stop rather than delete blind.
+			if attempt == 0 {
+				return 0, fmt.Errorf("revoke other sessions: the calling session could not be identified")
+			}
+			return len(revoked), nil
 		}
-		if err := s.RevokeSession(userID, SessionID(sess)); err != nil {
-			// ErrSessionNotFound here means it expired while we worked, which is
-			// the outcome asked for; anything else means a session survived.
-			if err == ErrSessionNotFound {
+		keepID = SessionID(keep)
+
+		remaining := 0
+		for _, sess := range sessions {
+			if sess == nil || SessionID(sess) == keepID {
 				continue
 			}
-			return revoked, err
+			remaining++
+			revoked[SessionID(sess)] = struct{}{}
+			s.sessions.DeleteByRefreshToken(sess.RefreshToken)
 		}
-		revoked++
+		if remaining == 0 {
+			return len(revoked), nil
+		}
 	}
-	return revoked, nil
+
+	return len(revoked), fmt.Errorf(
+		"revoke other sessions: some are still present after %d attempts", revokeAttempts)
+}
+
+// findKeeper locates the caller's own session: by access token on the first
+// pass, and thereafter by session ID, which a refresh does not change.
+func findKeeper(sessions []*Session, accessToken, sessionID string) *Session {
+	if sessionID != "" {
+		if keep := findSession(sessions, sessionID); keep != nil {
+			return keep
+		}
+	}
+	for _, sess := range sessions {
+		if sess != nil && sess.AccessToken == accessToken {
+			return sess
+		}
+	}
+	return nil
 }
 
 // findSession returns the session with the given public ID, or nil.

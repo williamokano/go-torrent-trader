@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -268,6 +269,77 @@ func TestRevokeOtherSessionsRefusesWhenTheCallerCannotBeIdentified(t *testing.T)
 	if store.GetByAccessToken("acc-here") == nil || store.GetByAccessToken("acc-phone") == nil {
 		t.Error("sessions were revoked despite the caller being unidentifiable — this is " +
 			"the path that signs a member out of every device mid-panic")
+	}
+}
+
+func TestRevokeOtherSessionsRetriesADeleteThatMisses(t *testing.T) {
+	inner := newTestSessionStore()
+	for _, sess := range []*Session{
+		testSession(1, "here", "acc-here", "ref-here", time.Now()),
+		testSession(1, "phone", "acc-phone", "ref-phone", time.Now()),
+	} {
+		if err := inner.Create(sess); err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+	}
+	store := &missingDeleteStore{memorySessionStore: inner, misses: 1}
+	auth := NewAuthService(nil, store, nil, nil, "", nil)
+
+	revoked, err := auth.RevokeOtherSessions(1, "acc-here")
+	if err != nil {
+		t.Fatalf("RevokeOtherSessions: %v", err)
+	}
+	if revoked != 1 {
+		t.Errorf("revoked = %d, want 1 — a session counted once, however many "+
+			"passes it took", revoked)
+	}
+	if inner.GetByRefreshToken("ref-phone") != nil {
+		t.Error("the session survived a panic button that reported success")
+	}
+	if inner.GetByAccessToken("acc-here") == nil {
+		t.Error("the caller was signed out")
+	}
+}
+
+// countingStore records how often the session list is read.
+type countingStore struct {
+	*memorySessionStore
+	lists int
+}
+
+func (s *countingStore) ListByUserID(userID int64) ([]*Session, error) {
+	s.lists++
+	return s.memorySessionStore.ListByUserID(userID)
+}
+
+// Revoking by name must not mean re-reading every session once per session.
+// The list is the expensive call — one round trip per member of the user's set
+// against Redis — so a member with many devices would pay for it squared.
+func TestRevokeOtherSessionsReadsTheListABoundedNumberOfTimes(t *testing.T) {
+	inner := newTestSessionStore()
+	if err := inner.Create(testSession(1, "here", "acc-here", "ref-here", time.Now())); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	for i := 0; i < 8; i++ {
+		id := fmt.Sprintf("other-%d", i)
+		if err := inner.Create(testSession(1, id, "acc-"+id, "ref-"+id, time.Now())); err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+	}
+	store := &countingStore{memorySessionStore: inner}
+	auth := NewAuthService(nil, store, nil, nil, "", nil)
+
+	revoked, err := auth.RevokeOtherSessions(1, "acc-here")
+	if err != nil {
+		t.Fatalf("RevokeOtherSessions: %v", err)
+	}
+	if revoked != 8 {
+		t.Errorf("revoked = %d, want 8", revoked)
+	}
+	if store.lists > revokeAttempts {
+		t.Errorf("read the session list %d times to revoke 8 sessions; it should be "+
+			"bounded by the retry count (%d), not by how many devices a member has",
+			store.lists, revokeAttempts)
 	}
 }
 
