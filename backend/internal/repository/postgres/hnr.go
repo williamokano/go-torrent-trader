@@ -100,15 +100,40 @@ func (r *HnRRepo) DeleteRule(ctx context.Context, groupID int64) error {
 
 // --- announce-path accounting ------------------------------------------------
 
+// hnrSnatchGrace is how far before the announce a recorded completion may sit
+// and still open an obligation. It absorbs the gap between handleCompleted
+// writing transfer_history and a *later* announce (a repeat completed event, or
+// the leecher->seeder fallback) retrying CreateIfNotExists after the first
+// attempt failed transiently — that retry should still open the obligation. A
+// snatch genuinely from the past sits far outside it.
+const hnrSnatchGrace = time.Hour
+
 // CreateIfNotExists inserts a new open hnr_records row for (userID, torrentID)
-// unless one already exists (ON CONFLICT DO NOTHING on the unique pair) or the
-// torrent is currently hnr_exempt. Returns whether a row was actually inserted.
+// unless one already exists (ON CONFLICT DO NOTHING on the unique pair), the
+// torrent is currently hnr_exempt, or the snatch list already records a
+// completion for this pair older than hnrSnatchGrace. Returns whether a row was
+// actually inserted.
+//
+// The snatch-age check keeps a re-completion of an old snatch from opening a
+// brand-new obligation dated today once its original hnr_records row is gone —
+// purged on retention, never created because HnR was enabled after the snatch,
+// or never created because the torrent was exempt at snatch time.
+// transfer_history.completed_at is never refreshed on conflict, so it holds the
+// true first-snatch date. A genuine first snatch is unaffected: handleCompleted
+// writes the transfer_history row moments before calling this, well inside the
+// grace window, and a first snatch seen only as a leecher->seeder transition has
+// no transfer_history row at all.
 func (r *HnRRepo) CreateIfNotExists(ctx context.Context, userID, torrentID int64, completedAt time.Time) (bool, error) {
 	query := `INSERT INTO hnr_records (user_id, torrent_id, completed_at, last_seen_at)
 		SELECT $1, $2, $3, $3
 		WHERE NOT EXISTS (SELECT 1 FROM torrents WHERE id = $2 AND hnr_exempt = true)
+		  AND NOT EXISTS (
+			SELECT 1 FROM transfer_history
+			WHERE user_id = $1 AND torrent_id = $2
+			  AND completed_at < $3::timestamptz - make_interval(secs => $4)
+		  )
 		ON CONFLICT (user_id, torrent_id) DO NOTHING`
-	res, err := r.db.ExecContext(ctx, query, userID, torrentID, completedAt)
+	res, err := r.db.ExecContext(ctx, query, userID, torrentID, completedAt, hnrSnatchGrace.Seconds())
 	if err != nil {
 		return false, fmt.Errorf("create hnr record: %w", err)
 	}

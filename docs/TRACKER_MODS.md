@@ -88,9 +88,11 @@ directly by the announce path rather than derived after the fact
 - **`hnr_records`** — one row per (user, torrent) snatch: an accumulator
   (`seeded_seconds`, `uploaded`) and a state machine
   (`active → hnr → satisfied | cleared | waived`). Opened by `handleCompleted`
-  and the leecher→seeder transition, credited by every seeding announce, capped
-  per gap by `hnr_seed_credit_cap_minutes`. Tracking starts from enablement
-  forward — no backfill (#267 declined).
+  and the leecher→seeder transition — but not when the snatch list already dates
+  the completion more than an hour back, so a re-announce for a torrent finished
+  long ago cannot open a fresh obligation (#268). Credited by every seeding
+  announce, capped per gap by `hnr_seed_credit_cap_minutes`. Tracking starts from
+  enablement forward — no backfill (#267 declined).
 - **`hnr_rules`** — per-class policy (required seed hours, required ratio,
   inactivity grace, hard cap). A class with no row is exempt, mirroring
   `promotion_rules`.
