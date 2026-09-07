@@ -318,8 +318,10 @@ type HnRRepository interface {
 
 	// Announce-path accounting. CreateIfNotExists is called on torrent
 	// completion (and on the leecher->seeder transition as belt-and-braces);
-	// it is a no-op when a record already exists or the torrent is
-	// hnr_exempt. Accumulate is the one atomic UPDATE that both credits
+	// it is a no-op when a record already exists, the torrent is hnr_exempt,
+	// or the snatch list already records a completion for the pair more than an
+	// hour old (a re-announce for a torrent finished long ago must not open a
+	// fresh obligation dated today). Accumulate is the one atomic UPDATE that both credits
 	// seed time/upload since the last seeding announce (capped at
 	// creditCap, crediting nothing across a longer gap) and, in the same
 	// statement, recovers a 'hnr' record straight back to 'active' — a

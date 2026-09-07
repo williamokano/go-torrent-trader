@@ -118,6 +118,154 @@ func TestHnRRepo_CreateIfNotExists_SkipsExemptTorrent(t *testing.T) {
 	}
 }
 
+// insertSnatch writes a transfer_history row directly — the durable "this user
+// completed this torrent at this time" record CreateIfNotExists now consults.
+func insertSnatch(t *testing.T, db *sql.DB, userID, torrentID int64, completedAt time.Time) {
+	t.Helper()
+	_, err := db.Exec(
+		`INSERT INTO transfer_history (user_id, torrent_id, uploaded, downloaded, seeder, completed_at, last_announce)
+		 VALUES ($1, $2, 0, 0, false, $3, $3)`,
+		userID, torrentID, completedAt,
+	)
+	if err != nil {
+		t.Fatalf("insert transfer_history: %v", err)
+	}
+}
+
+func TestHnRRepo_CreateIfNotExists_SkipsOldSnatch(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+
+	for _, age := range []struct {
+		name string
+		ago  time.Duration
+	}{
+		{"a year ago", 365 * 24 * time.Hour},
+		{"just outside the grace window", 61 * time.Minute},
+	} {
+		t.Run(age.name, func(t *testing.T) {
+			tor := newTorrent(t, db, u.ID)
+			// The announce arriving now is a re-check / re-seed of a download the
+			// member finished in an earlier session, not a fresh snatch.
+			insertSnatch(t, db, u.ID, tor.ID, time.Now().Add(-age.ago))
+
+			created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now())
+			if err != nil {
+				t.Fatalf("CreateIfNotExists: %v", err)
+			}
+			if created {
+				t.Fatal("expected no obligation for a torrent whose snatch predates the announce")
+			}
+		})
+	}
+}
+
+func TestHnRRepo_CreateIfNotExists_AllowsFirstSnatchWithSameTimestamp(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	// handleCompleted writes the transfer_history row and then calls
+	// CreateIfNotExists with the very same timestamp — comfortably inside the
+	// grace window.
+	now := time.Now()
+	insertSnatch(t, db, u.ID, tor.ID, now)
+
+	created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, now)
+	if err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if !created {
+		t.Fatal("expected a genuine first snatch to open an obligation")
+	}
+}
+
+func TestHnRRepo_CreateIfNotExists_AllowsRetryWithinGraceWindow(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	// handleCompleted wrote transfer_history but its own CreateIfNotExists call
+	// failed transiently; a repeat completed event (or the leecher->seeder
+	// fallback) retries a few minutes later. That retry must still open the
+	// obligation — the completion is recent, just not simultaneous.
+	insertSnatch(t, db, u.ID, tor.ID, time.Now().Add(-20*time.Minute))
+
+	created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now())
+	if err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if !created {
+		t.Fatal("expected a retry within the grace window to still open the obligation")
+	}
+}
+
+func TestHnRRepo_CreateIfNotExists_AllowsWhenNoSnatchRecorded(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	// A client that never sends event=completed is seen only as a leecher->seeder
+	// transition, which writes no transfer_history row. That is still a genuine
+	// first snatch and must open an obligation.
+	created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now())
+	if err != nil {
+		t.Fatalf("CreateIfNotExists: %v", err)
+	}
+	if !created {
+		t.Fatal("expected an obligation when there is no transfer_history row at all")
+	}
+}
+
+func TestHnRRepo_CreateIfNotExists_ResolvedRecordStillNoOps(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+
+	if _, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now()); err != nil {
+		t.Fatalf("CreateIfNotExists (initial): %v", err)
+	}
+	recordID := mustRecordID(t, db, u.ID, tor.ID)
+	if _, err := repo.MarkSatisfied(ctx, []int64{recordID}, time.Now()); err != nil {
+		t.Fatalf("MarkSatisfied: %v", err)
+	}
+
+	// A later announce for the same pair, with no older snatch on record, must
+	// not open a second obligation — the resolved row still wins via ON CONFLICT.
+	created, err := repo.CreateIfNotExists(ctx, u.ID, tor.ID, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("CreateIfNotExists (after resolve): %v", err)
+	}
+	if created {
+		t.Fatal("expected no new record while a resolved one still exists for the pair")
+	}
+
+	records, err := repo.ListForUser(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected exactly 1 record, got %d", len(records))
+	}
+}
+
 func TestHnRRepo_Accumulate(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
