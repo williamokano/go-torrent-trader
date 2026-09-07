@@ -560,8 +560,16 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 	if req.Silver != nil {
 		torrent.Silver = *req.Silver
 	}
-	if req.HnRExempt != nil {
+	if req.HnRExempt != nil && *req.HnRExempt != torrent.HnRExempt {
 		torrent.HnRExempt = *req.HnRExempt
+		// A staff member actually toggled this — in either direction — which
+		// takes the torrent out of the automatic exempt-rules pass's hands
+		// (migration 084). That pass only ever touches rows whose source is nil
+		// or 'auto'. Guarding on an actual change matters: the edit form sends
+		// hnr_exempt on every admin save, so stamping 'manual' unconditionally
+		// would drain the rule set of subjects one unrelated typo-fix at a time.
+		manual := model.HnRExemptSourceManual
+		torrent.HnRExemptSource = &manual
 	}
 
 	// Metadata, when provided, replaces the whole object and is validated against

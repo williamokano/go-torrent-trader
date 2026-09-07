@@ -90,7 +90,18 @@ const stages = [
   },
 ];
 
-function mockApi(stagesOverride = stages, rulesOverride: TestRule[] = rules) {
+type ExemptRule = {
+  id: number;
+  criterion: "min_seeders" | "max_size_bytes";
+  threshold: number;
+  enabled: boolean;
+};
+
+function mockApi(
+  stagesOverride = stages,
+  rulesOverride: TestRule[] = rules,
+  exemptRulesOverride: ExemptRule[] = [],
+) {
   const calls: { method: string; url: string; body?: string }[] = [];
   mockFetch.mockImplementation((url: string, init?: FetchInit) => {
     const method = init?.method ?? "GET";
@@ -102,6 +113,19 @@ function mockApi(stagesOverride = stages, rulesOverride: TestRule[] = rules) {
       return Promise.resolve({
         ok: true,
         json: async () => ({ rules: rulesOverride }),
+      });
+    }
+    if (method === "GET" && url.endsWith("/hnr/exempt-rules")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ rules: exemptRulesOverride }),
+      });
+    }
+    if (url.includes("/hnr/exempt-rules")) {
+      // POST / PUT / DELETE
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ rule: { id: 99 } }),
       });
     }
     if (method === "GET" && url.includes("/hnr/runs")) {
@@ -332,6 +356,38 @@ describe("AdminHitAndRunPage", () => {
       expect(body).not.toHaveProperty("clear_base_points");
       expect(body).not.toHaveProperty("clear_points_per_gib");
       expect(body).not.toHaveProperty("clear_points_per_gib_deficit");
+    });
+  });
+
+  test("renders auto-exempt rules and adds a new one", async () => {
+    const calls = mockApi(stages, rules, [
+      { id: 1, criterion: "min_seeders", threshold: 50, enabled: true },
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    // Existing rule renders into its inputs.
+    expect(await screen.findByLabelText("Rule 1 threshold")).toHaveValue(50);
+    expect(screen.getByLabelText("Rule 1 enabled")).toBeChecked();
+
+    // Add a new one.
+    await user.selectOptions(
+      screen.getByLabelText("New rule criterion"),
+      "max_size_bytes",
+    );
+    await user.type(screen.getByLabelText("New rule threshold"), "4096");
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+
+    await waitFor(() => {
+      const post = calls.find(
+        (c) => c.method === "POST" && c.url.endsWith("/hnr/exempt-rules"),
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(post!.body!)).toMatchObject({
+        criterion: "max_size_bytes",
+        threshold: 4096,
+        enabled: true,
+      });
     });
   });
 

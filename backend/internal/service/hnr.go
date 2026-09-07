@@ -24,6 +24,8 @@ var (
 	ErrHnRStageNotFound       = fmt.Errorf("hit-and-run penalty stage not found")
 	ErrHnRInvalidStage        = fmt.Errorf("invalid hit-and-run penalty stage")
 	ErrHnRRecordNotFound      = fmt.Errorf("hit-and-run record not found")
+	ErrHnRInvalidExemptRule   = fmt.Errorf("hit-and-run auto-exempt rule is invalid")
+	ErrHnRExemptRuleNotFound  = fmt.Errorf("hit-and-run auto-exempt rule not found")
 )
 
 // HnRRuleInput is the admin-supplied threshold set for one class. The clear_*
@@ -321,7 +323,17 @@ func (s *HnRService) runLocked(ctx context.Context, trigger string, triggeredBy 
 		return HnRRunSummary{}, fmt.Errorf("hnr daemon: start run: %w", err)
 	}
 
+	// Automatic exemption runs first, so a torrent this pass flags gets its
+	// open records waived by evaluateAndMark in the same sweep
+	// (ListOpenForEvaluation joins torrents.hnr_exempt). Its failure does not
+	// stop the breach/satisfy sweep — it is folded into the run outcome only
+	// after the sweep has run, so staff see a failed run rather than a clean
+	// one with two silent zeroes.
+	exempted, released, exemptErr := s.applyExemptRules(ctx, runID)
+
 	counts, evalErr := s.evaluateAndMark(ctx)
+	counts.TorrentsExempted = exempted
+	counts.TorrentsReleased = released
 
 	// The ladder reads ActiveHnRCounts, which reflects the breach/satisfy
 	// transitions evaluateAndMark just made — so it runs after, in the same
@@ -349,6 +361,13 @@ func (s *HnRService) runLocked(ctx context.Context, trigger string, triggeredBy 
 		} else {
 			counts.Purged = purged
 		}
+	}
+
+	// A failed auto-exempt pass makes the run failed too — but only after the
+	// independent breach/satisfy sweep above has already run and its counts
+	// been tallied.
+	if evalErr == nil && exemptErr != nil {
+		evalErr = fmt.Errorf("auto-exempt: %w", exemptErr)
 	}
 
 	status := model.HnRRunStatusSuccess
@@ -440,6 +459,23 @@ func (s *HnRService) purgeResolved(ctx context.Context, now time.Time) (int, err
 		return 0, fmt.Errorf("purge resolved hnr records: %w", err)
 	}
 	return int(n), nil
+}
+
+// applyExemptRules runs the automatic-exemption pass at the head of a daemon
+// sweep, gated on the master switch — an operator's exempt rules only bite once
+// HnR is on, the same way tracking starts from enablement. The error is
+// returned (not swallowed) so the run row records it; it is still isolated from
+// the breach/satisfy sweep, which runs regardless. Any partial count the repo
+// managed before failing is passed through so the run row is not understated.
+func (s *HnRService) applyExemptRules(ctx context.Context, runID int64) (exempted, released int, err error) {
+	if s.settings == nil || !s.settings.HnREnabled(ctx) {
+		return 0, 0, nil
+	}
+	exempted, released, err = s.hnr.ApplyExemptRules(ctx)
+	if err != nil {
+		slog.Error("hnr daemon: auto-exempt pass failed", "run_id", runID, "error", err)
+	}
+	return exempted, released, err
 }
 
 // HnRRecordView is one obligation as shown to the member who owns it: the

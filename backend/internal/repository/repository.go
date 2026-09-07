@@ -409,16 +409,30 @@ type HnRRepository interface {
 	AdminList(ctx context.Context, opts HnRAdminListOptions) ([]model.HnRRecord, int64, error)
 	AggregateStats(ctx context.Context) (HnRAggregateStats, error)
 	TopOffenders(ctx context.Context, limit int) ([]HnROffender, error)
+
+	// Automatic exemption. The rules are a flat list (they describe torrents,
+	// not classes). ApplyExemptRules is the daemon's pass: it flags torrents
+	// matching any enabled rule as hnr_exempt with source 'auto' (only rows
+	// staff never touched — source IS NULL), and un-flags 'auto' rows that no
+	// longer match any rule. Manual exemptions are never touched either way.
+	ListExemptRules(ctx context.Context) ([]model.HnRExemptRule, error)
+	GetExemptRule(ctx context.Context, id int64) (*model.HnRExemptRule, error)
+	CreateExemptRule(ctx context.Context, rule *model.HnRExemptRule) error
+	UpdateExemptRule(ctx context.Context, rule *model.HnRExemptRule) error
+	DeleteExemptRule(ctx context.Context, id int64) error
+	ApplyExemptRules(ctx context.Context) (exempted, released int, err error)
 }
 
 // HnRRunCounts is FinishRun's outcome tally for one daemon run.
 type HnRRunCounts struct {
-	Scanned        int
-	Breached       int
-	Satisfied      int
-	StagesAdvanced int
-	StagesDecayed  int
-	Purged         int
+	Scanned          int
+	Breached         int
+	Satisfied        int
+	StagesAdvanced   int
+	StagesDecayed    int
+	Purged           int
+	TorrentsExempted int
+	TorrentsReleased int
 }
 
 // InviteDistributionRepository defines persistence operations for the auto

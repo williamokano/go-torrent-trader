@@ -101,17 +101,45 @@ type HnRUserState struct {
 
 // HnRRun is one daemon run's audit trail.
 type HnRRun struct {
-	ID             int64      `json:"id"`
-	StartedAt      time.Time  `json:"started_at"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	Status         string     `json:"status"`
-	Trigger        string     `json:"trigger"`
-	TriggeredBy    *int64     `json:"triggered_by,omitempty"`
-	Scanned        int        `json:"scanned"`
-	Breached       int        `json:"breached"`
-	Satisfied      int        `json:"satisfied"`
-	StagesAdvanced int        `json:"stages_advanced"`
-	StagesDecayed  int        `json:"stages_decayed"`
-	Purged         int        `json:"purged"`
-	Error          *string    `json:"error,omitempty"`
+	ID               int64      `json:"id"`
+	StartedAt        time.Time  `json:"started_at"`
+	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+	Status           string     `json:"status"`
+	Trigger          string     `json:"trigger"`
+	TriggeredBy      *int64     `json:"triggered_by,omitempty"`
+	Scanned          int        `json:"scanned"`
+	Breached         int        `json:"breached"`
+	Satisfied        int        `json:"satisfied"`
+	StagesAdvanced   int        `json:"stages_advanced"`
+	StagesDecayed    int        `json:"stages_decayed"`
+	Purged           int        `json:"purged"`
+	TorrentsExempted int        `json:"torrents_exempted"`
+	TorrentsReleased int        `json:"torrents_released"`
+	Error            *string    `json:"error,omitempty"`
+}
+
+// HnR auto-exemption criteria. A torrent is auto-exempt if it matches any
+// enabled hnr_exempt_rules row.
+const (
+	// HnRExemptCriterionMinSeeders exempts once seeders >= threshold.
+	HnRExemptCriterionMinSeeders = "min_seeders"
+	// HnRExemptCriterionMaxSize exempts when size (bytes) <= threshold.
+	HnRExemptCriterionMaxSize = "max_size_bytes"
+)
+
+// HnR exemption provenance, stored on torrents.hnr_exempt_source.
+const (
+	HnRExemptSourceManual = "manual"
+	HnRExemptSourceAuto   = "auto"
+)
+
+// HnRExemptRule is one automatic-exemption criterion. The rules are a flat
+// list rather than per-class like HnRRule: they describe torrents, not members.
+type HnRExemptRule struct {
+	ID        int64     `json:"id"`
+	Criterion string    `json:"criterion"`
+	Threshold int64     `json:"threshold"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

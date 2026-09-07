@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -23,17 +24,21 @@ import (
 // exercise the admin endpoints, not the daemon sweep itself (that lives in
 // internal/service's fakeHnRRepo-backed tests).
 type stubHnRRepo struct {
-	rules       map[int64]model.HnRRule
-	stages      map[int]model.HnRPenaltyStage
-	runs        []model.HnRRun
-	records     []model.HnRRecord
-	bonusPoints map[int64]int64
+	rules            map[int64]model.HnRRule
+	stages           map[int]model.HnRPenaltyStage
+	runs             []model.HnRRun
+	records          []model.HnRRecord
+	bonusPoints      map[int64]int64
+	exemptRules      map[int64]model.HnRExemptRule
+	nextExemptRuleID int64
 }
 
 func newStubHnRRepo() *stubHnRRepo {
 	return &stubHnRRepo{
 		rules: map[int64]model.HnRRule{}, stages: map[int]model.HnRPenaltyStage{},
-		bonusPoints: map[int64]int64{},
+		bonusPoints:      map[int64]int64{},
+		exemptRules:      map[int64]model.HnRExemptRule{},
+		nextExemptRuleID: 1,
 	}
 }
 
@@ -242,6 +247,49 @@ func (s *stubHnRRepo) TopOffenders(_ context.Context, limit int) ([]repository.H
 	}
 	return out, nil
 }
+
+func (s *stubHnRRepo) ListExemptRules(_ context.Context) ([]model.HnRExemptRule, error) {
+	out := make([]model.HnRExemptRule, 0, len(s.exemptRules))
+	for _, r := range s.exemptRules {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (s *stubHnRRepo) GetExemptRule(_ context.Context, id int64) (*model.HnRExemptRule, error) {
+	r, ok := s.exemptRules[id]
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	return &r, nil
+}
+
+func (s *stubHnRRepo) CreateExemptRule(_ context.Context, r *model.HnRExemptRule) error {
+	r.ID = s.nextExemptRuleID
+	s.nextExemptRuleID++
+	r.CreatedAt, r.UpdatedAt = time.Now(), time.Now()
+	s.exemptRules[r.ID] = *r
+	return nil
+}
+
+func (s *stubHnRRepo) UpdateExemptRule(_ context.Context, r *model.HnRExemptRule) error {
+	if _, ok := s.exemptRules[r.ID]; !ok {
+		return sql.ErrNoRows
+	}
+	r.UpdatedAt = time.Now()
+	s.exemptRules[r.ID] = *r
+	return nil
+}
+
+func (s *stubHnRRepo) DeleteExemptRule(_ context.Context, id int64) error {
+	if _, ok := s.exemptRules[id]; !ok {
+		return sql.ErrNoRows
+	}
+	delete(s.exemptRules, id)
+	return nil
+}
+
+func (s *stubHnRRepo) ApplyExemptRules(context.Context) (int, int, error) { return 0, 0, nil }
 
 var _ repository.HnRRepository = (*stubHnRRepo)(nil)
 
@@ -489,6 +537,81 @@ func TestHnRStages_Delete(t *testing.T) {
 	rec = doGroupRequest(t, router, admin, http.MethodDelete, "/api/v1/admin/hnr/stages/1", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for a missing stage, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHnRExemptRules_CRUD(t *testing.T) {
+	repo := newStubHnRRepo()
+	router, sessions := setupHnRAdminRouter(repo)
+	admin := createSessionWithGroup(sessions, 5012, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodPost, "/api/v1/admin/hnr/exempt-rules", map[string]interface{}{
+		"criterion": "min_seeders", "threshold": 50, "enabled": true,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Rule map[string]interface{} `json:"rule"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	id := int64(created.Rule["id"].(float64))
+
+	rec = doGroupRequest(t, router, admin, http.MethodGet, "/api/v1/admin/hnr/exempt-rules", nil)
+	var listed struct {
+		Rules []map[string]interface{} `json:"rules"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &listed)
+	if len(listed.Rules) != 1 || listed.Rules[0]["criterion"] != "min_seeders" {
+		t.Fatalf("unexpected list: %+v", listed.Rules)
+	}
+
+	rec = doGroupRequest(t, router, admin, http.MethodPut,
+		"/api/v1/admin/hnr/exempt-rules/"+strconv.FormatInt(id, 10), map[string]interface{}{
+			"criterion": "max_size_bytes", "threshold": 4096, "enabled": false,
+		})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doGroupRequest(t, router, admin, http.MethodDelete,
+		"/api/v1/admin/hnr/exempt-rules/"+strconv.FormatInt(id, 10), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete: expected 200, got %d", rec.Code)
+	}
+	rec = doGroupRequest(t, router, admin, http.MethodDelete,
+		"/api/v1/admin/hnr/exempt-rules/"+strconv.FormatInt(id, 10), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("delete missing: expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHnRExemptRules_RejectsBadInput(t *testing.T) {
+	router, sessions := setupHnRAdminRouter(newStubHnRRepo())
+	admin := createSessionWithGroup(sessions, 5013, 1)
+
+	rec := doGroupRequest(t, router, admin, http.MethodPost, "/api/v1/admin/hnr/exempt-rules", map[string]interface{}{
+		"criterion": "not_a_thing", "threshold": 1, "enabled": true,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown criterion, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doGroupRequest(t, router, admin, http.MethodPost, "/api/v1/admin/hnr/exempt-rules", map[string]interface{}{
+		"criterion": "min_seeders", "threshold": -5, "enabled": true,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative threshold, got %d", rec.Code)
+	}
+}
+
+func TestHnRExemptRules_ForbiddenForNonAdmin(t *testing.T) {
+	router, sessions := setupHnRAdminRouter(newStubHnRRepo())
+	regular := createSessionWithGroup(sessions, 5014, 5)
+
+	rec := doGroupRequest(t, router, regular, http.MethodGet, "/api/v1/admin/hnr/exempt-rules", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }
 

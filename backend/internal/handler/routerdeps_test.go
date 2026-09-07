@@ -191,5 +191,13 @@ func (nopHnRRepo) AggregateStats(context.Context) (repository.HnRAggregateStats,
 func (nopHnRRepo) TopOffenders(context.Context, int) ([]repository.HnROffender, error) {
 	return nil, nil
 }
+func (nopHnRRepo) ListExemptRules(context.Context) ([]model.HnRExemptRule, error) { return nil, nil }
+func (nopHnRRepo) GetExemptRule(context.Context, int64) (*model.HnRExemptRule, error) {
+	return nil, nil
+}
+func (nopHnRRepo) CreateExemptRule(context.Context, *model.HnRExemptRule) error { return nil }
+func (nopHnRRepo) UpdateExemptRule(context.Context, *model.HnRExemptRule) error { return nil }
+func (nopHnRRepo) DeleteExemptRule(context.Context, int64) error                { return nil }
+func (nopHnRRepo) ApplyExemptRules(context.Context) (int, int, error)           { return 0, 0, nil }
 
 var _ repository.HnRRepository = nopHnRRepo{}

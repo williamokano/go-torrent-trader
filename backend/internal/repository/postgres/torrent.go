@@ -25,7 +25,7 @@ func metadataOrDefault(m json.RawMessage) json.RawMessage {
 const torrentColumns = `t.id, t.name, t.info_hash, t.size, t.description, t.nfo, t.category_id,
 	c.name AS category_name, c.image_url AS category_image_url,
 	t.uploader_id, t.anonymous, t.seeders, t.leechers, t.times_completed, t.comments_count,
-	t.visible, t.banned, t.free, t.silver, t.hnr_exempt, t.file_count, t.files, t.metadata,
+	t.visible, t.banned, t.free, t.silver, t.hnr_exempt, t.hnr_exempt_source, t.file_count, t.files, t.metadata,
 	CASE WHEN t.anonymous THEN 'Anonymous' ELSE COALESCE(u.username, 'Unknown') END AS uploader_name,
 	CASE WHEN t.anonymous THEN false ELSE COALESCE(u.warned, false) END AS uploader_warned,
 	t.moderation_status, t.assigned_moderator_id, COALESCE(am.username, '') AS assigned_moderator_name,
@@ -63,7 +63,7 @@ func scanTorrent(row interface{ Scan(...any) error }) (*model.Torrent, error) {
 		&t.CategoryID, &t.CategoryName, &t.CategoryImageURL,
 		&t.UploaderID, &t.Anonymous, &t.Seeders, &t.Leechers,
 		&t.TimesCompleted, &t.CommentsCount, &t.Visible, &t.Banned,
-		&t.Free, &t.Silver, &t.HnRExempt, &t.FileCount, &t.Files, &t.Metadata, &t.UploaderName,
+		&t.Free, &t.Silver, &t.HnRExempt, &t.HnRExemptSource, &t.FileCount, &t.Files, &t.Metadata, &t.UploaderName,
 		&t.UploaderWarned,
 		&t.ModerationStatus, &t.AssignedModeratorID, &t.AssignedModeratorName,
 		&t.ApprovedBy, &t.ApprovedByName, &t.ApprovedAt,
@@ -330,14 +330,16 @@ func (r *TorrentRepo) Update(ctx context.Context, torrent *model.Torrent) error 
 		name = $1, info_hash = $2, size = $3, description = $4, nfo = $5,
 		category_id = $6, uploader_id = $7, anonymous = $8,
 		visible = $9, banned = $10, free = $11, silver = $12, hnr_exempt = $13,
-		file_count = $14, files = $15, metadata = $16, updated_at = NOW()
-	WHERE id = $17
+		hnr_exempt_source = $14,
+		file_count = $15, files = $16, metadata = $17, updated_at = NOW()
+	WHERE id = $18
 	RETURNING updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
 		torrent.Name, torrent.InfoHash, torrent.Size, torrent.Description,
 		torrent.Nfo, torrent.CategoryID, torrent.UploaderID, torrent.Anonymous,
 		torrent.Visible, torrent.Banned, torrent.Free, torrent.Silver, torrent.HnRExempt,
+		torrent.HnRExemptSource,
 		torrent.FileCount, torrent.Files, metadataOrDefault(torrent.Metadata), torrent.ID,
 	).Scan(&torrent.UpdatedAt)
 }

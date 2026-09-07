@@ -1001,6 +1001,53 @@ func TestTorrentService_GetReseedCount(t *testing.T) {
 	}
 }
 
+func TestTorrentService_EditTorrent_HnRExemptStampsManualOnlyOnAChange(t *testing.T) {
+	svc, repo, _ := setupEditDeleteService()
+	ctx := context.Background()
+	admin := model.Permissions{GroupID: 1, IsAdmin: true}
+
+	uploaded, err := svc.Upload(ctx, buildTorrentFile("edit-hnr-exempt"), UploadTorrentRequest{CategoryID: 1}, 42)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	stored, _ := repo.GetByID(ctx, uploaded.ID) // memTorrentRepo returns the live pointer
+	if stored.HnRExemptSource != nil {
+		t.Fatalf("a fresh torrent should have nil hnr_exempt_source, got %q", *stored.HnRExemptSource)
+	}
+
+	// Pretend the auto-exempt pass flagged it.
+	auto := model.HnRExemptSourceAuto
+	stored.HnRExempt = true
+	stored.HnRExemptSource = &auto
+
+	// An admin edit that does not change hnr_exempt (the form always sends the
+	// field) must NOT stamp 'manual' — otherwise a typo fix drains the rule set.
+	stillExempt := true
+	desc := "just fixing the description"
+	if _, err := svc.EditTorrent(ctx, uploaded.ID, 99, admin, EditTorrentRequest{
+		HnRExempt: &stillExempt, Description: &desc,
+	}); err != nil {
+		t.Fatalf("no-op exempt edit: %v", err)
+	}
+	if stored.HnRExemptSource == nil || *stored.HnRExemptSource != model.HnRExemptSourceAuto {
+		t.Errorf("source should still be 'auto' after an edit that did not toggle it, got %v", stored.HnRExemptSource)
+	}
+
+	// Actually toggling it off is a real staff decision → 'manual'.
+	notExempt := false
+	if _, err := svc.EditTorrent(ctx, uploaded.ID, 99, admin, EditTorrentRequest{
+		HnRExempt: &notExempt,
+	}); err != nil {
+		t.Fatalf("toggle exempt off: %v", err)
+	}
+	if stored.HnRExempt {
+		t.Error("expected hnr_exempt false after toggling off")
+	}
+	if stored.HnRExemptSource == nil || *stored.HnRExemptSource != model.HnRExemptSourceManual {
+		t.Errorf("expected source 'manual' after a real toggle, got %v", stored.HnRExemptSource)
+	}
+}
+
 func TestTorrentService_EditTorrent_AdminSetsSilver(t *testing.T) {
 	svc, _, _ := setupEditDeleteService()
 

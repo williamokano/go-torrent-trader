@@ -328,6 +328,15 @@
             admin page — a stricter class can be charged more, a lenient one
             less. An un-overridden field falls back to the value here.
           </p>
+          <p>
+            Exemptions live on the Hit-and-Run admin page, not here. A staff
+            member can flag any single torrent exempt by hand, and an
+            <strong>automatic exemption</strong> rules pass — running on the
+            daemon's hourly sweep — flags torrents by seeder count (well enough
+            seeded that one member dropping it does not matter) or by size (too
+            small for the bookkeeping to be worth it). The automatic pass never
+            touches a torrent a staff member set by hand, in either direction.
+          </p>
           <table>
             <thead>
               <tr>

@@ -38,8 +38,23 @@ interface HnRRun {
   satisfied: number;
   stages_advanced?: number;
   stages_decayed?: number;
+  torrents_exempted?: number;
+  torrents_released?: number;
   error?: string;
 }
+
+interface HnRExemptRule {
+  id: number;
+  criterion: "min_seeders" | "max_size_bytes";
+  threshold: number;
+  enabled: boolean;
+}
+
+const EXEMPT_CRITERIA: { value: HnRExemptRule["criterion"]; label: string }[] =
+  [
+    { value: "min_seeders", label: "Seeders at or above" },
+    { value: "max_size_bytes", label: "Size at or below (bytes)" },
+  ];
 
 interface HnRAdminRecord {
   id: number;
@@ -240,6 +255,16 @@ export function AdminHitAndRunPage() {
   const [initial, setInitial] = useState<RowMap>({});
   const [draft, setDraft] = useState<RowMap>({});
   const [runs, setRuns] = useState<HnRRun[]>([]);
+  const [exemptRules, setExemptRules] = useState<HnRExemptRule[]>([]);
+  // Controlled per-rule threshold text, keyed by rule id — committed on blur so
+  // it stays consistent with the criterion/enabled controls next to it.
+  const [exemptThreshold, setExemptThreshold] = useState<
+    Record<number, string>
+  >({});
+  const [newExempt, setNewExempt] = useState<{
+    criterion: HnRExemptRule["criterion"];
+    threshold: string;
+  }>({ criterion: "min_seeders", threshold: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -274,7 +299,7 @@ export function AdminHitAndRunPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [gRes, rRes, runsRes, stagesRes] = await Promise.all([
+      const [gRes, rRes, runsRes, stagesRes, exemptRes] = await Promise.all([
         fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
           headers: authHeaders(),
         }),
@@ -287,11 +312,22 @@ export function AdminHitAndRunPage() {
         fetch(`${getConfig().API_URL}/api/v1/admin/hnr/stages`, {
           headers: authHeaders(),
         }),
+        fetch(`${getConfig().API_URL}/api/v1/admin/hnr/exempt-rules`, {
+          headers: authHeaders(),
+        }),
       ]);
       const gBody = gRes.ok ? await gRes.json() : { groups: [] };
       const rBody = rRes.ok ? await rRes.json() : { rules: [] };
       const runsBody = runsRes.ok ? await runsRes.json() : { runs: [] };
       const stagesBody = stagesRes.ok ? await stagesRes.json() : { stages: [] };
+      const exemptBody = exemptRes.ok ? await exemptRes.json() : { rules: [] };
+      const nextExemptRules: HnRExemptRule[] = exemptBody.rules ?? [];
+      setExemptRules(nextExemptRules);
+      setExemptThreshold(
+        Object.fromEntries(
+          nextExemptRules.map((r) => [r.id, String(r.threshold)]),
+        ),
+      );
       const nextGroups: Group[] = gBody.groups ?? [];
       const rules: HnRRule[] = rBody.rules ?? [];
       const ruleById: Record<number, HnRRule> = {};
@@ -467,6 +503,74 @@ export function AdminHitAndRunPage() {
       toast.error(`${failed} change${failed === 1 ? "" : "s"} failed to save`);
     }
     fetchAll();
+  };
+
+  const exemptUrl = (id?: number) =>
+    `${getConfig().API_URL}/api/v1/admin/hnr/exempt-rules${id ? `/${id}` : ""}`;
+
+  const addExemptRule = async () => {
+    if (newExempt.threshold.trim() === "") {
+      toast.error("Enter a threshold");
+      return;
+    }
+    const threshold = Number(newExempt.threshold);
+    if (!Number.isFinite(threshold) || threshold < 0) {
+      toast.error("Threshold must be zero or positive");
+      return;
+    }
+    if (newExempt.criterion === "min_seeders" && threshold < 1) {
+      toast.error("A seeder threshold must be at least 1");
+      return;
+    }
+    const res = await fetch(exemptUrl(), {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        criterion: newExempt.criterion,
+        threshold,
+        enabled: true,
+      }),
+    });
+    if (res.ok) {
+      setNewExempt({ criterion: "min_seeders", threshold: "" });
+      toast.success("Auto-exempt rule added");
+      fetchAll();
+    } else {
+      const body = await res.json().catch(() => null);
+      toast.error(body?.error?.message ?? "Couldn't add the rule");
+    }
+  };
+
+  const updateExemptRule = async (rule: HnRExemptRule) => {
+    const res = await fetch(exemptUrl(rule.id), {
+      method: "PUT",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        criterion: rule.criterion,
+        threshold: rule.threshold,
+        enabled: rule.enabled,
+      }),
+    });
+    if (res.ok) {
+      fetchAll();
+    } else {
+      const body = await res.json().catch(() => null);
+      toast.error(body?.error?.message ?? "Couldn't save the rule");
+      fetchAll();
+    }
+  };
+
+  const deleteExemptRule = async (id: number) => {
+    const res = await fetch(exemptUrl(id), {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (res.ok) {
+      toast.success("Rule removed");
+      fetchAll();
+    } else {
+      toast.error("Couldn't remove the rule");
+    }
   };
 
   const runNow = async () => {
@@ -1059,6 +1163,151 @@ export function AdminHitAndRunPage() {
 
       <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
         <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
+          Automatic exemption
+        </h2>
+        <p className="admin-page-header__desc">
+          Rules that flag torrents <code>hnr_exempt</code> on the daemon&apos;s
+          hourly sweep so staff don&apos;t have to by hand — a torrent matching{" "}
+          <strong>any</strong> enabled rule is exempt. When it stops matching
+          every rule, the auto exemption is lifted. A torrent a staff member set
+          by hand (in either direction) is never touched by this pass. Already
+          resolved records stay resolved; this only affects future snatches.
+        </p>
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Criterion</th>
+                <th>Threshold</th>
+                <th className="admin-table__toggle">Enabled</th>
+                <th aria-label="actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {exemptRules.length === 0 && (
+                <tr>
+                  <td colSpan={4}>No automatic exemption rules.</td>
+                </tr>
+              )}
+              {exemptRules.map((rule) => (
+                <tr key={rule.id}>
+                  <td>
+                    <select
+                      aria-label={`Rule ${rule.id} criterion`}
+                      value={rule.criterion}
+                      onChange={(e) =>
+                        updateExemptRule({
+                          ...rule,
+                          criterion: e.target
+                            .value as HnRExemptRule["criterion"],
+                        })
+                      }
+                    >
+                      {EXEMPT_CRITERIA.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      className="admin-num-input"
+                      type="number"
+                      min={rule.criterion === "min_seeders" ? "1" : "0"}
+                      step="1"
+                      aria-label={`Rule ${rule.id} threshold`}
+                      value={exemptThreshold[rule.id] ?? String(rule.threshold)}
+                      onChange={(e) =>
+                        setExemptThreshold((p) => ({
+                          ...p,
+                          [rule.id]: e.target.value,
+                        }))
+                      }
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim();
+                        const threshold = Number(raw);
+                        if (
+                          raw === "" ||
+                          !Number.isFinite(threshold) ||
+                          threshold === rule.threshold
+                        ) {
+                          setExemptThreshold((p) => ({
+                            ...p,
+                            [rule.id]: String(rule.threshold),
+                          }));
+                          return;
+                        }
+                        updateExemptRule({ ...rule, threshold });
+                      }}
+                    />
+                  </td>
+                  <td className="admin-table__toggle">
+                    <input
+                      type="checkbox"
+                      aria-label={`Rule ${rule.id} enabled`}
+                      checked={rule.enabled}
+                      onChange={(e) =>
+                        updateExemptRule({ ...rule, enabled: e.target.checked })
+                      }
+                    />
+                  </td>
+                  <td>
+                    <Button
+                      variant="secondary"
+                      onClick={() => deleteExemptRule(rule.id)}
+                    >
+                      Remove
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td>
+                  <select
+                    aria-label="New rule criterion"
+                    value={newExempt.criterion}
+                    onChange={(e) =>
+                      setNewExempt((p) => ({
+                        ...p,
+                        criterion: e.target.value as HnRExemptRule["criterion"],
+                      }))
+                    }
+                  >
+                    {EXEMPT_CRITERIA.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    className="admin-num-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    aria-label="New rule threshold"
+                    value={newExempt.threshold}
+                    onChange={(e) =>
+                      setNewExempt((p) => ({ ...p, threshold: e.target.value }))
+                    }
+                  />
+                </td>
+                <td />
+                <td>
+                  <Button variant="secondary" onClick={addExemptRule}>
+                    Add rule
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
+        <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
           Recent runs
         </h2>
         {runs.length === 0 ? (
@@ -1078,6 +1327,8 @@ export function AdminHitAndRunPage() {
                   <th>Satisfied</th>
                   <th>Advanced</th>
                   <th>Decayed</th>
+                  <th>Auto-exempt</th>
+                  <th>Released</th>
                 </tr>
               </thead>
               <tbody>
@@ -1091,6 +1342,8 @@ export function AdminHitAndRunPage() {
                     <td className="admin-num">{r.satisfied}</td>
                     <td className="admin-num">{r.stages_advanced ?? 0}</td>
                     <td className="admin-num">{r.stages_decayed ?? 0}</td>
+                    <td className="admin-num">{r.torrents_exempted ?? 0}</td>
+                    <td className="admin-num">{r.torrents_released ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
