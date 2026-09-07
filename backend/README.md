@@ -46,6 +46,7 @@ All configuration is via environment variables. See `.env.example` at the repo r
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
 | `SERVER_HOST` | `0.0.0.0` | Listen address |
 | `SERVER_PORT` | `8080` | Listen port |
+| `TRUSTED_PROXIES` | | Comma-separated CIDRs/IPs the reverse proxy connects from; only then is `X-Forwarded-For` trusted for the recorded client IP. Keep narrow. Unset = trust none |
 | `SESSION_STORE` | `redis` | `redis` or `memory` |
 | `ACCESS_TOKEN_TTL` | `1h` | Access token lifetime |
 | `REFRESH_TOKEN_TTL` | `720h` | Refresh token lifetime (30 days) |

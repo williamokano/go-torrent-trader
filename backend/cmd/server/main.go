@@ -367,6 +367,7 @@ func run() int {
 	deps := &handler.Deps{
 		DB:                        db,
 		StatsCache:                statsCache,
+		TrustedProxies:            cfg.Server.TrustedProxies,
 		AuthService:               authService,
 		SessionStore:              sessionStore,
 		UserService:               userService,
@@ -512,6 +513,16 @@ func run() int {
 	// Start HTTP server
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if len(cfg.Server.TrustedProxies) == 0 {
+		slog.Info("trusted proxies: none — X-Forwarded-For is ignored; recording socket addresses")
+	} else {
+		ranges := make([]string, len(cfg.Server.TrustedProxies))
+		for i := range cfg.Server.TrustedProxies {
+			ranges[i] = cfg.Server.TrustedProxies[i].String()
+		}
+		slog.Info("trusted proxies configured", "ranges", ranges)
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{

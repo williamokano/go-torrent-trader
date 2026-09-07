@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"net"
+	"time"
+)
 
 // Config holds all application configuration.
 type Config struct {
@@ -55,6 +58,13 @@ type SessionConfig struct {
 type ServerConfig struct {
 	Host string // SERVER_HOST, default "0.0.0.0"
 	Port int    // SERVER_PORT, default 8080
+	// TrustedProxies is the set of networks the reverse proxy (or proxies) sit
+	// in. Only when a request's direct peer is inside one of these is its
+	// X-Forwarded-For header believed; otherwise the socket address is kept.
+	// Empty (the default) means trust nothing — correct for a direct-to-internet
+	// deployment. TRUSTED_PROXIES, a comma-separated list of CIDRs or bare IPs
+	// (e.g. "127.0.0.1,10.1.2.3"); keep it as narrow as possible.
+	TrustedProxies []net.IPNet
 }
 
 // DatabaseConfig holds database connection settings.

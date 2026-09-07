@@ -22,6 +22,10 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "8080"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # Set to the address your reverse proxy connects from (comma-separated
+      # CIDRs / IPs), as narrow as possible, so X-Forwarded-For is trusted.
+      # Empty = trust none. See stack.env.example.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
 
       # Database (connects to the postgres service)
       DATABASE_URL: "postgres://${POSTGRES_USER:-torrenttrader}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-torrenttrader}?sslmode=disable"

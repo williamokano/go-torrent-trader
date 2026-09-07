@@ -2,9 +2,13 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	realclientip "github.com/realclientip/realclientip-go"
 )
 
 // Load reads configuration from environment variables, applies defaults,
@@ -195,6 +199,13 @@ func Load() (*Config, error) {
 		}
 	}
 
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		cfg.Server.TrustedProxies, err = parseTrustedProxies(v)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Required fields.
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	if cfg.Database.URL == "" {
@@ -287,4 +298,27 @@ func envOrDefault(key, defaultValue string) string {
 		return v
 	}
 	return defaultValue
+}
+
+// parseTrustedProxies reads a comma-separated list of CIDRs and bare IPs into
+// net.IPNet ranges, via realclientip's parser (which also backs the X-Forwarded-For
+// walk in mw.RealIP). A bare IP becomes a host route. An unparseable entry — or
+// one carrying an IPv6 zone — is a hard error rather than a silent skip: getting
+// this list wrong is a security or a correctness problem either way, so it fails
+// loudly at boot.
+func parseTrustedProxies(v string) ([]net.IPNet, error) {
+	var toks []string
+	for _, tok := range strings.Split(v, ",") {
+		if tok = strings.TrimSpace(tok); tok != "" {
+			toks = append(toks, tok)
+		}
+	}
+	if len(toks) == 0 {
+		return nil, nil
+	}
+	nets, err := realclientip.AddressesAndRangesToIPNets(toks...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid TRUSTED_PROXIES: %w", err)
+	}
+	return nets, nil
 }

@@ -278,8 +278,11 @@ func handleAuthError(w http.ResponseWriter, err error) {
 	}
 }
 
-// clientIP extracts the IP address from RemoteAddr, stripping the port.
-// Chi's RealIP middleware has already resolved X-Forwarded-For into RemoteAddr.
+// clientIP extracts the IP address from RemoteAddr, stripping the port when one
+// is present. mw.RealIP has already folded X-Forwarded-For into RemoteAddr, but
+// only for requests whose direct peer is a configured trusted proxy — so on a
+// deployment with no TRUSTED_PROXIES set this is the socket address and cannot
+// be spoofed by a header.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
