@@ -21,13 +21,18 @@ Group the classic mods by the layer the source edit used to cut into. The whole
 point of the rewrite is that these are now separated:
 
 - **Announce-path** (bonus award, freeleech accounting, client whitelist, HnR
-  completion): `TrackerService.Announce` + a ledger/settings table. This was the
-  scariest area to mod in PHP because a bug broke the tracker; here it is the
-  best-tested path (`internal/service/tracker.go`, real-Postgres repo tests).
-- **Cron / maintenance** (class promotion, HnR evaluation, bonus decay,
-  scheduled freeleech): a job in the existing maintenance worker
-  (`internal/worker/maintenance.go`), which already resolves expired
-  warnings/bans/mutes/restrictions.
+  completion accounting): `TrackerService.Announce` + a ledger/settings table.
+  This was the scariest area to mod in PHP because a bug broke the tracker; here
+  it is the best-tested path (`internal/service/tracker.go`, real-Postgres repo
+  tests). HnR's `hnr_records` accumulator is fed from here — `handleCompleted`
+  and the leecher→seeder transition open the obligation, seeding announces credit
+  it.
+- **Cron / maintenance** (class promotion, bonus decay, scheduled freeleech):
+  a job in the existing maintenance worker (`internal/worker/maintenance.go`),
+  which already resolves expired warnings/bans/mutes/restrictions. HnR evaluation
+  is the exception — it outgrew a maintenance job and has its own daemon
+  (`internal/worker/hnr.go`, registered in `internal/worker/scheduler.go` at
+  `45 * * * *`) with a two-stage advisory lock and a run log.
 - **Event-reaction** (IRC/Discord announce, achievements, notifications): a
   subscriber on the event bus (`event/` → `listener/`) — the thing TorrentTrader
   never had, which is exactly why those mods were the ugliest to retrofit.
@@ -66,14 +71,49 @@ inverse **upload multiplier / double-upload event** (`countedUpload`, same
 shape). The event-driven variant of multipliers is discussed in the design note
 at the end.
 
-### Hit-and-Run (HnR) tracking ⬜
-Track users who grab a torrent and don't seed to a required ratio/time, then
-warn or restrict them. Needed a snatch-completion record and a cron.
+### Hit-and-Run (HnR) tracking ✅
+Track users who grab a torrent and don't seed it to a required time or ratio,
+then escalate leniently from a notice through to a ban.
 
-Here: the pieces already exist — `transfer_history`, the maintenance worker, and
-the warning/restriction system. HnR is a **maintenance job** that reads transfer
-history against a policy and issues a restriction. Arguably the cleanest famous
-mod to add because nothing new is invented.
+Here: **shipped** (migration `081_create_hnr.sql`, `internal/service/hnr*.go`,
+`internal/worker/hnr.go`, `internal/handler/hnr.go`, admin page
+`AdminHitAndRunPage.tsx`, member page `HitAndRunPage.tsx`). It turned out not to
+be "a maintenance job that reads transfer history": nothing in the schema records
+*how long* a member seeded a torrent — peers rows are reaped, `transfer_history`
+is written once on the completed event and never refreshed, and the announce log
+is pruned on retention — so HnR keeps its **own accumulator**, `hnr_records`, fed
+directly by the announce path rather than derived after the fact
+(`081_create_hnr.sql` opens with the reasoning). What shipped:
+
+- **`hnr_records`** — one row per (user, torrent) snatch: an accumulator
+  (`seeded_seconds`, `uploaded`) and a state machine
+  (`active → hnr → satisfied | cleared | waived`). Opened by `handleCompleted`
+  and the leecher→seeder transition, credited by every seeding announce, capped
+  per gap by `hnr_seed_credit_cap_minutes`. Tracking starts from enablement
+  forward — no backfill (#267 declined).
+- **`hnr_rules`** — per-class policy (required seed hours, required ratio,
+  inactivity grace, hard cap). A class with no row is exempt, mirroring
+  `promotion_rules`.
+- **`hnr_penalty_stages`** — a site-wide, admin-editable five-stage ladder
+  (notify → warn → restrict download/forum/chat → final notice → ban), with
+  per-user position in `hnr_user_state` as a compare-and-swap target so
+  escalation and de-escalation are idempotent across worker processes.
+- **The daemon** — `internal/worker/hnr.go`, scheduled `45 * * * *`, with a
+  two-stage `pg_advisory_lock` (not `asynq.Unique`) so concurrent invocations
+  from retries, a manual "run now", or another node are safe. Evaluates open
+  records, marks breach/satisfy/waive, walks the ladder, purges resolved rows
+  past `hnr_retention_days`, and writes an `hnr_runs` log row.
+- **Points clearing** — a member can pay off an open obligation with bonus
+  points, priced `fixed` or by upload `deficit` (`hnr_clear_*` settings), spent
+  through the same `bonus_transactions` ledger.
+- **Exemptions** — `torrents.hnr_exempt` (staff-set, same shape as Free/Silver)
+  stops a record being created and waives any already open; `hnr_exempt_donors`
+  keeps donor classes out of tracking entirely (`shouldTrackHnR`,
+  `internal/service/tracker.go`), which is the concrete form of the "immunity
+  from HnR" perk noted under Donations / VIP tiers below.
+- **UI + settings** — a member page showing obligations and their clear price, an
+  admin page for the rules, the ladder, the run log and per-record staff actions,
+  and an `hnr_*` block in site settings (off by default).
 
 ### IMDb / TMDb metadata + mediainfo / screenshots ◐
 Auto-fetch cover art, plot, rating, cast from an external ID; parse mediainfo;
