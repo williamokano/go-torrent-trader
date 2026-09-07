@@ -16,33 +16,48 @@ import (
 
 // HnR errors are value errors (bad admin input), distinct from storage failures.
 var (
-	ErrHnRGroupNotFound    = fmt.Errorf("group not found")
-	ErrHnRStaffGroup       = fmt.Errorf("staff groups cannot be subject to hit-and-run tracking")
-	ErrHnRRuleNotFound     = fmt.Errorf("hit-and-run rule not found")
-	ErrHnRInvalidThreshold = fmt.Errorf("hit-and-run thresholds must be zero or positive")
-	ErrHnRStageNotFound    = fmt.Errorf("hit-and-run penalty stage not found")
-	ErrHnRInvalidStage     = fmt.Errorf("invalid hit-and-run penalty stage")
-	ErrHnRRecordNotFound   = fmt.Errorf("hit-and-run record not found")
+	ErrHnRGroupNotFound       = fmt.Errorf("group not found")
+	ErrHnRStaffGroup          = fmt.Errorf("staff groups cannot be subject to hit-and-run tracking")
+	ErrHnRRuleNotFound        = fmt.Errorf("hit-and-run rule not found")
+	ErrHnRInvalidThreshold    = fmt.Errorf("hit-and-run thresholds must be zero or positive")
+	ErrHnRInvalidClearPricing = fmt.Errorf("hit-and-run clear pricing override is invalid")
+	ErrHnRStageNotFound       = fmt.Errorf("hit-and-run penalty stage not found")
+	ErrHnRInvalidStage        = fmt.Errorf("invalid hit-and-run penalty stage")
+	ErrHnRRecordNotFound      = fmt.Errorf("hit-and-run record not found")
 )
 
-// HnRRuleInput is the admin-supplied threshold set for one class.
+// HnRRuleInput is the admin-supplied threshold set for one class. The clear_*
+// pointers are the per-class overrides for the bonus-point cost of clearing an
+// obligation: nil (key omitted) leaves that dimension on the site-wide
+// hnr_clear_* setting.
 type HnRRuleInput struct {
-	RequiredSeedHours    int     `json:"required_seed_hours"`
-	RequiredRatio        float64 `json:"required_ratio"`
-	InactivityGraceHours int     `json:"inactivity_grace_hours"`
-	MaxDaysToSatisfy     int     `json:"max_days_to_satisfy"`
+	RequiredSeedHours        int     `json:"required_seed_hours"`
+	RequiredRatio            float64 `json:"required_ratio"`
+	InactivityGraceHours     int     `json:"inactivity_grace_hours"`
+	MaxDaysToSatisfy         int     `json:"max_days_to_satisfy"`
+	ClearPricingMode         *string `json:"clear_pricing_mode,omitempty"`
+	ClearBasePoints          *int    `json:"clear_base_points,omitempty"`
+	ClearPointsPerGiB        *int    `json:"clear_points_per_gib,omitempty"`
+	ClearPointsPerGiBDeficit *int    `json:"clear_points_per_gib_deficit,omitempty"`
 }
 
-// HnRRuleView is a rule joined with its group, for the admin UI.
+// HnRRuleView is a rule joined with its group, for the admin UI. The clear_*
+// fields are always emitted, null when the class carries no override for that
+// dimension — matching the by-hand PUT response in handler/hnr.go, so a client
+// sees one shape for a rule whichever endpoint returned it.
 type HnRRuleView struct {
-	GroupID              int64   `json:"group_id"`
-	GroupName            string  `json:"group_name"`
-	GroupLevel           int     `json:"group_level"`
-	IsStaff              bool    `json:"is_staff"`
-	RequiredSeedHours    int     `json:"required_seed_hours"`
-	RequiredRatio        float64 `json:"required_ratio"`
-	InactivityGraceHours int     `json:"inactivity_grace_hours"`
-	MaxDaysToSatisfy     int     `json:"max_days_to_satisfy"`
+	GroupID                  int64   `json:"group_id"`
+	GroupName                string  `json:"group_name"`
+	GroupLevel               int     `json:"group_level"`
+	IsStaff                  bool    `json:"is_staff"`
+	RequiredSeedHours        int     `json:"required_seed_hours"`
+	RequiredRatio            float64 `json:"required_ratio"`
+	InactivityGraceHours     int     `json:"inactivity_grace_hours"`
+	MaxDaysToSatisfy         int     `json:"max_days_to_satisfy"`
+	ClearPricingMode         *string `json:"clear_pricing_mode"`
+	ClearBasePoints          *int    `json:"clear_base_points"`
+	ClearPointsPerGiB        *int    `json:"clear_points_per_gib"`
+	ClearPointsPerGiBDeficit *int    `json:"clear_points_per_gib_deficit"`
 }
 
 // HnRService handles hit-and-run tracking business logic: per-class rule
@@ -118,14 +133,18 @@ func (s *HnRService) ListRules(ctx context.Context) ([]HnRRuleView, error) {
 			continue // group vanished; rule will be cascaded away
 		}
 		views = append(views, HnRRuleView{
-			GroupID:              r.GroupID,
-			GroupName:            g.Name,
-			GroupLevel:           g.Level,
-			IsStaff:              g.IsAdmin || g.IsModerator,
-			RequiredSeedHours:    r.RequiredSeedHours,
-			RequiredRatio:        r.RequiredRatio,
-			InactivityGraceHours: r.InactivityGraceHours,
-			MaxDaysToSatisfy:     r.MaxDaysToSatisfy,
+			GroupID:                  r.GroupID,
+			GroupName:                g.Name,
+			GroupLevel:               g.Level,
+			IsStaff:                  g.IsAdmin || g.IsModerator,
+			RequiredSeedHours:        r.RequiredSeedHours,
+			RequiredRatio:            r.RequiredRatio,
+			InactivityGraceHours:     r.InactivityGraceHours,
+			MaxDaysToSatisfy:         r.MaxDaysToSatisfy,
+			ClearPricingMode:         r.ClearPricingMode,
+			ClearBasePoints:          r.ClearBasePoints,
+			ClearPointsPerGiB:        r.ClearPointsPerGiB,
+			ClearPointsPerGiBDeficit: r.ClearPointsPerGiBDeficit,
 		})
 	}
 	sort.Slice(views, func(i, j int) bool {
@@ -137,10 +156,11 @@ func (s *HnRService) ListRules(ctx context.Context) ([]HnRRuleView, error) {
 	return views, nil
 }
 
-// UpsertRule creates or updates a class's HnR rule, refusing staff groups and
-// negative thresholds. A class with no rule is not subject to HnR at all —
-// this is how "VIP has no hit-and-run" is expressed, with no special-case
-// code anywhere else.
+// UpsertRule creates or updates a class's HnR rule, refusing staff groups,
+// negative thresholds, and invalid clear-pricing overrides. A class with no
+// rule is not subject to HnR at all — this is how "VIP has no hit-and-run" is
+// expressed, with no special-case code anywhere else. A clear-pricing override
+// left nil falls back to the site-wide hnr_clear_* setting.
 func (s *HnRService) UpsertRule(ctx context.Context, groupID int64, in HnRRuleInput) (*model.HnRRule, error) {
 	group, err := s.groups.GetByID(ctx, groupID)
 	if err != nil {
@@ -155,13 +175,26 @@ func (s *HnRService) UpsertRule(ctx context.Context, groupID int64, in HnRRuleIn
 	if in.RequiredSeedHours < 0 || in.RequiredRatio < 0 || in.InactivityGraceHours < 0 || in.MaxDaysToSatisfy < 0 {
 		return nil, ErrHnRInvalidThreshold
 	}
+	if in.ClearPricingMode != nil &&
+		*in.ClearPricingMode != HnRClearPricingModeFixed && *in.ClearPricingMode != HnRClearPricingModeDeficit {
+		return nil, ErrHnRInvalidClearPricing
+	}
+	for _, p := range []*int{in.ClearBasePoints, in.ClearPointsPerGiB, in.ClearPointsPerGiBDeficit} {
+		if p != nil && *p < 0 {
+			return nil, ErrHnRInvalidClearPricing
+		}
+	}
 
 	rule := &model.HnRRule{
-		GroupID:              groupID,
-		RequiredSeedHours:    in.RequiredSeedHours,
-		RequiredRatio:        in.RequiredRatio,
-		InactivityGraceHours: in.InactivityGraceHours,
-		MaxDaysToSatisfy:     in.MaxDaysToSatisfy,
+		GroupID:                  groupID,
+		RequiredSeedHours:        in.RequiredSeedHours,
+		RequiredRatio:            in.RequiredRatio,
+		InactivityGraceHours:     in.InactivityGraceHours,
+		MaxDaysToSatisfy:         in.MaxDaysToSatisfy,
+		ClearPricingMode:         in.ClearPricingMode,
+		ClearBasePoints:          in.ClearBasePoints,
+		ClearPointsPerGiB:        in.ClearPointsPerGiB,
+		ClearPointsPerGiBDeficit: in.ClearPointsPerGiBDeficit,
 	}
 	if err := s.hnr.UpsertRule(ctx, rule); err != nil {
 		return nil, fmt.Errorf("upsert hnr rule: %w", err)

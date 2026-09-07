@@ -62,6 +62,78 @@ func TestHnRRepo_RulesCRUD(t *testing.T) {
 	}
 }
 
+func TestHnRRepo_RuleClearPricingRoundTrip(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewHnRRepo(db)
+	gid := groupIDBySlug(t, db, "user")
+
+	mode := "deficit"
+	base, perGiBDeficit := 120, 8
+	// clear_points_per_gib deliberately left nil — it must come back nil.
+	in := &model.HnRRule{
+		GroupID: gid, RequiredSeedHours: 240, RequiredRatio: 1.0,
+		InactivityGraceHours: 48, MaxDaysToSatisfy: 30,
+		ClearPricingMode: &mode, ClearBasePoints: &base, ClearPointsPerGiBDeficit: &perGiBDeficit,
+	}
+	if err := repo.UpsertRule(ctx, in); err != nil {
+		t.Fatalf("UpsertRule: %v", err)
+	}
+
+	assertPricing := func(label string, r *model.HnRRule) {
+		t.Helper()
+		if r.ClearPricingMode == nil || *r.ClearPricingMode != "deficit" {
+			t.Errorf("%s: ClearPricingMode = %v, want deficit", label, r.ClearPricingMode)
+		}
+		if r.ClearBasePoints == nil || *r.ClearBasePoints != 120 {
+			t.Errorf("%s: ClearBasePoints = %v, want 120", label, r.ClearBasePoints)
+		}
+		if r.ClearPointsPerGiBDeficit == nil || *r.ClearPointsPerGiBDeficit != 8 {
+			t.Errorf("%s: ClearPointsPerGiBDeficit = %v, want 8", label, r.ClearPointsPerGiBDeficit)
+		}
+		if r.ClearPointsPerGiB != nil {
+			t.Errorf("%s: ClearPointsPerGiB = %v, want nil (no override set)", label, *r.ClearPointsPerGiB)
+		}
+	}
+
+	got, err := repo.GetRuleForGroup(ctx, gid)
+	if err != nil {
+		t.Fatalf("GetRuleForGroup: %v", err)
+	}
+	assertPricing("GetRuleForGroup", got)
+
+	rules, err := repo.ListRules(ctx)
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("ListRules: rules=%d err=%v", len(rules), err)
+	}
+	assertPricing("ListRules", &rules[0])
+
+	u := newUser(t, db)
+	if _, err := db.ExecContext(ctx, `UPDATE users SET group_id = $1 WHERE id = $2`, gid, u.ID); err != nil {
+		t.Fatalf("assign group: %v", err)
+	}
+	forUser, err := repo.GetRuleForUser(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetRuleForUser: %v", err)
+	}
+	assertPricing("GetRuleForUser", forUser)
+
+	// Clearing every override (all nil) must NULL the columns, not leave them.
+	in.ClearPricingMode, in.ClearBasePoints, in.ClearPointsPerGiBDeficit = nil, nil, nil
+	if err := repo.UpsertRule(ctx, in); err != nil {
+		t.Fatalf("UpsertRule (clear overrides): %v", err)
+	}
+	got, err = repo.GetRuleForGroup(ctx, gid)
+	if err != nil {
+		t.Fatalf("GetRuleForGroup after clear: %v", err)
+	}
+	if got.ClearPricingMode != nil || got.ClearBasePoints != nil ||
+		got.ClearPointsPerGiB != nil || got.ClearPointsPerGiBDeficit != nil {
+		t.Errorf("expected all pricing overrides nil after clearing, got %+v", got)
+	}
+}
+
 func TestHnRRepo_CreateIfNotExists(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)

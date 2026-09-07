@@ -19,6 +19,12 @@ interface HnRRule {
   required_ratio: number;
   inactivity_grace_hours: number;
   max_days_to_satisfy: number;
+  // Always sent by the API (null when the class has no override for that
+  // dimension); optional here only to tolerate older/partial fixtures.
+  clear_pricing_mode?: "fixed" | "deficit" | null;
+  clear_base_points?: number | null;
+  clear_points_per_gib?: number | null;
+  clear_points_per_gib_deficit?: number | null;
 }
 
 interface HnRRun {
@@ -154,6 +160,12 @@ interface RowState {
   required_ratio: string;
   inactivity_grace_hours: string;
   max_days_to_satisfy: string;
+  // Clear-pricing overrides. "" means "inherit the site-wide hnr_clear_*
+  // setting"; a value overrides it for this class.
+  clear_pricing_mode: "" | "fixed" | "deficit";
+  clear_base_points: string;
+  clear_points_per_gib: string;
+  clear_points_per_gib_deficit: string;
 }
 
 const emptyRow: RowState = {
@@ -162,6 +174,10 @@ const emptyRow: RowState = {
   required_ratio: "1",
   inactivity_grace_hours: "48",
   max_days_to_satisfy: "30",
+  clear_pricing_mode: "",
+  clear_base_points: "",
+  clear_points_per_gib: "",
+  clear_points_per_gib_deficit: "",
 };
 
 const THRESHOLDS: { key: keyof RowState; label: string; step: string }[] = [
@@ -171,6 +187,23 @@ const THRESHOLDS: { key: keyof RowState; label: string; step: string }[] = [
   { key: "max_days_to_satisfy", label: "Max Days (0=none)", step: "1" },
 ];
 
+// Per-class clear-pricing override fields, edited in their own table below the
+// thresholds. Left blank, the class pays the site-wide hnr_clear_* setting.
+const CLEAR_PRICE_FIELDS: {
+  key:
+    | "clear_base_points"
+    | "clear_points_per_gib"
+    | "clear_points_per_gib_deficit";
+  label: string;
+}[] = [
+  { key: "clear_base_points", label: "Base pts" },
+  { key: "clear_points_per_gib", label: "Pts / GiB" },
+  { key: "clear_points_per_gib_deficit", label: "Pts / GiB (deficit)" },
+];
+
+const numOrEmpty = (n: number | null | undefined): string =>
+  n == null ? "" : String(n);
+
 function ruleToRow(r: HnRRule): RowState {
   return {
     onLadder: true,
@@ -178,6 +211,10 @@ function ruleToRow(r: HnRRule): RowState {
     required_ratio: String(r.required_ratio),
     inactivity_grace_hours: String(r.inactivity_grace_hours),
     max_days_to_satisfy: String(r.max_days_to_satisfy),
+    clear_pricing_mode: r.clear_pricing_mode ?? "",
+    clear_base_points: numOrEmpty(r.clear_base_points),
+    clear_points_per_gib: numOrEmpty(r.clear_points_per_gib),
+    clear_points_per_gib_deficit: numOrEmpty(r.clear_points_per_gib_deficit),
   };
 }
 
@@ -189,7 +226,11 @@ function rowsEqual(a: RowState, b: RowState): boolean {
     a.required_seed_hours === b.required_seed_hours &&
     a.required_ratio === b.required_ratio &&
     a.inactivity_grace_hours === b.inactivity_grace_hours &&
-    a.max_days_to_satisfy === b.max_days_to_satisfy
+    a.max_days_to_satisfy === b.max_days_to_satisfy &&
+    a.clear_pricing_mode === b.clear_pricing_mode &&
+    a.clear_base_points === b.clear_base_points &&
+    a.clear_points_per_gib === b.clear_points_per_gib &&
+    a.clear_points_per_gib_deficit === b.clear_points_per_gib_deficit
   );
 }
 
@@ -356,6 +397,13 @@ export function AdminHitAndRunPage() {
     [candidates, initial, draft],
   );
 
+  // Clear-pricing overrides only make sense for classes that are actually
+  // tracked; the pricing table below is scoped to these.
+  const trackedCandidates = useMemo(
+    () => candidates.filter((g) => (draft[g.id] ?? emptyRow).onLadder),
+    [candidates, draft],
+  );
+
   const setField = (
     groupId: number,
     key: keyof RowState,
@@ -367,12 +415,22 @@ export function AdminHitAndRunPage() {
     }));
   };
 
-  const rowToPayload = (row: RowState) => ({
-    required_seed_hours: Number(row.required_seed_hours) || 0,
-    required_ratio: Number(row.required_ratio) || 0,
-    inactivity_grace_hours: Number(row.inactivity_grace_hours) || 0,
-    max_days_to_satisfy: Number(row.max_days_to_satisfy) || 0,
-  });
+  const rowToPayload = (row: RowState) => {
+    const payload: Record<string, unknown> = {
+      required_seed_hours: Number(row.required_seed_hours) || 0,
+      required_ratio: Number(row.required_ratio) || 0,
+      inactivity_grace_hours: Number(row.inactivity_grace_hours) || 0,
+      max_days_to_satisfy: Number(row.max_days_to_satisfy) || 0,
+    };
+    // A blank clear-pricing field is omitted, which the backend stores as NULL
+    // and prices from the site-wide setting.
+    if (row.clear_pricing_mode)
+      payload.clear_pricing_mode = row.clear_pricing_mode;
+    for (const f of CLEAR_PRICE_FIELDS) {
+      if (row[f.key] !== "") payload[f.key] = Number(row[f.key]) || 0;
+    }
+    return payload;
+  };
 
   const saveChanges = async () => {
     setSaving(true);
@@ -620,6 +678,80 @@ export function AdminHitAndRunPage() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="admin-panel" style={{ marginTop: "1.5rem" }}>
+        <h2 className="admin-page-header__title" style={{ fontSize: "1.1rem" }}>
+          Clear pricing
+        </h2>
+        <p className="admin-page-header__desc">
+          What a member of each class pays in bonus points to clear an open
+          obligation. Leave a field blank to use the site-wide default from Site
+          Settings ( <code>hnr_clear_pricing_mode</code>,{" "}
+          <code>hnr_clear_base_points</code>,{" "}
+          <code>hnr_clear_points_per_gib</code>,{" "}
+          <code>hnr_clear_points_per_gib_deficit</code>). Base and per-GiB apply
+          under fixed pricing; per-GiB (deficit) applies under deficit pricing.
+        </p>
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th>Mode</th>
+                {CLEAR_PRICE_FIELDS.map((f) => (
+                  <th key={f.key}>{f.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {trackedCandidates.map((g) => {
+                const row = draft[g.id] ?? emptyRow;
+                return (
+                  <tr key={g.id}>
+                    <td className="admin-table__name">{g.name}</td>
+                    <td>
+                      <select
+                        aria-label={`${g.name} clear pricing mode`}
+                        value={row.clear_pricing_mode}
+                        onChange={(e) =>
+                          setField(g.id, "clear_pricing_mode", e.target.value)
+                        }
+                      >
+                        <option value="">Site default</option>
+                        <option value="fixed">Fixed</option>
+                        <option value="deficit">Deficit</option>
+                      </select>
+                    </td>
+                    {CLEAR_PRICE_FIELDS.map((f) => (
+                      <td key={f.key}>
+                        <input
+                          className="admin-num-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="default"
+                          aria-label={`${g.name} ${f.label}`}
+                          value={row[f.key]}
+                          onChange={(e) =>
+                            setField(g.id, f.key, e.target.value)
+                          }
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+              {trackedCandidates.length === 0 && (
+                <tr>
+                  <td colSpan={2 + CLEAR_PRICE_FIELDS.length}>
+                    No class is tracked for hit-and-run yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

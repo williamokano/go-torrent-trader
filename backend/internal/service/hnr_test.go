@@ -99,6 +99,43 @@ func TestHnRService_UpsertRule_RejectsNegativeThresholds(t *testing.T) {
 	}
 }
 
+func TestHnRService_UpsertRule_ClearPricingOverrides(t *testing.T) {
+	svc, _ := setupHnRService()
+	ctx := context.Background()
+
+	bad := "cheap"
+	neg := -1
+	for _, in := range []HnRRuleInput{
+		{ClearPricingMode: &bad},
+		{ClearBasePoints: &neg},
+		{ClearPointsPerGiB: &neg},
+		{ClearPointsPerGiBDeficit: &neg},
+	} {
+		if _, err := svc.UpsertRule(ctx, 1, in); !errors.Is(err, ErrHnRInvalidClearPricing) {
+			t.Errorf("input %+v: got %v, want ErrHnRInvalidClearPricing", in, err)
+		}
+	}
+
+	// A valid override round-trips onto the saved rule; the untouched dimensions
+	// stay nil (meaning "inherit the site-wide setting").
+	mode := HnRClearPricingModeDeficit
+	base := 100
+	rule, err := svc.UpsertRule(ctx, 1, HnRRuleInput{ClearPricingMode: &mode, ClearBasePoints: &base})
+	if err != nil {
+		t.Fatalf("UpsertRule with valid overrides: %v", err)
+	}
+	if rule.ClearPricingMode == nil || *rule.ClearPricingMode != HnRClearPricingModeDeficit {
+		t.Errorf("ClearPricingMode = %v, want deficit", rule.ClearPricingMode)
+	}
+	if rule.ClearBasePoints == nil || *rule.ClearBasePoints != 100 {
+		t.Errorf("ClearBasePoints = %v, want 100", rule.ClearBasePoints)
+	}
+	if rule.ClearPointsPerGiB != nil || rule.ClearPointsPerGiBDeficit != nil {
+		t.Errorf("untouched pricing dimensions should stay nil, got %v / %v",
+			rule.ClearPointsPerGiB, rule.ClearPointsPerGiBDeficit)
+	}
+}
+
 func TestHnRService_ListRules_OrderedByLevel(t *testing.T) {
 	svc, repo := setupHnRService()
 	// VIP (level 60) inserted before User (level 20), to prove ListRules

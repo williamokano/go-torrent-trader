@@ -39,8 +39,16 @@ type HnRRule struct {
 	RequiredRatio        float64
 	InactivityGraceHours int
 	MaxDaysToSatisfy     int // 0 = no hard cap
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+
+	// Per-class overrides for the bonus-point cost of clearing an obligation.
+	// Nil means "use the site-wide hnr_clear_* setting" — see hnrClearPrice.
+	ClearPricingMode         *string // nil | "fixed" | "deficit"
+	ClearBasePoints          *int
+	ClearPointsPerGiB        *int
+	ClearPointsPerGiBDeficit *int
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // HnRRecord is one row per (user, torrent) snatch: the accumulator fed by the

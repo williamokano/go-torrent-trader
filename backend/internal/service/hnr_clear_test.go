@@ -73,6 +73,68 @@ func TestHnRClearPrice_DeficitMode_ZeroWithNoRatioRequirement(t *testing.T) {
 	}
 }
 
+func ptrStr(s string) *string { return &s }
+func ptrInt(i int) *int       { return &i }
+
+func TestHnRClearPrice_PerClassOverrides(t *testing.T) {
+	// Site-wide: fixed, base 50, per-GiB 10, per-GiB-deficit 25.
+	settings := settingsWith(map[string]string{
+		SettingHnRClearPricingMode:         HnRClearPricingModeFixed,
+		SettingHnRClearBasePoints:          "50",
+		SettingHnRClearPointsPerGiB:        "10",
+		SettingHnRClearPointsPerGiBDeficit: "25",
+	})
+	rec := model.HnRRecord{TorrentSize: 2 * gibBytes, Uploaded: 1 * gibBytes}
+
+	tests := []struct {
+		name string
+		rule *model.HnRRule
+		want int64
+	}{
+		{
+			name: "all-nil rule prices exactly like no rule",
+			rule: &model.HnRRule{},
+			want: 70, // 50 + 10*2
+		},
+		{
+			name: "base and per-GiB overrides win under fixed pricing",
+			rule: &model.HnRRule{ClearBasePoints: ptrInt(100), ClearPointsPerGiB: ptrInt(5)},
+			want: 110, // 100 + 5*2
+		},
+		{
+			name: "one override set, the other falls through to the site setting",
+			rule: &model.HnRRule{ClearBasePoints: ptrInt(0)},
+			want: 20, // 0 + 10*2
+		},
+		{
+			name: "mode override flips this class to deficit; its per-GiB-deficit override wins",
+			rule: &model.HnRRule{
+				RequiredRatio:            2.0, // needs 4 GiB, has 1 -> 3 GiB short
+				ClearPricingMode:         ptrStr(HnRClearPricingModeDeficit),
+				ClearPointsPerGiBDeficit: ptrInt(10),
+			},
+			want: 30, // 10 * 3
+		},
+		{
+			name: "mode override to deficit, per-GiB-deficit falls through to the site setting",
+			rule: &model.HnRRule{
+				RequiredRatio:    2.0,
+				ClearPricingMode: ptrStr(HnRClearPricingModeDeficit),
+			},
+			want: 75, // 25 * 3
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hnrClearPrice(context.Background(), settings, rec, tt.rule)
+			if got != tt.want {
+				t.Errorf("hnrClearPrice = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func setupHnRServiceForClearing() (svc *HnRService, hnr *fakeHnRRepo, settings *SiteSettingsService, users *mockUserRepoForRestrictions) {
 	hnr = newFakeHnRRepo()
 	settings = NewSiteSettingsService(newMockSiteSettingsRepo(), event.NewInMemoryBus())

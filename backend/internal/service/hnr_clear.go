@@ -34,6 +34,11 @@ type HnRClearResult struct {
 // has already met it, since there is nothing left to buy off in that case.
 // Settings default to the values migration 081 seeds, so a HnRService built
 // without a SiteSettingsService (tests) still prices sensibly.
+//
+// Each dimension (the mode, and each points figure) is taken from the class's
+// rule when that rule carries a non-nil override for it (hnr_rules.clear_*),
+// and from the site-wide setting otherwise. An all-nil rule prices exactly as
+// it did before per-class overrides existed.
 func hnrClearPrice(ctx context.Context, settings *SiteSettingsService, rec model.HnRRecord, rule *model.HnRRule) int64 {
 	getString := func(key, fallback string) string { return fallback }
 	getInt := func(key string, fallback int) int { return fallback }
@@ -41,10 +46,24 @@ func hnrClearPrice(ctx context.Context, settings *SiteSettingsService, rec model
 		getString = func(key, fallback string) string { return settings.GetString(ctx, key, fallback) }
 		getInt = func(key string, fallback int) int { return settings.GetInt(ctx, key, fallback) }
 	}
+	pointsFor := func(override *int, key string, fallback int) int64 {
+		if override != nil {
+			return int64(*override)
+		}
+		return int64(getInt(key, fallback))
+	}
 
 	mode := getString(SettingHnRClearPricingMode, HnRClearPricingModeFixed)
+	if rule != nil && rule.ClearPricingMode != nil {
+		mode = *rule.ClearPricingMode
+	}
+
 	if mode == HnRClearPricingModeDeficit {
-		perGiB := int64(getInt(SettingHnRClearPointsPerGiBDeficit, 25))
+		var override *int
+		if rule != nil {
+			override = rule.ClearPointsPerGiBDeficit
+		}
+		perGiB := pointsFor(override, SettingHnRClearPointsPerGiBDeficit, 25)
 		var requiredUpload int64
 		if rule != nil && rule.RequiredRatio > 0 {
 			requiredUpload = int64(rule.RequiredRatio * float64(rec.TorrentSize))
@@ -57,8 +76,12 @@ func hnrClearPrice(ctx context.Context, settings *SiteSettingsService, rec model
 		return int64(math.Ceil(deficitGiB * float64(perGiB)))
 	}
 
-	base := int64(getInt(SettingHnRClearBasePoints, 50))
-	perGiB := int64(getInt(SettingHnRClearPointsPerGiB, 10))
+	var baseOverride, perGiBOverride *int
+	if rule != nil {
+		baseOverride, perGiBOverride = rule.ClearBasePoints, rule.ClearPointsPerGiB
+	}
+	base := pointsFor(baseOverride, SettingHnRClearBasePoints, 50)
+	perGiB := pointsFor(perGiBOverride, SettingHnRClearPointsPerGiB, 10)
 	sizeGiB := float64(rec.TorrentSize) / gibBytes
 	return base + int64(math.Ceil(sizeGiB*float64(perGiB)))
 }
