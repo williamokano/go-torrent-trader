@@ -29,13 +29,18 @@ type fakeHnRRepo struct {
 	runs      []model.HnRRun
 	nextRunID int64
 
+	exemptRules      []model.HnRExemptRule
+	nextExemptRuleID int64
+
 	// Auxiliary fixtures a real join would read from other tables. Tests set
 	// these directly; production reads users/torrents/peers instead.
-	torrentSize   map[int64]int64
-	torrentExempt map[int64]bool
-	userGroup     map[int64]int64
-	liveSeeding   map[int64]map[int64]bool
-	bonusPoints   map[int64]int64
+	torrentSize         map[int64]int64
+	torrentSeeders      map[int64]int
+	torrentExempt       map[int64]bool
+	torrentExemptSource map[int64]string
+	userGroup           map[int64]int64
+	liveSeeding         map[int64]map[int64]bool
+	bonusPoints         map[int64]int64
 
 	// bonusTransactions records every ledger entry ClearRecord writes, for
 	// tests that assert on it.
@@ -51,17 +56,20 @@ type fakeHnRRepo struct {
 
 func newFakeHnRRepo() *fakeHnRRepo {
 	return &fakeHnRRepo{
-		rules:         map[int64]model.HnRRule{},
-		records:       map[int64]*model.HnRRecord{},
-		nextID:        1,
-		stages:        map[int]model.HnRPenaltyStage{},
-		userStates:    map[int64]model.HnRUserState{},
-		nextRunID:     1,
-		torrentSize:   map[int64]int64{},
-		torrentExempt: map[int64]bool{},
-		userGroup:     map[int64]int64{},
-		liveSeeding:   map[int64]map[int64]bool{},
-		bonusPoints:   map[int64]int64{},
+		rules:               map[int64]model.HnRRule{},
+		records:             map[int64]*model.HnRRecord{},
+		nextID:              1,
+		stages:              map[int]model.HnRPenaltyStage{},
+		userStates:          map[int64]model.HnRUserState{},
+		nextRunID:           1,
+		nextExemptRuleID:    1,
+		torrentSize:         map[int64]int64{},
+		torrentSeeders:      map[int64]int{},
+		torrentExempt:       map[int64]bool{},
+		torrentExemptSource: map[int64]string{},
+		userGroup:           map[int64]int64{},
+		liveSeeding:         map[int64]map[int64]bool{},
+		bonusPoints:         map[int64]int64{},
 	}
 }
 
@@ -579,6 +587,108 @@ func (f *fakeHnRRepo) TopOffenders(_ context.Context, limit int) ([]repository.H
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// --- automatic exemption ---
+
+func (f *fakeHnRRepo) exemptRuleByID(id int64) *model.HnRExemptRule {
+	for i := range f.exemptRules {
+		if f.exemptRules[i].ID == id {
+			return &f.exemptRules[i]
+		}
+	}
+	return nil
+}
+
+func (f *fakeHnRRepo) ListExemptRules(_ context.Context) ([]model.HnRExemptRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]model.HnRExemptRule, len(f.exemptRules))
+	copy(out, f.exemptRules)
+	return out, nil
+}
+
+func (f *fakeHnRRepo) GetExemptRule(_ context.Context, id int64) (*model.HnRExemptRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r := f.exemptRuleByID(id); r != nil {
+		cp := *r
+		return &cp, nil
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (f *fakeHnRRepo) CreateExemptRule(_ context.Context, r *model.HnRExemptRule) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r.ID = f.nextExemptRuleID
+	f.nextExemptRuleID++
+	r.CreatedAt, r.UpdatedAt = time.Now(), time.Now()
+	f.exemptRules = append(f.exemptRules, *r)
+	return nil
+}
+
+func (f *fakeHnRRepo) UpdateExemptRule(_ context.Context, r *model.HnRExemptRule) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	existing := f.exemptRuleByID(r.ID)
+	if existing == nil {
+		return sql.ErrNoRows
+	}
+	existing.Criterion, existing.Threshold, existing.Enabled = r.Criterion, r.Threshold, r.Enabled
+	existing.UpdatedAt = time.Now()
+	r.CreatedAt, r.UpdatedAt = existing.CreatedAt, existing.UpdatedAt
+	return nil
+}
+
+func (f *fakeHnRRepo) DeleteExemptRule(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.exemptRules {
+		if f.exemptRules[i].ID == id {
+			f.exemptRules = append(f.exemptRules[:i], f.exemptRules[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+
+func (f *fakeHnRRepo) torrentMatchesAnyExemptRule(torrentID int64) bool {
+	for _, r := range f.exemptRules {
+		if !r.Enabled {
+			continue
+		}
+		switch r.Criterion {
+		case model.HnRExemptCriterionMinSeeders:
+			if int64(f.torrentSeeders[torrentID]) >= r.Threshold {
+				return true
+			}
+		case model.HnRExemptCriterionMaxSize:
+			if f.torrentSize[torrentID] <= r.Threshold {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (f *fakeHnRRepo) ApplyExemptRules(_ context.Context) (exempted, released int, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id := range f.torrentSize {
+		matches := f.torrentMatchesAnyExemptRule(id)
+		switch {
+		case matches && !f.torrentExempt[id] && f.torrentExemptSource[id] == "":
+			f.torrentExempt[id] = true
+			f.torrentExemptSource[id] = model.HnRExemptSourceAuto
+			exempted++
+		case !matches && f.torrentExemptSource[id] == model.HnRExemptSourceAuto:
+			f.torrentExempt[id] = false
+			f.torrentExemptSource[id] = ""
+			released++
+		}
+	}
+	return exempted, released, nil
 }
 
 var _ repository.HnRRepository = (*fakeHnRRepo)(nil)

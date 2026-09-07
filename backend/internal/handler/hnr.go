@@ -28,13 +28,14 @@ func NewHnRHandler(svc *service.HnRService) *HnRHandler {
 func hnrErrorStatus(err error) (int, bool) {
 	switch {
 	case errors.Is(err, service.ErrHnRGroupNotFound), errors.Is(err, service.ErrHnRRuleNotFound),
-		errors.Is(err, service.ErrHnRStageNotFound):
+		errors.Is(err, service.ErrHnRStageNotFound), errors.Is(err, service.ErrHnRExemptRuleNotFound):
 		return http.StatusNotFound, true
 	case errors.Is(err, service.ErrHnRInvalidStage):
 		return http.StatusBadRequest, true
 	case errors.Is(err, service.ErrHnRStaffGroup):
 		return http.StatusConflict, true
-	case errors.Is(err, service.ErrHnRInvalidThreshold), errors.Is(err, service.ErrHnRInvalidClearPricing):
+	case errors.Is(err, service.ErrHnRInvalidThreshold), errors.Is(err, service.ErrHnRInvalidClearPricing),
+		errors.Is(err, service.ErrHnRInvalidExemptRule):
 		return http.StatusBadRequest, true
 	case errors.Is(err, service.ErrHnRDaemonUnavailable):
 		return http.StatusServiceUnavailable, true
@@ -108,6 +109,80 @@ func (h *HnRHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete hit-and-run rule")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"deleted": true})
+}
+
+// HandleListExemptRules handles GET /api/v1/admin/hnr/exempt-rules.
+func (h *HnRHandler) HandleListExemptRules(w http.ResponseWriter, r *http.Request) {
+	rules, err := h.svc.ListExemptRules(r.Context())
+	if err != nil {
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list auto-exempt rules")
+		return
+	}
+	if rules == nil {
+		rules = []model.HnRExemptRule{}
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"rules": rules})
+}
+
+// HandleCreateExemptRule handles POST /api/v1/admin/hnr/exempt-rules.
+func (h *HnRHandler) HandleCreateExemptRule(w http.ResponseWriter, r *http.Request) {
+	var in service.HnRExemptRuleInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	rule, err := h.svc.CreateExemptRule(r.Context(), in)
+	if err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create auto-exempt rule")
+		return
+	}
+	JSON(w, http.StatusCreated, map[string]interface{}{"rule": rule})
+}
+
+// HandleUpdateExemptRule handles PUT /api/v1/admin/hnr/exempt-rules/{id}.
+func (h *HnRHandler) HandleUpdateExemptRule(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid rule ID")
+		return
+	}
+	var in service.HnRExemptRuleInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	rule, err := h.svc.UpdateExemptRule(r.Context(), id, in)
+	if err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to update auto-exempt rule")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{"rule": rule})
+}
+
+// HandleDeleteExemptRule handles DELETE /api/v1/admin/hnr/exempt-rules/{id}.
+func (h *HnRHandler) HandleDeleteExemptRule(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		ErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid rule ID")
+		return
+	}
+	if err := h.svc.DeleteExemptRule(r.Context(), id); err != nil {
+		if status, ok := hnrErrorStatus(err); ok {
+			ErrorResponse(w, status, "bad_request", err.Error())
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to delete auto-exempt rule")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{"deleted": true})

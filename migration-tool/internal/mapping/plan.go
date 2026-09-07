@@ -251,6 +251,7 @@ func torrentsPlan() TablePlan {
 		Derived: map[string]string{
 			"silver":                "false — no legacy equivalent",
 			"hnr_exempt":            "false — no legacy equivalent",
+			"hnr_exempt_source":     "NULL — no legacy equivalent; hit-and-run exemption provenance is set post-migration, by a staff edit or the auto-exempt rules pass",
 			"files":                 "the legacy files table, grouped by torrent into one JSONB document",
 			"moderation_status":     "approved for a visible torrent, rejected for a banned one",
 			"search_vector":         "maintained by the backend; leave it to the trigger rather than writing it",

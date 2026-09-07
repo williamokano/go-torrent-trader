@@ -495,11 +495,13 @@ func (r *HnRRepo) StartRun(ctx context.Context, trigger string, triggeredBy *int
 func (r *HnRRepo) FinishRun(ctx context.Context, runID int64, status string, counts repository.HnRRunCounts, errMsg *string) error {
 	query := `UPDATE hnr_runs SET
 		finished_at = NOW(), status = $2, scanned = $3, breached = $4, satisfied = $5,
-		stages_advanced = $6, stages_decayed = $7, purged = $8, error = $9
+		stages_advanced = $6, stages_decayed = $7, purged = $8,
+		torrents_exempted = $9, torrents_released = $10, error = $11
 		WHERE id = $1`
 	_, err := r.db.ExecContext(ctx, query,
 		runID, status, counts.Scanned, counts.Breached, counts.Satisfied,
-		counts.StagesAdvanced, counts.StagesDecayed, counts.Purged, errMsg,
+		counts.StagesAdvanced, counts.StagesDecayed, counts.Purged,
+		counts.TorrentsExempted, counts.TorrentsReleased, errMsg,
 	)
 	if err != nil {
 		return fmt.Errorf("finish hnr run: %w", err)
@@ -512,7 +514,7 @@ func scanHnRRun(row interface{ Scan(...any) error }) (*model.HnRRun, error) {
 	if err := row.Scan(
 		&run.ID, &run.StartedAt, &run.FinishedAt, &run.Status, &run.Trigger, &run.TriggeredBy,
 		&run.Scanned, &run.Breached, &run.Satisfied, &run.StagesAdvanced, &run.StagesDecayed,
-		&run.Purged, &run.Error,
+		&run.Purged, &run.TorrentsExempted, &run.TorrentsReleased, &run.Error,
 	); err != nil {
 		return nil, err
 	}
@@ -520,7 +522,8 @@ func scanHnRRun(row interface{ Scan(...any) error }) (*model.HnRRun, error) {
 }
 
 const hnrRunColumns = `id, started_at, finished_at, status, run_trigger, triggered_by,
-	scanned, breached, satisfied, stages_advanced, stages_decayed, purged, error`
+	scanned, breached, satisfied, stages_advanced, stages_decayed, purged,
+	torrents_exempted, torrents_released, error`
 
 func (r *HnRRepo) LastRun(ctx context.Context) (*model.HnRRun, bool, error) {
 	query := fmt.Sprintf(`SELECT %s FROM hnr_runs ORDER BY started_at DESC LIMIT 1`, hnrRunColumns)

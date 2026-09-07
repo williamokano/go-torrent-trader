@@ -1855,6 +1855,186 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/admin/hnr/exempt-rules:
+    get:
+      operationId: listHnRExemptRules
+      x-audience: internal
+      summary: List the automatic hit-and-run exemption rules
+      description: >
+        A torrent matching any enabled rule is flagged hnr_exempt (source
+        'auto') on the daemon's hourly sweep; when it stops matching every rule
+        the auto exemption is lifted. Torrents a staff member set by hand are
+        never touched by the pass.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HnRExemptRule'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createHnRExemptRule
+      x-audience: internal
+      summary: Add an automatic hit-and-run exemption rule
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HnRExemptRuleInput'
+      responses:
+        '201':
+          description: The created rule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule:
+                    $ref: '#/components/schemas/HnRExemptRule'
+        '400':
+          description: Unknown criterion or negative threshold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/hnr/exempt-rules/{id}:
+    put:
+      operationId: updateHnRExemptRule
+      x-audience: internal
+      summary: Edit an automatic hit-and-run exemption rule
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HnRExemptRuleInput'
+      responses:
+        '200':
+          description: The updated rule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule:
+                    $ref: '#/components/schemas/HnRExemptRule'
+        '400':
+          description: Unknown criterion or negative threshold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No such rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteHnRExemptRule
+      x-audience: internal
+      summary: Remove an automatic hit-and-run exemption rule
+      description: >
+        Torrents this rule alone auto-exempted are released on the next daemon
+        sweep, since they no longer match any rule.
+      tags: [admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No such rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/admin/hnr/stages:
     get:
       operationId: listHnRStages
@@ -4933,9 +5113,54 @@ components:
           type: integer
         purged:
           type: integer
+        torrents_exempted:
+          type: integer
+          description: Torrents the auto-exemption pass flagged this run
+        torrents_released:
+          type: integer
+          description: Auto-exempt torrents the pass un-flagged this run (no rule matches any more)
         error:
           type: string
           nullable: true
+
+    HnRExemptRule:
+      type: object
+      description: One automatic hit-and-run exemption criterion.
+      properties:
+        id:
+          type: integer
+          format: int64
+        criterion:
+          type: string
+          enum: [min_seeders, max_size_bytes]
+          description: >
+            min_seeders — exempt once seeders >= threshold. max_size_bytes —
+            exempt when size (bytes) <= threshold.
+        threshold:
+          type: integer
+          format: int64
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    HnRExemptRuleInput:
+      type: object
+      required: [criterion, threshold, enabled]
+      properties:
+        criterion:
+          type: string
+          enum: [min_seeders, max_size_bytes]
+        threshold:
+          type: integer
+          format: int64
+          minimum: 0
+        enabled:
+          type: boolean
 
     HnRPenaltyStage:
       type: object
