@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"net"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -57,6 +58,10 @@ type Deps struct {
 	ConnectorStatus           ConnectorStatusProvider
 	AnnounceHub               *AnnounceHub
 	FeedAccess                FeedAccess
+	// TrustedProxies is passed to the RealIP middleware — see mw.RealIP. Empty
+	// (the default, and what a nil Deps yields) means forwarded-for headers are
+	// never believed.
+	TrustedProxies []net.IPNet
 }
 
 // NewRouter creates and configures the Chi router with middleware and routes.
@@ -65,7 +70,15 @@ func NewRouter(deps *Deps) chi.Router {
 
 	// Middleware stack
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
+	// Not chimw.RealIP: that trusts X-Forwarded-For from any caller. mw.RealIP
+	// believes the forwarded headers only when the direct peer is a configured
+	// trusted proxy, and does nothing when the list is empty (a nil Deps, or a
+	// direct-to-internet deployment).
+	var trustedProxies []net.IPNet
+	if deps != nil {
+		trustedProxies = deps.TrustedProxies
+	}
+	r.Use(mw.RealIP(trustedProxies))
 	r.Use(mw.RequestLogger)
 	r.Use(mw.CORS)
 	r.Use(chimw.Recoverer)

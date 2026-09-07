@@ -246,9 +246,36 @@ tracker.example.com {
 }</code></pre>
           <p class="small">
             Caddy sets <code>X-Forwarded-For</code> and obtains certificates on its
-            own. With nginx, set <code>proxy_set_header X-Real-IP $remote_addr;</code>
-            and use certbot.
+            own. With nginx, set
+            <code>proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;</code>
+            and use certbot — the backend reads only <code>X-Forwarded-For</code>.
           </p>
+          <div class="note">
+            <p>
+              <strong>You must tell the backend which proxy to trust.</strong> Set
+              <code>TRUSTED_PROXIES</code> to the address your proxy connects from —
+              a comma-separated list of CIDRs or plain IPs. For a proxy on the same
+              host that is just <code>TRUSTED_PROXIES=127.0.0.1</code>; for the
+              Docker stack it is the compose network gateway (e.g.
+              <code>172.16.0.0/12</code>, or the exact bridge address from
+              <code>docker network inspect</code>). Only then is
+              <code>X-Forwarded-For</code> believed, and only on requests whose
+              direct peer is in that list.
+            </p>
+            <p>
+              <strong>Keep it as narrow as you can.</strong> Every address in the
+              list is treated as infrastructure, not a client: if a network real
+              members connect from is included, one of them can forge
+              <code>X-Forwarded-For</code> and be recorded — and banned — as
+              someone else. Never use <code>0.0.0.0/0</code>.
+            </p>
+            <p>
+              Leave it unset behind a proxy and the opposite breaks: every request
+              is recorded as coming from the proxy, so IP bans stop working and the
+              sessions list shows one address for everyone. A deployment with no
+              proxy leaves it unset and gets the socket address, which is correct.
+            </p>
+          </div>
           <div class="note">
             <p>
               <strong>Announce traffic is chatty.</strong> Every client checks in

@@ -439,3 +439,54 @@ func TestLoadNegativeBackupRetention(t *testing.T) {
 		t.Fatal("expected error for negative BACKUP_RETENTION")
 	}
 }
+
+func TestLoadTrustedProxiesDefaultEmpty(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Server.TrustedProxies) != 0 {
+		t.Errorf("expected no trusted proxies by default, got %v", cfg.Server.TrustedProxies)
+	}
+}
+
+func TestLoadTrustedProxiesParsesCIDRsAndBareIPs(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("TRUSTED_PROXIES", " 10.0.0.0/8 , 127.0.0.1 , 2001:db8::/32 ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := make([]string, 0, len(cfg.Server.TrustedProxies))
+	for _, p := range cfg.Server.TrustedProxies {
+		got = append(got, p.String())
+	}
+	want := []string{"10.0.0.0/8", "127.0.0.1/32", "2001:db8::/32"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("prefix %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestLoadTrustedProxiesRejectsGarbage(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+
+	for _, bad := range []string{
+		"10.0.0.0/8,not-an-ip",
+		"fe80::1%eth0", // an IPv6 zone silently breaks range matching, so it's rejected
+	} {
+		t.Run(bad, func(t *testing.T) {
+			t.Setenv("TRUSTED_PROXIES", bad)
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected error for TRUSTED_PROXIES=%q", bad)
+			}
+		})
+	}
+}
