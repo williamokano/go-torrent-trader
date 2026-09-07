@@ -470,7 +470,7 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     section: "Hit-and-run",
     label: "Clear Pricing Mode",
     description:
-      "How clearing an obligation with bonus points is priced: a fixed price by torrent size, or a price proportional to the upload still needed to reach the required ratio.",
+      "How clearing an obligation with bonus points is priced: a fixed price by torrent size, or a price proportional to the upload still needed to reach the required ratio. This and the three prices below are the site-wide default — any class can override them on the Hit-and-Run page.",
     type: "select",
     options: [
       { value: "fixed", label: "Fixed (base + per GiB of torrent size)" },

@@ -31,8 +31,20 @@ const groups = [
   },
 ];
 
+type TestRule = {
+  group_id: number;
+  required_seed_hours: number;
+  required_ratio: number;
+  inactivity_grace_hours: number;
+  max_days_to_satisfy: number;
+  clear_pricing_mode?: "fixed" | "deficit" | null;
+  clear_base_points?: number | null;
+  clear_points_per_gib?: number | null;
+  clear_points_per_gib_deficit?: number | null;
+};
+
 // Only the User class is tracked to start; VIP has no rule (exempt).
-const rules = [
+const rules: TestRule[] = [
   {
     group_id: 5,
     required_seed_hours: 240,
@@ -78,7 +90,7 @@ const stages = [
   },
 ];
 
-function mockApi(stagesOverride = stages) {
+function mockApi(stagesOverride = stages, rulesOverride: TestRule[] = rules) {
   const calls: { method: string; url: string; body?: string }[] = [];
   mockFetch.mockImplementation((url: string, init?: FetchInit) => {
     const method = init?.method ?? "GET";
@@ -87,7 +99,10 @@ function mockApi(stagesOverride = stages) {
       return Promise.resolve({ ok: true, json: async () => ({ groups }) });
     }
     if (method === "GET" && url.endsWith("/hnr/rules")) {
-      return Promise.resolve({ ok: true, json: async () => ({ rules }) });
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ rules: rulesOverride }),
+      });
     }
     if (method === "GET" && url.includes("/hnr/runs")) {
       return Promise.resolve({ ok: true, json: async () => ({ runs }) });
@@ -183,8 +198,10 @@ describe("AdminHitAndRunPage", () => {
   test("lists non-staff classes and excludes staff", async () => {
     mockApi();
     renderPage();
-    expect(await screen.findByText("User")).toBeInTheDocument();
-    expect(screen.getByText("VIP")).toBeInTheDocument();
+    // "User" is tracked, so it appears in both the thresholds table and the
+    // clear-pricing table below it.
+    expect((await screen.findAllByText("User")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("VIP").length).toBeGreaterThan(0);
     expect(screen.queryByText("Administrator")).not.toBeInTheDocument();
   });
 
@@ -202,7 +219,7 @@ describe("AdminHitAndRunPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("User");
+    await screen.findAllByText("User");
     expect(
       screen.queryByRole("button", { name: "Save changes" }),
     ).not.toBeInTheDocument();
@@ -219,7 +236,7 @@ describe("AdminHitAndRunPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("User");
+    await screen.findAllByText("User");
     await user.click(screen.getByLabelText("Track VIP for hit-and-run"));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -235,7 +252,7 @@ describe("AdminHitAndRunPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("User");
+    await screen.findAllByText("User");
     await user.click(screen.getByLabelText("Track User for hit-and-run")); // toggle off
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -248,12 +265,82 @@ describe("AdminHitAndRunPage", () => {
     });
   });
 
+  test("sends a per-class clear-pricing override in the PUT body", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findAllByText("User");
+    await user.type(screen.getByLabelText("User Base pts"), "200");
+    await user.selectOptions(
+      screen.getByLabelText("User clear pricing mode"),
+      "deficit",
+    );
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      const put = calls.find(
+        (c) => c.method === "PUT" && c.url.endsWith("/hnr/rules/5"),
+      );
+      expect(put).toBeTruthy();
+      expect(JSON.parse(put!.body!)).toMatchObject({
+        clear_base_points: 200,
+        clear_pricing_mode: "deficit",
+      });
+    });
+  });
+
+  test("renders a stored per-class clear-pricing override back into the inputs", async () => {
+    mockApi(stages, [
+      {
+        ...rules[0],
+        clear_pricing_mode: "deficit",
+        clear_base_points: 150,
+        clear_points_per_gib: null,
+        clear_points_per_gib_deficit: 8,
+      },
+    ]);
+    renderPage();
+
+    expect(await screen.findByLabelText("User Base pts")).toHaveValue(150);
+    expect(screen.getByLabelText("User Pts / GiB (deficit)")).toHaveValue(8);
+    // An unset dimension stays blank, not 0.
+    expect(screen.getByLabelText("User Pts / GiB")).toHaveValue(null);
+    expect(screen.getByLabelText("User clear pricing mode")).toHaveValue(
+      "deficit",
+    );
+  });
+
+  test("omits a blank clear-pricing field so the class inherits the default", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findAllByText("User");
+    // Change only a threshold, leave every pricing field blank.
+    await user.clear(screen.getByLabelText("User Seed Hours"));
+    await user.type(screen.getByLabelText("User Seed Hours"), "300");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      const put = calls.find(
+        (c) => c.method === "PUT" && c.url.endsWith("/hnr/rules/5"),
+      );
+      expect(put).toBeTruthy();
+      const body = JSON.parse(put!.body!);
+      expect(body).not.toHaveProperty("clear_pricing_mode");
+      expect(body).not.toHaveProperty("clear_base_points");
+      expect(body).not.toHaveProperty("clear_points_per_gib");
+      expect(body).not.toHaveProperty("clear_points_per_gib_deficit");
+    });
+  });
+
   test("runs the daemon on demand", async () => {
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("User");
+    await screen.findAllByText("User");
     await user.click(screen.getByRole("button", { name: "Run now" }));
 
     await waitFor(() => {
@@ -266,7 +353,7 @@ describe("AdminHitAndRunPage", () => {
   test("shows the recent run log", async () => {
     mockApi();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
     expect(await screen.findByText("success")).toBeInTheDocument();
     expect(screen.getByText("schedule")).toBeInTheDocument();
   });
@@ -274,7 +361,7 @@ describe("AdminHitAndRunPage", () => {
   test("lists penalty ladder stages with their configured action", async () => {
     mockApi();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     expect(await screen.findByText("Penalty ladder")).toBeInTheDocument();
     expect(screen.getByLabelText("Stage 1 action")).toHaveValue("notify");
@@ -288,7 +375,7 @@ describe("AdminHitAndRunPage", () => {
   test("restriction type checkboxes only appear for the restrict action", async () => {
     mockApi();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     // Stage 1 is "notify" — no restriction checkboxes, just the explainer.
     const stage1Row = screen.getByLabelText("Stage 1 action").closest("tr")!;
@@ -308,7 +395,7 @@ describe("AdminHitAndRunPage", () => {
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     const dwellInput = screen.getByLabelText("Stage 1 dwell days");
     await user.clear(dwellInput);
@@ -335,7 +422,7 @@ describe("AdminHitAndRunPage", () => {
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     const stage2Row = screen.getByLabelText("Stage 2 action").closest("tr")!;
     await user.click(within(stage2Row).getByRole("button", { name: "Delete" }));
@@ -353,7 +440,7 @@ describe("AdminHitAndRunPage", () => {
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     await user.type(screen.getByLabelText("New stage number"), "3");
     await user.click(screen.getByRole("button", { name: "Add stage" }));
@@ -370,7 +457,7 @@ describe("AdminHitAndRunPage", () => {
   test("shows the overview stats and the top-offenders leaderboard", async () => {
     mockApi();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     const overviewHeading = await screen.findByText("Overview");
     const overviewPanel = overviewHeading.closest(
@@ -389,7 +476,7 @@ describe("AdminHitAndRunPage", () => {
     const calls = mockApi();
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText("User");
+    await screen.findAllByText("User");
 
     const recordsHeading = await screen.findByText("Records");
     const recordsPanel = recordsHeading.closest(".admin-panel") as HTMLElement;

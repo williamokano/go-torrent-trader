@@ -24,11 +24,44 @@ func NewHnRRepo(db *sql.DB) *HnRRepo {
 
 // --- rule configuration -----------------------------------------------------
 
+// hnrRuleColumns is the SELECT list shared by the rule reads. The clear_*
+// columns are nullable; a NULL means "fall back to the site-wide hnr_clear_*
+// setting" and is scanned back as a nil pointer on model.HnRRule.
+const hnrRuleColumns = `group_id, required_seed_hours, required_ratio, inactivity_grace_hours,
+	max_days_to_satisfy, clear_pricing_mode, clear_base_points, clear_points_per_gib,
+	clear_points_per_gib_deficit, created_at, updated_at`
+
+func scanHnRRule(row interface{ Scan(...any) error }) (model.HnRRule, error) {
+	var rule model.HnRRule
+	var mode sql.NullString
+	var base, perGiB, perGiBDeficit sql.NullInt64
+	if err := row.Scan(
+		&rule.GroupID, &rule.RequiredSeedHours, &rule.RequiredRatio,
+		&rule.InactivityGraceHours, &rule.MaxDaysToSatisfy,
+		&mode, &base, &perGiB, &perGiBDeficit,
+		&rule.CreatedAt, &rule.UpdatedAt,
+	); err != nil {
+		return model.HnRRule{}, err
+	}
+	if mode.Valid {
+		rule.ClearPricingMode = &mode.String
+	}
+	rule.ClearBasePoints = nullIntToPtr(base)
+	rule.ClearPointsPerGiB = nullIntToPtr(perGiB)
+	rule.ClearPointsPerGiBDeficit = nullIntToPtr(perGiBDeficit)
+	return rule, nil
+}
+
+func nullIntToPtr(n sql.NullInt64) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int64)
+	return &v
+}
+
 func (r *HnRRepo) ListRules(ctx context.Context) ([]model.HnRRule, error) {
-	query := `SELECT group_id, required_seed_hours, required_ratio, inactivity_grace_hours,
-		max_days_to_satisfy, created_at, updated_at
-		FROM hnr_rules ORDER BY group_id`
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+hnrRuleColumns+` FROM hnr_rules ORDER BY group_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list hnr rules: %w", err)
 	}
@@ -36,11 +69,8 @@ func (r *HnRRepo) ListRules(ctx context.Context) ([]model.HnRRule, error) {
 
 	var rules []model.HnRRule
 	for rows.Next() {
-		var rule model.HnRRule
-		if err := rows.Scan(
-			&rule.GroupID, &rule.RequiredSeedHours, &rule.RequiredRatio,
-			&rule.InactivityGraceHours, &rule.MaxDaysToSatisfy, &rule.CreatedAt, &rule.UpdatedAt,
-		); err != nil {
+		rule, err := scanHnRRule(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan hnr rule: %w", err)
 		}
 		rules = append(rules, rule)
@@ -52,14 +82,8 @@ func (r *HnRRepo) ListRules(ctx context.Context) ([]model.HnRRule, error) {
 }
 
 func (r *HnRRepo) GetRuleForGroup(ctx context.Context, groupID int64) (*model.HnRRule, error) {
-	query := `SELECT group_id, required_seed_hours, required_ratio, inactivity_grace_hours,
-		max_days_to_satisfy, created_at, updated_at
-		FROM hnr_rules WHERE group_id = $1`
-	var rule model.HnRRule
-	err := r.db.QueryRowContext(ctx, query, groupID).Scan(
-		&rule.GroupID, &rule.RequiredSeedHours, &rule.RequiredRatio,
-		&rule.InactivityGraceHours, &rule.MaxDaysToSatisfy, &rule.CreatedAt, &rule.UpdatedAt,
-	)
+	rule, err := scanHnRRule(r.db.QueryRowContext(ctx,
+		`SELECT `+hnrRuleColumns+` FROM hnr_rules WHERE group_id = $1`, groupID))
 	if err != nil {
 		return nil, err
 	}
@@ -68,18 +92,24 @@ func (r *HnRRepo) GetRuleForGroup(ctx context.Context, groupID int64) (*model.Hn
 
 func (r *HnRRepo) UpsertRule(ctx context.Context, rule *model.HnRRule) error {
 	query := `INSERT INTO hnr_rules
-		(group_id, required_seed_hours, required_ratio, inactivity_grace_hours, max_days_to_satisfy)
-		VALUES ($1, $2, $3, $4, $5)
+		(group_id, required_seed_hours, required_ratio, inactivity_grace_hours, max_days_to_satisfy,
+		 clear_pricing_mode, clear_base_points, clear_points_per_gib, clear_points_per_gib_deficit)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (group_id) DO UPDATE SET
 			required_seed_hours = EXCLUDED.required_seed_hours,
 			required_ratio = EXCLUDED.required_ratio,
 			inactivity_grace_hours = EXCLUDED.inactivity_grace_hours,
 			max_days_to_satisfy = EXCLUDED.max_days_to_satisfy,
+			clear_pricing_mode = EXCLUDED.clear_pricing_mode,
+			clear_base_points = EXCLUDED.clear_base_points,
+			clear_points_per_gib = EXCLUDED.clear_points_per_gib,
+			clear_points_per_gib_deficit = EXCLUDED.clear_points_per_gib_deficit,
 			updated_at = NOW()
 		RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		rule.GroupID, rule.RequiredSeedHours, rule.RequiredRatio,
 		rule.InactivityGraceHours, rule.MaxDaysToSatisfy,
+		rule.ClearPricingMode, rule.ClearBasePoints, rule.ClearPointsPerGiB, rule.ClearPointsPerGiBDeficit,
 	).Scan(&rule.CreatedAt, &rule.UpdatedAt)
 }
 
@@ -619,24 +649,36 @@ func (r *HnRRepo) LiveSeedingTorrentIDs(ctx context.Context, userID int64, torre
 // what the shared evaluator treats as HnRStatusExempt. A genuinely missing
 // user (the inner JOIN on users matches no row) is sql.ErrNoRows.
 func (r *HnRRepo) GetRuleForUser(ctx context.Context, userID int64) (*model.HnRRule, error) {
-	query := `SELECT ru.required_seed_hours, ru.required_ratio, ru.inactivity_grace_hours, ru.max_days_to_satisfy
+	query := `SELECT ru.required_seed_hours, ru.required_ratio, ru.inactivity_grace_hours, ru.max_days_to_satisfy,
+		ru.clear_pricing_mode, ru.clear_base_points, ru.clear_points_per_gib, ru.clear_points_per_gib_deficit
 		FROM users u
 		LEFT JOIN hnr_rules ru ON ru.group_id = u.group_id
 		WHERE u.id = $1`
-	var seedHours, graceHours, maxDays sql.NullInt64
+	var seedHours, graceHours, maxDays, clearBase, clearPerGiB, clearPerGiBDeficit sql.NullInt64
 	var ratio sql.NullFloat64
-	if err := r.db.QueryRowContext(ctx, query, userID).Scan(&seedHours, &ratio, &graceHours, &maxDays); err != nil {
+	var clearMode sql.NullString
+	if err := r.db.QueryRowContext(ctx, query, userID).Scan(
+		&seedHours, &ratio, &graceHours, &maxDays,
+		&clearMode, &clearBase, &clearPerGiB, &clearPerGiBDeficit,
+	); err != nil {
 		return nil, err
 	}
 	if !seedHours.Valid {
 		return nil, nil
 	}
-	return &model.HnRRule{
-		RequiredSeedHours:    int(seedHours.Int64),
-		RequiredRatio:        ratio.Float64,
-		InactivityGraceHours: int(graceHours.Int64),
-		MaxDaysToSatisfy:     int(maxDays.Int64),
-	}, nil
+	rule := &model.HnRRule{
+		RequiredSeedHours:        int(seedHours.Int64),
+		RequiredRatio:            ratio.Float64,
+		InactivityGraceHours:     int(graceHours.Int64),
+		MaxDaysToSatisfy:         int(maxDays.Int64),
+		ClearBasePoints:          nullIntToPtr(clearBase),
+		ClearPointsPerGiB:        nullIntToPtr(clearPerGiB),
+		ClearPointsPerGiBDeficit: nullIntToPtr(clearPerGiBDeficit),
+	}
+	if clearMode.Valid {
+		rule.ClearPricingMode = &clearMode.String
+	}
+	return rule, nil
 }
 
 // --- clearing with bonus points ------------------------------------------------

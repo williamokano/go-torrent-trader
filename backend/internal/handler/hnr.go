@@ -34,7 +34,7 @@ func hnrErrorStatus(err error) (int, bool) {
 		return http.StatusBadRequest, true
 	case errors.Is(err, service.ErrHnRStaffGroup):
 		return http.StatusConflict, true
-	case errors.Is(err, service.ErrHnRInvalidThreshold):
+	case errors.Is(err, service.ErrHnRInvalidThreshold), errors.Is(err, service.ErrHnRInvalidClearPricing):
 		return http.StatusBadRequest, true
 	case errors.Is(err, service.ErrHnRDaemonUnavailable):
 		return http.StatusServiceUnavailable, true
@@ -82,11 +82,15 @@ func (h *HnRHandler) HandleUpsertRule(w http.ResponseWriter, r *http.Request) {
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"rule": map[string]interface{}{
-			"group_id":               rule.GroupID,
-			"required_seed_hours":    rule.RequiredSeedHours,
-			"required_ratio":         rule.RequiredRatio,
-			"inactivity_grace_hours": rule.InactivityGraceHours,
-			"max_days_to_satisfy":    rule.MaxDaysToSatisfy,
+			"group_id":                     rule.GroupID,
+			"required_seed_hours":          rule.RequiredSeedHours,
+			"required_ratio":               rule.RequiredRatio,
+			"inactivity_grace_hours":       rule.InactivityGraceHours,
+			"max_days_to_satisfy":          rule.MaxDaysToSatisfy,
+			"clear_pricing_mode":           rule.ClearPricingMode,
+			"clear_base_points":            rule.ClearBasePoints,
+			"clear_points_per_gib":         rule.ClearPointsPerGiB,
+			"clear_points_per_gib_deficit": rule.ClearPointsPerGiBDeficit,
 		},
 	})
 }

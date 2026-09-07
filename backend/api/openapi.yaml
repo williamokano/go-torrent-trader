@@ -1526,8 +1526,9 @@ paths:
       summary: Price clearing one obligation with bonus points, without spending
       description: >
         What POST .../clear would charge right now, computed the same way —
-        server-side, from the site's hnr_clear_pricing_mode — so the member
-        page can quote a price before the member commits.
+        server-side, from the member's class rule where it sets a clear-pricing
+        override and the site-wide hnr_clear_* settings otherwise — so the
+        member page can quote a price before the member commits.
       tags: [hnr]
       security:
         - bearerAuth: []
@@ -1706,10 +1707,16 @@ paths:
       x-audience: internal
       summary: Create or update a class's hit-and-run rule
       description: >
-        Refuses staff groups (admin/moderator) and negative thresholds. A
-        threshold of 0 is unconstrained on that dimension — a rule with both
-        required_seed_hours and required_ratio at 0 has no requirement at all
-        and every snatch is immediately satisfied.
+        Refuses staff groups (admin/moderator), negative thresholds, and an
+        invalid clear-pricing override (an unknown mode or a negative points
+        figure). A threshold of 0 is unconstrained on that dimension — a rule
+        with both required_seed_hours and required_ratio at 0 has no requirement
+        at all and every snatch is immediately satisfied.
+
+
+        This replaces the whole rule: a clear-pricing key that is omitted or
+        null is stored as "no override", which also clears one that was
+        previously set. Send the full picture every time.
       tags: [admin]
       security:
         - bearerAuth: []
@@ -1749,6 +1756,32 @@ paths:
                   description: >
                     Hard cap from the snatch's completion, regardless of recent
                     activity. 0 = no hard cap.
+                clear_pricing_mode:
+                  type: string
+                  nullable: true
+                  enum: [fixed, deficit, null]
+                  description: >
+                    Per-class override for how clearing an obligation with bonus
+                    points is priced. Omit or null to use the site-wide
+                    hnr_clear_pricing_mode setting.
+                clear_base_points:
+                  type: integer
+                  nullable: true
+                  description: >
+                    Per-class override for hnr_clear_base_points (>= 0). Omit or
+                    null to use the site-wide setting.
+                clear_points_per_gib:
+                  type: integer
+                  nullable: true
+                  description: >
+                    Per-class override for hnr_clear_points_per_gib (>= 0). Omit
+                    or null to use the site-wide setting.
+                clear_points_per_gib_deficit:
+                  type: integer
+                  nullable: true
+                  description: >
+                    Per-class override for hnr_clear_points_per_gib_deficit
+                    (>= 0). Omit or null to use the site-wide setting.
       responses:
         '200':
           description: The saved rule
@@ -1760,7 +1793,9 @@ paths:
                   rule:
                     $ref: '#/components/schemas/HnRRule'
         '400':
-          description: Invalid group ID, negative threshold, or malformed body
+          description: >
+            Invalid group ID, negative threshold, invalid clear-pricing
+            override, or malformed body
           content:
             application/json:
               schema:
@@ -4800,6 +4835,26 @@ components:
           type: integer
         max_days_to_satisfy:
           type: integer
+        clear_pricing_mode:
+          type: string
+          nullable: true
+          enum: [fixed, deficit, null]
+          description: >
+            Per-class override for hnr_clear_pricing_mode. Null (the default)
+            falls back to the site-wide setting.
+        clear_base_points:
+          type: integer
+          nullable: true
+          description: Per-class override for hnr_clear_base_points; null falls back.
+        clear_points_per_gib:
+          type: integer
+          nullable: true
+          description: Per-class override for hnr_clear_points_per_gib; null falls back.
+        clear_points_per_gib_deficit:
+          type: integer
+          nullable: true
+          description: >
+            Per-class override for hnr_clear_points_per_gib_deficit; null falls back.
 
     HnRRuleView:
       type: object
@@ -4823,6 +4878,23 @@ components:
           type: integer
         max_days_to_satisfy:
           type: integer
+        clear_pricing_mode:
+          type: string
+          nullable: true
+          enum: [fixed, deficit, null]
+          description: Per-class override for hnr_clear_pricing_mode; null = site-wide.
+        clear_base_points:
+          type: integer
+          nullable: true
+          description: Per-class override for hnr_clear_base_points; null = site-wide.
+        clear_points_per_gib:
+          type: integer
+          nullable: true
+          description: Per-class override for hnr_clear_points_per_gib; null = site-wide.
+        clear_points_per_gib_deficit:
+          type: integer
+          nullable: true
+          description: Per-class override for hnr_clear_points_per_gib_deficit; null = site-wide.
 
     HnRRun:
       type: object

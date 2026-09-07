@@ -1366,7 +1366,7 @@ paths:
       operationId: quoteHnRClear
       summary: Price clearing one obligation with bonus points, without spending
       description: >
-        What POST .../clear would charge right now, computed the same way — server-side, from the site's hnr_clear_pricing_mode — so the member page can quote a price before the member commits.
+        What POST .../clear would charge right now, computed the same way — server-side, from the member's class rule where it sets a clear-pricing override and the site-wide hnr_clear_* settings otherwise — so the member page can quote a price before the member commits.
 
       tags: [hnr]
       security:
