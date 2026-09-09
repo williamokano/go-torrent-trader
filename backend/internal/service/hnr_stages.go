@@ -25,8 +25,11 @@ var hnrValidActions = map[string]bool{
 }
 
 // HnRStageInput is the admin-supplied definition of one penalty ladder rung.
+// MinActiveHnR is a pointer so an omitted or null key means "defer to the
+// site-wide hnr_penalty_threshold" — distinct from an explicit figure, which
+// pins this rung regardless of the setting.
 type HnRStageInput struct {
-	MinActiveHnR     int      `json:"min_active_hnr"`
+	MinActiveHnR     *int     `json:"min_active_hnr"`
 	MinDaysInPrev    int      `json:"min_days_in_prev"`
 	Action           string   `json:"action"`
 	RestrictionTypes []string `json:"restriction_types"`
@@ -50,8 +53,8 @@ func (s *HnRService) UpsertStage(ctx context.Context, stage int, in HnRStageInpu
 	if stage < 1 {
 		return nil, fmt.Errorf("%w: stage must be at least 1", ErrHnRInvalidStage)
 	}
-	if in.MinActiveHnR < 1 {
-		return nil, fmt.Errorf("%w: min_active_hnr must be at least 1", ErrHnRInvalidStage)
+	if in.MinActiveHnR != nil && *in.MinActiveHnR < 1 {
+		return nil, fmt.Errorf("%w: min_active_hnr must be at least 1 when set", ErrHnRInvalidStage)
 	}
 	if in.MinDaysInPrev < 0 {
 		return nil, fmt.Errorf("%w: min_days_in_prev must be zero or positive", ErrHnRInvalidStage)
@@ -117,6 +120,8 @@ func (s *HnRService) runLadder(ctx context.Context, now time.Time) (advanced, de
 		return 0, 0, nil // ladder not configured; nothing to evaluate
 	}
 
+	threshold := s.penaltyThreshold(ctx)
+
 	counts, err := s.hnr.ActiveHnRCounts(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("active hnr counts: %w", err)
@@ -135,7 +140,7 @@ func (s *HnRService) runLadder(ctx context.Context, now time.Time) (advanced, de
 	}
 
 	for uid := range candidates {
-		didAdvance, didDecay := s.evaluateUserLadderStage(ctx, uid, stages, counts[uid], now)
+		didAdvance, didDecay := s.evaluateUserLadderStage(ctx, uid, stages, counts[uid], threshold, now)
 		if didAdvance {
 			advanced++
 		}
@@ -151,7 +156,7 @@ func (s *HnRService) runLadder(ctx context.Context, now time.Time) (advanced, de
 // can re-evaluate just their own position immediately — through this exact
 // function, never a re-derived copy — instead of waiting for the next
 // scheduled sweep to lift a restriction paying off just earned them.
-func (s *HnRService) evaluateUserLadderStage(ctx context.Context, userID int64, stages []model.HnRPenaltyStage, activeCount int, now time.Time) (advanced, decayed bool) {
+func (s *HnRService) evaluateUserLadderStage(ctx context.Context, userID int64, stages []model.HnRPenaltyStage, activeCount, siteThreshold int, now time.Time) (advanced, decayed bool) {
 	if err := s.hnr.EnsureUserState(ctx, userID, now); err != nil {
 		slog.Error("hnr ladder: ensure user state", "user_id", userID, "error", err)
 		return false, false
@@ -162,7 +167,7 @@ func (s *HnRService) evaluateUserLadderStage(ctx context.Context, userID int64, 
 		return false, false
 	}
 
-	newStage, changed := decideHnRLadderStage(stages, activeCount, *state, now)
+	newStage, changed := decideHnRLadderStage(stages, activeCount, *state, siteThreshold, now)
 	if !changed {
 		return false, false
 	}
@@ -204,9 +209,30 @@ func (s *HnRService) reevaluateLadderForUser(ctx context.Context, userID int64, 
 	if err != nil {
 		return fmt.Errorf("active hnr counts: %w", err)
 	}
-	s.evaluateUserLadderStage(ctx, userID, stages, counts[userID], now)
+	s.evaluateUserLadderStage(ctx, userID, stages, counts[userID], s.penaltyThreshold(ctx), now)
 	return nil
 }
+
+// penaltyThreshold is hnr_penalty_threshold: how many unresolved obligations a
+// member must carry before any rung that does not pin its own figure applies.
+// Read once per sweep and passed down, so every user in one run is judged
+// against the same number even if an admin saves a new one mid-sweep.
+func (s *HnRService) penaltyThreshold(ctx context.Context) int {
+	if s.settings == nil {
+		return hnrDefaultPenaltyThreshold
+	}
+	n := s.settings.GetInt(ctx, SettingHnRPenaltyThreshold, hnrDefaultPenaltyThreshold)
+	if n < 1 {
+		// Belt and braces against a value written around the setting
+		// validation: a threshold of 0 would put every member on the ladder.
+		return hnrDefaultPenaltyThreshold
+	}
+	return n
+}
+
+// hnrDefaultPenaltyThreshold mirrors migration 086's seeded value; it is what
+// the ladder falls back on when the setting is absent or unreadable.
+const hnrDefaultPenaltyThreshold = 50
 
 // escalate executes the newly-entered stage's configured action and always
 // publishes the stage-change notification, regardless of action — a bare

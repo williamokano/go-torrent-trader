@@ -522,7 +522,7 @@ func TestHnRStages_UpsertRejectsInvalidAction(t *testing.T) {
 
 func TestHnRStages_Delete(t *testing.T) {
 	repo := newStubHnRRepo()
-	repo.stages[1] = model.HnRPenaltyStage{Stage: 1, MinActiveHnR: 1, Action: model.HnRActionNotify}
+	repo.stages[1] = model.HnRPenaltyStage{Stage: 1, MinActiveHnR: hnrPtrInt(1), Action: model.HnRActionNotify}
 	router, sessions := setupHnRAdminRouter(repo)
 	admin := createSessionWithGroup(sessions, 5011, 1)
 
@@ -890,3 +890,5 @@ func TestHnRStats_ReturnsAggregateAndOffenders(t *testing.T) {
 		t.Fatalf("unexpected top offenders: %+v", resp.TopOffenders)
 	}
 }
+
+func hnrPtrInt(i int) *int { return &i }

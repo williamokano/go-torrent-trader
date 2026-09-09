@@ -79,8 +79,15 @@ type HnRRecord struct {
 // name instead of snake_case, exactly the bug a handler test caught on
 // HnRRun before this struct existed.
 type HnRPenaltyStage struct {
-	Stage            int       `json:"stage"`
-	MinActiveHnR     int       `json:"min_active_hnr"`
+	Stage int `json:"stage"`
+	// MinActiveHnR is how many records in state 'hnr' this rung requires.
+	// Nil means "use the site-wide hnr_penalty_threshold", the same
+	// nil-falls-back-to-the-setting shape HnRRule's clear-pricing overrides
+	// use — so an operator retunes the whole ladder by changing one setting,
+	// and a rung that wants its own figure sets one. Resolve it with
+	// EffectiveMinActiveHnR rather than dereferencing: nothing may re-derive
+	// the fallback separately.
+	MinActiveHnR     *int      `json:"min_active_hnr"`
 	MinDaysInPrev    int       `json:"min_days_in_prev"`
 	Action           string    `json:"action"`
 	RestrictionTypes []string  `json:"restriction_types"`
@@ -88,6 +95,15 @@ type HnRPenaltyStage struct {
 	MessageTemplate  string    `json:"message_template"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// EffectiveMinActiveHnR is the rung's threshold with the site-wide fallback
+// applied — the one place that resolution happens.
+func (s HnRPenaltyStage) EffectiveMinActiveHnR(siteThreshold int) int {
+	if s.MinActiveHnR != nil {
+		return *s.MinActiveHnR
+	}
+	return siteThreshold
 }
 
 // HnRUserState is a user's current position on the penalty ladder.

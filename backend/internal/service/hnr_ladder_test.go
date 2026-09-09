@@ -7,18 +7,24 @@ import (
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
+// hnrTestNoFallback is the site-wide threshold these cases pass in. Every stage
+// they build pins its own min_active_hnr, so the fallback is never consulted —
+// 0 makes that explicit, and would put every member on every rung if a case
+// ever did start relying on it.
+const hnrTestNoFallback = 0
+
 func ladderTestStages() []model.HnRPenaltyStage {
 	return []model.HnRPenaltyStage{
-		{Stage: 1, MinActiveHnR: 1, MinDaysInPrev: 0, Action: model.HnRActionNotify},
-		{Stage: 2, MinActiveHnR: 2, MinDaysInPrev: 3, Action: model.HnRActionWarn},
-		{Stage: 3, MinActiveHnR: 3, MinDaysInPrev: 5, Action: model.HnRActionRestrict},
-		{Stage: 4, MinActiveHnR: 4, MinDaysInPrev: 7, Action: model.HnRActionFinalNotice},
-		{Stage: 5, MinActiveHnR: 5, MinDaysInPrev: 3, Action: model.HnRActionBan},
+		{Stage: 1, MinActiveHnR: ptrInt(1), MinDaysInPrev: 0, Action: model.HnRActionNotify},
+		{Stage: 2, MinActiveHnR: ptrInt(2), MinDaysInPrev: 3, Action: model.HnRActionWarn},
+		{Stage: 3, MinActiveHnR: ptrInt(3), MinDaysInPrev: 5, Action: model.HnRActionRestrict},
+		{Stage: 4, MinActiveHnR: ptrInt(4), MinDaysInPrev: 7, Action: model.HnRActionFinalNotice},
+		{Stage: 5, MinActiveHnR: ptrInt(5), MinDaysInPrev: 3, Action: model.HnRActionBan},
 	}
 }
 
 func TestDecideHnRLadderStage_OffLadderWithNoActiveHnRStaysOff(t *testing.T) {
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 0, model.HnRUserState{Stage: 0}, time.Now())
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 0, model.HnRUserState{Stage: 0}, hnrTestNoFallback, time.Now())
 	if changed || newStage != 0 {
 		t.Errorf("expected no change at stage 0, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -30,7 +36,7 @@ func TestDecideHnRLadderStage_FirstBreachEntersStageOneImmediately(t *testing.T)
 	// before the first, lightest rung.
 	now := time.Now()
 	current := model.HnRUserState{Stage: 0, StageEnteredAt: now}
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 1, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 1, current, hnrTestNoFallback, now)
 	if !changed || newStage != 1 {
 		t.Errorf("expected immediate advance to stage 1, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -42,13 +48,13 @@ func TestDecideHnRLadderStage_EscalationWaitsForDwell(t *testing.T) {
 	// stage before advancing, so a count that already supports stage 2
 	// must still wait.
 	current := model.HnRUserState{Stage: 1, StageEnteredAt: now}
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 2, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 2, current, hnrTestNoFallback, now)
 	if changed || newStage != 1 {
 		t.Errorf("expected to stay at stage 1 during the dwell window, got newStage=%d changed=%v", newStage, changed)
 	}
 
 	later := now.AddDate(0, 0, 3)
-	newStage, changed = decideHnRLadderStage(ladderTestStages(), 2, current, later)
+	newStage, changed = decideHnRLadderStage(ladderTestStages(), 2, current, hnrTestNoFallback, later)
 	if !changed || newStage != 2 {
 		t.Errorf("expected to advance to stage 2 once the dwell has elapsed, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -60,7 +66,7 @@ func TestDecideHnRLadderStage_EscalationNeverSkipsARung(t *testing.T) {
 	// at a time, regardless of how far the count has run ahead.
 	now := time.Now()
 	current := model.HnRUserState{Stage: 1, StageEnteredAt: now.AddDate(0, 0, -10)}
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 5, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 5, current, hnrTestNoFallback, now)
 	if !changed || newStage != 2 {
 		t.Errorf("expected a single-rung advance to stage 2, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -72,7 +78,7 @@ func TestDecideHnRLadderStage_DeescalationDropsDirectlyToTarget(t *testing.T) {
 	// stage 1 in one step.
 	now := time.Now()
 	current := model.HnRUserState{Stage: 4, StageEnteredAt: now}
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 1, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 1, current, hnrTestNoFallback, now)
 	if !changed || newStage != 1 {
 		t.Errorf("expected a direct drop to stage 1, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -81,7 +87,7 @@ func TestDecideHnRLadderStage_DeescalationDropsDirectlyToTarget(t *testing.T) {
 func TestDecideHnRLadderStage_DeescalationToOffLadder(t *testing.T) {
 	now := time.Now()
 	current := model.HnRUserState{Stage: 2, StageEnteredAt: now}
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 0, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 0, current, hnrTestNoFallback, now)
 	if !changed || newStage != 0 {
 		t.Errorf("expected a drop to stage 0, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -92,7 +98,7 @@ func TestDecideHnRLadderStage_NoChangeWhenCountStillMatchesCurrentStage(t *testi
 	current := model.HnRUserState{Stage: 3, StageEnteredAt: now.AddDate(0, 0, -100)}
 	// Count of 3 supports exactly stage 3 (not stage 4, which needs 4) —
 	// nothing to do even though the dwell for stage 4 has long elapsed.
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 3, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 3, current, hnrTestNoFallback, now)
 	if changed || newStage != 3 {
 		t.Errorf("expected to stay at stage 3, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -101,12 +107,12 @@ func TestDecideHnRLadderStage_NoChangeWhenCountStillMatchesCurrentStage(t *testi
 func TestDecideHnRLadderStage_StallsWhenNextRungIsUnconfigured(t *testing.T) {
 	// A ladder with a gap: stage 2 is missing entirely.
 	stages := []model.HnRPenaltyStage{
-		{Stage: 1, MinActiveHnR: 1, MinDaysInPrev: 0, Action: model.HnRActionNotify},
-		{Stage: 3, MinActiveHnR: 3, MinDaysInPrev: 0, Action: model.HnRActionRestrict},
+		{Stage: 1, MinActiveHnR: ptrInt(1), MinDaysInPrev: 0, Action: model.HnRActionNotify},
+		{Stage: 3, MinActiveHnR: ptrInt(3), MinDaysInPrev: 0, Action: model.HnRActionRestrict},
 	}
 	now := time.Now()
 	current := model.HnRUserState{Stage: 1, StageEnteredAt: now.AddDate(0, 0, -30)}
-	newStage, changed := decideHnRLadderStage(stages, 3, current, now)
+	newStage, changed := decideHnRLadderStage(stages, 3, current, hnrTestNoFallback, now)
 	if changed || newStage != 1 {
 		t.Errorf("expected to stall at stage 1 with no stage 2 configured, got newStage=%d changed=%v", newStage, changed)
 	}
@@ -119,8 +125,53 @@ func TestDecideHnRLadderStage_DeescalationFromDeletedStageStillSettles(t *testin
 	// allows regardless of whether the row it's leaving still exists.
 	now := time.Now()
 	current := model.HnRUserState{Stage: 6, StageEnteredAt: now}
-	newStage, changed := decideHnRLadderStage(ladderTestStages(), 5, current, now)
+	newStage, changed := decideHnRLadderStage(ladderTestStages(), 5, current, hnrTestNoFallback, now)
 	if !changed || newStage != 5 {
 		t.Errorf("expected to settle at stage 5 (the highest configured), got newStage=%d changed=%v", newStage, changed)
+	}
+}
+
+// A rung with no min_active_hnr of its own is judged against the site-wide
+// hnr_penalty_threshold — the whole point of the setting is that changing one
+// number moves every deferring rung together.
+func TestDecideHnRLadderStage_RungsWithoutAThresholdFollowTheSiteWideOne(t *testing.T) {
+	stages := []model.HnRPenaltyStage{
+		{Stage: 1, MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify},
+		{Stage: 2, MinActiveHnR: nil, Action: model.HnRActionWarn},
+	}
+	now := time.Now()
+	current := model.HnRUserState{Stage: 1, StageEnteredAt: now.AddDate(0, 0, -30)}
+
+	// Below the site threshold: the deferring rung is out of reach.
+	if newStage, changed := decideHnRLadderStage(stages, 9, current, 10, now); changed || newStage != 1 {
+		t.Errorf("expected to stay at stage 1 below the threshold, got newStage=%d changed=%v", newStage, changed)
+	}
+	// At it: reachable.
+	if newStage, changed := decideHnRLadderStage(stages, 10, current, 10, now); !changed || newStage != 2 {
+		t.Errorf("expected to advance at the threshold, got newStage=%d changed=%v", newStage, changed)
+	}
+	// Lowering the setting alone is enough to bring the same count into range.
+	if newStage, changed := decideHnRLadderStage(stages, 9, current, 5, now); !changed || newStage != 2 {
+		t.Errorf("expected a lowered threshold to bring stage 2 into range, got newStage=%d changed=%v", newStage, changed)
+	}
+}
+
+// A rung that pins its own figure ignores the setting in both directions —
+// that is what makes it an override rather than a second default.
+func TestDecideHnRLadderStage_APinnedRungIgnoresTheSiteWideThreshold(t *testing.T) {
+	stages := []model.HnRPenaltyStage{
+		{Stage: 1, MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify},
+		{Stage: 2, MinActiveHnR: ptrInt(3), Action: model.HnRActionWarn},
+	}
+	now := time.Now()
+	current := model.HnRUserState{Stage: 1, StageEnteredAt: now.AddDate(0, 0, -30)}
+
+	// The setting is far higher than the pin; the pin wins.
+	if newStage, changed := decideHnRLadderStage(stages, 3, current, 500, now); !changed || newStage != 2 {
+		t.Errorf("expected the pinned rung to apply regardless of a high setting, got newStage=%d changed=%v", newStage, changed)
+	}
+	// And far lower; still the pin.
+	if newStage, changed := decideHnRLadderStage(stages, 2, current, 1, now); changed || newStage != 1 {
+		t.Errorf("expected the pinned rung to hold out against a low setting, got newStage=%d changed=%v", newStage, changed)
 	}
 }

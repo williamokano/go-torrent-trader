@@ -533,6 +533,286 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/hnr": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the authenticated member's own hit-and-run obligations
+     * @description Breach first, then monitored, then resolved. display_status is evaluated live on every call — see HnRRecordView — so the page is never stale between the daemon's hourly runs; state is what the daemon last persisted and can lag display_status by up to that interval.
+     */
+    get: operations["listMyHnRRecords"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/hnr/{id}/clear-price": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Price clearing one obligation with bonus points, without spending
+     * @description What POST .../clear would charge right now, computed the same way — server-side, from the member's class rule where it sets a clear-pricing override and the site-wide hnr_clear_* settings otherwise — so the member page can quote a price before the member commits.
+     */
+    get: operations["quoteHnRClear"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/hnr/{id}/clear": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Pay off one open hit-and-run obligation with bonus points
+     * @description The price is always computed server-side, freshly, inside the same request the points are spent in — the request body carries nothing to trust. The spend is race-safe against the balance (mirrors the bonus store's purchase flow). On success the penalty ladder is re-evaluated for the member immediately, so a restriction the clear paid off lifts in this response rather than waiting for the next daemon run.
+     */
+    post: operations["clearHnRRecord"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/hnr/clear-all": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Clear every open obligation the member can currently afford
+     * @description Cheapest first, stopping the moment the balance can't cover the next one. A partial clear is a 200, not an error — everything affordable got cleared, and stopped_insufficient_points says whether the balance ran out before the rest. Each record is priced and spent through the exact same path as POST .../clear, called in a loop — never a separately-computed total.
+     */
+    post: operations["clearAllHnRRecords"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/rules": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List every class's hit-and-run rule
+     * @description A class is subject to hit-and-run tracking if and only if it has a rule here — a class with none (VIP, by default) is exempt, with no other configuration needed. Ordered by group level.
+     */
+    get: operations["listHnRRules"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/rules/{groupId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Create or update a class's hit-and-run rule
+     * @description Refuses staff groups (admin/moderator), negative thresholds, and an invalid clear-pricing override (an unknown mode or a negative points figure). A threshold of 0 is unconstrained on that dimension — a rule with both required_seed_hours and required_ratio at 0 has no requirement at all and every snatch is immediately satisfied.
+     *
+     *     This replaces the whole rule: a clear-pricing key that is omitted or null is stored as "no override", which also clears one that was previously set. Send the full picture every time.
+     */
+    put: operations["upsertHnRRule"];
+    post?: never;
+    /** Remove a class from hit-and-run tracking entirely */
+    delete: operations["deleteHnRRule"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/exempt-rules": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the automatic hit-and-run exemption rules
+     * @description A torrent matching any enabled rule is flagged hnr_exempt (source 'auto') on the daemon's hourly sweep; when it stops matching every rule the auto exemption is lifted. Torrents a staff member set by hand are never touched by the pass.
+     */
+    get: operations["listHnRExemptRules"];
+    put?: never;
+    /** Add an automatic hit-and-run exemption rule */
+    post: operations["createHnRExemptRule"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/exempt-rules/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Edit an automatic hit-and-run exemption rule */
+    put: operations["updateHnRExemptRule"];
+    post?: never;
+    /**
+     * Remove an automatic hit-and-run exemption rule
+     * @description Torrents this rule alone auto-exempted are released on the next daemon sweep, since they no longer match any rule.
+     */
+    delete: operations["deleteHnRExemptRule"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/stages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the site-wide hit-and-run penalty ladder
+     * @description Ordered by stage. Empty means the ladder is unconfigured — the daemon still tracks and breaches records, but never escalates anyone.
+     */
+    get: operations["listHnRStages"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/stages/{stage}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Create or update one rung of the hit-and-run penalty ladder
+     * @description Escalation always advances exactly one stage per daemon run, gated by this stage's min_days_in_prev dwell against how long the member has sat at the previous stage — never straight to a harsher stage however far their active count has run ahead. De-escalation is not rationed and can drop several rungs in one run. restriction_types is only accepted (and required, at least one) when action is "restrict"; every other action rejects a non-empty restriction_types.
+     */
+    put: operations["upsertHnRStage"];
+    post?: never;
+    /**
+     * Remove one rung of the hit-and-run penalty ladder
+     * @description A member currently sitting at the deleted stage is left alone until the next run re-evaluates them against the remaining stages.
+     */
+    delete: operations["deleteHnRStage"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/run": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Force an immediate hit-and-run evaluation sweep
+     * @description Goes through the same two-stage advisory lock as the scheduled hourly run, so it is always safe to press even while a scheduled run happens to be in flight — it either runs immediately or queues behind exactly one other run and then runs.
+     */
+    post: operations["runHnRDaemon"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/runs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List recent hit-and-run daemon runs, most recent first */
+    get: operations["listHnRRuns"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/records": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List every hit-and-run record, filterable, for staff */
+    get: operations["listHnRAdminRecords"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/hnr/stats": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Site-wide hit-and-run aggregate counts and the top-offenders leaderboard */
+    get: operations["getHnRStats"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/admin/settings": {
     parameters: {
       query?: never;
@@ -1354,6 +1634,193 @@ export interface components {
       created_at?: string;
       /** Format: date-time */
       updated_at?: string;
+    };
+    /** @description One class's hit-and-run policy. */
+    HnRRule: {
+      /** Format: int64 */
+      group_id?: number;
+      required_seed_hours?: number;
+      /** Format: double */
+      required_ratio?: number;
+      inactivity_grace_hours?: number;
+      max_days_to_satisfy?: number;
+      /**
+       * @description Per-class override for hnr_clear_pricing_mode. Null (the default) falls back to the site-wide setting.
+       * @enum {string|null}
+       */
+      clear_pricing_mode?: "fixed" | "deficit" | null;
+      /** @description Per-class override for hnr_clear_base_points; null falls back. */
+      clear_base_points?: number | null;
+      /** @description Per-class override for hnr_clear_points_per_gib; null falls back. */
+      clear_points_per_gib?: number | null;
+      /** @description Per-class override for hnr_clear_points_per_gib_deficit; null falls back. */
+      clear_points_per_gib_deficit?: number | null;
+    };
+    /** @description A hit-and-run rule joined with its group, for the admin UI. */
+    HnRRuleView: {
+      /** Format: int64 */
+      group_id?: number;
+      group_name?: string;
+      group_level?: number;
+      is_staff?: boolean;
+      required_seed_hours?: number;
+      /** Format: double */
+      required_ratio?: number;
+      inactivity_grace_hours?: number;
+      max_days_to_satisfy?: number;
+      /**
+       * @description Per-class override for hnr_clear_pricing_mode; null = site-wide.
+       * @enum {string|null}
+       */
+      clear_pricing_mode?: "fixed" | "deficit" | null;
+      /** @description Per-class override for hnr_clear_base_points; null = site-wide. */
+      clear_base_points?: number | null;
+      /** @description Per-class override for hnr_clear_points_per_gib; null = site-wide. */
+      clear_points_per_gib?: number | null;
+      /** @description Per-class override for hnr_clear_points_per_gib_deficit; null = site-wide. */
+      clear_points_per_gib_deficit?: number | null;
+    };
+    /** @description One recorded run of the hit-and-run daemon. */
+    HnRRun: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: date-time */
+      started_at?: string;
+      /** Format: date-time */
+      finished_at?: string | null;
+      /** @enum {string} */
+      status?: "running" | "success" | "failed";
+      /** @enum {string} */
+      trigger?: "schedule" | "manual";
+      /**
+       * Format: int64
+       * @description Admin user id, present only for a manually-triggered run
+       */
+      triggered_by?: number | null;
+      scanned?: number;
+      breached?: number;
+      satisfied?: number;
+      stages_advanced?: number;
+      stages_decayed?: number;
+      purged?: number;
+      /** @description Torrents the auto-exemption pass flagged this run */
+      torrents_exempted?: number;
+      /** @description Auto-exempt torrents the pass un-flagged this run (no rule matches any more) */
+      torrents_released?: number;
+      error?: string | null;
+    };
+    /** @description One automatic hit-and-run exemption criterion. */
+    HnRExemptRule: {
+      /** Format: int64 */
+      id?: number;
+      /**
+       * @description min_seeders — exempt once seeders >= threshold. max_size_bytes — exempt when size (bytes) <= threshold.
+       * @enum {string}
+       */
+      criterion?: "min_seeders" | "max_size_bytes";
+      /** Format: int64 */
+      threshold?: number;
+      enabled?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    HnRExemptRuleInput: {
+      /** @enum {string} */
+      criterion: "min_seeders" | "max_size_bytes";
+      /** Format: int64 */
+      threshold: number;
+      enabled: boolean;
+    };
+    /** @description One ordered rung of the site-wide hit-and-run penalty ladder. */
+    HnRPenaltyStage: {
+      stage?: number;
+      /** @description Null means the rung uses the site-wide hnr_penalty_threshold setting. */
+      min_active_hnr?: number | null;
+      min_days_in_prev?: number;
+      /** @enum {string} */
+      action?: "notify" | "warn" | "restrict" | "final_notice" | "ban";
+      restriction_types?: string[];
+      /** @description 0 = indefinite (until de-escalated). */
+      restriction_days?: number;
+      message_template?: string;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    /** @description One hit-and-run record as shown to staff — every field, unfiltered by live evaluation (that's HnRRecordView, the member's own view). */
+    HnRAdminRecord: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      user_id?: number;
+      username?: string;
+      /** Format: int64 */
+      torrent_id?: number;
+      torrent_name?: string;
+      /** Format: int64 */
+      torrent_size?: number;
+      torrent_exempt?: boolean;
+      /** @enum {string} */
+      state?: "active" | "hnr" | "satisfied" | "cleared" | "waived";
+      /** Format: date-time */
+      completed_at?: string;
+      /** Format: date-time */
+      last_seen_at?: string;
+      /** Format: int64 */
+      seeded_seconds?: number;
+      /** Format: int64 */
+      uploaded?: number;
+      /** Format: date-time */
+      breached_at?: string | null;
+      /** Format: date-time */
+      resolved_at?: string | null;
+    };
+    /** @description One hit-and-run obligation as shown to the member who owns it. display_status is evaluated live on every request against the member's current class rule (see EvaluateHnRRecord) and the live peers overlay, so it can be ahead of state — never behind it — when the daemon has not yet run since something changed. */
+    HnRRecordView: {
+      /** Format: int64 */
+      id?: number;
+      /** Format: int64 */
+      torrent_id?: number;
+      torrent_name?: string;
+      /** Format: int64 */
+      torrent_size?: number;
+      /**
+       * @description The daemon-persisted state, as of its last run.
+       * @enum {string}
+       */
+      state?: "active" | "hnr" | "satisfied" | "cleared" | "waived";
+      /**
+       * @description The live-evaluated status the page should actually show.
+       * @enum {string}
+       */
+      display_status?:
+        | "breach"
+        | "monitoring"
+        | "satisfied"
+        | "cleared"
+        | "waived";
+      /** Format: date-time */
+      completed_at?: string;
+      /** Format: date-time */
+      last_seen_at?: string;
+      /** Format: int64 */
+      seeded_seconds?: number;
+      /** Format: int64 */
+      uploaded?: number;
+      /** Format: date-time */
+      breached_at?: string | null;
+      /** Format: date-time */
+      resolved_at?: string | null;
+      /** @description True when the member has an active seeding peer for this torrent right now, straight from the peers table. */
+      currently_seeding?: boolean;
+      /** @description Omitted when the member's current class carries no rule. */
+      required_seed_hours?: number | null;
+      /** Format: double */
+      required_ratio?: number | null;
+      inactivity_grace_hours?: number | null;
     };
     Category: {
       /** Format: int64 */
@@ -3271,6 +3738,921 @@ export interface operations {
       };
       /** @description Internal server error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listMyHnRRecords: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The member's obligations, oldest-first within each status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            records: components["schemas"]["HnRRecordView"][];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  quoteHnRClear: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The current price, in bonus points */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: int64 */
+            price?: number;
+          };
+        };
+      };
+      /** @description Invalid record ID, or the record is not open (already resolved) or not owned by the caller */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  clearHnRRecord: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Cleared */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: int64 */
+            price?: number;
+            /** Format: int64 */
+            new_balance?: number;
+          };
+        };
+      };
+      /** @description Invalid record ID, or the record is not open or not owned by the caller */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Insufficient bonus points */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  clearAllHnRRecords: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The sweep's outcome */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** @description How many obligations were cleared. */
+            cleared?: number;
+            /** Format: int64 */
+            total_spent?: number;
+            /** Format: int64 */
+            new_balance?: number;
+            stopped_insufficient_points?: boolean;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHnRRules: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Every configured rule */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            rules: components["schemas"]["HnRRuleView"][];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  upsertHnRRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The group (class) this rule applies to */
+        groupId: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @description Seed-time requirement in hours; 0 = unconstrained */
+          required_seed_hours?: number;
+          /**
+           * Format: double
+           * @description Ratio requirement, checked against the torrent's raw size — not counted/freeleech-discounted download — so freeleech torrents remain fully eligible. 0 = unconstrained.
+           */
+          required_ratio?: number;
+          /** @description How long a member may go without a seeding announce before breaching, once the requirement above is unmet. 0 means zero tolerance, not "disabled". */
+          inactivity_grace_hours?: number;
+          /** @description Hard cap from the snatch's completion, regardless of recent activity. 0 = no hard cap. */
+          max_days_to_satisfy?: number;
+          /**
+           * @description Per-class override for how clearing an obligation with bonus points is priced. Omit or null to use the site-wide hnr_clear_pricing_mode setting.
+           * @enum {string|null}
+           */
+          clear_pricing_mode?: "fixed" | "deficit" | null;
+          /** @description Per-class override for hnr_clear_base_points (>= 0). Omit or null to use the site-wide setting. */
+          clear_base_points?: number | null;
+          /** @description Per-class override for hnr_clear_points_per_gib (>= 0). Omit or null to use the site-wide setting. */
+          clear_points_per_gib?: number | null;
+          /** @description Per-class override for hnr_clear_points_per_gib_deficit (>= 0). Omit or null to use the site-wide setting. */
+          clear_points_per_gib_deficit?: number | null;
+        };
+      };
+    };
+    responses: {
+      /** @description The saved rule */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            rule?: components["schemas"]["HnRRule"];
+          };
+        };
+      };
+      /** @description Invalid group ID, negative threshold, invalid clear-pricing override, or malformed body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteHnRRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        groupId: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            deleted?: boolean;
+          };
+        };
+      };
+      /** @description Invalid group ID, or no rule exists for this group */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHnRExemptRules: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The rules */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            rules?: components["schemas"]["HnRExemptRule"][];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  createHnRExemptRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HnRExemptRuleInput"];
+      };
+    };
+    responses: {
+      /** @description The created rule */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            rule?: components["schemas"]["HnRExemptRule"];
+          };
+        };
+      };
+      /** @description Unknown criterion or negative threshold */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  updateHnRExemptRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HnRExemptRuleInput"];
+      };
+    };
+    responses: {
+      /** @description The updated rule */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            rule?: components["schemas"]["HnRExemptRule"];
+          };
+        };
+      };
+      /** @description Unknown criterion or negative threshold */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such rule */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteHnRExemptRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            deleted?: boolean;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description No such rule */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHnRStages: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Every configured stage */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            stages: components["schemas"]["HnRPenaltyStage"][];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  upsertHnRStage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The rung this defines. Must be at least 1 — stage 0 means "off the ladder" and is never a configured row. */
+        stage: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @description How many of the member's records must be in state 'hnr' to reach this stage. Null (or omitted) defers to the site-wide hnr_penalty_threshold setting, which is how one number retunes every rung at once; a value pins this rung regardless of that setting and must be at least 1. */
+          min_active_hnr?: number | null;
+          /** @description Days the member must have already dwelt at the previous stage before advancing into this one. 0 = no dwell. */
+          min_days_in_prev?: number;
+          /** @enum {string} */
+          action?: "notify" | "warn" | "restrict" | "final_notice" | "ban";
+          /** @description Only for action=restrict; at least one required. */
+          restriction_types?: string[];
+          /** @description Restriction duration for action=restrict. 0 = indefinite (until de-escalated). */
+          restriction_days?: number;
+          /** @description Supports {{username}}, {{stage}}, {{count}}, {{restriction_days}}. */
+          message_template?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description The saved stage */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            stage?: components["schemas"]["HnRPenaltyStage"];
+          };
+        };
+      };
+      /** @description Invalid stage number or malformed body */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteHnRStage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        stage: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            deleted?: boolean;
+          };
+        };
+      };
+      /** @description No stage exists at this number */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  runHnRDaemon: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The run's outcome. skipped=true means another run was already queued and this invocation dropped rather than waiting behind the queue. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            skipped?: boolean;
+            /** Format: int64 */
+            run_id?: number;
+            scanned?: number;
+            breached?: number;
+            satisfied?: number;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description The daemon has no database handle for locking (misconfigured deployment) */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHnRRuns: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The run log */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            runs: components["schemas"]["HnRRun"][];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHnRAdminRecords: {
+    parameters: {
+      query?: {
+        state?: "active" | "hnr" | "satisfied" | "cleared" | "waived";
+        user_id?: number;
+        /** @description Matches username or torrent name. */
+        search?: string;
+        page?: number;
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of records */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            records: components["schemas"]["HnRAdminRecord"][];
+            /** Format: int64 */
+            total: number;
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getHnRStats: {
+    parameters: {
+      query?: {
+        /** @description Top-offenders leaderboard size. */
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The dashboard's counts and leaderboard */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /**
+             * Format: int64
+             * @description Records currently in breach (state=hnr).
+             */
+            active_hnr?: number;
+            /** Format: int64 */
+            monitored?: number;
+            /** Format: int64 */
+            satisfied?: number;
+            /** Format: int64 */
+            cleared?: number;
+            /** Format: int64 */
+            waived?: number;
+            /** Format: int64 */
+            breached_today?: number;
+            top_offenders?: {
+              /** Format: int64 */
+              user_id?: number;
+              username?: string;
+              /** Format: int64 */
+              active_hnr?: number;
+              /** Format: int64 */
+              total_records?: number;
+              stage?: number;
+            }[];
+          };
+        };
+      };
+      /** @description Not authenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not an administrator */
+      403: {
         headers: {
           [name: string]: unknown;
         };

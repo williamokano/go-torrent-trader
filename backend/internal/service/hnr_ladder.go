@@ -23,10 +23,16 @@ import (
 // name a stage no longer configured (deleted by an admin after a user
 // reached it) — decideHnRLadderStage stalls rather than guessing in that
 // case, since there is nothing to advance into.
-func decideHnRLadderStage(stages []model.HnRPenaltyStage, activeCount int, current model.HnRUserState, now time.Time) (newStage int, changed bool) {
+//
+// siteThreshold is hnr_penalty_threshold, the fallback for every rung that
+// carries no min_active_hnr of its own. It is resolved through
+// EffectiveMinActiveHnR, never re-derived here — the whole point of the
+// setting is that one number moves every deferring rung together, which only
+// holds while there is exactly one place the fallback is applied.
+func decideHnRLadderStage(stages []model.HnRPenaltyStage, activeCount int, current model.HnRUserState, siteThreshold int, now time.Time) (newStage int, changed bool) {
 	target := 0
 	for _, st := range stages {
-		if activeCount >= st.MinActiveHnR && st.Stage > target {
+		if activeCount >= st.EffectiveMinActiveHnR(siteThreshold) && st.Stage > target {
 			target = st.Stage
 		}
 	}

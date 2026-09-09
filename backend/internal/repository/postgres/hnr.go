@@ -316,11 +316,18 @@ func (r *HnRRepo) ListStages(ctx context.Context) ([]model.HnRPenaltyStage, erro
 	for rows.Next() {
 		var s model.HnRPenaltyStage
 		var restrictionTypesJSON string
+		var minActiveHnR sql.NullInt64
 		if err := rows.Scan(
-			&s.Stage, &s.MinActiveHnR, &s.MinDaysInPrev, &s.Action, &restrictionTypesJSON,
+			&s.Stage, &minActiveHnR, &s.MinDaysInPrev, &s.Action, &restrictionTypesJSON,
 			&s.RestrictionDays, &s.MessageTemplate, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan hnr penalty stage: %w", err)
+		}
+		// NULL means the rung defers to the site-wide hnr_penalty_threshold;
+		// see model.HnRPenaltyStage.MinActiveHnR.
+		if minActiveHnR.Valid {
+			n := int(minActiveHnR.Int64)
+			s.MinActiveHnR = &n
 		}
 		if err := json.Unmarshal([]byte(restrictionTypesJSON), &s.RestrictionTypes); err != nil {
 			return nil, fmt.Errorf("decode hnr penalty stage restriction types: %w", err)

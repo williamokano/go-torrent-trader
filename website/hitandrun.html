@@ -187,8 +187,12 @@
             count warrants in one step. Improving is never rationed.
           </p>
           <p>
-            The shipped ladder is calibrated against TorrentLeech's published
-            rules, and stops one rung short of them:
+            How many unresolved hit-and-runs it takes to reach a penalty rung is
+            one setting, <code>hnr_penalty_threshold</code>, rather than a figure
+            repeated on every rung. Changing it moves the whole ladder together.
+            It ships at <strong>50</strong>, calibrated against TorrentLeech's
+            published rules, and the ladder below stops one rung short of theirs
+            at every point:
           </p>
           <table>
             <thead>
@@ -210,7 +214,7 @@
               </tr>
               <tr>
                 <td>2</td>
-                <td>50 hit-and-runs</td>
+                <td>the threshold (50)</td>
                 <td>
                   A notice that the account has crossed the threshold at which
                   warnings begin, and that it has five days to drop back below
@@ -219,17 +223,17 @@
               </tr>
               <tr>
                 <td>3</td>
-                <td>50, held 5 days</td>
+                <td>the threshold, held 5 days</td>
                 <td>A formal warning.</td>
               </tr>
               <tr>
                 <td>4</td>
-                <td>50, held a further 30 days</td>
+                <td>the threshold, held a further 30 days</td>
                 <td>A second formal warning.</td>
               </tr>
               <tr>
                 <td>5</td>
-                <td>50, held a further 30 days</td>
+                <td>the threshold, held a further 30 days</td>
                 <td>
                   Downloading is suspended for 14 days. Forum, chat and
                   everything else are untouched — they have nothing to do with
@@ -238,16 +242,18 @@
               </tr>
               <tr>
                 <td>6</td>
-                <td>50, held a further 30 days</td>
+                <td>the threshold, held a further 30 days</td>
                 <td>The account is disabled.</td>
               </tr>
             </tbody>
           </table>
           <p>
-            So the earliest an account can be disabled by this system is roughly
-            <strong>95 days</strong> of continuously holding 50 or more
-            unresolved hit-and-runs, through two warnings and a download
-            suspension. Fewer than 50 and the ladder never leaves rung one.
+            So at the shipped threshold the earliest an account can be disabled
+            by this system is roughly <strong>95 days</strong> of continuously
+            holding 50 or more unresolved hit-and-runs, through two warnings and
+            a download suspension. Below the threshold the ladder never leaves
+            rung one — a member with one forgotten torrent gets a reminder and
+            is otherwise left alone.
           </p>
           <p>
             Falling back below a threshold reverses everything automatically:
@@ -261,13 +267,14 @@
           <div class="note">
             <p>
               <strong>Every number above is editable</strong> on the Hit-and-Run
-              admin page — thresholds, dwell times, actions, which privileges a
-              restrict rung suspends, and the message each one sends. Rungs can
-              be added and removed. A threshold of 50 is calibrated against one
-              of the largest private trackers in existence; a site with a few
-              hundred members will likely want it much lower, and lowering it is
-              a deliberate decision to be stricter than that benchmark rather
-              than something the defaults do on an operator's behalf.
+              admin page — the threshold, dwell times, actions, which privileges
+              a restrict rung suspends, and the message each one sends. Rungs can
+              be added and removed. 50 is calibrated against one of the largest
+              private trackers in existence, so a site with a few hundred members
+              will want it far lower; that is one number to change, at the top of
+              the penalty ladder section. A rung can also pin its own figure and
+              ignore the threshold entirely, which is how the opening reminder
+              stays at one obligation however the rest of the ladder is tuned.
             </p>
           </div>
         </div>

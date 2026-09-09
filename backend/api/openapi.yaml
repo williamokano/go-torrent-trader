@@ -2105,7 +2105,12 @@ paths:
               properties:
                 min_active_hnr:
                   type: integer
-                  description: How many of the member's records must be in state 'hnr' to reach this stage. Must be at least 1.
+                  nullable: true
+                  description: >-
+                    How many of the member's records must be in state 'hnr' to reach this stage.
+                    Null (or omitted) defers to the site-wide hnr_penalty_threshold setting, which
+                    is how one number retunes every rung at once; a value pins this rung regardless
+                    of that setting and must be at least 1.
                 min_days_in_prev:
                   type: integer
                   description: Days the member must have already dwelt at the previous stage before advancing into this one. 0 = no dwell.
@@ -5170,6 +5175,8 @@ components:
           type: integer
         min_active_hnr:
           type: integer
+          nullable: true
+          description: Null means the rung uses the site-wide hnr_penalty_threshold setting.
         min_days_in_prev:
           type: integer
         action:

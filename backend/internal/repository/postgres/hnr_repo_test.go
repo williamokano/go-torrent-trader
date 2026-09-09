@@ -655,7 +655,7 @@ func TestHnRRepo_StagesCRUD(t *testing.T) {
 	// leave the shipped ladder altered for whichever tests ran after it.
 	const scratchStage = 90
 	stage := &model.HnRPenaltyStage{
-		Stage: scratchStage, MinActiveHnR: 2, MinDaysInPrev: 21, Action: model.HnRActionBan,
+		Stage: scratchStage, MinActiveHnR: ptr(2), MinDaysInPrev: 21, Action: model.HnRActionBan,
 		RestrictionTypes: []string{}, MessageTemplate: "final",
 	}
 	if err := repo.UpsertStage(ctx, stage); err != nil {
@@ -1093,18 +1093,18 @@ func TestHnRSeededLadderMatchesTheLenientDefaults(t *testing.T) {
 
 	want := []struct {
 		stage            int
-		minActiveHnR     int
+		minActiveHnR     *int // nil = defers to hnr_penalty_threshold
 		minDaysInPrev    int
 		action           string
 		restrictionTypes []string
 		restrictionDays  int
 	}{
-		{1, 1, 0, model.HnRActionNotify, nil, 0},
-		{2, 50, 0, model.HnRActionNotify, nil, 0},
-		{3, 50, 5, model.HnRActionWarn, nil, 0},
-		{4, 50, 30, model.HnRActionWarn, nil, 0},
-		{5, 50, 30, model.HnRActionRestrict, []string{model.RestrictionTypeDownload}, 14},
-		{6, 50, 30, model.HnRActionBan, nil, 0},
+		{1, ptr(1), 0, model.HnRActionNotify, nil, 0},
+		{2, nil, 0, model.HnRActionNotify, nil, 0},
+		{3, nil, 5, model.HnRActionWarn, nil, 0},
+		{4, nil, 30, model.HnRActionWarn, nil, 0},
+		{5, nil, 30, model.HnRActionRestrict, []string{model.RestrictionTypeDownload}, 14},
+		{6, nil, 30, model.HnRActionBan, nil, 0},
 	}
 	if len(stages) != len(want) {
 		t.Fatalf("expected %d seeded rungs, got %d: %+v", len(want), len(stages), stages)
@@ -1116,8 +1116,11 @@ func TestHnRSeededLadderMatchesTheLenientDefaults(t *testing.T) {
 			t.Errorf("stage %d is missing from the seeded ladder", w.stage)
 			continue
 		}
-		if got.MinActiveHnR != w.minActiveHnR || got.MinDaysInPrev != w.minDaysInPrev || got.Action != w.action {
-			t.Errorf("stage %d: got min_active_hnr=%d min_days_in_prev=%d action=%q, want %d/%d/%q",
+		// nil means the rung defers to hnr_penalty_threshold, which is what
+		// every penalising rung does after 086 — the shipped 50 lives in the
+		// setting now, not repeated across five rows.
+		if !intPtrEq(got.MinActiveHnR, w.minActiveHnR) || got.MinDaysInPrev != w.minDaysInPrev || got.Action != w.action {
+			t.Errorf("stage %d: got min_active_hnr=%v min_days_in_prev=%d action=%q, want %v/%d/%q",
 				w.stage, got.MinActiveHnR, got.MinDaysInPrev, got.Action,
 				w.minActiveHnR, w.minDaysInPrev, w.action)
 		}
@@ -1129,4 +1132,11 @@ func TestHnRSeededLadderMatchesTheLenientDefaults(t *testing.T) {
 			t.Errorf("stage %d: seeded rung has no message template", w.stage)
 		}
 	}
+}
+
+func intPtrEq(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

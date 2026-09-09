@@ -111,6 +111,15 @@ directly by the announce path rather than derived after the fact
   081 ladder put every rung at one obligation and banned in 31 days, which was
   drastically stricter than the tracker it was modelled on (#282). 085 only
   rewrites rungs still at their 081 values, so an operator's tuning survives.
+  `min_active_hnr` is nullable as of 086: NULL defers to the site-wide
+  `hnr_penalty_threshold` (50), so the count that triggers penalties is one
+  setting rather than the same figure repeated on five rows that nothing forced
+  to agree — the ladder targets the *highest* rung a count clears, so a
+  half-finished edit could quietly land a member several rungs up. Rung 1 pins
+  an explicit 1: the opening reminder fires on the first unmet obligation by
+  design. Resolve it through `HnRPenaltyStage.EffectiveMinActiveHnR`, never by
+  dereferencing — one fallback site is what makes the setting move every
+  deferring rung together.
   De-escalation lifts across every restriction type rather than the ones the
   live ladder names — deriving that list from the stages stranded restrictions
   whose type a later edit dropped.

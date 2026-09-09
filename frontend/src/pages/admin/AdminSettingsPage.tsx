@@ -454,6 +454,14 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     type: "number",
   },
   {
+    key: "hnr_penalty_threshold",
+    section: "Hit-and-run",
+    label: "Penalty Threshold",
+    description:
+      "How many unresolved obligations a member must be carrying before the penalty ladder's rungs apply at all — the one number that makes the ladder stricter or more lenient across the board. Individual rungs can pin their own figure on the Hit-and-Run page and then ignore this; the shipped ladder pins only the opening reminder, at 1. Default: 50, which is TorrentLeech's — a site with a few hundred members will want it far lower.",
+    type: "number",
+  },
+  {
     key: "hnr_warning_expiry_days",
     section: "Hit-and-run",
     label: "Warning Expiry (days)",

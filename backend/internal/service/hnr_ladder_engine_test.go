@@ -34,11 +34,11 @@ func setupHnRServiceWithLadder() (svc *HnRService, hnr *fakeHnRRepo, users *mock
 // own stages instead.
 func standardLadder() []model.HnRPenaltyStage {
 	return []model.HnRPenaltyStage{
-		{Stage: 1, MinActiveHnR: 1, MinDaysInPrev: 0, Action: model.HnRActionNotify, MessageTemplate: "Notice: {{username}} has {{count}} active hit-and-runs."},
-		{Stage: 2, MinActiveHnR: 2, MinDaysInPrev: 0, Action: model.HnRActionWarn, MessageTemplate: "Warning: {{username}} has {{count}} active hit-and-runs."},
-		{Stage: 3, MinActiveHnR: 3, MinDaysInPrev: 0, Action: model.HnRActionRestrict, RestrictionTypes: []string{model.RestrictionTypeDownload}, RestrictionDays: 7, MessageTemplate: "Restricted: {{username}}."},
-		{Stage: 4, MinActiveHnR: 4, MinDaysInPrev: 0, Action: model.HnRActionFinalNotice, MessageTemplate: "Final notice: {{username}}."},
-		{Stage: 5, MinActiveHnR: 5, MinDaysInPrev: 0, Action: model.HnRActionBan, MessageTemplate: "Banned: {{username}}."},
+		{Stage: 1, MinActiveHnR: ptrInt(1), MinDaysInPrev: 0, Action: model.HnRActionNotify, MessageTemplate: "Notice: {{username}} has {{count}} active hit-and-runs."},
+		{Stage: 2, MinActiveHnR: ptrInt(2), MinDaysInPrev: 0, Action: model.HnRActionWarn, MessageTemplate: "Warning: {{username}} has {{count}} active hit-and-runs."},
+		{Stage: 3, MinActiveHnR: ptrInt(3), MinDaysInPrev: 0, Action: model.HnRActionRestrict, RestrictionTypes: []string{model.RestrictionTypeDownload}, RestrictionDays: 7, MessageTemplate: "Restricted: {{username}}."},
+		{Stage: 4, MinActiveHnR: ptrInt(4), MinDaysInPrev: 0, Action: model.HnRActionFinalNotice, MessageTemplate: "Final notice: {{username}}."},
+		{Stage: 5, MinActiveHnR: ptrInt(5), MinDaysInPrev: 0, Action: model.HnRActionBan, MessageTemplate: "Banned: {{username}}."},
 	}
 }
 
@@ -368,8 +368,8 @@ func TestHnRLadder_DoubleRunIsSafe(t *testing.T) {
 func TestHnRService_ListStages_OrderedByStage(t *testing.T) {
 	svc, hnr, _, _, _, _, _ := setupHnRServiceWithLadder()
 	seedStages(t, hnr, []model.HnRPenaltyStage{
-		{Stage: 3, MinActiveHnR: 3, Action: model.HnRActionRestrict, RestrictionTypes: []string{model.RestrictionTypeDownload}},
-		{Stage: 1, MinActiveHnR: 1, Action: model.HnRActionNotify},
+		{Stage: 3, MinActiveHnR: ptrInt(3), Action: model.HnRActionRestrict, RestrictionTypes: []string{model.RestrictionTypeDownload}},
+		{Stage: 1, MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify},
 	})
 
 	stages, err := svc.ListStages(context.Background())
@@ -388,13 +388,13 @@ func TestHnRService_UpsertStage_Validation(t *testing.T) {
 		name string
 		in   HnRStageInput
 	}{
-		{"unknown action", HnRStageInput{MinActiveHnR: 1, Action: "explode"}},
-		{"restrict with no types", HnRStageInput{MinActiveHnR: 1, Action: model.HnRActionRestrict}},
-		{"restrict with bad type", HnRStageInput{MinActiveHnR: 1, Action: model.HnRActionRestrict, RestrictionTypes: []string{"nonsense"}}},
-		{"notify with types set", HnRStageInput{MinActiveHnR: 1, Action: model.HnRActionNotify, RestrictionTypes: []string{model.RestrictionTypeDownload}}},
-		{"zero min_active_hnr", HnRStageInput{MinActiveHnR: 0, Action: model.HnRActionNotify}},
-		{"negative min_days_in_prev", HnRStageInput{MinActiveHnR: 1, MinDaysInPrev: -1, Action: model.HnRActionNotify}},
-		{"negative restriction_days", HnRStageInput{MinActiveHnR: 1, Action: model.HnRActionNotify, RestrictionDays: -1}},
+		{"unknown action", HnRStageInput{MinActiveHnR: ptrInt(1), Action: "explode"}},
+		{"restrict with no types", HnRStageInput{MinActiveHnR: ptrInt(1), Action: model.HnRActionRestrict}},
+		{"restrict with bad type", HnRStageInput{MinActiveHnR: ptrInt(1), Action: model.HnRActionRestrict, RestrictionTypes: []string{"nonsense"}}},
+		{"notify with types set", HnRStageInput{MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify, RestrictionTypes: []string{model.RestrictionTypeDownload}}},
+		{"zero min_active_hnr", HnRStageInput{MinActiveHnR: ptrInt(0), Action: model.HnRActionNotify}},
+		{"negative min_days_in_prev", HnRStageInput{MinActiveHnR: ptrInt(1), MinDaysInPrev: -1, Action: model.HnRActionNotify}},
+		{"negative restriction_days", HnRStageInput{MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify, RestrictionDays: -1}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -404,7 +404,7 @@ func TestHnRService_UpsertStage_Validation(t *testing.T) {
 		})
 	}
 
-	if _, err := svc.UpsertStage(context.Background(), 0, HnRStageInput{MinActiveHnR: 1, Action: model.HnRActionNotify}); !errors.Is(err, ErrHnRInvalidStage) {
+	if _, err := svc.UpsertStage(context.Background(), 0, HnRStageInput{MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify}); !errors.Is(err, ErrHnRInvalidStage) {
 		t.Errorf("stage=0: got %v, want ErrHnRInvalidStage", err)
 	}
 }
@@ -413,19 +413,19 @@ func TestHnRService_UpsertStage_HappyPath(t *testing.T) {
 	svc, _, _, _, _, _, _ := setupHnRServiceWithLadder()
 
 	row, err := svc.UpsertStage(context.Background(), 2, HnRStageInput{
-		MinActiveHnR: 2, MinDaysInPrev: 3, Action: model.HnRActionWarn, MessageTemplate: "hi",
+		MinActiveHnR: ptrInt(2), MinDaysInPrev: 3, Action: model.HnRActionWarn, MessageTemplate: "hi",
 	})
 	if err != nil {
 		t.Fatalf("UpsertStage: %v", err)
 	}
-	if row.Stage != 2 || row.MinActiveHnR != 2 {
+	if row.Stage != 2 || (row.MinActiveHnR == nil || *row.MinActiveHnR != 2) {
 		t.Errorf("unexpected row: %+v", row)
 	}
 }
 
 func TestHnRService_DeleteStage(t *testing.T) {
 	svc, hnr, _, _, _, _, _ := setupHnRServiceWithLadder()
-	seedStages(t, hnr, []model.HnRPenaltyStage{{Stage: 1, MinActiveHnR: 1, Action: model.HnRActionNotify}})
+	seedStages(t, hnr, []model.HnRPenaltyStage{{Stage: 1, MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify}})
 
 	if err := svc.DeleteStage(context.Background(), 1); err != nil {
 		t.Fatalf("DeleteStage: %v", err)
@@ -552,5 +552,81 @@ func TestHnRLadder_ZeroExpiryWindowLeavesWarningsPermanent(t *testing.T) {
 	}
 	if len(issued) != 1 || issued[0].ExpiresAt != nil {
 		t.Fatalf("expected one permanent warning, got %+v", issued)
+	}
+}
+
+// End to end through the daemon's sweep: the shipped ladder shape (a reminder
+// pinned at 1, penalising rungs deferring) means lowering hnr_penalty_threshold
+// is all an operator has to do to make the ladder bite sooner.
+func TestHnRLadder_PenaltyThresholdSettingDrivesTheDeferringRungs(t *testing.T) {
+	run := func(t *testing.T, threshold string, activeRecords int) int {
+		t.Helper()
+		hnr := newFakeHnRRepo()
+		users := newMockUserRepoForRestrictions()
+		bus := event.NewInMemoryBus()
+		settings := NewSiteSettingsService(newMockSiteSettingsRepo(), bus)
+		if err := settings.Set(context.Background(), SettingHnRPenaltyThreshold, threshold,
+			event.Actor{ID: 0, Username: "System"}); err != nil {
+			t.Fatalf("set threshold: %v", err)
+		}
+		svc := NewHnRService(nil, hnr, &fakeHnRGroupRepo{groups: hnrTestGroups()}, users,
+			NewWarningService(newMockWarningRepo(), users, newMockMessageRepoForWarnings(), bus),
+			NewRestrictionService(newMockRestrictionRepo(), users, bus), settings, bus)
+
+		seedStages(t, hnr, []model.HnRPenaltyStage{
+			{Stage: 1, MinActiveHnR: ptrInt(1), MinDaysInPrev: 0, Action: model.HnRActionNotify, MessageTemplate: "notice"},
+			{Stage: 2, MinActiveHnR: nil, MinDaysInPrev: 0, Action: model.HnRActionWarn, MessageTemplate: "warning"},
+		})
+		users.addUser(&model.User{ID: 1, Username: "kim", Enabled: true})
+		for i := int64(1); i <= int64(activeRecords); i++ {
+			hnr.records[i] = &model.HnRRecord{ID: i, UserID: 1, TorrentID: 100 + i, State: model.HnRStateBreach}
+		}
+		hnr.nextID = int64(activeRecords) + 1
+
+		now := time.Now()
+		for step := 0; step < 2; step++ {
+			if _, _, err := svc.runLadder(context.Background(), now); err != nil {
+				t.Fatalf("runLadder step %d: %v", step, err)
+			}
+		}
+		state, err := hnr.GetUserState(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("get user state: %v", err)
+		}
+		return state.Stage
+	}
+
+	// Three obligations against the shipped threshold of 50: the reminder rung
+	// and no further, because rung 2 defers.
+	if got := run(t, "50", 3); got != 1 {
+		t.Errorf("expected to stall on the reminder rung under a threshold of 50, got stage %d", got)
+	}
+	// The same member, the same records, on a site that lowered the threshold.
+	if got := run(t, "3", 3); got != 2 {
+		t.Errorf("expected the warning rung once the threshold is lowered to 3, got stage %d", got)
+	}
+}
+
+// With no settings service wired the ladder must not fall through to a
+// threshold of 0, which would put every member on every deferring rung.
+func TestHnRLadder_MissingSettingsFallsBackToTheShippedThreshold(t *testing.T) {
+	svc, hnr, users, _, _, _, _ := setupHnRServiceWithLadder() // built with settings = nil
+	seedStages(t, hnr, []model.HnRPenaltyStage{
+		{Stage: 1, MinActiveHnR: ptrInt(1), Action: model.HnRActionNotify, MessageTemplate: "notice"},
+		{Stage: 2, MinActiveHnR: nil, Action: model.HnRActionWarn, MessageTemplate: "warning"},
+	})
+	users.addUser(&model.User{ID: 1, Username: "lee", Enabled: true})
+	hnr.records[1] = &model.HnRRecord{ID: 1, UserID: 1, TorrentID: 101, State: model.HnRStateBreach}
+	hnr.nextID = 2
+
+	now := time.Now()
+	for step := 0; step < 2; step++ {
+		if _, _, err := svc.runLadder(context.Background(), now); err != nil {
+			t.Fatalf("runLadder step %d: %v", step, err)
+		}
+	}
+	state, _ := hnr.GetUserState(context.Background(), 1)
+	if state.Stage != 1 {
+		t.Fatalf("one obligation must not reach a deferring rung, got stage %d", state.Stage)
 	}
 }

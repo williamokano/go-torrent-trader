@@ -125,6 +125,15 @@ const (
 	// behaviour", which the shipped 30-day default matches. 0 makes ladder
 	// warnings permanent, the behaviour before #282.
 	SettingHnRWarningExpiryDays = "hnr_warning_expiry_days"
+	// SettingHnRPenaltyThreshold is how many unresolved obligations a member
+	// must be carrying before the ladder's penalty rungs apply at all — the
+	// one number an operator retunes to make the ladder stricter or more
+	// lenient across the board. Every rung whose own min_active_hnr is NULL
+	// reads this; the shipped ladder leaves all of them NULL except the
+	// opening reminder, which is pinned at 1 by design. Defaults to 50,
+	// TorrentLeech's figure, which suits a site of their size — a tracker
+	// with a few hundred members will want it far lower.
+	SettingHnRPenaltyThreshold = "hnr_penalty_threshold"
 
 	// HnRClearPricingModeFixed and HnRClearPricingModeDeficit are the two
 	// valid values of SettingHnRClearPricingMode.
@@ -238,6 +247,16 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 		}
 		if n < 0 {
 			return fmt.Errorf("%w: %s cannot be negative", ErrInvalidSetting, key)
+		}
+	case SettingHnRPenaltyThreshold:
+		// At least 1, unlike the other HnR numerics: a threshold of 0 would
+		// put every member with no obligations at all onto the penalty rungs.
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("%w: %s must be a whole number", ErrInvalidSetting, key)
+		}
+		if n < 1 {
+			return fmt.Errorf("%w: %s must be at least 1", ErrInvalidSetting, key)
 		}
 	case SettingConnectorDeliveryRetentionDays:
 		// Zero or negative is meaningful (it disables pruning), so only

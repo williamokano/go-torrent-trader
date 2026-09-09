@@ -103,7 +103,8 @@ const RECORDS_PER_PAGE = 20;
 
 interface HnRStage {
   stage: number;
-  min_active_hnr: number;
+  /** null = the rung defers to the site-wide hnr_penalty_threshold setting. */
+  min_active_hnr: number | null;
   min_days_in_prev: number;
   action: string;
   restriction_types: string[];
@@ -112,6 +113,7 @@ interface HnRStage {
 }
 
 interface StageDraft {
+  /** "" = defer to the site-wide threshold; a number pins this rung. */
   min_active_hnr: string;
   min_days_in_prev: string;
   action: string;
@@ -139,7 +141,7 @@ const RESTRICTION_TYPE_OPTIONS: { value: string; label: string }[] = [
 
 function stageToDraft(s: HnRStage): StageDraft {
   return {
-    min_active_hnr: String(s.min_active_hnr),
+    min_active_hnr: s.min_active_hnr === null ? "" : String(s.min_active_hnr),
     min_days_in_prev: String(s.min_days_in_prev),
     action: s.action,
     restriction_types: s.restriction_types ?? [],
@@ -149,7 +151,10 @@ function stageToDraft(s: HnRStage): StageDraft {
 }
 
 const emptyStageDraft: StageDraft = {
-  min_active_hnr: "1",
+  // Empty = inherit the site-wide threshold, which is what a new rung almost
+  // always wants: pinning a figure here opts that rung out of the one setting
+  // an operator retunes the ladder with.
+  min_active_hnr: "",
   min_days_in_prev: "0",
   action: "notify",
   restriction_types: [],
@@ -274,6 +279,12 @@ export function AdminHitAndRunPage() {
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
+  // The site-wide penalty threshold every rung with a blank min_active_hnr
+  // uses. Held here (rather than only on the settings page) so the ladder shows
+  // the number it is actually applying, and can be retuned where it is read.
+  const [penaltyThreshold, setPenaltyThreshold] = useState("");
+  const [thresholdInitial, setThresholdInitial] = useState("");
+  const [savingThreshold, setSavingThreshold] = useState(false);
   const [stages, setStages] = useState<HnRStage[]>([]);
   const [stageInitial, setStageInitial] = useState<Record<number, StageDraft>>(
     {},
@@ -304,28 +315,41 @@ export function AdminHitAndRunPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [gRes, rRes, runsRes, stagesRes, exemptRes] = await Promise.all([
-        fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
-          headers: authHeaders(),
-        }),
-        fetch(`${getConfig().API_URL}/api/v1/admin/hnr/rules`, {
-          headers: authHeaders(),
-        }),
-        fetch(`${getConfig().API_URL}/api/v1/admin/hnr/runs?limit=5`, {
-          headers: authHeaders(),
-        }),
-        fetch(`${getConfig().API_URL}/api/v1/admin/hnr/stages`, {
-          headers: authHeaders(),
-        }),
-        fetch(`${getConfig().API_URL}/api/v1/admin/hnr/exempt-rules`, {
-          headers: authHeaders(),
-        }),
-      ]);
+      const [gRes, rRes, runsRes, stagesRes, exemptRes, settingsRes] =
+        await Promise.all([
+          fetch(`${getConfig().API_URL}/api/v1/admin/groups`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${getConfig().API_URL}/api/v1/admin/hnr/rules`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${getConfig().API_URL}/api/v1/admin/hnr/runs?limit=5`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${getConfig().API_URL}/api/v1/admin/hnr/stages`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${getConfig().API_URL}/api/v1/admin/hnr/exempt-rules`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${getConfig().API_URL}/api/v1/admin/settings`, {
+            headers: authHeaders(),
+          }),
+        ]);
       const gBody = gRes.ok ? await gRes.json() : { groups: [] };
       const rBody = rRes.ok ? await rRes.json() : { rules: [] };
       const runsBody = runsRes.ok ? await runsRes.json() : { runs: [] };
       const stagesBody = stagesRes.ok ? await stagesRes.json() : { stages: [] };
       const exemptBody = exemptRes.ok ? await exemptRes.json() : { rules: [] };
+      const settingsBody = settingsRes.ok
+        ? await settingsRes.json()
+        : { settings: [] };
+      const threshold =
+        (
+          settingsBody.settings as { key: string; value: string }[] | undefined
+        )?.find((x) => x.key === "hnr_penalty_threshold")?.value ?? "";
+      setPenaltyThreshold(threshold);
+      setThresholdInitial(threshold);
       const nextExemptRules: HnRExemptRule[] = exemptBody.rules ?? [];
       setExemptRules(nextExemptRules);
       setExemptThreshold(
@@ -625,7 +649,8 @@ export function AdminHitAndRunPage() {
   };
 
   const stageDraftToPayload = (d: StageDraft) => ({
-    min_active_hnr: Number(d.min_active_hnr) || 0,
+    min_active_hnr:
+      d.min_active_hnr.trim() === "" ? null : Number(d.min_active_hnr),
     min_days_in_prev: Number(d.min_days_in_prev) || 0,
     action: d.action,
     restriction_types: d.action === "restrict" ? d.restriction_types : [],
@@ -653,6 +678,31 @@ export function AdminHitAndRunPage() {
       }
     } finally {
       setStageSavingId(null);
+    }
+  };
+
+  const saveThreshold = async () => {
+    setSavingThreshold(true);
+    try {
+      const res = await fetch(
+        `${getConfig().API_URL}/api/v1/admin/settings/hnr_penalty_threshold`,
+        {
+          method: "PUT",
+          headers: authHeaders(true),
+          body: JSON.stringify({ value: penaltyThreshold.trim() }),
+        },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(
+          body?.error?.message ?? "Failed to save the penalty threshold",
+        );
+      } else {
+        toast.success("Saved the penalty threshold");
+        fetchAll();
+      }
+    } finally {
+      setSavingThreshold(false);
     }
   };
 
@@ -877,6 +927,46 @@ export function AdminHitAndRunPage() {
           previous one. Falling active counts de-escalate immediately, in as
           many steps as the drop spans.
         </p>
+        <p className="admin-page-header__desc">
+          The <strong>penalty threshold</strong> below is how many unresolved
+          obligations a member must be carrying before any rung that does not
+          set its own figure applies. It is the one number to change to make the
+          ladder stricter or more lenient across the board: the shipped default
+          of 50 is TorrentLeech&apos;s, which suits a tracker of their size, and
+          a site with a few hundred members will want it far lower. Leave a
+          rung&apos;s &ldquo;Min active H&amp;R&rdquo; blank to follow it — the
+          placeholder shows the number that rung is applying. Setting a figure
+          pins that rung and opts it out of this control.
+        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.5rem",
+            alignItems: "flex-end",
+            marginBottom: "1rem",
+          }}
+        >
+          <label style={{ display: "grid", gap: "0.25rem" }}>
+            <span className="admin-page-header__desc">Penalty threshold</span>
+            <input
+              className="admin-num-input"
+              type="number"
+              min="1"
+              aria-label="Site-wide hit-and-run penalty threshold"
+              value={penaltyThreshold}
+              onChange={(e) => setPenaltyThreshold(e.target.value)}
+            />
+          </label>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={penaltyThreshold.trim() === thresholdInitial.trim()}
+            loading={savingThreshold}
+            onClick={saveThreshold}
+          >
+            Save threshold
+          </Button>
+        </div>
         <div className="admin-table-scroll">
           <table className="admin-table">
             <thead>
@@ -900,12 +990,21 @@ export function AdminHitAndRunPage() {
                 return (
                   <tr key={s.stage}>
                     <td className="admin-num">{s.stage}</td>
+                    {/* Blank defers to the site-wide threshold, shown as the
+                        placeholder so the cell always reads as the figure this
+                        rung actually applies. */}
                     <td>
                       <input
                         className="admin-num-input"
                         type="number"
                         min="1"
                         aria-label={`Stage ${s.stage} min active hit-and-runs`}
+                        placeholder={penaltyThreshold || "site"}
+                        title={
+                          row.min_active_hnr.trim() === ""
+                            ? `Following the site-wide penalty threshold (${penaltyThreshold || "unset"})`
+                            : "Pinned for this rung, ignoring the site-wide penalty threshold"
+                        }
                         value={row.min_active_hnr}
                         onChange={(e) =>
                           setStageField(
@@ -1045,6 +1144,8 @@ export function AdminHitAndRunPage() {
                     type="number"
                     min="1"
                     aria-label="New stage min active hit-and-runs"
+                    placeholder={penaltyThreshold || "site"}
+                    title="Leave blank to follow the site-wide penalty threshold"
                     value={newStageDraft.min_active_hnr}
                     onChange={(e) =>
                       setNewStageDraft((prev) => ({

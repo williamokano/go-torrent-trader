@@ -69,7 +69,18 @@ const runs = [
   },
 ];
 
-const stages = [
+type TestStage = {
+  stage: number;
+  /** null = the rung follows the site-wide hnr_penalty_threshold. */
+  min_active_hnr: number | null;
+  min_days_in_prev: number;
+  action: string;
+  restriction_types: string[];
+  restriction_days: number;
+  message_template: string;
+};
+
+const stages: TestStage[] = [
   {
     stage: 1,
     min_active_hnr: 1,
@@ -98,7 +109,7 @@ type ExemptRule = {
 };
 
 function mockApi(
-  stagesOverride = stages,
+  stagesOverride: TestStage[] = stages,
   rulesOverride: TestRule[] = rules,
   exemptRulesOverride: ExemptRule[] = [],
 ) {
@@ -183,6 +194,14 @@ function mockApi(
             },
           ],
           total: 1,
+        }),
+      });
+    }
+    if (method === "GET" && url.endsWith("/admin/settings")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          settings: [{ key: "hnr_penalty_threshold", value: "50" }],
         }),
       });
     }
@@ -472,6 +491,77 @@ describe("AdminHitAndRunPage", () => {
     );
     const body = JSON.parse(call!.body!);
     expect(body.min_days_in_prev).toBe(2);
+  });
+
+  test("a rung with no threshold of its own shows the site-wide one as its placeholder", async () => {
+    const inheriting = [
+      { ...stages[0] },
+      { ...stages[1], min_active_hnr: null },
+    ];
+    mockApi(inheriting);
+    renderPage();
+    await screen.findAllByText("User");
+
+    const input = screen.getByLabelText("Stage 2 min active hit-and-runs");
+    expect(input).toHaveValue(null);
+    expect(input).toHaveAttribute("placeholder", "50");
+    // The rung that pins its own figure still shows it.
+    expect(
+      screen.getByLabelText("Stage 1 min active hit-and-runs"),
+    ).toHaveValue(1);
+  });
+
+  test("clearing a rung's threshold saves it as null so it follows the setting", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByText("User");
+
+    const input = screen.getByLabelText("Stage 2 min active hit-and-runs");
+    await user.clear(input);
+
+    const row = input.closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (c) => c.method === "PUT" && c.url.endsWith("/hnr/stages/2"),
+        ),
+      ).toBe(true);
+    });
+    const call = calls.find(
+      (c) => c.method === "PUT" && c.url.endsWith("/hnr/stages/2"),
+    );
+    expect(JSON.parse(call!.body!).min_active_hnr).toBeNull();
+  });
+
+  test("saving the penalty threshold PUTs the site setting", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByText("User");
+
+    const input = screen.getByLabelText(
+      "Site-wide hit-and-run penalty threshold",
+    );
+    await user.clear(input);
+    await user.type(input, "5");
+    await user.click(screen.getByRole("button", { name: "Save threshold" }));
+
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (c) =>
+            c.method === "PUT" &&
+            c.url.endsWith("/admin/settings/hnr_penalty_threshold"),
+        ),
+      ).toBe(true);
+    });
+    const call = calls.find((c) =>
+      c.url.endsWith("/admin/settings/hnr_penalty_threshold"),
+    );
+    expect(JSON.parse(call!.body!).value).toBe("5");
   });
 
   test("deleting a stage sends a DELETE to that stage number", async () => {
