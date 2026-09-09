@@ -454,6 +454,14 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     type: "number",
   },
   {
+    key: "hnr_warning_expiry_days",
+    section: "Hit-and-run",
+    label: "Warning Expiry (days)",
+    description:
+      "How long a warning issued by the penalty ladder stays active before maintenance resolves it and clears the member's warned flag — the equivalent of removing one warning per month of good behaviour. Set to 0 to make ladder warnings permanent. Default: 30.",
+    type: "number",
+  },
+  {
     key: "hnr_exempt_donors",
     section: "Hit-and-run",
     label: "Exempt Donors",

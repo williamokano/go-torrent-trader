@@ -26,6 +26,7 @@
           <a href="index.html" aria-current="page">Overview</a>
           <a href="install.html">Install</a>
           <a href="configure.html">Configure</a>
+          <a href="hitandrun.html">Hit-and-run</a>
           <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
         </nav>
       </div>
@@ -141,16 +142,20 @@
               <span class="tag">Enforcement</span>
               <h3>Hit-and-run tracking</h3>
               <p>
-                Off by default. Once on, every completed download opens a
-                tracked obligation to seed it for a required time or reach a
-                required ratio, per class — freeleech included, since the
-                requirement is measured against the torrent's size, not what
-                was counted. A member who drops out early is escalated
-                leniently: notice, warning, restriction, final notice, ban.
-                An open obligation can be paid off with bonus points, priced
-                per class. Staff can exempt individual torrents from tracking,
-                and a rules pass exempts them automatically — by seeder count
-                or size — without overriding a hand-set flag either way.
+                Off by default. Once on, every completed download — and only a
+                completed one — opens a tracked obligation to seed it for a
+                required time or reach a required ratio, per class. Freeleech
+                included, since the requirement is measured against the
+                torrent's size rather than what was counted. The shipped
+                penalty ladder is calibrated so that no rung acts sooner than
+                TorrentLeech would: one forgotten torrent earns a reminder and
+                nothing more, and the earliest a ban can land is around three
+                months of holding fifty unresolved obligations. An open
+                obligation can be paid off with bonus points, priced per class.
+                Staff can exempt individual torrents, and a rules pass exempts
+                them automatically by seeder count or size without overriding a
+                hand-set flag either way.
+                <a href="hitandrun.html">The full rules are written up here.</a>
               </p>
             </div>
             <div class="block">
@@ -296,6 +301,7 @@
         <nav>
           <a href="install.html">Install</a>
           <a href="configure.html">Configure</a>
+          <a href="hitandrun.html">Hit-and-run</a>
           <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
           <a href="https://github.com/williamokano/go-torrent-trader/issues"
             >Issues</a

@@ -460,18 +460,23 @@ func (s *TrackerService) handleCompleted(
 		}
 	}
 
-	// Establish the hit-and-run obligation: completing a download is the
-	// event that starts it, regardless of the peer's seeder status at this
-	// exact instant — whether they go on to seed is exactly what the record
-	// tracks. CreateIfNotExists no-ops if a record already exists, the torrent
-	// is hnr_exempt, or the snatch list already dates this completion more than
+	// Establish the hit-and-run obligation. Only a peer reporting a genuinely
+	// finished download (left == 0, i.e. isSeeder) opens one: a client that
+	// sends 'completed' with bytes still outstanding has not completed
+	// anything, and an obligation to seed back a partial grab is precisely
+	// what this feature is not for (#282 — TorrentLeech does track partials
+	// from 10% and makes members seed those to 1:1; we deliberately do not).
+	// Nothing is lost by waiting: when that download really does finish, the
+	// leecher->seeder transition below opens the record instead.
+	// CreateIfNotExists no-ops if a record already exists, the torrent is
+	// hnr_exempt, or the snatch list already dates this completion more than
 	// an hour back — so a repeat completed event is harmless and a re-announce
 	// for a torrent finished long ago opens nothing.
 	// hnr_exempt_donors is checked here rather than in the evaluator: a donor
 	// is exempt from tracking entirely, so no record — and no history of one
 	// — should exist for them at all, the same way an hnr_exempt torrent
 	// never gets a row in the first place.
-	if s.shouldTrackHnR(ctx, user) {
+	if isSeeder && s.shouldTrackHnR(ctx, user) {
 		if _, err := s.hnr.CreateIfNotExists(ctx, user.ID, torrent.ID, now); err != nil {
 			slog.Error("failed to create hnr record", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
 		}

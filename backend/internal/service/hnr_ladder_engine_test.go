@@ -434,3 +434,123 @@ func TestHnRService_DeleteStage(t *testing.T) {
 		t.Errorf("DeleteStage(missing) = %v, want ErrHnRStageNotFound", err)
 	}
 }
+
+// De-escalation must lift an HnR restriction whose type no longer appears on
+// any configured rung. The lift used to iterate the types the live ladder
+// named, so editing a restrict rung — or the #282 migration narrowing the
+// shipped one to 'download' — stranded every restriction of a dropped type
+// permanently: no rung could ever name it again, so nothing would ever lift it.
+func TestHnRLadder_DeescalationLiftsRestrictionsNoLongerNamedByAnyStage(t *testing.T) {
+	svc, hnr, users, _, restrictionRepo, _, _ := setupHnRServiceWithLadder()
+	ladder := standardLadder()
+	ladder[2].RestrictionTypes = []string{model.RestrictionTypeDownload, model.RestrictionTypeForum}
+	seedStages(t, hnr, ladder)
+	users.addUser(&model.User{ID: 1, Username: "hana", Enabled: true, CanDownload: true})
+
+	for i := int64(1); i <= 3; i++ {
+		hnr.records[i] = &model.HnRRecord{ID: i, UserID: 1, TorrentID: 100 + i, State: model.HnRStateBreach}
+	}
+	hnr.nextID = 4
+	now := time.Now()
+	for step := 0; step < 3; step++ {
+		if _, _, err := svc.runLadder(context.Background(), now); err != nil {
+			t.Fatalf("runLadder step %d: %v", step, err)
+		}
+	}
+	active, _ := restrictionRepo.ListActive(context.Background())
+	if len(active) != 2 {
+		t.Fatalf("expected download and forum restrictions at stage 3, got %+v", active)
+	}
+
+	// The operator narrows the rung to downloads only — the forum restriction
+	// already issued is now named by no stage at all.
+	ladder[2].RestrictionTypes = []string{model.RestrictionTypeDownload}
+	seedStages(t, hnr, ladder[2:3])
+
+	hnr.records[1].State = model.HnRStateSatisfied
+	hnr.records[2].State = model.HnRStateSatisfied
+	if _, _, err := svc.runLadder(context.Background(), now); err != nil {
+		t.Fatalf("runLadder (deescalation): %v", err)
+	}
+
+	active, _ = restrictionRepo.ListActive(context.Background())
+	if len(active) != 0 {
+		t.Errorf("expected every hnr restriction lifted on de-escalation, got %+v", active)
+	}
+}
+
+// A ladder warning expires on hnr_warning_expiry_days, so the maintenance
+// sweep resolves it and the warned flag clears after a month of good
+// behaviour — TorrentLeech's rule, and the reason #282 stopped issuing
+// permanent warnings.
+func TestHnRLadder_WarnStageWarningExpiresOnTheConfiguredWindow(t *testing.T) {
+	hnr := newFakeHnRRepo()
+	users := newMockUserRepoForRestrictions()
+	warnRepo := newMockWarningRepo()
+	msgRepo := newMockMessageRepoForWarnings()
+	bus := event.NewInMemoryBus()
+	settings := NewSiteSettingsService(newMockSiteSettingsRepo(), bus)
+	if err := settings.Set(context.Background(), SettingHnRWarningExpiryDays, "10", event.Actor{ID: 0, Username: "System"}); err != nil {
+		t.Fatalf("set expiry setting: %v", err)
+	}
+	svc := NewHnRService(nil, hnr, &fakeHnRGroupRepo{groups: hnrTestGroups()}, users,
+		NewWarningService(warnRepo, users, msgRepo, bus),
+		NewRestrictionService(newMockRestrictionRepo(), users, bus), settings, bus)
+
+	seedStages(t, hnr, standardLadder())
+	users.addUser(&model.User{ID: 1, Username: "ida", Enabled: true})
+	for i := int64(1); i <= 2; i++ {
+		hnr.records[i] = &model.HnRRecord{ID: i, UserID: 1, TorrentID: 100 + i, State: model.HnRStateBreach}
+	}
+	hnr.nextID = 3
+
+	now := time.Now()
+	climbLadder(t, svc, hnr, 1, 2)
+
+	issued, err := warnRepo.ListByUser(context.Background(), 1, true)
+	if err != nil {
+		t.Fatalf("list warnings: %v", err)
+	}
+	if len(issued) != 1 {
+		t.Fatalf("expected exactly one warning, got %d", len(issued))
+	}
+	if issued[0].ExpiresAt == nil {
+		t.Fatal("expected the ladder warning to carry an expiry")
+	}
+	want := now.AddDate(0, 0, 10)
+	if diff := issued[0].ExpiresAt.Sub(want); diff > time.Minute || diff < -time.Minute {
+		t.Errorf("expected the warning to expire ~%v (10 days out), got %v", want, issued[0].ExpiresAt)
+	}
+}
+
+// Zero means "no expiry" — an operator who wants permanent ladder warnings
+// keeps the pre-#282 behaviour by setting the window to 0.
+func TestHnRLadder_ZeroExpiryWindowLeavesWarningsPermanent(t *testing.T) {
+	hnr := newFakeHnRRepo()
+	users := newMockUserRepoForRestrictions()
+	warnRepo := newMockWarningRepo()
+	bus := event.NewInMemoryBus()
+	settings := NewSiteSettingsService(newMockSiteSettingsRepo(), bus)
+	if err := settings.Set(context.Background(), SettingHnRWarningExpiryDays, "0", event.Actor{ID: 0, Username: "System"}); err != nil {
+		t.Fatalf("set expiry setting: %v", err)
+	}
+	svc := NewHnRService(nil, hnr, &fakeHnRGroupRepo{groups: hnrTestGroups()}, users,
+		NewWarningService(warnRepo, users, newMockMessageRepoForWarnings(), bus),
+		NewRestrictionService(newMockRestrictionRepo(), users, bus), settings, bus)
+
+	seedStages(t, hnr, standardLadder())
+	users.addUser(&model.User{ID: 1, Username: "jon", Enabled: true})
+	for i := int64(1); i <= 2; i++ {
+		hnr.records[i] = &model.HnRRecord{ID: i, UserID: 1, TorrentID: 100 + i, State: model.HnRStateBreach}
+	}
+	hnr.nextID = 3
+	climbLadder(t, svc, hnr, 1, 2)
+
+	issued, err := warnRepo.ListByUser(context.Background(), 1, true)
+	if err != nil {
+		t.Fatalf("list warnings: %v", err)
+	}
+	if len(issued) != 1 || issued[0].ExpiresAt != nil {
+		t.Fatalf("expected one permanent warning, got %+v", issued)
+	}
+}

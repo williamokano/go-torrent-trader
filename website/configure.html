@@ -26,6 +26,7 @@
           <a href="index.html">Overview</a>
           <a href="install.html">Install</a>
           <a href="configure.html" aria-current="page">Configure</a>
+          <a href="hitandrun.html">Hit-and-run</a>
           <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
         </nav>
       </div>
@@ -320,6 +321,9 @@
           <p>
             Off by default. Tracking only ever starts from the moment this is
             turned on — nothing already snatched is retroactively tracked.
+            <a href="hitandrun.html">The hit-and-run page</a> explains the rules
+            themselves: what opens an obligation, how one is satisfied, and the
+            penalty ladder these settings sit alongside.
           </p>
           <p>
             The four <code>hnr_clear_*</code> settings below are the site-wide
@@ -351,8 +355,8 @@
                 <td>off</td>
                 <td>
                   Starts a tracked seed obligation on every completed
-                  download, per the per-class rules on the Hit-and-Run admin
-                  page.
+                  download — and only a completed one — per the per-class rules
+                  on the Hit-and-Run admin page.
                 </td>
               </tr>
               <tr>
@@ -381,6 +385,16 @@
                   How long a resolved record (satisfied, cleared, or waived)
                   is kept before it is purged. 0 keeps resolved records
                   forever.
+                </td>
+              </tr>
+              <tr>
+                <td><code>hnr_warning_expiry_days</code></td>
+                <td>30</td>
+                <td>
+                  How long a warning issued by the penalty ladder stays active
+                  before maintenance resolves it and clears the member's warned
+                  flag — one warning removed per month of good behaviour. 0
+                  makes ladder warnings permanent.
                 </td>
               </tr>
               <tr>
@@ -655,6 +669,7 @@
         <nav>
           <a href="index.html">Overview</a>
           <a href="install.html">Install</a>
+          <a href="hitandrun.html">Hit-and-run</a>
           <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
         </nav>
       </div>

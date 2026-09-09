@@ -119,6 +119,12 @@ const (
 	SettingHnRClearBasePoints          = "hnr_clear_base_points"
 	SettingHnRClearPointsPerGiB        = "hnr_clear_points_per_gib"
 	SettingHnRClearPointsPerGiBDeficit = "hnr_clear_points_per_gib_deficit"
+	// SettingHnRWarningExpiryDays is how long a warning issued by the penalty
+	// ladder's "warn" action stays active before the maintenance sweep
+	// resolves it — TorrentLeech's "one HnR warning removed per month of good
+	// behaviour", which the shipped 30-day default matches. 0 makes ladder
+	// warnings permanent, the behaviour before #282.
+	SettingHnRWarningExpiryDays = "hnr_warning_expiry_days"
 
 	// HnRClearPricingModeFixed and HnRClearPricingModeDeficit are the two
 	// valid values of SettingHnRClearPricingMode.
@@ -220,7 +226,8 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 				ErrInvalidSetting, key, HnRClearPricingModeFixed, HnRClearPricingModeDeficit)
 		}
 	case SettingHnRGraceAfterCompleteHours, SettingHnRSeedCreditCapMinutes, SettingHnRRetentionDays,
-		SettingHnRClearBasePoints, SettingHnRClearPointsPerGiB, SettingHnRClearPointsPerGiBDeficit:
+		SettingHnRClearBasePoints, SettingHnRClearPointsPerGiB, SettingHnRClearPointsPerGiBDeficit,
+		SettingHnRWarningExpiryDays:
 		// Every HnR numeric tunable is a non-negative whole number: a grace, a
 		// cap, a retention window, or a point price. None has a meaningful
 		// negative value, unlike the connector/announce-log retention keys

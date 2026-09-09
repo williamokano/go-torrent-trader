@@ -245,3 +245,50 @@ func TestAnnounce_HnR_TracksDonorWhenExemptionOff(t *testing.T) {
 		t.Fatalf("expected a donor to be tracked when hnr_exempt_donors is off, got %d records", len(records))
 	}
 }
+
+// A 'completed' event with bytes still outstanding is not a completed
+// download, whatever the client claims — it opens no obligation. #282: an
+// obligation to seed back a partial grab is what this feature is explicitly
+// not for, and nothing is lost by waiting, since the leecher->seeder
+// transition opens the record when the download really does finish.
+func TestAnnounce_HnR_CompletedEventWithBytesLeftOpensNoObligation(t *testing.T) {
+	svc, _, hnrRepo := setupTrackerWithHnR(nil)
+	ctx := context.Background()
+
+	if _, err := svc.Announce(ctx, AnnounceRequest{
+		Passkey: testPasskey(), InfoHash: testInfoHash(), PeerID: testPeerID(),
+		IP: "192.168.1.1", Port: 6881, Left: 1000, Event: EventStarted,
+	}); err != nil {
+		t.Fatalf("start announce: %v", err)
+	}
+	if _, err := svc.Announce(ctx, AnnounceRequest{
+		Passkey: testPasskey(), InfoHash: testInfoHash(), PeerID: testPeerID(),
+		IP: "192.168.1.1", Port: 6881, Uploaded: 0, Downloaded: 400,
+		Left: 600, Event: EventCompleted,
+	}); err != nil {
+		t.Fatalf("premature completed announce: %v", err)
+	}
+
+	records, err := hnrRepo.ListForUser(ctx, 1)
+	if err != nil {
+		t.Fatalf("list records: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected no obligation for a partial download, got %+v", records)
+	}
+
+	// Finishing for real still opens one, via the leecher->seeder transition.
+	if _, err := svc.Announce(ctx, AnnounceRequest{
+		Passkey: testPasskey(), InfoHash: testInfoHash(), PeerID: testPeerID(),
+		IP: "192.168.1.1", Port: 6881, Uploaded: 0, Downloaded: 1000, Left: 0,
+	}); err != nil {
+		t.Fatalf("post-completion announce: %v", err)
+	}
+	records, err = hnrRepo.ListForUser(ctx, 1)
+	if err != nil {
+		t.Fatalf("list records after finishing: %v", err)
+	}
+	if len(records) != 1 || records[0].State != model.HnRStateActive {
+		t.Fatalf("expected one open obligation once the download actually finished, got %+v", records)
+	}
+}

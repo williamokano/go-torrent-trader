@@ -21,12 +21,12 @@ func NewMaintenanceTask() (*asynq.Task, error) {
 // housekeeping tasks on a frequent interval (every 5 minutes).
 func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
 	return func(ctx context.Context, _ *asynq.Task) error {
-		// 1. Resolve expired manual warnings
+		// 1. Resolve expired warnings (manual and hit-and-run; both carry an expiry)
 		if deps.WarningSvc != nil {
-			if resolved, err := deps.WarningSvc.ResolveExpiredManualWarnings(ctx); err != nil {
-				slog.Error("maintenance: failed to resolve expired manual warnings", "error", err)
+			if resolved, err := deps.WarningSvc.ResolveExpiredWarnings(ctx); err != nil {
+				slog.Error("maintenance: failed to resolve expired warnings", "error", err)
 			} else if resolved > 0 {
-				slog.Info("maintenance: resolved expired manual warnings", "count", resolved)
+				slog.Info("maintenance: resolved expired warnings", "count", resolved)
 			}
 		}
 

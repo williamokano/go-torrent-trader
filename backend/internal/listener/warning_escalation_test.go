@@ -124,7 +124,7 @@ func (m *mockEscalationWarningRepo) GetUsersWithLowRatio(_ context.Context, _ fl
 	return nil, nil
 }
 
-func (m *mockEscalationWarningRepo) ResolveExpiredManualWarnings(_ context.Context) ([]int64, error) {
+func (m *mockEscalationWarningRepo) ResolveExpiredWarnings(_ context.Context) ([]int64, error) {
 	return nil, nil
 }
 

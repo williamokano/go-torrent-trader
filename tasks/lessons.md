@@ -370,3 +370,52 @@ documentation, and prove the fix by building the case it exists to fix and watch
 that case fail without it. This is the mutation-check rule aimed at a specific blind
 spot: a test suite that never constructs the failing scenario cannot tell a working
 fix from an inert one.
+
+## Defaults are policy, and they are the policy almost every operator will run
+
+The hit-and-run penalty ladder shipped with `min_active_hnr = 1` on all five rungs.
+Every individual piece was defensible — the ladder is admin-editable, the feature is
+off by default, no number was obviously absurd on its own — and the combination banned
+an account 31 days after it stopped seeding a single torrent. Benchmarked against
+TorrentLeech, whose rules are published, we were not slightly stricter: they need 50
+unresolved hit-and-runs held for five consecutive days before the *first* warning and
+three warnings a month apart before an account is disabled. Nobody chose to be six
+times harsher than one of the largest private trackers in existence; the numbers were
+picked one rung at a time, each plausible next to the one before it, and the shape they
+added up to was never looked at end to end (#282).
+
+"It is configurable" does not transfer the decision to the operator. Almost nobody
+edits a seeded default, so a seeded default is what the software does, and a
+five-row ladder hides its own severity — the damage lives in the sum of the rungs, not
+in any one of them.
+
+**Rule:** when seeding a policy — a penalty ladder, a rate limit, a retention window,
+a quota — state the end-to-end outcome in one sentence ("one forgotten torrent bans an
+account in a month") and check that sentence against a real system whose rules are
+public. If ours is harsher, that has to be a decision someone made on purpose, written
+down with its reason, not a number that arrived by walking a table downward. And when
+the defaults do change, gate the migration on the rows still being untouched: an
+operator who tuned a rung made a policy decision of their own, and overwriting it is
+changing how their site treats their members without telling them.
+
+## A cleanup that reads its list from live config strands whatever the config drops
+
+The hit-and-run ladder lifted a member's restrictions by iterating the restriction
+types the *currently configured* rungs named. It looks right and it tested green,
+because every test applied and lifted under one unchanged ladder. But the list at lift
+time is not the list at apply time. Narrow a restrict rung from
+`["download","forum","chat"]` to `["download"]` — which #282's migration does — and
+every forum and chat restriction already issued becomes unliftable: no configured rung
+names those types any more, so the de-escalation sweep walks straight past them, for
+good. Deleting the rung entirely does the same thing. The member keeps a suspension
+that no code path in the system can now remove.
+
+The lift already tolerated types the member never had (it is a documented no-op), so
+nothing was gained by narrowing the list in the first place — the coupling bought no
+safety and cost correctness.
+
+**Rule:** cleanup, rollback and lift paths must enumerate the full space of what they
+might have to undo, not the subset current configuration would produce today. Anything
+that was written under an older configuration still has to be reachable. If iterating
+everything is a safe no-op — and for an idempotent lift it usually is — iterate
+everything.

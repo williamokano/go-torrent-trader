@@ -739,7 +739,7 @@ func (m *mockWarningRepoForAdmin) GetUsersWithLowRatio(_ context.Context, _ floa
 	return nil, nil
 }
 
-func (m *mockWarningRepoForAdmin) ResolveExpiredManualWarnings(_ context.Context) ([]int64, error) {
+func (m *mockWarningRepoForAdmin) ResolveExpiredWarnings(_ context.Context) ([]int64, error) {
 	return nil, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -639,26 +640,31 @@ func TestHnRRepo_StagesCRUD(t *testing.T) {
 	ctx := context.Background()
 	repo := NewHnRRepo(db)
 
-	// The migration already seeds 5 stages.
+	// The migrations seed 6 stages; what they contain is asserted separately by
+	// TestHnRSeededLadderMatchesTheLenientDefaults.
 	stages, err := repo.ListStages(ctx)
 	if err != nil {
 		t.Fatalf("ListStages: %v", err)
 	}
-	if len(stages) != 5 {
-		t.Fatalf("expected the 5 seeded default stages, got %d", len(stages))
+	if len(stages) != 6 {
+		t.Fatalf("expected the 6 seeded default stages, got %d", len(stages))
 	}
 
+	// Well clear of the seeded rungs: hnr_penalty_stages is preserved across
+	// resetTestData, so a CRUD test that reused a seeded stage number would
+	// leave the shipped ladder altered for whichever tests ran after it.
+	const scratchStage = 90
 	stage := &model.HnRPenaltyStage{
-		Stage: 6, MinActiveHnR: 2, MinDaysInPrev: 21, Action: model.HnRActionBan,
+		Stage: scratchStage, MinActiveHnR: 2, MinDaysInPrev: 21, Action: model.HnRActionBan,
 		RestrictionTypes: []string{}, MessageTemplate: "final",
 	}
 	if err := repo.UpsertStage(ctx, stage); err != nil {
 		t.Fatalf("UpsertStage: %v", err)
 	}
-	if err := repo.DeleteStage(ctx, 6); err != nil {
+	if err := repo.DeleteStage(ctx, scratchStage); err != nil {
 		t.Fatalf("DeleteStage: %v", err)
 	}
-	if err := repo.DeleteStage(ctx, 6); !errors.Is(err, sql.ErrNoRows) {
+	if err := repo.DeleteStage(ctx, scratchStage); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("DeleteStage(missing) = %v, want sql.ErrNoRows", err)
 	}
 
@@ -668,9 +674,9 @@ func TestHnRRepo_StagesCRUD(t *testing.T) {
 		t.Fatalf("ListStages: %v", err)
 	}
 	for _, s := range third {
-		if s.Stage == 3 {
-			if len(s.RestrictionTypes) != 3 {
-				t.Errorf("expected seeded stage 3 to carry 3 restriction types, got %v", s.RestrictionTypes)
+		if s.Stage == 5 {
+			if len(s.RestrictionTypes) != 1 || s.RestrictionTypes[0] != model.RestrictionTypeDownload {
+				t.Errorf("expected seeded stage 5 to carry only the download restriction, got %v", s.RestrictionTypes)
 			}
 		}
 	}
@@ -1063,4 +1069,64 @@ func mustRecordID(t *testing.T, db *sql.DB, userID, torrentID int64) int64 {
 		t.Fatalf("looking up hnr_records id for user=%d torrent=%d: %v", userID, torrentID, err)
 	}
 	return id
+}
+
+// The shipped penalty ladder is site policy an operator inherits on day one,
+// so it is asserted here against the real migrations rather than left to
+// whatever 081 and 085 happen to have left behind. The numbers are
+// TorrentLeech's published HnR rules (#282): nothing but a reminder until 50
+// unmet obligations, five days at that level before the first warning, two
+// warnings and a download suspension before a ban — every rung at or later
+// than where TorrentLeech would have acted.
+func TestHnRSeededLadderMatchesTheLenientDefaults(t *testing.T) {
+	db := requireDB(t)
+	repo := NewHnRRepo(db)
+
+	stages, err := repo.ListStages(context.Background())
+	if err != nil {
+		t.Fatalf("list stages: %v", err)
+	}
+	byStage := make(map[int]model.HnRPenaltyStage, len(stages))
+	for _, st := range stages {
+		byStage[st.Stage] = st
+	}
+
+	want := []struct {
+		stage            int
+		minActiveHnR     int
+		minDaysInPrev    int
+		action           string
+		restrictionTypes []string
+		restrictionDays  int
+	}{
+		{1, 1, 0, model.HnRActionNotify, nil, 0},
+		{2, 50, 0, model.HnRActionNotify, nil, 0},
+		{3, 50, 5, model.HnRActionWarn, nil, 0},
+		{4, 50, 30, model.HnRActionWarn, nil, 0},
+		{5, 50, 30, model.HnRActionRestrict, []string{model.RestrictionTypeDownload}, 14},
+		{6, 50, 30, model.HnRActionBan, nil, 0},
+	}
+	if len(stages) != len(want) {
+		t.Fatalf("expected %d seeded rungs, got %d: %+v", len(want), len(stages), stages)
+	}
+
+	for _, w := range want {
+		got, ok := byStage[w.stage]
+		if !ok {
+			t.Errorf("stage %d is missing from the seeded ladder", w.stage)
+			continue
+		}
+		if got.MinActiveHnR != w.minActiveHnR || got.MinDaysInPrev != w.minDaysInPrev || got.Action != w.action {
+			t.Errorf("stage %d: got min_active_hnr=%d min_days_in_prev=%d action=%q, want %d/%d/%q",
+				w.stage, got.MinActiveHnR, got.MinDaysInPrev, got.Action,
+				w.minActiveHnR, w.minDaysInPrev, w.action)
+		}
+		if got.RestrictionDays != w.restrictionDays || !slices.Equal(got.RestrictionTypes, w.restrictionTypes) {
+			t.Errorf("stage %d: got restriction_types=%v restriction_days=%d, want %v/%d",
+				w.stage, got.RestrictionTypes, got.RestrictionDays, w.restrictionTypes, w.restrictionDays)
+		}
+		if got.MessageTemplate == "" {
+			t.Errorf("stage %d: seeded rung has no message template", w.stage)
+		}
+	}
 }

@@ -316,8 +316,8 @@ func TestRepositoriesPropagateDBErrors(t *testing.T) {
 			_, err := NewWarningRepo(db).GetUsersWithLowRatio(ctx, 0.5, 1)
 			return err
 		},
-		"WarningRepo.ResolveExpiredManualWarnings": func() error {
-			_, err := NewWarningRepo(db).ResolveExpiredManualWarnings(ctx)
+		"WarningRepo.ResolveExpiredWarnings": func() error {
+			_, err := NewWarningRepo(db).ResolveExpiredWarnings(ctx)
 			return err
 		},
 		"RestrictionRepo.Create": func() error { return NewRestrictionRepo(db).Create(ctx, &model.Restriction{}) },

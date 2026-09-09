@@ -133,7 +133,7 @@ func (m *mockWarningRepo) GetUsersWithLowRatio(_ context.Context, _ float64, _ i
 	return nil, nil
 }
 
-func (m *mockWarningRepo) ResolveExpiredManualWarnings(_ context.Context) ([]int64, error) {
+func (m *mockWarningRepo) ResolveExpiredWarnings(_ context.Context) ([]int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
@@ -422,17 +422,29 @@ func TestIssueHnRWarning(t *testing.T) {
 
 	svc := NewWarningService(warnRepo, userRepo, msgRepo, bus)
 
-	w, err := svc.IssueHnRWarning(context.Background(), 1, "You have 2 active hit-and-runs")
+	expires := time.Now().AddDate(0, 0, 30)
+	w, err := svc.IssueHnRWarning(context.Background(), 1, "You have 2 active hit-and-runs", &expires)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if w.Type != model.WarningTypeHnR {
 		t.Errorf("expected type %q, got %q", model.WarningTypeHnR, w.Type)
 	}
+	// An HnR warning must carry its expiry so the maintenance sweep can
+	// resolve it — permanent HnR warnings were the pre-#282 behaviour.
+	if w.ExpiresAt == nil || !w.ExpiresAt.Equal(expires) {
+		t.Errorf("expected the warning to expire at %v, got %v", expires, w.ExpiresAt)
+	}
 
 	u, _ := userRepo.GetByID(context.Background(), 1)
 	if !u.Warned {
 		t.Error("expected user to be warned")
+	}
+	// warn_until stays untouched: the cleanup job's sweep over it does not
+	// check for other active warnings, so an HnR warning must not write its
+	// own deadline there. ResolveExpiredWarnings clears the flag instead.
+	if u.WarnUntil != nil {
+		t.Errorf("expected warn_until to be left alone by an hnr warning, got %v", u.WarnUntil)
 	}
 	if len(msgRepo.messages) != 1 {
 		t.Fatalf("expected 1 PM, got %d", len(msgRepo.messages))

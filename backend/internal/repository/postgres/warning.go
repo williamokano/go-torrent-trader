@@ -236,13 +236,19 @@ func (r *WarningRepo) GetUsersWithLowRatio(ctx context.Context, threshold float6
 	return users, nil
 }
 
-func (r *WarningRepo) ResolveExpiredManualWarnings(ctx context.Context) ([]int64, error) {
+// ResolveExpiredWarnings resolves every active warning whose expiry has
+// passed, whatever its type. Scoped to 'manual' before #282, when hit-and-run
+// warnings gained an expiry of their own — the filter was never about the type
+// so much as about which types set expires_at at all, and a type-blind
+// expires_at IS NOT NULL says that directly. Ratio warnings still never set
+// one, so they remain out of reach of this sweep by construction.
+func (r *WarningRepo) ResolveExpiredWarnings(ctx context.Context) ([]int64, error) {
 	query := `UPDATE warnings SET status = 'resolved', updated_at = NOW()
-		WHERE type = 'manual' AND status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW()
+		WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW()
 		RETURNING user_id`
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("resolve expired manual warnings: %w", err)
+		return nil, fmt.Errorf("resolve expired warnings: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 

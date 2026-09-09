@@ -182,7 +182,7 @@ func (s *HnRService) evaluateUserLadderStage(ctx context.Context, userID int64, 
 		s.escalate(ctx, userID, state.Stage, newStage, stages, activeCount)
 		return true, false
 	}
-	s.deescalate(ctx, userID, state.Stage, newStage, stages)
+	s.deescalate(ctx, userID, state.Stage, newStage)
 	return false, true
 }
 
@@ -227,7 +227,7 @@ func (s *HnRService) escalate(ctx context.Context, userID int64, oldStage, newSt
 	switch row.Action {
 	case model.HnRActionWarn:
 		if s.warnings != nil {
-			if _, err := s.warnings.IssueHnRWarning(ctx, userID, message); err != nil {
+			if _, err := s.warnings.IssueHnRWarning(ctx, userID, message, s.warningExpiry(ctx)); err != nil {
 				slog.Error("hnr ladder: issue warning", "user_id", userID, "stage", newStage, "error", err)
 			}
 		}
@@ -260,18 +260,22 @@ func (s *HnRService) escalate(ctx context.Context, userID int64, oldStage, newSt
 	}
 }
 
-// deescalate lifts every restriction type any 'restrict' stage could have
-// applied. Lifting a type the user never actually had from this source is a
-// safe no-op (LiftActiveBySource, see PR1) — this is simpler and just as
-// correct as tracking exactly which stages a user passed through, since a
-// user can only ever have accumulated HnR-sourced restrictions from stages
-// they actually reached. A ban is never undone here: the "ban" action
-// disables the account outright, and only staff reverses that, the same as
-// a ratio ban.
-func (s *HnRService) deescalate(ctx context.Context, userID int64, oldStage, newStage int, stages []model.HnRPenaltyStage) {
+// deescalate lifts every restriction type there is, scoped to the HnR source.
+// Lifting a type the user never actually had from this source is a safe no-op
+// (LiftActiveBySource, see PR1), which is what makes the blanket sweep both
+// simpler and more correct than lifting only the types the ladder currently
+// names: a restriction applied under one ladder configuration must still lift
+// after the rung that applied it is edited to drop that type, or deleted
+// outright. Deriving the list from the live stages instead stranded those
+// restrictions permanently — a member could keep a forum suspension no
+// configured rung could ever lift again (#282, which narrowed the shipped
+// restrict rung to 'download' and would have stranded exactly that). A ban is
+// never undone here: the "ban" action disables the account outright, and only
+// staff reverses that, the same as a ratio ban.
+func (s *HnRService) deescalate(ctx context.Context, userID int64, oldStage, newStage int) {
 	username := s.usernameFor(ctx, userID)
 	if s.restrictions != nil {
-		for _, rtype := range restrictionTypesAcrossStages(stages) {
+		for _, rtype := range model.AllRestrictionTypes() {
 			if _, err := s.restrictions.LiftActiveBySource(ctx, userID, rtype, model.RestrictionSourceHnR, nil); err != nil {
 				slog.Error("hnr ladder: lift restriction", "user_id", userID, "type", rtype, "error", err)
 			}
@@ -303,6 +307,22 @@ func (s *HnRService) notifyStageChange(ctx context.Context, userID int64, userna
 	})
 }
 
+// warningExpiry is when a warning issued by this escalation should be resolved
+// by the maintenance sweep, from hnr_warning_expiry_days. Nil (a zero setting,
+// or no settings service wired) leaves the warning permanent — see the
+// setting's own comment for why the shipped default is not that.
+func (s *HnRService) warningExpiry(ctx context.Context) *time.Time {
+	if s.settings == nil {
+		return nil
+	}
+	days := s.settings.GetInt(ctx, SettingHnRWarningExpiryDays, 30)
+	if days <= 0 {
+		return nil
+	}
+	t := time.Now().AddDate(0, 0, days)
+	return &t
+}
+
 func (s *HnRService) usernameFor(ctx context.Context, userID int64) string {
 	if s.users == nil {
 		return ""
@@ -321,25 +341,4 @@ func findStage(stages []model.HnRPenaltyStage, stage int) *model.HnRPenaltyStage
 		}
 	}
 	return nil
-}
-
-// restrictionTypesAcrossStages is the union of every restriction type any
-// configured 'restrict' stage could apply — what deescalate must consider
-// lifting, since a user descending the ladder may have accumulated
-// restrictions from any stage they passed through on the way up.
-func restrictionTypesAcrossStages(stages []model.HnRPenaltyStage) []string {
-	seen := make(map[string]bool)
-	var out []string
-	for _, st := range stages {
-		if st.Action != model.HnRActionRestrict {
-			continue
-		}
-		for _, rtype := range st.RestrictionTypes {
-			if !seen[rtype] {
-				seen[rtype] = true
-				out = append(out, rtype)
-			}
-		}
-	}
-	return out
 }

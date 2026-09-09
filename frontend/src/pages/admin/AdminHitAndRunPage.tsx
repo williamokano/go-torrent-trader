@@ -183,12 +183,17 @@ interface RowState {
   clear_points_per_gib_deficit: string;
 }
 
+// Pre-fills for a class being put on the ladder for the first time. These are
+// TorrentLeech's published requirement — seed to 1:1 or for 96 hours, with no
+// deadline to do it in — so the path of least resistance lands an operator on
+// a rule no stricter than the largest tracker with public rules (#282). They
+// were 240 seed hours with a 30-day hard cap, which is neither.
 const emptyRow: RowState = {
   onLadder: false,
-  required_seed_hours: "240",
+  required_seed_hours: "96",
   required_ratio: "1",
   inactivity_grace_hours: "48",
-  max_days_to_satisfy: "30",
+  max_days_to_satisfy: "0",
   clear_pricing_mode: "",
   clear_base_points: "",
   clear_points_per_gib: "",

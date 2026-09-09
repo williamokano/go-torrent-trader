@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hit-and-run — TorrentTrader</title>
+    <meta
+      name="description"
+      content="How hit-and-run tracking works in TorrentTrader: what opens an obligation, how it is satisfied, when penalties start, and how to clear one."
+    />
+    <link rel="stylesheet" href="assets/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='7' height='7' x='1' y='1' fill='%231d4ed8'/><rect width='7' height='7' x='8' y='8' fill='%23d97706'/></svg>"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="wrap">
+        <a class="brand" href="index.html"
+          ><span class="dot"></span>TorrentTrader</a
+        >
+        <nav>
+          <a href="index.html">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="configure.html">Configure</a>
+          <a href="hitandrun.html" aria-current="page">Hit-and-run</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Enforcement</p>
+          <h1>Hit-and-run</h1>
+          <p class="lede">
+            A hit-and-run is a torrent someone downloaded and then stopped
+            seeding before giving anything back. Tracking it is off by default.
+            This page describes exactly what the system does once it is on —
+            what opens an obligation, what closes one, and what happens if
+            obligations pile up — so an operator can decide whether the defaults
+            suit their site and a member can read the same rules the daemon
+            actually applies.
+          </p>
+          <div class="note">
+            <p>
+              <strong>Off by default, and never retroactive.</strong> Nothing is
+              tracked until an operator turns
+              <code>hnr_enabled</code> on, and even then tracking starts from
+              that moment forward. Torrents already downloaded before the switch
+              was flipped are never given an obligation after the fact.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Step one</p>
+          <h2>What opens an obligation</h2>
+          <p>
+            One thing, and only one thing: <strong>finishing a download</strong>.
+            The moment a client reports a torrent complete, a record opens
+            against that member for that torrent. Nothing else does it —
+            clicking download, grabbing the <code>.torrent</code> file, starting
+            a download and abandoning it, or a client that announces
+            <code>completed</code> while bytes are still outstanding all leave no
+            trace. A partial download owes nothing here.
+          </p>
+          <p>
+            This is deliberately narrower than most trackers. TorrentLeech, for
+            instance, opens a hit-and-run on anything downloaded past 10% and
+            requires the member to seed that fragment back to a 1:1 ratio. We do
+            not track partials at all.
+          </p>
+          <p>Three further cases never open an obligation:</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Exempt torrent</td>
+                <td>
+                  Staff can flag any torrent exempt by hand, and an automatic
+                  pass exempts torrents by seeder count (well enough seeded that
+                  one member leaving does not matter) or by size (too small for
+                  the bookkeeping to be worth it). Flagging a torrent exempt
+                  also waives obligations already open against it.
+                </td>
+              </tr>
+              <tr>
+                <td>Exempt class</td>
+                <td>
+                  Hit-and-run rules are set per member class, and a class with no
+                  rule is not tracked. This is how "VIP does not get
+                  hit-and-runs" is expressed. Donors can be exempted separately
+                  with <code>hnr_exempt_donors</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>An old snatch re-announcing</td>
+                <td>
+                  A client re-checking or re-adding a torrent finished long ago
+                  announces as if it had just completed. If the snatch list
+                  already dates the completion more than an hour back, no fresh
+                  obligation opens.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Step two</p>
+          <h2>How an obligation is satisfied</h2>
+          <p>
+            Two ways, and meeting <em>either</em> closes the record for good:
+            seed the torrent for the required number of hours, or upload enough
+            of it to reach the required ratio. The class rules set both numbers.
+            The pre-filled values when an operator first puts a class on the
+            ladder are <strong>96 hours or a 1:1 ratio</strong> — the same
+            requirement TorrentLeech publishes.
+          </p>
+          <p>
+            The ratio is measured against the torrent's real size, not against
+            what was counted toward the member's ratio. A freeleech torrent
+            still has to be seeded back like any other; the discount applies to
+            ratio accounting, not to the seeding obligation.
+          </p>
+          <p>
+            Seed time accrues from announces. A gap between two seeding
+            announces longer than <code>hnr_seed_credit_cap_minutes</code> earns
+            no credit for that gap, so time can only be banked by actually
+            staying connected — a client that reappears for one announce a day
+            cannot stitch those into four days of seeding.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Step three</p>
+          <h2>When a record becomes a hit-and-run</h2>
+          <p>
+            An open record is not yet a hit-and-run. It becomes one when the
+            member stops seeding with the requirement unmet — specifically, when
+            no seeding announce has arrived for longer than the class's
+            inactivity grace (48 hours in the pre-filled rule). A class can also
+            set a hard deadline to satisfy the requirement, though the pre-filled
+            value is no deadline at all.
+          </p>
+          <p>
+            It stops being one the instant seeding resumes. A single seeding
+            announce moves the record back to open, and it will close normally
+            once the time or ratio requirement is met. Nothing has to be
+            appealed and no staff member has to intervene.
+          </p>
+          <p>
+            Members can see their own open obligations, what each one still
+            needs, and what it would cost to clear, on their hit-and-run page.
+            The count is evaluated live there rather than read from the last
+            daemon sweep, so it is never stale.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Step four</p>
+          <h2>What happens if they pile up</h2>
+          <p>
+            Penalties run on a ladder. Each rung has a number of unresolved
+            hit-and-runs that must be reached and a length of time the member
+            must have spent on the previous rung before it can be entered. A
+            member climbs at most one rung per daemon sweep, however far past the
+            thresholds their count has jumped — but they fall as far as their
+            count warrants in one step. Improving is never rationed.
+          </p>
+          <p>
+            The shipped ladder is calibrated against TorrentLeech's published
+            rules, and stops one rung short of them:
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Rung</th>
+                <th>Needs</th>
+                <th>What happens</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>1 hit-and-run</td>
+                <td>
+                  A reminder, and nothing else. No penalty attaches to this rung
+                  — a member can sit here indefinitely with one forgotten
+                  torrent and never hear about it again.
+                </td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>50 hit-and-runs</td>
+                <td>
+                  A notice that the account has crossed the threshold at which
+                  warnings begin, and that it has five days to drop back below
+                  it. This rung is what starts the clock.
+                </td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>50, held 5 days</td>
+                <td>A formal warning.</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td>50, held a further 30 days</td>
+                <td>A second formal warning.</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td>50, held a further 30 days</td>
+                <td>
+                  Downloading is suspended for 14 days. Forum, chat and
+                  everything else are untouched — they have nothing to do with
+                  seeding.
+                </td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td>50, held a further 30 days</td>
+                <td>The account is disabled.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            So the earliest an account can be disabled by this system is roughly
+            <strong>95 days</strong> of continuously holding 50 or more
+            unresolved hit-and-runs, through two warnings and a download
+            suspension. Fewer than 50 and the ladder never leaves rung one.
+          </p>
+          <p>
+            Falling back below a threshold reverses everything automatically:
+            the member drops straight to the rung matching their live count, and
+            any download suspension the ladder applied is lifted in the same
+            sweep. A ban is the exception — an account disabled at rung six is
+            re-enabled by staff, not by the daemon. Warnings expire on their own
+            after <code>hnr_warning_expiry_days</code> (30 by default), which
+            clears the warned flag once nothing else is outstanding.
+          </p>
+          <div class="note">
+            <p>
+              <strong>Every number above is editable</strong> on the Hit-and-Run
+              admin page — thresholds, dwell times, actions, which privileges a
+              restrict rung suspends, and the message each one sends. Rungs can
+              be added and removed. A threshold of 50 is calibrated against one
+              of the largest private trackers in existence; a site with a few
+              hundred members will likely want it much lower, and lowering it is
+              a deliberate decision to be stricter than that benchmark rather
+              than something the defaults do on an operator's behalf.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">The other way out</p>
+          <h2>Clearing an obligation with points</h2>
+          <p>
+            A member who genuinely cannot seed a torrent back — the data is gone,
+            the drive died, nobody is left in the swarm — can pay an obligation
+            off with bonus points instead. The record closes and stops counting
+            toward the ladder.
+          </p>
+          <p>
+            The price is set per class or site-wide, in one of two modes. Fixed
+            pricing charges a flat amount plus a rate per GiB of the torrent's
+            size. Deficit pricing charges per GiB of upload still needed to reach
+            the required ratio, so somebody who seeded most of the way back pays
+            proportionally less than somebody who seeded nothing. Every payment
+            goes through the same bonus ledger as every other movement, so it is
+            auditable afterwards.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Housekeeping</p>
+          <h2>How it runs</h2>
+          <p>
+            A daemon sweeps once an hour. It marks records satisfied or breached,
+            applies the automatic torrent exemptions, walks every affected member
+            up or down the ladder, and purges resolved records older than
+            <code>hnr_retention_days</code>. Every sweep writes a log row —
+            scanned, breached, satisfied, escalated, decayed, purged — visible on
+            the admin page, which can also force a sweep on demand. Running two
+            at once is safe; the second waits and a third is dropped.
+          </p>
+          <p>
+            The settings named on this page are documented in full, with their
+            defaults, on the
+            <a href="configure.html">Configure</a> page.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <hr class="rule-strip" data-strip="60" />
+
+    <footer class="site">
+      <div class="wrap">
+        <p class="small">
+          TorrentTrader —
+          <a
+            href="https://github.com/williamokano/go-torrent-trader/blob/main/LICENSE"
+            >MIT licensed</a
+          >. Free of charge, yours to modify.
+        </p>
+        <nav>
+          <a href="index.html">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="configure.html">Configure</a>
+          <a href="https://github.com/williamokano/go-torrent-trader">Source</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="assets/site.js"></script>
+  </body>
+</html>

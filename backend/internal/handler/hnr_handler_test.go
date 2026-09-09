@@ -319,7 +319,7 @@ func (nopWarningRepo) GetActiveRatioWarning(context.Context, int64) (*model.Warn
 func (nopWarningRepo) GetUsersWithLowRatio(context.Context, float64, int64) ([]model.User, error) {
 	return nil, nil
 }
-func (nopWarningRepo) ResolveExpiredManualWarnings(context.Context) ([]int64, error) {
+func (nopWarningRepo) ResolveExpiredWarnings(context.Context) ([]int64, error) {
 	return nil, nil
 }
 

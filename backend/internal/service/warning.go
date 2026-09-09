@@ -137,17 +137,31 @@ func (s *WarningService) IssueRatioWarning(ctx context.Context, userID int64, me
 // no antecedent warning to reference, a PM carrying the message, and the
 // same WarningIssued event the notification listener already turns into a
 // member-facing NotifSystem entry.
-func (s *WarningService) IssueHnRWarning(ctx context.Context, userID int64, message string) (*model.Warning, error) {
+//
+// expiresAt is when the maintenance sweep should resolve the warning, taken
+// from hnr_warning_expiry_days by the caller (HnRService holds the settings
+// service; this one does not). Nil makes the warning permanent, which is what
+// this did unconditionally before #282 — TorrentLeech, the tracker whose rules
+// the shipped defaults are calibrated against, removes an HnR warning after a
+// month of good behaviour, and a permanent one left users.warned set for good.
+// users.WarnUntil is deliberately left alone, unlike IssueManualWarning: the
+// cleanup job's WarnUntil sweep clears the warned flag on the deadline without
+// checking whether anything else is still active, so writing this warning's
+// deadline there could clear the flag out from under a longer-running manual
+// warning. ResolveExpiredWarnings is the authoritative path and does count
+// what remains (clearWarnedIfNone), so the flag clears correctly without it.
+func (s *WarningService) IssueHnRWarning(ctx context.Context, userID int64, message string, expiresAt *time.Time) (*model.Warning, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
 	w := &model.Warning{
-		UserID: userID,
-		Type:   model.WarningTypeHnR,
-		Reason: message,
-		Status: model.WarningStatusActive,
+		UserID:    userID,
+		Type:      model.WarningTypeHnR,
+		Reason:    message,
+		Status:    model.WarningStatusActive,
+		ExpiresAt: expiresAt,
 	}
 	if err := s.warnings.Create(ctx, w); err != nil {
 		return nil, fmt.Errorf("create hnr warning: %w", err)
@@ -386,10 +400,14 @@ func ReplaceTemplateVars(msg string, vars map[string]string) string {
 	return msg
 }
 
-// ResolveExpiredManualWarnings resolves manual warnings past their expiration
-// and clears the warned flag on affected users with no remaining active warnings.
-func (s *WarningService) ResolveExpiredManualWarnings(ctx context.Context) (int, error) {
-	userIDs, err := s.warnings.ResolveExpiredManualWarnings(ctx)
+// ResolveExpiredWarnings resolves warnings past their expiration and clears
+// the warned flag on affected users with no remaining active warnings. It
+// covers every warning type that carries an expiry — manual warnings, which
+// staff set a deadline on, and hit-and-run warnings, which expire on
+// hnr_warning_expiry_days. Ratio warnings have no expiry and are resolved by
+// the ratio job when the ratio recovers, so they are untouched here.
+func (s *WarningService) ResolveExpiredWarnings(ctx context.Context) (int, error) {
+	userIDs, err := s.warnings.ResolveExpiredWarnings(ctx)
 	if err != nil {
 		return 0, err
 	}

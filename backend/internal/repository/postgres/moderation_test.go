@@ -180,7 +180,7 @@ func TestWarningRepoListAllFilters(t *testing.T) {
 
 // The maintenance job resolves manual warnings whose expiry has passed. A
 // warning with no expiry is permanent and must never be auto-resolved.
-func TestWarningRepoResolveExpiredManualWarnings(t *testing.T) {
+func TestWarningRepoResolveExpiredWarnings(t *testing.T) {
 	db := requireDB(t)
 	resetTestData(t, db)
 	ctx := context.Background()
@@ -192,9 +192,9 @@ func TestWarningRepoResolveExpiredManualWarnings(t *testing.T) {
 	future := newWarning(t, db, u.ID, "manual", "active", ptr(time.Now().Add(time.Hour)))
 	permanent := newWarning(t, db, u.ID, "manual", "active", nil)
 
-	resolved, err := repo.ResolveExpiredManualWarnings(ctx)
+	resolved, err := repo.ResolveExpiredWarnings(ctx)
 	if err != nil {
-		t.Fatalf("ResolveExpiredManualWarnings: %v", err)
+		t.Fatalf("ResolveExpiredWarnings: %v", err)
 	}
 	if len(resolved) != 1 || resolved[0] != u.ID {
 		t.Fatalf("resolved = %v, want the one user with an expired warning", resolved)

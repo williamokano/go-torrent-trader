@@ -88,18 +88,32 @@ directly by the announce path rather than derived after the fact
 - **`hnr_records`** — one row per (user, torrent) snatch: an accumulator
   (`seeded_seconds`, `uploaded`) and a state machine
   (`active → hnr → satisfied | cleared | waived`). Opened by `handleCompleted`
-  and the leecher→seeder transition — but not when the snatch list already dates
+  and the leecher→seeder transition, both gated on the peer actually reporting a
+  finished download (`left == 0`) — but not when the snatch list already dates
   the completion more than an hour back, so a re-announce for a torrent finished
-  long ago cannot open a fresh obligation (#268). Credited by every seeding
-  announce, capped per gap by `hnr_seed_credit_cap_minutes`. Tracking starts from
-  enablement forward — no backfill (#267 declined).
+  long ago cannot open a fresh obligation (#268). A partial download opens
+  nothing at all, which is narrower than TorrentLeech, who track anything past
+  10% and make the member seed the fragment back to 1:1 (#282). Credited by every
+  seeding announce, capped per gap by `hnr_seed_credit_cap_minutes`. Tracking
+  starts from enablement forward — no backfill (#267 declined).
 - **`hnr_rules`** — per-class policy (required seed hours, required ratio,
   inactivity grace, hard cap). A class with no row is exempt, mirroring
   `promotion_rules`.
-- **`hnr_penalty_stages`** — a site-wide, admin-editable five-stage ladder
-  (notify → warn → restrict download/forum/chat → final notice → ban), with
-  per-user position in `hnr_user_state` as a compare-and-swap target so
-  escalation and de-escalation are idempotent across worker processes.
+- **`hnr_penalty_stages`** — a site-wide, admin-editable ladder, with per-user
+  position in `hnr_user_state` as a compare-and-swap target so escalation and
+  de-escalation are idempotent across worker processes. The shipped six rungs
+  (migration 085) are calibrated against TorrentLeech's published HnR rules and
+  stop one rung short of them at every point: a reminder at one obligation, then
+  nothing until fifty, a notice on crossing that threshold, a warning five days
+  later, a second warning and a 14-day download suspension a month apart each,
+  and a ban a month after that — roughly 95 days of continuously holding 50+
+  unresolved obligations, against TorrentLeech's ~65 to an outright disable. The
+  081 ladder put every rung at one obligation and banned in 31 days, which was
+  drastically stricter than the tracker it was modelled on (#282). 085 only
+  rewrites rungs still at their 081 values, so an operator's tuning survives.
+  De-escalation lifts across every restriction type rather than the ones the
+  live ladder names — deriving that list from the stages stranded restrictions
+  whose type a later edit dropped.
 - **The daemon** — `internal/worker/hnr.go`, scheduled `45 * * * *`, with a
   two-stage `pg_advisory_lock` (not `asynq.Unique`) so concurrent invocations
   from retries, a manual "run now", or another node are safe. Evaluates open
@@ -113,9 +127,16 @@ directly by the announce path rather than derived after the fact
   keeps donor classes out of tracking entirely (`shouldTrackHnR`,
   `internal/service/tracker.go`), which is the concrete form of the "immunity
   from HnR" perk noted under Donations / VIP tiers below.
+- **Warning expiry** — a warning the ladder issues carries an expiry from
+  `hnr_warning_expiry_days` (30), and the maintenance sweep resolves it and
+  clears `users.warned` when nothing else is outstanding: TorrentLeech's "one
+  warning removed per month of good behaviour". Before #282 these were permanent,
+  and the sweep only looked at `type = 'manual'`; it is now type-blind and keyed
+  on `expires_at IS NOT NULL`, which is what the filter always meant.
 - **UI + settings** — a member page showing obligations and their clear price, an
   admin page for the rules, the ladder, the run log and per-record staff actions,
-  and an `hnr_*` block in site settings (off by default).
+  and an `hnr_*` block in site settings (off by default). The rules published on
+  `website/hitandrun.html`.
 
 ### IMDb / TMDb metadata + mediainfo / screenshots ◐
 Auto-fetch cover art, plot, rating, cast from an external ID; parse mediainfo;

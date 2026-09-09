@@ -707,7 +707,7 @@ type WarningRepository interface {
 	CountActiveManualByUser(ctx context.Context, userID int64) (int, error)
 	GetActiveRatioWarning(ctx context.Context, userID int64) (*model.Warning, error)
 	GetUsersWithLowRatio(ctx context.Context, threshold float64, minDownloaded int64) ([]model.User, error)
-	ResolveExpiredManualWarnings(ctx context.Context) ([]int64, error)
+	ResolveExpiredWarnings(ctx context.Context) ([]int64, error)
 }
 
 // ListWarningsOptions holds filtering and pagination options for listing warnings.

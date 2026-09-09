@@ -110,9 +110,9 @@ func TestWarningServiceResolveExpiredClearsFlagOnlyWhenNoneRemain(t *testing.T) 
 		{ID: 3, UserID: 3, Type: model.WarningTypeManual, Status: model.WarningStatusActive}, // no expiry: stays active
 	}
 
-	n, err := svc.ResolveExpiredManualWarnings(ctx)
+	n, err := svc.ResolveExpiredWarnings(ctx)
 	if err != nil {
-		t.Fatalf("ResolveExpiredManualWarnings: %v", err)
+		t.Fatalf("ResolveExpiredWarnings: %v", err)
 	}
 	if n != 2 {
 		t.Errorf("resolved %d users, want 2", n)

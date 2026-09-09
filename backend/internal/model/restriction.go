@@ -18,6 +18,22 @@ const (
 	RestrictionTypeForum = "forum"
 )
 
+// AllRestrictionTypes returns every valid restriction type. Used where a
+// caller must consider all of them rather than a configured subset — the
+// hit-and-run ladder's de-escalation lifts across this list, so a restriction
+// applied under one ladder configuration is still lifted after an admin (or a
+// migration) edits which types the restrict rung applies.
+func AllRestrictionTypes() []string {
+	return []string{
+		RestrictionTypeDownload,
+		RestrictionTypeUpload,
+		RestrictionTypeChat,
+		RestrictionTypeInvite,
+		RestrictionTypeFeed,
+		RestrictionTypeForum,
+	}
+}
+
 // RestrictionSource identifies which system issued a restriction, so a lift
 // can target exactly its own cause rather than inferring "the" active
 // restriction of a type (see migration 082). HasActiveByType and the

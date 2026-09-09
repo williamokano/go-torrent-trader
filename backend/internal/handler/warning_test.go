@@ -100,7 +100,7 @@ func (s *stubWarningRepo) GetActiveRatioWarning(_ context.Context, _ int64) (*mo
 func (s *stubWarningRepo) GetUsersWithLowRatio(_ context.Context, _ float64, _ int64) ([]model.User, error) {
 	return nil, nil
 }
-func (s *stubWarningRepo) ResolveExpiredManualWarnings(_ context.Context) ([]int64, error) {
+func (s *stubWarningRepo) ResolveExpiredWarnings(_ context.Context) ([]int64, error) {
 	return nil, nil
 }
 
