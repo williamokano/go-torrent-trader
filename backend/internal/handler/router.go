@@ -81,6 +81,7 @@ func NewRouter(deps *Deps) chi.Router {
 	r.Use(mw.RealIP(trustedProxies))
 	r.Use(mw.RequestLogger)
 	r.Use(mw.CORS)
+	r.Use(mw.PoweredBy)
 	r.Use(chimw.Recoverer)
 
 	// WebSocket endpoint (auth via query param, not middleware).
