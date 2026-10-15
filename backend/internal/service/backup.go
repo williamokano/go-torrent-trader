@@ -138,6 +138,9 @@ func NewBackupService(cfg BackupServiceConfig, bus event.Bus) (*BackupService, e
 // Dir returns the absolute backup directory. Useful for logging.
 func (s *BackupService) Dir() string { return s.dir }
 
+// Timeout is the hard limit on one pg_dump run (BACKUP_TIMEOUT).
+func (s *BackupService) Timeout() time.Duration { return s.timeout }
+
 // Create runs pg_dump and writes a compressed custom-format dump to the backup
 // directory. Only one backup may run at a time; a concurrent call returns
 // ErrBackupInProgress.
@@ -178,6 +181,10 @@ func (s *BackupService) Create(ctx context.Context, actor event.Actor) (*model.B
 		"--compress=9",
 		"--no-owner",
 		"--no-privileges",
+		// The job queue's rows are transient, and email jobs carry reset and
+		// confirmation links in plaintext; a backup is the last place those
+		// should outlive their hour. The table itself is still dumped.
+		"--exclude-table-data=river_job",
 		"--file", partial,
 	)
 	cmd.Env = s.connEnv

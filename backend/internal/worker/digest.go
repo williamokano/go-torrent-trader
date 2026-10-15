@@ -6,24 +6,25 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskDigest is the task type for the notification email digest run.
 const TaskDigest = "notification_digest:run"
 
-// NewDigestTask creates a task for the notification digest engine. The unique
-// window prevents duplicate enqueues from multiple scheduler instances; the
-// engine itself gates each recipient on their own cadence (see
+// DigestArgs is the job for the notification digest engine. The engine
+// itself gates each recipient on their own cadence (see
 // NotificationDigestService.Run), so this can be scheduled daily and simply
 // no-op for users not yet due.
-func NewDigestTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskDigest, nil, asynq.MaxRetry(1), asynq.Unique(23*time.Hour)), nil
-}
+type DigestArgs struct{}
 
-// NewDigestHandler returns an asynq handler that runs the notification digest engine.
-func NewDigestHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func (DigestArgs) Kind() string { return TaskDigest }
+
+func (DigestArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewDigestHandler returns the handler that runs the notification digest engine.
+func NewDigestHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[DigestArgs]) error {
+	return func(ctx context.Context, _ *river.Job[DigestArgs]) error {
 		if deps.DigestSvc == nil {
 			slog.Warn("notification digest: missing service, skipping")
 			return nil

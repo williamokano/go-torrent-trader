@@ -4,10 +4,10 @@ Go-based REST API and BitTorrent tracker for the TorrentTrader platform.
 
 ## Tech Stack
 
-- **Go 1.24** with [Chi](https://github.com/go-chi/chi) router
+- **Go 1.27** with [Chi](https://github.com/go-chi/chi) router
 - **PostgreSQL 16** with [Goose](https://github.com/pressly/goose) migrations
-- **Redis** for sessions and background jobs
-- **Asynq** for task queue and scheduled jobs
+- **Redis** for sessions
+- **River** for the background job queue and periodic jobs, stored in PostgreSQL
 - **MinIO/S3** for torrent file storage
 - **gorilla/websocket** for real-time chat
 
@@ -43,6 +43,7 @@ All configuration is via environment variables. See `.env.example` at the repo r
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string |
+| `DB_JOB_POOL_MAX_CONNS` | `10` | Connections for the job queue (River), on top of `DB_MAX_OPEN_CONNS`; minimum 4 |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
 | `SERVER_HOST` | `0.0.0.0` | Listen address |
 | `SERVER_PORT` | `8080` | Listen port |
@@ -61,7 +62,6 @@ All configuration is via environment variables. See `.env.example` at the repo r
 | `SITE_NAME` | `TorrentTrader` | Site display name |
 | `SITE_BASE_URL` | `http://localhost:5173` | Frontend URL (for emails) |
 | `API_URL` | `http://localhost:8080` | Backend URL (for announce URLs) |
-| `ENABLE_SCHEDULER` | `true` | Enable periodic background tasks |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 
 ## API Endpoints
@@ -166,7 +166,7 @@ Handler (HTTP) → Service (business logic) → Repository (data access) → Pos
 ## Development
 
 ### Prerequisites
-- Go 1.24+
+- Go 1.27+
 - PostgreSQL 16
 - Redis 7
 - MinIO (or S3-compatible, for file storage)

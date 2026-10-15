@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository/postgres"
@@ -138,7 +138,7 @@ func TestCleanupHandler_PreservesActivatedButBannedUsers(t *testing.T) {
 		DB:          db,
 	}
 	handler := NewCleanupHandler(deps)
-	if err := handler(ctx, asynq.NewTask(TaskCleanupPeers, nil)); err != nil {
+	if err := handler(ctx, &river.Job[CleanupPeersArgs]{}); err != nil {
 		t.Fatalf("cleanup handler: %v", err)
 	}
 

@@ -101,7 +101,7 @@ directly by the announce path rather than derived after the fact
   per-user position in `hnr_user_state` as a compare-and-swap target so
   escalation and de-escalation are idempotent across worker processes.
 - **The daemon** — `internal/worker/hnr.go`, scheduled `45 * * * *`, with a
-  two-stage `pg_advisory_lock` (not `asynq.Unique`) so concurrent invocations
+  two-stage `pg_advisory_lock` (not job uniqueness) so concurrent invocations
   from retries, a manual "run now", or another node are safe. Evaluates open
   records, marks breach/satisfy/waive, walks the ladder, purges resolved rows
   past `hnr_retention_days`, and writes an `hnr_runs` log row.

@@ -92,7 +92,7 @@ func TestMaintenanceSkipsNotificationPurgeWhenRetentionNonPositive(t *testing.T)
 }
 
 // A purge failure must not abort the maintenance run — the handler logs and
-// keeps going, so asynq does not retry the unrelated steps.
+// keeps going, so River does not retry the unrelated steps.
 func TestMaintenanceToleratesNotificationPurgeError(t *testing.T) {
 	repo := &mockNotificationRepo{deleteOldErr: errors.New("db down")}
 	deps := &WorkerDeps{

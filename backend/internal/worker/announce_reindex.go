@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskAnnounceLogReindex is the task type for the monthly announce-log rebuild.
@@ -19,21 +19,19 @@ const TaskAnnounceLogReindex = "announce_log:reindex"
 // of the bound is to stop a wedged statement being held forever, not to ration.
 const announceReindexTimeout = 2 * time.Hour
 
-// NewAnnounceLogReindexTask creates a task for the monthly announce-log rebuild.
+// AnnounceLogReindexArgs is the job for the monthly announce-log rebuild.
 //
-// MaxRetry(0): a failed rebuild should wait for next month rather than retry.
+// One attempt only: a failed rebuild should wait for next month rather than retry.
 // Retrying immediately would re-enter a job that just took a long time and
 // failed, most likely for a reason that has not gone away — disk, or a lock it
 // could not get — and each attempt leaves another invalid index behind.
-func NewAnnounceLogReindexTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskAnnounceLogReindex, nil,
-		asynq.MaxRetry(0),
-		asynq.Timeout(announceReindexTimeout),
-		asynq.Unique(announceReindexTimeout),
-	), nil
-}
+type AnnounceLogReindexArgs struct{}
 
-// NewAnnounceLogReindexHandler returns an asynq handler that rebuilds the
+func (AnnounceLogReindexArgs) Kind() string { return TaskAnnounceLogReindex }
+
+func (AnnounceLogReindexArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 1} }
+
+// NewAnnounceLogReindexHandler returns the handler that rebuilds the
 // announce log's indexes.
 //
 // This exists because the nightly prune cannot keep them in shape and no amount
@@ -55,8 +53,8 @@ func NewAnnounceLogReindexTask() (*asynq.Task, error) {
 // keeps deleting from whatever is already there — and deleting is what causes
 // the index bloat. A site that turned capture off still has a shrinking table
 // whose indexes need rebuilding, and on an empty one the rebuild costs nothing.
-func NewAnnounceLogReindexHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func NewAnnounceLogReindexHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[AnnounceLogReindexArgs]) error {
+	return func(ctx context.Context, _ *river.Job[AnnounceLogReindexArgs]) error {
 		if deps.AnnounceEventRepo == nil {
 			return nil
 		}

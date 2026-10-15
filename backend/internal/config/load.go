@@ -11,6 +11,9 @@ import (
 	realclientip "github.com/realclientip/realclientip-go"
 )
 
+// minJobPoolConns is the smallest job queue pool Load accepts.
+const minJobPoolConns = 4
+
 // Load reads configuration from environment variables, applies defaults,
 // and validates required fields. It returns an error if validation fails.
 func Load() (*Config, error) {
@@ -22,6 +25,7 @@ func Load() (*Config, error) {
 		},
 		Database: DatabaseConfig{
 			MaxOpenConns:    25,
+			JobPoolMaxConns: 10,
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
 		},
@@ -65,7 +69,6 @@ func Load() (*Config, error) {
 			StatsTTL: 30 * time.Second,
 		},
 		Worker: WorkerConfig{
-			EnableScheduler:       true,
 			NotificationRetention: 90 * 24 * time.Hour,
 		},
 		Backup: BackupConfig{
@@ -91,6 +94,13 @@ func Load() (*Config, error) {
 		cfg.Database.MaxOpenConns, err = strconv.Atoi(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid DB_MAX_OPEN_CONNS %q: %w", v, err)
+		}
+	}
+
+	if v := os.Getenv("DB_JOB_POOL_MAX_CONNS"); v != "" {
+		cfg.Database.JobPoolMaxConns, err = strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DB_JOB_POOL_MAX_CONNS %q: %w", v, err)
 		}
 	}
 
@@ -164,13 +174,6 @@ func Load() (*Config, error) {
 		}
 	}
 
-	if v := os.Getenv("ENABLE_SCHEDULER"); v != "" {
-		cfg.Worker.EnableScheduler, err = strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid ENABLE_SCHEDULER %q: %w", v, err)
-		}
-	}
-
 	if v := os.Getenv("NOTIFICATION_RETENTION"); v != "" {
 		cfg.Worker.NotificationRetention, err = time.ParseDuration(v)
 		if err != nil {
@@ -223,6 +226,14 @@ func Load() (*Config, error) {
 
 	if cfg.Database.MaxIdleConns <= 0 {
 		return nil, fmt.Errorf("DB_MAX_IDLE_CONNS must be greater than 0, got %d", cfg.Database.MaxIdleConns)
+	}
+
+	// River keeps one of these connections for LISTEN permanently and shares
+	// the rest between fetching, completing, leader election, its maintenance
+	// and every enqueue on the request path. Below a handful it can starve
+	// itself rather than merely slow down.
+	if cfg.Database.JobPoolMaxConns < minJobPoolConns {
+		return nil, fmt.Errorf("DB_JOB_POOL_MAX_CONNS must be at least %d, got %d", minJobPoolConns, cfg.Database.JobPoolMaxConns)
 	}
 
 	if cfg.Database.ConnMaxLifetime <= 0 {

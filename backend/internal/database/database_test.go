@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -30,5 +31,21 @@ func TestDefaultConnConfig(t *testing.T) {
 	}
 	if cfg.ConnMaxLifetime != 5*time.Minute {
 		t.Errorf("expected ConnMaxLifetime 5m, got %s", cfg.ConnMaxLifetime)
+	}
+}
+
+func TestConnectPoolInvalidDSN(t *testing.T) {
+	if _, err := ConnectPool(context.Background(), "not a url ::", 4); err == nil {
+		t.Fatal("expected an error for a malformed DSN, got nil")
+	}
+}
+
+// pgxpool connects lazily, so without the ping an unreachable database would
+// only surface at the first job insert, long after startup reported success.
+func TestConnectPoolUnreachable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := ConnectPool(ctx, "postgres://invalid:invalid@localhost:1/nonexistent?connect_timeout=1", 4); err == nil {
+		t.Fatal("expected an error for an unreachable database, got nil")
 	}
 }

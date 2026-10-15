@@ -212,6 +212,23 @@ func TestCreateBackupWritesFileAndPublishesEvent(t *testing.T) {
 	}
 }
 
+// Email jobs carry reset and confirmation links in plaintext. A backup keeps
+// the job table's structure but never its rows.
+func TestCreateBackupLeavesOutJobQueueRows(t *testing.T) {
+	svc := newTestBackupService(t, fakePgDump(t, "DUMP"), 0, nil)
+
+	if _, err := svc.Create(context.Background(), event.Actor{ID: 1}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	args, err := os.ReadFile(filepath.Join(svc.Dir(), "last-args")) //nolint:gosec // test fixture
+	if err != nil {
+		t.Fatalf("reading recorded args: %v", err)
+	}
+	if !strings.Contains(string(args), "--exclude-table-data=river_job") {
+		t.Errorf("pg_dump was not told to leave out river_job's rows:\n%s", args)
+	}
+}
+
 func TestCreateBackupPassesCredentialsViaEnvNotArgv(t *testing.T) {
 	svc := newTestBackupService(t, fakePgDump(t, "DUMP"), 0, nil)
 

@@ -66,9 +66,9 @@ type WorkerDeps struct {
 	ConnectorRegistry     *connector.Registry
 	ConnectorRepo         repository.ConnectorRepository
 	ConnectorDeliveryRepo repository.ConnectorDeliveryRepository
-	// ConnectorEnqueuer lets the drain handler schedule its own follow-up run
-	// (backoff, rate-limit window, leftover batch) and the maintenance sweep
-	// re-enqueue stranded work.
+	// ConnectorEnqueuer lets the drain handler schedule its own retry run and
+	// the maintenance sweep re-enqueue stranded work. (A full batch and a spent
+	// rate window snooze the running job instead.)
 	ConnectorEnqueuer ConnectorDrainEnqueuer
 	// ConnectorDeliveryRetention returns how long delivery-log rows are kept.
 	// It is a func, not a value, because the retention is an admin-editable site
@@ -78,11 +78,11 @@ type WorkerDeps struct {
 	ConnectorDeliveryRetention func() time.Duration
 }
 
-// ConnectorDrainEnqueuer queues connector drain tasks.
+// ConnectorDrainEnqueuer queues connector drain jobs.
 //
 // The two methods differ only in whether they collapse duplicates: the
-// dispatcher wants that (a burst of approvals should produce one drain), a drain
-// scheduling its own follow-up must not have it (see NewConnectorDrainTask).
+// dispatcher wants that (a burst of approvals should produce one drain), a
+// drain scheduling its own retry must not have it (see enqueueDrain).
 type ConnectorDrainEnqueuer interface {
 	listener.DrainEnqueuer
 	EnqueueConnectorDrainFollowUp(ctx context.Context, instanceID int64, delay time.Duration) error

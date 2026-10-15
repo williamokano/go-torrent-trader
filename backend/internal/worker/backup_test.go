@@ -9,24 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
-func TestNewBackupTask(t *testing.T) {
-	task, err := NewBackupTask()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if task.Type() != TaskBackupDatabase {
-		t.Errorf("expected task type %s, got %s", TaskBackupDatabase, task.Type())
-	}
-}
-
 func TestBackupHandlerSkipsWhenServiceMissing(t *testing.T) {
 	handler := NewBackupHandler(&WorkerDeps{})
-	if err := handler(context.Background(), asynq.NewTask(TaskBackupDatabase, nil)); err != nil {
+	if err := handler(context.Background(), &river.Job[BackupArgs]{}); err != nil {
 		t.Fatalf("expected nil error when backup service is not configured, got %v", err)
 	}
 }
@@ -63,7 +53,7 @@ printf 'DUMP' > "$out"
 	}
 
 	handler := NewBackupHandler(&WorkerDeps{BackupSvc: backupSvc})
-	if err := handler(context.Background(), asynq.NewTask(TaskBackupDatabase, nil)); err != nil {
+	if err := handler(context.Background(), &river.Job[BackupArgs]{}); err != nil {
 		t.Fatalf("backup handler: %v", err)
 	}
 
@@ -97,8 +87,8 @@ func TestBackupHandlerReturnsErrorOnFailure(t *testing.T) {
 	}
 
 	handler := NewBackupHandler(&WorkerDeps{BackupSvc: backupSvc})
-	if err := handler(context.Background(), asynq.NewTask(TaskBackupDatabase, nil)); err == nil {
-		t.Fatal("expected an error when pg_dump fails so asynq retries")
+	if err := handler(context.Background(), &river.Job[BackupArgs]{}); err == nil {
+		t.Fatal("expected an error when pg_dump fails so River retries")
 	}
 }
 
@@ -148,9 +138,9 @@ exec sleep 3
 	}
 
 	// ...and the scheduled job fires at the same moment. It must stand down
-	// rather than return an error, which asynq would retry.
+	// rather than return an error, which River would retry.
 	handler := NewBackupHandler(&WorkerDeps{BackupSvc: backupSvc})
-	if err := handler(context.Background(), asynq.NewTask(TaskBackupDatabase, nil)); err != nil {
+	if err := handler(context.Background(), &river.Job[BackupArgs]{}); err != nil {
 		t.Errorf("expected a concurrent backup to be skipped, not retried, got %v", err)
 	}
 

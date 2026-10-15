@@ -225,7 +225,7 @@ func (h *ChatHub) Run() {
 // assumption the existing SendToUser bridge already relies on.
 //
 // The send is non-blocking. Its callers are a worker task holding one of ten
-// asynq slots and an admin's test-send HTTP request; a plain channel send
+// worker slots and an admin's test-send HTTP request; a plain channel send
 // ignores their contexts, so if Run() were not draining — a burst deeper than
 // the buffer, or a deployment where the hub goroutine never started — either
 // would park forever. Dropping a shoutbox line is the right trade against that.

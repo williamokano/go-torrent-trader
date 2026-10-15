@@ -4,24 +4,25 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskPromotion is the task type for the auto class promotion/demotion run.
 const TaskPromotion = "promotion:run"
 
-// NewPromotionTask creates a task for the promotion engine. The unique window
-// prevents duplicate enqueues; the engine itself enforces the configurable
-// interval, so this can be scheduled daily and simply no-op between cycles.
-func NewPromotionTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskPromotion, nil, asynq.MaxRetry(1), asynq.Unique(23*time.Hour)), nil
-}
+// PromotionArgs is the job for the promotion engine. The engine itself
+// enforces the configurable interval, so this can be scheduled daily and simply
+// no-op between cycles.
+type PromotionArgs struct{}
 
-// NewPromotionHandler returns an asynq handler that runs the promotion engine.
-func NewPromotionHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func (PromotionArgs) Kind() string { return TaskPromotion }
+
+func (PromotionArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewPromotionHandler returns the handler that runs the promotion engine.
+func NewPromotionHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[PromotionArgs]) error {
+	return func(ctx context.Context, _ *river.Job[PromotionArgs]) error {
 		if deps.PromotionSvc == nil {
 			slog.Warn("promotion: missing service, skipping")
 			return nil

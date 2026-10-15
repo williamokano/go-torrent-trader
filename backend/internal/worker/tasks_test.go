@@ -3,63 +3,91 @@ package worker
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/riverqueue/river"
 )
 
-func TestNewSendEmailTask(t *testing.T) {
-	task, err := NewSendEmailTask("user@example.com", "Welcome", "Hello!")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// Each job's attempt budget, written out rather than derived. River's default
+// is 25 attempts, so an InsertOpts method lost in a refactor would not fail
+// anything — it would quietly turn a "retry once" job into twenty-five runs.
+// asynq counted retries rather than attempts, so MaxRetry(1) is MaxAttempts 2.
+func TestJobsCarryTheirAttemptBudget(t *testing.T) {
+	type jobWithOpts interface {
+		river.JobArgs
+		river.JobArgsWithInsertOpts
 	}
-	if task.Type() != TaskSendEmail {
-		t.Errorf("expected task type %s, got %s", TaskSendEmail, task.Type())
+	cases := []struct {
+		args jobWithOpts
+		want int
+	}{
+		{SendEmailArgs{}, 4},
+		{CleanupPeersArgs{}, 2},
+		{RecalcStatsArgs{}, 2},
+		{RatioWarningArgs{}, 2},
+		{MaintenanceArgs{}, 2},
+		{BackupArgs{}, 2},
+		{PromotionArgs{}, 2},
+		{BonusAwardArgs{}, 2},
+		{InviteDistributionArgs{}, 2},
+		{DigestArgs{}, 2},
+		{AnnounceLogMaintenanceArgs{}, 2},
+		{HnREvaluateArgs{}, 2},
+		// One attempt: a failed rebuild waits for next month (see
+		// AnnounceLogReindexArgs), and a drain's retries live in the database.
+		{AnnounceLogReindexArgs{}, 1},
+		{ConnectorDrainArgs{}, 1},
 	}
-	if task.Payload() == nil {
-		t.Fatal("expected non-nil payload")
-	}
-}
-
-func TestNewSendEmailTaskPayloadRoundtrip(t *testing.T) {
-	to := "user@example.com"
-	subject := "Test Subject"
-	body := "Test Body"
-
-	task, err := NewSendEmailTask(to, subject, body)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var payload EmailPayload
-	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
-	}
-
-	if payload.To != to {
-		t.Errorf("expected To %q, got %q", to, payload.To)
-	}
-	if payload.Subject != subject {
-		t.Errorf("expected Subject %q, got %q", subject, payload.Subject)
-	}
-	if payload.Body != body {
-		t.Errorf("expected Body %q, got %q", body, payload.Body)
+	for _, tc := range cases {
+		if got := tc.args.InsertOpts().MaxAttempts; got != tc.want {
+			t.Errorf("%s: MaxAttempts = %d, want %d", tc.args.Kind(), got, tc.want)
+		}
 	}
 }
 
-func TestNewCleanupPeersTask(t *testing.T) {
-	task, err := NewCleanupPeersTask()
+// The email args are what sits in river_job.args, so their JSON names are the
+// contract with any job already queued when a new version deploys.
+func TestSendEmailArgsJSONShape(t *testing.T) {
+	raw, err := json.Marshal(SendEmailArgs{To: "user@example.com", Subject: "Welcome", Body: "Hello!"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("marshal: %v", err)
 	}
-	if task.Type() != TaskCleanupPeers {
-		t.Errorf("expected task type %s, got %s", TaskCleanupPeers, task.Type())
+	var got map[string]string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	want := map[string]string{"to": "user@example.com", "subject": "Welcome", "body": "Hello!"}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("args = %v, want exactly %v", got, want)
 	}
 }
 
-func TestNewRecalcStatsTask(t *testing.T) {
-	task, err := NewRecalcStatsTask()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// Kinds are what River stores and routes on. They are kept from the asynq era,
+// and a typo here would strand any job of that kind already queued.
+func TestJobKinds(t *testing.T) {
+	cases := map[string]river.JobArgs{
+		TaskSendEmail:              SendEmailArgs{},
+		TaskCleanupPeers:           CleanupPeersArgs{},
+		TaskRecalcStats:            RecalcStatsArgs{},
+		TaskRatioWarning:           RatioWarningArgs{},
+		TaskMaintenance:            MaintenanceArgs{},
+		TaskBackupDatabase:         BackupArgs{},
+		TaskPromotion:              PromotionArgs{},
+		TaskBonusAward:             BonusAwardArgs{},
+		TaskInviteDistribution:     InviteDistributionArgs{},
+		TaskDigest:                 DigestArgs{},
+		TaskAnnounceLogMaintenance: AnnounceLogMaintenanceArgs{},
+		TaskAnnounceLogReindex:     AnnounceLogReindexArgs{},
+		TaskHnREvaluate:            HnREvaluateArgs{},
+		TaskConnectorDrain:         ConnectorDrainArgs{},
 	}
-	if task.Type() != TaskRecalcStats {
-		t.Errorf("expected task type %s, got %s", TaskRecalcStats, task.Type())
+	for want, args := range cases {
+		if got := args.Kind(); got != want {
+			t.Errorf("%T.Kind() = %q, want %q", args, got, want)
+		}
 	}
 }

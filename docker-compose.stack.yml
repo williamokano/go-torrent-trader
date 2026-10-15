@@ -32,6 +32,7 @@ services:
       DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
       DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-5}"
       DB_CONN_MAX_LIFETIME: "${DB_CONN_MAX_LIFETIME:-5m}"
+      DB_JOB_POOL_MAX_CONNS: "${DB_JOB_POOL_MAX_CONNS:-10}"
 
       # Redis (connects to the redis service)
       REDIS_URL: "redis://redis:6379/0"
@@ -64,9 +65,6 @@ services:
       TRACKER_ANNOUNCE_INTERVAL: "${TRACKER_ANNOUNCE_INTERVAL:-1800}"
       TRACKER_MIN_INTERVAL: "${TRACKER_MIN_INTERVAL:-900}"
       TRACKER_MAX_PEERS: "${TRACKER_MAX_PEERS:-50}"
-
-      # Worker
-      ENABLE_SCHEDULER: "${ENABLE_SCHEDULER:-true}"
 
       # Database backups (admin panel → Backups)
       BACKUP_DIR: "/app/backups"

@@ -1,36 +1,29 @@
 package worker
 
-import (
-	"encoding/json"
-	"time"
+import "github.com/riverqueue/river"
 
-	"github.com/hibiken/asynq"
-)
-
-// EmailPayload holds the data for an email sending task.
-type EmailPayload struct {
+// SendEmailArgs is the job that sends one email. The JSON field names are the
+// same ones the asynq payload used.
+type SendEmailArgs struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 }
 
-// NewSendEmailTask creates a task to send an email.
-func NewSendEmailTask(to, subject, body string) (*asynq.Task, error) {
-	payload, err := json.Marshal(EmailPayload{To: to, Subject: subject, Body: body})
-	if err != nil {
-		return nil, err
-	}
-	return asynq.NewTask(TaskSendEmail, payload, asynq.MaxRetry(3)), nil
-}
+func (SendEmailArgs) Kind() string { return TaskSendEmail }
 
-// NewCleanupPeersTask creates a task to clean stale peers.
-// Unique window prevents duplicate enqueues when multiple scheduler instances are running.
-func NewCleanupPeersTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskCleanupPeers, nil, asynq.MaxRetry(1), asynq.Unique(14*time.Minute)), nil
-}
+func (SendEmailArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 4} }
 
-// NewRecalcStatsTask creates a task to recalculate site statistics.
-// Unique window prevents duplicate enqueues when multiple scheduler instances are running.
-func NewRecalcStatsTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskRecalcStats, nil, asynq.MaxRetry(1), asynq.Unique(59*time.Minute)), nil
-}
+// CleanupPeersArgs is the job to clean stale peers.
+type CleanupPeersArgs struct{}
+
+func (CleanupPeersArgs) Kind() string { return TaskCleanupPeers }
+
+func (CleanupPeersArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// RecalcStatsArgs is the job to recalculate site statistics.
+type RecalcStatsArgs struct{}
+
+func (RecalcStatsArgs) Kind() string { return TaskRecalcStats }
+
+func (RecalcStatsArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }

@@ -2,12 +2,11 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // StalePeerCutoff defines how long after the last announce a peer is
@@ -15,12 +14,9 @@ import (
 const StalePeerCutoff = 45 * time.Minute
 
 // NewSendEmailHandler returns a handler that sends emails using the provided EmailSender.
-func NewSendEmailHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, t *asynq.Task) error {
-		var payload EmailPayload
-		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-			return fmt.Errorf("unmarshal email payload: %w", err)
-		}
+func NewSendEmailHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[SendEmailArgs]) error {
+	return func(ctx context.Context, job *river.Job[SendEmailArgs]) error {
+		payload := job.Args
 		slog.Info("sending email", "to", payload.To, "subject", payload.Subject)
 		if deps.EmailSender == nil {
 			slog.Warn("email sender not configured, skipping email send")
@@ -33,12 +29,12 @@ func NewSendEmailHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Ta
 	}
 }
 
-// NewCleanupHandler returns an asynq handler that runs all scheduled
+// NewCleanupHandler returns the handler that runs all scheduled
 // maintenance tasks: stale peer removal, count recalculation, dead
 // torrent hiding, expired invite/registration cleanup, and warning
 // deactivation.
-func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[CleanupPeersArgs]) error {
+	return func(ctx context.Context, _ *river.Job[CleanupPeersArgs]) error {
 		// 1. Remove stale peers
 		cutoff := time.Now().Add(-StalePeerCutoff)
 		removed, err := deps.PeerRepo.DeleteStale(ctx, cutoff)
@@ -194,9 +190,9 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task
 	}
 }
 
-// NewRecalcStatsHandler returns an asynq handler that pre-warms the stats cache.
-func NewRecalcStatsHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+// NewRecalcStatsHandler returns the handler that pre-warms the stats cache.
+func NewRecalcStatsHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[RecalcStatsArgs]) error {
+	return func(ctx context.Context, _ *river.Job[RecalcStatsArgs]) error {
 		if deps.StatsCache == nil {
 			slog.Info("recalc stats: stats cache not configured, skipping")
 			return nil

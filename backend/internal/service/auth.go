@@ -114,7 +114,7 @@ const DefaultAccessTokenTTL = 1 * time.Hour
 // DefaultRefreshTokenTTL is the default refresh token lifetime.
 const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 
-// TaskEnqueuer abstracts background job enqueueing (e.g. asynq).
+// TaskEnqueuer abstracts background job enqueueing (River in production).
 // When nil, emails are sent inline as a fallback.
 type TaskEnqueuer interface {
 	EnqueueSendEmail(ctx context.Context, to, subject, body string) error

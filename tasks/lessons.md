@@ -370,3 +370,31 @@ documentation, and prove the fix by building the case it exists to fix and watch
 that case fail without it. This is the mutation-check rule aimed at a specific blind
 spot: a test suite that never constructs the failing scenario cannot tell a working
 fix from an inert one.
+
+## A library's defaults are decisions — read each one against your jobs
+
+Replacing asynq with River (#287), three of River's defaults would each have broken
+something with no test going red. Its job timeout is one minute, which a pg_dump or
+the nightly announce rollup can exceed. It treats a job running for over an hour as
+stuck and re-runs it, which would have started a second monthly reindex beside the
+first. And its unique-insert states include `completed`, so a "one drain per
+instance" rule would have blocked every instance's next drain until River pruned the
+finished row. The vendored schema hid a fourth: River's migration 004 adds an enum
+value that 006 uses, so the two cannot share a goose file — Postgres refuses a new
+enum value in the transaction that added it. Only applying the migrations to a real
+database showed that.
+
+Review then found the trap in the opposite direction. River's mandatory unique
+states include `running`, so a unique job left running by a killed process blocks
+every insert with its key until the rescuer frees it — and the three-hour rescue
+window first chosen to protect the reindex would have stopped an instance's
+announcements for three hours after one OOM. The rescuer already waits out each
+job's own timeout, so the long window protected nothing.
+
+**Rule:** when a dependency starts owning behaviour you used to own, list every
+default that touches timing, retries or uniqueness and check each against the
+slowest and most-retried job you have. Pin the ones you rely on, with a test that
+would fail if the value drifted (`TestWorkerConfigOverridesRiversDefaults`,
+`TestRiverCollapsesDispatchesButNotRetries`), read the library's source for what a
+setting actually gates before reasoning about it, and apply vendored migrations to
+a real database before trusting them.

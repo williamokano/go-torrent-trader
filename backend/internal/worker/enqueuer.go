@@ -2,73 +2,90 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
-// AsynqEmailEnqueuer implements service.TaskEnqueuer using asynq.
-type AsynqEmailEnqueuer struct {
-	client *asynq.Client
+// enqueueTimeout bounds one insert. The insert is detached from the caller's
+// cancellation (see detach), so this is what stops a stalled database from
+// holding a request open indefinitely.
+const enqueueTimeout = 10 * time.Second
+
+// detach gives an insert its own lifetime. Callers pass request contexts, and
+// the work an enqueue follows has usually already committed — a registration's
+// user row, a dispatch's delivery row. A client that disconnects at that moment
+// must not cancel the insert and leave an account that never gets its
+// confirmation email. asynq's enqueuers ignored the context altogether.
+func detach(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), enqueueTimeout)
 }
 
-// NewAsynqEmailEnqueuer creates an enqueuer backed by the given asynq client.
-func NewAsynqEmailEnqueuer(client *asynq.Client) *AsynqEmailEnqueuer {
-	return &AsynqEmailEnqueuer{client: client}
+// RiverEmailEnqueuer implements service.TaskEnqueuer using River.
+type RiverEmailEnqueuer struct {
+	client JobInserter
 }
 
-// EnqueueSendEmail enqueues an email sending task for background processing.
-func (e *AsynqEmailEnqueuer) EnqueueSendEmail(_ context.Context, to, subject, body string) error {
-	task, err := NewSendEmailTask(to, subject, body)
-	if err != nil {
-		return fmt.Errorf("create email task: %w", err)
-	}
-	_, err = e.client.Enqueue(task)
-	if err != nil {
-		return fmt.Errorf("enqueue email task: %w", err)
+// NewRiverEmailEnqueuer creates an enqueuer backed by the given River client.
+func NewRiverEmailEnqueuer(client JobInserter) *RiverEmailEnqueuer {
+	return &RiverEmailEnqueuer{client: client}
+}
+
+// EnqueueSendEmail enqueues an email sending job for background processing.
+func (e *RiverEmailEnqueuer) EnqueueSendEmail(ctx context.Context, to, subject, body string) error {
+	ctx, cancel := detach(ctx)
+	defer cancel()
+	if _, err := e.client.Insert(ctx, SendEmailArgs{To: to, Subject: subject, Body: body}, nil); err != nil {
+		return fmt.Errorf("enqueue email job: %w", err)
 	}
 	return nil
 }
 
-// AsynqConnectorEnqueuer implements listener.DrainEnqueuer using asynq.
-type AsynqConnectorEnqueuer struct {
-	client *asynq.Client
+// RiverConnectorEnqueuer implements ConnectorDrainEnqueuer (and so
+// listener.DrainEnqueuer) using River.
+type RiverConnectorEnqueuer struct {
+	client JobInserter
 }
 
-// NewAsynqConnectorEnqueuer creates an enqueuer backed by the given asynq client.
-func NewAsynqConnectorEnqueuer(client *asynq.Client) *AsynqConnectorEnqueuer {
-	return &AsynqConnectorEnqueuer{client: client}
+// NewRiverConnectorEnqueuer creates an enqueuer backed by the given River client.
+func NewRiverConnectorEnqueuer(client JobInserter) *RiverConnectorEnqueuer {
+	return &RiverConnectorEnqueuer{client: client}
 }
 
 // EnqueueConnectorDrain queues a drain for one instance, collapsing a burst of
 // dispatches into a single run.
 //
-// A duplicate inside the uniqueness window is reported as success: that is the
-// collapse doing its job (25 approvals in a second produce one drain, which then
-// delivers all 25 rows), not a failure to schedule work.
-func (e *AsynqConnectorEnqueuer) EnqueueConnectorDrain(_ context.Context, instanceID int64, delay time.Duration) error {
-	return e.enqueue(instanceID, delay, true)
+// A duplicate is reported as success: that is the collapse doing its job (25
+// approvals in a second produce one drain, which then delivers all 25 rows),
+// not a failure to schedule work. River signals it on the result rather than
+// as an error.
+func (e *RiverConnectorEnqueuer) EnqueueConnectorDrain(ctx context.Context, instanceID int64, delay time.Duration) error {
+	opts := drainInsertOpts(delay)
+	opts.UniqueOpts = connectorDrainUnique
+	return e.insert(ctx, instanceID, opts)
 }
 
-// EnqueueConnectorDrainFollowUp queues the next run from inside a drain that is
-// still executing. It deliberately does not collapse — see NewConnectorDrainTask
-// for why a collapsing enqueue here would always be swallowed.
-func (e *AsynqConnectorEnqueuer) EnqueueConnectorDrainFollowUp(_ context.Context, instanceID int64, delay time.Duration) error {
-	return e.enqueue(instanceID, delay, false)
+// EnqueueConnectorDrainFollowUp queues a retry from inside a drain that is
+// still executing. It deliberately does not collapse — see enqueueDrain for why
+// a retry must not wait behind, or be swallowed by, another drain.
+func (e *RiverConnectorEnqueuer) EnqueueConnectorDrainFollowUp(ctx context.Context, instanceID int64, delay time.Duration) error {
+	return e.insert(ctx, instanceID, drainInsertOpts(delay))
 }
 
-func (e *AsynqConnectorEnqueuer) enqueue(instanceID int64, delay time.Duration, collapse bool) error {
-	task, err := NewConnectorDrainTask(instanceID, delay, collapse)
-	if err != nil {
-		return fmt.Errorf("create connector drain task: %w", err)
-	}
-	if _, err := e.client.Enqueue(task); err != nil {
-		if collapse && errors.Is(err, asynq.ErrDuplicateTask) {
-			return nil
-		}
-		return fmt.Errorf("enqueue connector drain task: %w", err)
+func (e *RiverConnectorEnqueuer) insert(ctx context.Context, instanceID int64, opts *river.InsertOpts) error {
+	ctx, cancel := detach(ctx)
+	defer cancel()
+	if _, err := e.client.Insert(ctx, ConnectorDrainArgs{InstanceID: instanceID}, opts); err != nil {
+		return fmt.Errorf("enqueue connector drain job: %w", err)
 	}
 	return nil
+}
+
+func drainInsertOpts(delay time.Duration) *river.InsertOpts {
+	opts := &river.InsertOpts{}
+	if delay > 0 {
+		opts.ScheduledAt = time.Now().Add(delay)
+	}
+	return opts
 }

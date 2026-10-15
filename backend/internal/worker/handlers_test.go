@@ -2,12 +2,11 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -83,31 +82,42 @@ var _ repository.TorrentRepository = (*mockTorrentRepo)(nil)
 
 // --- email handler tests ----------------------------------------------------
 
-func TestHandleSendEmailValid(t *testing.T) {
-	payload, err := json.Marshal(EmailPayload{
-		To:      "user@example.com",
-		Subject: "Test",
-		Body:    "Hello",
-	})
-	if err != nil {
-		t.Fatalf("failed to marshal payload: %v", err)
-	}
+type recordingSender struct {
+	to, subject, body string
+	err               error
+}
 
-	deps := &WorkerDeps{}
-	handler := NewSendEmailHandler(deps)
-	task := asynq.NewTask(TaskSendEmail, payload)
-	if err := handler(context.Background(), task); err != nil {
+func (r *recordingSender) Send(_ context.Context, to, subject, body string) error {
+	r.to, r.subject, r.body = to, subject, body
+	return r.err
+}
+
+func emailJob() *river.Job[SendEmailArgs] {
+	return &river.Job[SendEmailArgs]{Args: SendEmailArgs{To: "user@example.com", Subject: "Test", Body: "Hello"}}
+}
+
+func TestHandleSendEmailSends(t *testing.T) {
+	sender := &recordingSender{}
+	if err := NewSendEmailHandler(&WorkerDeps{EmailSender: sender})(context.Background(), emailJob()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if sender.to != "user@example.com" || sender.subject != "Test" || sender.body != "Hello" {
+		t.Fatalf("sent %+v, want the job's message", sender)
 	}
 }
 
-func TestHandleSendEmailInvalidPayload(t *testing.T) {
-	deps := &WorkerDeps{}
-	handler := NewSendEmailHandler(deps)
-	task := asynq.NewTask(TaskSendEmail, []byte("invalid json"))
-	err := handler(context.Background(), task)
-	if err == nil {
-		t.Fatal("expected error for invalid payload")
+// A send failure is returned so River retries it (SendEmailArgs allows four
+// attempts) instead of the email being dropped.
+func TestHandleSendEmailReturnsSendFailure(t *testing.T) {
+	sender := &recordingSender{err: errors.New("smtp down")}
+	if err := NewSendEmailHandler(&WorkerDeps{EmailSender: sender})(context.Background(), emailJob()); err == nil {
+		t.Fatal("expected the send failure to be returned")
+	}
+}
+
+func TestHandleSendEmailWithoutSenderIsANoOp(t *testing.T) {
+	if err := NewSendEmailHandler(&WorkerDeps{})(context.Background(), emailJob()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -128,7 +138,7 @@ func TestCleanupHandler_RemovesStalePeers(t *testing.T) {
 	// reasonable cutoff by testing with removed == 0 (which skips the SQL).
 	peerRepo.deleteStaleCount = 0
 	handler := NewCleanupHandler(deps)
-	task := asynq.NewTask(TaskCleanupPeers, nil)
+	task := &river.Job[CleanupPeersArgs]{}
 
 	before := time.Now()
 	if err := handler(context.Background(), task); err != nil {
@@ -161,7 +171,7 @@ func TestCleanupHandler_DeleteStaleError(t *testing.T) {
 	}
 
 	handler := NewCleanupHandler(deps)
-	task := asynq.NewTask(TaskCleanupPeers, nil)
+	task := &river.Job[CleanupPeersArgs]{}
 
 	err := handler(context.Background(), task)
 	if err == nil {
@@ -181,7 +191,7 @@ func TestCleanupHandler_NoPeersRemovedSkipsRecount(t *testing.T) {
 	}
 
 	handler := NewCleanupHandler(deps)
-	task := asynq.NewTask(TaskCleanupPeers, nil)
+	task := &river.Job[CleanupPeersArgs]{}
 
 	if err := handler(context.Background(), task); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -198,7 +208,7 @@ func TestRecalcStatsHandler_NilCache(t *testing.T) {
 	}
 
 	handler := NewRecalcStatsHandler(deps)
-	task := asynq.NewTask(TaskRecalcStats, nil)
+	task := &river.Job[RecalcStatsArgs]{}
 
 	if err := handler(context.Background(), task); err != nil {
 		t.Fatalf("unexpected error with nil cache: %v", err)

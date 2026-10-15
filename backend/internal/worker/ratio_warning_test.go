@@ -124,14 +124,3 @@ func TestRatioWarningHandlerSkipsWhenDepsMissing(t *testing.T) {
 		t.Errorf("handler with no deps returned %v, want a clean skip", err)
 	}
 }
-
-// The task descriptor must be constructible.
-func TestNewRatioWarningTask(t *testing.T) {
-	task, err := NewRatioWarningTask()
-	if err != nil {
-		t.Fatalf("NewRatioWarningTask: %v", err)
-	}
-	if task.Type() != TaskRatioWarning {
-		t.Errorf("task type = %q, want %q", task.Type(), TaskRatioWarning)
-	}
-}

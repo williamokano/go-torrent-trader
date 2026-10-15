@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
@@ -80,6 +79,14 @@ func run() int {
 	}
 	slog.Info("migrations applied")
 
+	// A native pgx pool for River, the job queue. Everything else stays on db.
+	pool, err := database.ConnectPool(context.Background(), cfg.Database.URL, cfg.Database.JobPoolMaxConns)
+	if err != nil {
+		slog.Error("failed to open database pool for the job queue", "error", err)
+		return 1
+	}
+	defer pool.Close()
+
 	// Build dependencies
 	userRepo := postgres.NewUserRepo(db)
 	torrentRepo := postgres.NewTorrentRepo(db)
@@ -117,14 +124,14 @@ func run() int {
 	emailSender := service.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 	authService := service.NewAuthServiceWithTTL(userRepo, sessionStore, passwordResetStore, emailSender, cfg.Site.BaseURL, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL, groupRepo, eventBus)
 
-	// Background email sending via asynq
-	asynqClient, err := worker.NewClient(cfg.Redis.URL)
+	// Background jobs are queued through River. This client only inserts; the
+	// one that works jobs is built further down, once its dependencies exist.
+	jobClient, err := worker.NewInsertClient(pool)
 	if err != nil {
-		slog.Error("failed to create asynq client", "error", err)
+		slog.Error("failed to create job queue client", "error", err)
 		return 1
 	}
-	defer func() { _ = asynqClient.Close() }()
-	authService.SetTaskEnqueuer(worker.NewAsynqEmailEnqueuer(asynqClient))
+	authService.SetTaskEnqueuer(worker.NewRiverEmailEnqueuer(jobClient))
 
 	// Email confirmation
 	emailConfirmRepo := postgres.NewEmailConfirmationRepo(db)
@@ -324,7 +331,7 @@ func run() int {
 	connectorDeliveryRepo := postgres.NewConnectorDeliveryRepo(db)
 	connectorService := service.NewConnectorService(connectorRepo, connectorDeliveryRepo,
 		connectorRegistry, eventBus, cfg.Site.BaseURL)
-	connectorEnqueuer := worker.NewAsynqConnectorEnqueuer(asynqClient)
+	connectorEnqueuer := worker.NewRiverConnectorEnqueuer(jobClient)
 	listener.RegisterConnectorDispatcher(eventBus, connectorRepo, connectorDeliveryRepo,
 		siteSettingsService, connectorEnqueuer, cfg.Site.BaseURL,
 		func(ctx context.Context, categoryID int64) ([]int64, error) {
@@ -359,9 +366,9 @@ func run() int {
 	listener.RegisterNotificationListeners(eventBus, notificationService, userRepo, forumPostRepo, topicSubscriptionRepo)
 
 	// BE-9.13: daily/weekly email digest of unread notifications, reusing the
-	// same asynq-backed email pipeline as auth emails (see TaskEnqueuer).
+	// same River-backed email pipeline as auth emails (see TaskEnqueuer).
 	notificationDigestService := service.NewNotificationDigestService(
-		notificationDigestPrefRepo, notificationRepo, worker.NewAsynqEmailEnqueuer(asynqClient), cfg.Site.BaseURL,
+		notificationDigestPrefRepo, notificationRepo, worker.NewRiverEmailEnqueuer(jobClient), cfg.Site.BaseURL,
 	)
 
 	deps := &handler.Deps{
@@ -422,7 +429,8 @@ func run() int {
 		deps.BackupService = backupService
 	}
 
-	// Start background worker (asynq server + scheduler)
+	// Start the background worker: River works queued jobs on every node and
+	// runs the periodic schedule on whichever node it elects leader.
 	workerDeps := &worker.WorkerDeps{
 		PeerRepo:              peerRepo,
 		TorrentRepo:           torrentRepo,
@@ -465,49 +473,52 @@ func run() int {
 		},
 	}
 
-	workerSrv, err := worker.NewServer(cfg.Redis.URL, 10)
+	// Scheduled backups are opt-in, and need the backup service to exist.
+	backupCron := ""
+	if cfg.Backup.ScheduleCron != "" && backupService != nil {
+		backupCron = cfg.Backup.ScheduleCron
+	}
+	periodicJobs, err := worker.PeriodicJobs(backupCron)
 	if err != nil {
-		slog.Error("failed to create worker server", "error", err)
+		slog.Error("failed to build the periodic job schedule", "error", err)
 		return 1
 	}
+	if backupCron != "" {
+		slog.Info("scheduled backups enabled", "cron", backupCron)
+	}
 
-	workerMux := worker.NewMux(workerDeps)
-	go func() {
-		if err := workerSrv.Run(workerMux); err != nil {
-			slog.Error("worker server error", "error", err)
-		}
-	}()
-	slog.Info("worker server started")
-
-	var scheduler *asynq.Scheduler
-	if cfg.Worker.EnableScheduler {
-		scheduler, err = worker.NewScheduler(cfg.Redis.URL)
-		if err != nil {
-			slog.Error("failed to create scheduler", "error", err)
-			return 1
-		}
-
-		if err := worker.RegisterPeriodicTasks(scheduler); err != nil {
-			slog.Error("failed to register periodic tasks", "error", err)
-			return 1
-		}
-
-		if cfg.Backup.ScheduleCron != "" && backupService != nil {
-			if err := worker.RegisterBackupTask(scheduler, cfg.Backup.ScheduleCron); err != nil {
-				slog.Error("failed to register scheduled backup", "error", err)
-				return 1
+	workerClient, err := worker.NewWorkerClient(pool, workerDeps, periodicJobs, worker.DefaultConcurrency)
+	if err != nil {
+		slog.Error("failed to create worker", "error", err)
+		return 1
+	}
+	if err := workerClient.Start(context.Background()); err != nil {
+		slog.Error("failed to start worker", "error", err)
+		return 1
+	}
+	// Stopped on every way out of run, not only a signal: an HTTP server that
+	// fails to start returns early, and the worker must not be left to die
+	// mid-job with the process. Stop lets running jobs finish; after the
+	// client's soft-stop timeout River cancels the rest, and a cancelled
+	// connector drain hands itself back by snoozing.
+	var stopWorkerOnce sync.Once
+	stopWorker := func() {
+		stopWorkerOnce.Do(func() {
+			stopCtx, cancelStop := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancelStop()
+			if err := workerClient.Stop(stopCtx); err != nil {
+				slog.Warn("worker did not stop cleanly", "error", err)
 			}
-			slog.Info("scheduled backups enabled", "cron", cfg.Backup.ScheduleCron)
-		}
-
-		go func() {
-			if err := scheduler.Run(); err != nil {
-				slog.Error("scheduler error", "error", err)
-			}
-		}()
-		slog.Info("scheduler started")
-	} else {
-		slog.Info("scheduler disabled via ENABLE_SCHEDULER=false")
+		})
+	}
+	defer stopWorker()
+	slog.Info("worker started", "periodic_jobs", len(periodicJobs))
+	if v := os.Getenv("ENABLE_SCHEDULER"); v != "" {
+		// Removed with asynq: River elects one node to run the schedule, so
+		// there is nothing left to switch. Said once, so an operator who set it
+		// to false on some nodes is not left wondering whether it still applies.
+		slog.Warn("ENABLE_SCHEDULER is no longer used and is ignored: "+
+			"the periodic schedule runs on one elected node automatically", "value", v)
 	}
 
 	// Start HTTP server
@@ -550,10 +561,7 @@ func run() int {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("http shutdown error", "error", err)
 		}
-		workerSrv.Shutdown()
-		if scheduler != nil {
-			scheduler.Shutdown()
-		}
+		stopWorker()
 		// Before the database pool closes: the IRC clients need to send QUIT,
 		// and their advisory locks live on connections from that pool. Cancelling
 		// only asks them to stop, so wait for them to actually finish.

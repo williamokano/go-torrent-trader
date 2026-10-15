@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -245,6 +246,9 @@ type drainHarness struct {
 	enqueuer   *fakeEnqueuer
 	conn       *stubConnector
 	instance   *model.NotificationConnector
+
+	// snoozed is set when the last run ended by snoozing, to how long.
+	snoozed *time.Duration
 }
 
 func newDrainHarness(t *testing.T, config string) *drainHarness {
@@ -275,14 +279,41 @@ func newDrainHarness(t *testing.T, config string) *drainHarness {
 	}
 }
 
+// run drives the drain the way River would: through the registered worker,
+// for instance 1. A snooze is the drain asking to run again, so it is recorded
+// rather than treated as a failure; any other error is one.
 func (h *drainHarness) run(t *testing.T) {
 	t.Helper()
-	task, err := NewConnectorDrainTask(1, 0, true)
-	if err != nil {
-		t.Fatalf("NewConnectorDrainTask: %v", err)
+	h.snoozed = nil
+	job := &river.Job[ConnectorDrainArgs]{Args: ConnectorDrainArgs{InstanceID: 1}}
+	err := registeredWorker[ConnectorDrainArgs](t, h.deps).Work(context.Background(), job)
+	var snooze *rivertype.JobSnoozeError
+	switch {
+	case err == nil:
+	case errors.As(err, &snooze):
+		d := snooze.Duration
+		h.snoozed = &d
+	default:
+		t.Fatalf("drain returned an error: %v", err)
 	}
-	if err := NewConnectorDrainHandler(h.deps)(context.Background(), task); err != nil {
-		t.Fatalf("drain handler returned an error: %v", err)
+}
+
+// assertSnoozed fails unless the last run snoozed for exactly want.
+func (h *drainHarness) assertSnoozed(t *testing.T, want time.Duration) {
+	t.Helper()
+	if h.snoozed == nil {
+		t.Fatalf("drain ended; want it to snooze for %v", want)
+	}
+	if *h.snoozed != want {
+		t.Fatalf("drain snoozed for %v, want %v", *h.snoozed, want)
+	}
+}
+
+// assertNotSnoozed fails if the last run snoozed.
+func (h *drainHarness) assertNotSnoozed(t *testing.T) {
+	t.Helper()
+	if h.snoozed != nil {
+		t.Fatalf("drain snoozed for %v; want it to end", *h.snoozed)
 	}
 }
 
@@ -299,20 +330,17 @@ func announcementN(n int) connector.Announcement {
 
 // --- task construction ---
 
-func TestConnectorDrainTaskPayloadIsMinimal(t *testing.T) {
-	task, err := NewConnectorDrainTask(7, 0, true)
+func TestConnectorDrainArgsAreMinimal(t *testing.T) {
+	raw, err := json.Marshal(ConnectorDrainArgs{InstanceID: 7})
 	if err != nil {
-		t.Fatalf("NewConnectorDrainTask: %v", err)
-	}
-	if task.Type() != TaskConnectorDrain {
-		t.Fatalf("type = %q, want %q", task.Type(), TaskConnectorDrain)
+		t.Fatalf("marshal args: %v", err)
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	// Everything else lives in connector_deliveries, so a task queued before a
+	// Everything else lives in connector_deliveries, so a job queued before a
 	// deploy still means the same thing after it.
 	if len(payload) != 1 || payload["instance_id"].(float64) != 7 {
 		t.Fatalf("payload = %v, want only instance_id", payload)
@@ -630,8 +658,10 @@ func TestDrainDefersRatherThanCoalescingForMachineConsumers(t *testing.T) {
 			t.Fatalf("row %d = %+v, want it left pending for the next window", i+1, stored)
 		}
 	}
-	if len(h.enqueuer.calls) != 1 || h.enqueuer.calls[0].delay != connectorRateWindow {
-		t.Fatalf("follow-up = %+v, want one queued for the next window", h.enqueuer.calls)
+	// The same job waits out the window; nothing new is queued.
+	h.assertSnoozed(t, connectorRateWindow)
+	if len(h.enqueuer.calls) != 0 {
+		t.Fatalf("queued %+v, want the drain to snooze rather than enqueue a copy", h.enqueuer.calls)
 	}
 }
 
@@ -670,8 +700,10 @@ func TestDrainRespectsBudgetAlreadySpentThisWindow(t *testing.T) {
 	if h.deliveries.rows[row.ID].Attempts != 0 {
 		t.Fatal("rate limiting must not burn a retry attempt")
 	}
-	if len(h.enqueuer.calls) != 1 || h.enqueuer.calls[0].delay != connectorRateWindow {
-		t.Fatalf("follow-up = %+v, want one queued for the next window", h.enqueuer.calls)
+	// The same job waits out the window; nothing new is queued.
+	h.assertSnoozed(t, connectorRateWindow)
+	if len(h.enqueuer.calls) != 0 {
+		t.Fatalf("queued %+v, want the drain to snooze rather than enqueue a copy", h.enqueuer.calls)
 	}
 }
 
@@ -694,7 +726,7 @@ func TestDrainCoalescedFailureRetriesEveryRow(t *testing.T) {
 	}
 }
 
-func TestDrainQueuesFollowUpWhenBatchIsFull(t *testing.T) {
+func TestDrainSnoozesImmediatelyWhenBatchIsFull(t *testing.T) {
 	h := newDrainHarness(t, fmt.Sprintf(`{"rate_per_min":%d}`, connectorDrainBatch*2))
 	for i := 1; i <= connectorDrainBatch; i++ {
 		h.deliveries.add(1, announcementN(i), 0)
@@ -702,75 +734,235 @@ func TestDrainQueuesFollowUpWhenBatchIsFull(t *testing.T) {
 
 	h.run(t)
 
-	if len(h.enqueuer.calls) != 1 || h.enqueuer.calls[0].delay != 0 {
-		t.Fatalf("follow-up = %+v, want one queued immediately for the rest of the backlog", h.enqueuer.calls)
+	h.assertSnoozed(t, 0)
+	if len(h.enqueuer.calls) != 0 {
+		t.Fatalf("queued %+v, want the rest of the backlog handled by snoozing this drain", h.enqueuer.calls)
 	}
 }
 
-// The two enqueue paths differ only in whether asynq is allowed to collapse
-// duplicates, and getting that backwards is invisible without a real client:
-// the uniqueness lock is held for the whole duration of the running task, so a
-// collapsing enqueue from inside the handler is always rejected and the retry
-// silently never happens.
-func TestConnectorEnqueuerCollapsesDispatchesButNotFollowUps(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
+// A full batch snoozes this drain, but a retry is a separate job. Before River
+// the two shared one follow-up slot and the batch won, so a failure's retry
+// waited for the maintenance sweep whenever the next run found only
+// future-dated rows.
+func TestDrainQueuesRetryEvenWhenBatchIsFull(t *testing.T) {
+	h := newDrainHarness(t, fmt.Sprintf(`{"rate_per_min":%d}`, connectorDrainBatch*2))
+	h.conn.deliverFn = func(a connector.Announcement) error {
+		if a.TorrentID == 1 {
+			return errors.New("one bad row")
+		}
+		return nil
+	}
+	for i := 1; i <= connectorDrainBatch; i++ {
+		h.deliveries.add(1, announcementN(i), 0)
+	}
 
-	inspector := asynq.NewInspector(asynq.RedisClientOpt{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = inspector.Close() })
+	h.run(t)
 
-	enqueuer := NewAsynqConnectorEnqueuer(client)
+	h.assertSnoozed(t, 0)
+	if len(h.enqueuer.followUps) != 1 || h.enqueuer.followUps[0].delay < 29*time.Second {
+		t.Fatalf("retries = %+v, want one queued for the failed row's backoff", h.enqueuer.followUps)
+	}
+}
+
+// A dispatch that lands while a drain is running is skipped as a duplicate of
+// that drain (River's uniqueness always covers running jobs), and the drain has
+// already listed its rows. It must notice the newcomer on its way out rather
+// than leave it for the maintenance sweep.
+func TestDrainRunsAgainForRowsDispatchedWhileItRan(t *testing.T) {
+	h := newDrainHarness(t, `{"rate_per_min":100}`)
+	h.deliveries.add(1, announcementN(1), 0)
+	dispatched := false
+	h.conn.deliverFn = func(connector.Announcement) error {
+		if !dispatched {
+			dispatched = true
+			h.deliveries.add(1, announcementN(2), 0)
+		}
+		return nil
+	}
+
+	h.run(t)
+
+	h.assertSnoozed(t, connectorDrainRecheckDelay)
+}
+
+// The recheck looks only past the rows this drain listed. A row it already saw
+// and could not claim is not news, and counting it would have the drain
+// rescheduling itself every second for as long as the claim kept failing.
+func TestDrainDoesNotRecheckForRowsItAlreadySaw(t *testing.T) {
+	h := newDrainHarness(t, `{"rate_per_min":100}`)
+	h.deliveries.add(1, announcementN(1), 0)
+	h.deliveries.claimErr = errors.New("claim failed")
+
+	h.run(t)
+
+	h.assertNotSnoozed(t)
+}
+
+func TestDrainEndsWhenNothingIsLeft(t *testing.T) {
+	h := newDrainHarness(t, `{"rate_per_min":100}`)
+	h.deliveries.add(1, announcementN(1), 0)
+
+	h.run(t)
+
+	h.assertNotSnoozed(t)
+	if len(h.enqueuer.calls) != 0 {
+		t.Fatalf("queued %+v after delivering everything, want nothing", h.enqueuer.calls)
+	}
+}
+
+// Shutdown cancels a drain that is still running. It must hand itself back
+// rather than end: ended, its rows wait for the sweep, and a process that exits
+// first leaves the job "running", which blocks every dispatch for the instance.
+func TestDrainSnoozesWhenCancelled(t *testing.T) {
+	h := newDrainHarness(t, `{"rate_per_min":100}`)
+	h.deliveries.add(1, announcementN(1), 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.conn.deliverFn = func(connector.Announcement) error {
+		cancel()
+		return nil
+	}
+
+	job := &river.Job[ConnectorDrainArgs]{Args: ConnectorDrainArgs{InstanceID: 1}}
+	err := registeredWorker[ConnectorDrainArgs](t, h.deps).Work(ctx, job)
+	var snooze *rivertype.JobSnoozeError
+	if !errors.As(err, &snooze) || snooze.Duration != 0 {
+		t.Fatalf("cancelled drain returned %v, want an immediate snooze", err)
+	}
+}
+
+// fakeInserter records what an enqueuer asks River for.
+type fakeInserter struct {
+	args      []river.JobArgs
+	opts      []*river.InsertOpts
+	duplicate bool
+	err       error
+}
+
+func (f *fakeInserter) Insert(_ context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	f.args = append(f.args, args)
+	f.opts = append(f.opts, opts)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &rivertype.JobInsertResult{Job: &rivertype.JobRow{}, UniqueSkippedAsDuplicate: f.duplicate}, nil
+}
+
+// The two enqueue paths differ only in whether River may collapse duplicates,
+// and getting that backwards is quiet. A collapsing retry would be swallowed by
+// whatever drain is already queued or running for the instance; a dispatch that
+// did not collapse would turn a burst of 25 approvals into 25 drains.
+func TestConnectorEnqueuerCollapsesDispatchesButNotRetries(t *testing.T) {
+	ins := &fakeInserter{}
+	enqueuer := NewRiverConnectorEnqueuer(ins)
 	ctx := context.Background()
 
-	// The dispatcher path collapses: a burst of approvals produces one drain.
 	if err := enqueuer.EnqueueConnectorDrain(ctx, 1, 0); err != nil {
-		t.Fatalf("first dispatch enqueue: %v", err)
+		t.Fatalf("dispatch enqueue: %v", err)
 	}
-	if err := enqueuer.EnqueueConnectorDrain(ctx, 1, 0); err != nil {
-		t.Fatalf("a collapsed duplicate must be reported as success, got: %v", err)
-	}
-	pending, err := inspector.ListPendingTasks("default")
-	if err != nil {
-		t.Fatalf("listing pending tasks: %v", err)
-	}
-	if len(pending) != 1 {
-		t.Fatalf("%d pending drains, want 1: the burst should have collapsed", len(pending))
+	if err := enqueuer.EnqueueConnectorDrainFollowUp(ctx, 1, 30*time.Second); err != nil {
+		t.Fatalf("retry enqueue: %v", err)
 	}
 
-	// The follow-up path must reach the queue even though the same uniqueness
-	// key was just locked — asserting on the queue, not on the returned error,
-	// because a collapsed enqueue reports success too.
-	if err := enqueuer.EnqueueConnectorDrainFollowUp(ctx, 1, 30*time.Second); err != nil {
-		t.Fatalf("follow-up enqueue: %v", err)
+	for i, args := range ins.args {
+		if got, ok := args.(ConnectorDrainArgs); !ok || got.InstanceID != 1 {
+			t.Fatalf("insert %d args = %#v, want ConnectorDrainArgs{InstanceID: 1}", i, args)
+		}
 	}
-	scheduled, err := inspector.ListScheduledTasks("default")
-	if err != nil {
-		t.Fatalf("listing scheduled tasks: %v", err)
+
+	dispatch := ins.opts[0].UniqueOpts
+	if !dispatch.ByArgs {
+		t.Error("dispatch must be unique by args, i.e. per instance")
 	}
-	if len(scheduled) != 1 {
-		t.Fatalf("%d scheduled drains, want 1: the drain's own retry must not be collapsed away", len(scheduled))
+	if slices.Contains(dispatch.ByState, rivertype.JobStateCompleted) {
+		t.Error("dispatch uniqueness covers completed jobs, so a finished drain would block the next one")
+	}
+	if !ins.opts[0].ScheduledAt.IsZero() {
+		t.Error("a dispatch with no delay must run now")
+	}
+
+	retry := ins.opts[1]
+	if retry.UniqueOpts.ByArgs || len(retry.UniqueOpts.ByState) != 0 {
+		t.Errorf("retry carries uniqueness %+v; it must not be collapsed into another drain", retry.UniqueOpts)
+	}
+	if wait := time.Until(retry.ScheduledAt); wait < 29*time.Second || wait > 30*time.Second {
+		t.Errorf("retry scheduled %v from now, want 30s", wait)
+	}
+}
+
+// A collapsed duplicate is the collapse working, not a failure to schedule.
+func TestConnectorEnqueuerReportsACollapsedDispatchAsSuccess(t *testing.T) {
+	enqueuer := NewRiverConnectorEnqueuer(&fakeInserter{duplicate: true})
+	if err := enqueuer.EnqueueConnectorDrain(context.Background(), 1, 0); err != nil {
+		t.Fatalf("a collapsed duplicate must be reported as success, got: %v", err)
+	}
+}
+
+// A dispatch follows a committed delivery row, and a registration email a
+// committed user. A caller whose request is cancelled at that moment must not
+// take the enqueue down with it.
+func TestEnqueuersOutliveACancelledCaller(t *testing.T) {
+	ins := &ctxCheckingInserter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := NewRiverConnectorEnqueuer(ins).EnqueueConnectorDrain(ctx, 1, 0); err != nil {
+		t.Fatalf("EnqueueConnectorDrain: %v", err)
+	}
+	if err := NewRiverEmailEnqueuer(ins).EnqueueSendEmail(ctx, "a@b.test", "Hi", "Body"); err != nil {
+		t.Fatalf("EnqueueSendEmail: %v", err)
+	}
+	if ins.sawCancelled {
+		t.Fatal("an insert ran on the caller's cancelled context")
+	}
+	if !ins.sawDeadline {
+		t.Fatal("an insert ran with no deadline of its own")
+	}
+}
+
+type ctxCheckingInserter struct {
+	sawCancelled bool
+	sawDeadline  bool
+}
+
+func (c *ctxCheckingInserter) Insert(ctx context.Context, _ river.JobArgs, _ *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	if ctx.Err() != nil {
+		c.sawCancelled = true
+	}
+	if _, ok := ctx.Deadline(); ok {
+		c.sawDeadline = true
+	}
+	return &rivertype.JobInsertResult{Job: &rivertype.JobRow{}}, nil
+}
+
+func TestConnectorEnqueuerReportsInsertFailure(t *testing.T) {
+	enqueuer := NewRiverConnectorEnqueuer(&fakeInserter{err: errors.New("database down")})
+	if err := enqueuer.EnqueueConnectorDrain(context.Background(), 1, 0); err == nil {
+		t.Fatal("an insert failure must be reported")
+	}
+}
+
+func TestEmailEnqueuerInsertsTheMessage(t *testing.T) {
+	ins := &fakeInserter{}
+	if err := NewRiverEmailEnqueuer(ins).EnqueueSendEmail(context.Background(), "a@b.test", "Hi", "Body"); err != nil {
+		t.Fatalf("EnqueueSendEmail: %v", err)
+	}
+	want := SendEmailArgs{To: "a@b.test", Subject: "Hi", Body: "Body"}
+	if len(ins.args) != 1 || ins.args[0] != want {
+		t.Fatalf("inserted %#v, want %#v", ins.args, want)
+	}
+
+	if err := NewRiverEmailEnqueuer(&fakeInserter{err: errors.New("down")}).
+		EnqueueSendEmail(context.Background(), "a@b.test", "Hi", "Body"); err == nil {
+		t.Fatal("an insert failure must be reported")
 	}
 }
 
 // --- guards ---
 
 func TestDrainWithoutWiringIsANoOp(t *testing.T) {
-	task, err := NewConnectorDrainTask(1, 0, true)
-	if err != nil {
-		t.Fatalf("NewConnectorDrainTask: %v", err)
-	}
-	if err := NewConnectorDrainHandler(&WorkerDeps{})(context.Background(), task); err != nil {
+	job := &river.Job[ConnectorDrainArgs]{Args: ConnectorDrainArgs{InstanceID: 1}}
+	if err := NewConnectorDrainHandler(&WorkerDeps{})(context.Background(), job); err != nil {
 		t.Fatalf("an unwired deployment must not error: %v", err)
-	}
-}
-
-func TestDrainIgnoresMalformedPayload(t *testing.T) {
-	h := newDrainHarness(t, `{}`)
-	task := asynq.NewTask(TaskConnectorDrain, []byte(`{not json`))
-
-	if err := NewConnectorDrainHandler(h.deps)(context.Background(), task); err != nil {
-		t.Fatalf("a malformed task payload must not error (it would only be retried): %v", err)
 	}
 }
 

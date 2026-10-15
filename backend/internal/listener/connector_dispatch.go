@@ -196,7 +196,7 @@ func RegisterConnectorDispatcher(
 			}
 			if err := enq.EnqueueConnectorDrain(ctx, inst.ID, 0); err != nil {
 				// The row is safely persisted; the maintenance sweep re-enqueues
-				// instances with due rows, so a Redis blip delays delivery
+				// instances with due rows, so a failed enqueue delays delivery
 				// rather than losing it.
 				slog.Error("connector dispatch: failed to enqueue drain",
 					"instance_id", inst.ID, "error", err)
