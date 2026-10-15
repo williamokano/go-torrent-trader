@@ -28,6 +28,10 @@ const postgresImage = "postgres:16-alpine"
 // where the container is never started.
 var testDB *sql.DB
 
+// testDSN is testDB's connection string, for the tests that need a native pgx
+// pool rather than database/sql (River's driver).
+var testDSN string
+
 // TestMain mirrors internal/repository/postgres/main_test.go and
 // cmd/backfill-mentions/main_test.go: one throwaway Postgres container per
 // package run, migrated with the real goose migrations. The worker package
@@ -44,6 +48,18 @@ func TestMain(m *testing.M) {
 	}
 
 	ctx := context.Background()
+
+	// An existing database instead of a container, for machines without
+	// Docker. It is migrated like the container would be, and several tests
+	// assume it starts empty, as a container does — so create a fresh one for
+	// each run and throw it away after.
+	if dsn := os.Getenv("WORKER_TEST_DATABASE_URL"); dsn != "" {
+		code, err := runWithDSN(ctx, dsn, m)
+		if err != nil {
+			log.Fatalf("preparing test database: %v", err)
+		}
+		os.Exit(code)
+	}
 
 	container, err := tcpostgres.Run(ctx, postgresImage,
 		tcpostgres.WithDatabase("worker_test"),
@@ -78,7 +94,10 @@ func runWithContainer(ctx context.Context, container *tcpostgres.PostgresContain
 	if err != nil {
 		return 0, fmt.Errorf("building connection string: %w", err)
 	}
+	return runWithDSN(ctx, dsn, m)
+}
 
+func runWithDSN(ctx context.Context, dsn string, m *testing.M) (int, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return 0, fmt.Errorf("opening test database: %w", err)
@@ -96,6 +115,7 @@ func runWithContainer(ctx context.Context, container *tcpostgres.PostgresContain
 	}
 
 	testDB = db
+	testDSN = dsn
 	return m.Run(), nil
 }
 

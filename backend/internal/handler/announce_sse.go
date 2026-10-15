@@ -179,7 +179,7 @@ func (h *AnnounceHub) remove(client *sseClient) {
 //
 // The id becomes the SSE event id, so each frame says which announcement it is.
 // The send is non-blocking: this runs on a worker goroutine holding one of ten
-// asynq slots, and a stalled hub must not be able to park it.
+// worker slots, and a stalled hub must not be able to park it.
 func (h *AnnounceHub) Broadcast(feed, id string, payload []byte) {
 	queued := feedFrame{feed: feed, frame: sseFrame("announcement", id, payload)}
 	select {

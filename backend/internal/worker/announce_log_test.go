@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/riverqueue/river"
+
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -234,7 +236,7 @@ func TestAnnounceLogMaintenance_RollupFailureLimitsPruneToLastGoodWatermark(t *t
 		AnnounceRetention:  fixedRetention(1),
 	}
 
-	// The error is reported to asynq (see RollupFailureIsReturnedToAsynq); what
+	// The error is reported to River (see RollupFailureIsReturnedToTheQueue); what
 	// matters here is where the prune stopped.
 	if err := NewAnnounceLogMaintenanceHandler(deps)(context.Background(), nil); err == nil {
 		t.Fatal("expected the rollup failure to be reported")
@@ -516,7 +518,7 @@ func TestAnnounceLogMaintenance_ZeroMinWindowStillPrunes(t *testing.T) {
 // and returning nil is how a job comes to report success every night while the
 // table it exists to bound grows without limit — which is the bug this whole job
 // was written to fix.
-func TestAnnounceLogMaintenance_RollupFailureIsReturnedToAsynq(t *testing.T) {
+func TestAnnounceLogMaintenance_RollupFailureIsReturnedToTheQueue(t *testing.T) {
 	rollupErr := errors.New("statement timeout")
 	rollups := &mockAnnounceRollupRepo{
 		watermark: utcToday().AddDate(0, 0, -400),
@@ -541,7 +543,7 @@ func TestAnnounceLogMaintenance_RollupFailureIsReturnedToAsynq(t *testing.T) {
 }
 
 // A run with no watermark at all is also a failure, and must not prune.
-func TestAnnounceLogMaintenance_UnreadableWatermarkIsReturnedToAsynq(t *testing.T) {
+func TestAnnounceLogMaintenance_UnreadableWatermarkIsReturnedToTheQueue(t *testing.T) {
 	rollups := &mockAnnounceRollupRepo{
 		watermark:        utcToday().AddDate(0, 0, -400),
 		rollupErr:        errors.New("rollup down"),
@@ -574,34 +576,16 @@ func TestAnnounceLogMaintenance_HealthyRunReturnsNil(t *testing.T) {
 	}
 }
 
-func TestAnnounceLogMaintenanceTask_IsWellFormed(t *testing.T) {
-	task, err := NewAnnounceLogMaintenanceTask()
-	if err != nil {
-		t.Fatalf("NewAnnounceLogMaintenanceTask: %v", err)
-	}
-	if task.Type() != TaskAnnounceLogMaintenance {
-		t.Errorf("task type = %q, want %q", task.Type(), TaskAnnounceLogMaintenance)
-	}
-}
-
 // Every other test here calls the handler directly, which proves nothing about
 // whether the worker will ever call it. Migration 079's own header records what
 // that costs: announce_log_retention_days was seeded and validated for months, and
-// nothing read it. A dropped HandleFunc line in a rebase would reproduce exactly
+// nothing read it. A dropped registration in a rebase would reproduce exactly
 // that, with every test in this package still green.
-func TestAnnounceLogMaintenanceIsRegisteredInTheMux(t *testing.T) {
-	task, err := NewAnnounceLogMaintenanceTask()
-	if err != nil {
-		t.Fatalf("NewAnnounceLogMaintenanceTask: %v", err)
-	}
-
-	handler, pattern := NewMux(&WorkerDeps{}).Handler(task)
-	if pattern != TaskAnnounceLogMaintenance {
-		t.Fatalf("mux has no handler for %q (matched pattern %q)", TaskAnnounceLogMaintenance, pattern)
-	}
-	// And the registered handler is inert against empty deps rather than panicking
+func TestAnnounceLogMaintenanceIsRegistered(t *testing.T) {
+	w := registeredWorker[AnnounceLogMaintenanceArgs](t, &WorkerDeps{})
+	// And the registered worker is inert against empty deps rather than panicking
 	// the worker process, since that is what a partially wired deployment hands it.
-	if err := handler.ProcessTask(context.Background(), task); err != nil {
-		t.Errorf("registered handler returned %v with nothing wired, want nil", err)
+	if err := w.Work(context.Background(), &river.Job[AnnounceLogMaintenanceArgs]{}); err != nil {
+		t.Errorf("registered worker returned %v with nothing wired, want nil", err)
 	}
 }

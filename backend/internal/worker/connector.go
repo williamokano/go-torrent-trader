@@ -10,7 +10,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -33,10 +34,6 @@ const (
 	// connectorRateWindow is the window the per-instance rate budget is measured
 	// over, and how long a budget-exhausted drain waits before trying again.
 	connectorRateWindow = time.Minute
-	// connectorDrainUnique collapses a burst of dispatches for one instance into
-	// a single drain. asynq keys uniqueness on task type + payload, and the
-	// payload is just the instance ID.
-	connectorDrainUnique = 5 * time.Second
 	// connectorDeliverTimeout bounds one Deliver call.
 	connectorDeliverTimeout = 10 * time.Second
 	// connectorClaimLease is how long a row is hidden from other drains while
@@ -46,7 +43,7 @@ const (
 	connectorClaimLease = 30 * time.Second
 	// connectorDrainDeadline bounds a whole run. The row batch alone does not:
 	// 100 rows against a black-holed endpoint is 100 × the deliver timeout, and
-	// there are only ten asynq slots shared with every other job. Whatever is
+	// there are only ten worker slots shared with every other job. Whatever is
 	// left over is picked up by the immediate follow-up.
 	connectorDrainDeadline = 60 * time.Second
 	// connectorNotReadyRetry is how soon to look again when a connector says it
@@ -68,81 +65,110 @@ const (
 	connectorDisabledGrace = 15 * time.Minute
 )
 
-// ConnectorDrainPayload is the drain task's payload.
+// ConnectorDrainArgs is the drain job's args.
 //
 // It carries only the instance ID on purpose: every other piece of state lives
-// in connector_deliveries, so a task queued before a deploy still means exactly
+// in connector_deliveries, so a job queued before a deploy still means exactly
 // the same thing after it. Never add a required field here.
-type ConnectorDrainPayload struct {
+type ConnectorDrainArgs struct {
 	InstanceID int64 `json:"instance_id"`
 }
 
-// NewConnectorDrainTask builds a drain task, optionally deferred by delay.
+func (ConnectorDrainArgs) Kind() string { return TaskConnectorDrain }
+
+// InsertOpts allows exactly one attempt. Retries are managed in the database,
+// not by the queue: the delivery rows carry attempts and next_attempt_at, which
+// is what lets one run see the whole pending set — required for both dedupe and
+// coalescing, and something a per-job retry cannot do.
+func (ConnectorDrainArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 1} }
+
+// connectorDrainUnique is the uniqueness the dispatcher's enqueue uses, so a
+// burst of dispatches for one instance collapses into a single drain: while a
+// drain for the instance is queued, scheduled or running, another insert for
+// it is skipped. These are River's mandatory unique states, and deliberately
+// nothing more — completed is left out, or a finished drain would block the
+// next one until River pruned the row.
 //
-// MaxRetry(0) is deliberate: retries are managed in the database, not by asynq.
-// The delivery rows carry attempts and next_attempt_at, which is what lets one
-// run see the whole pending set — required for both dedupe and coalescing, and
-// something asynq's per-task retry cannot do.
-//
-// collapse adds the uniqueness window that turns a burst of dispatches into a
-// single drain. It must be false for a drain scheduling its own follow-up:
-// asynq holds the uniqueness lock for the whole duration of the running task
-// (it is released in Done, not at dequeue) and the key is type+payload, which
-// ProcessIn does not vary — so a collapsing enqueue from inside the handler is
-// always rejected as a duplicate and the follow-up silently never happens.
-// Concurrent drains are already made safe by ClaimForDelivery, so the follow-up
-// does not need collapsing anyway.
-func NewConnectorDrainTask(instanceID int64, delay time.Duration, collapse bool) (*asynq.Task, error) {
-	payload, err := json.Marshal(ConnectorDrainPayload{InstanceID: instanceID})
-	if err != nil {
-		return nil, fmt.Errorf("marshal connector drain payload: %w", err)
-	}
-	opts := []asynq.Option{asynq.MaxRetry(0)}
-	if collapse {
-		opts = append(opts, asynq.Unique(connectorDrainUnique))
-	}
-	if delay > 0 {
-		opts = append(opts, asynq.ProcessIn(delay))
-	}
-	return asynq.NewTask(TaskConnectorDrain, payload, opts...), nil
+// The drain's own follow-ups never use it. See enqueueDrain for why a retry has
+// to be a separate, non-unique job.
+var connectorDrainUnique = river.UniqueOpts{ //nolint:gochecknoglobals // read-only option value
+	ByArgs: true,
+	ByState: []rivertype.JobState{
+		rivertype.JobStateAvailable,
+		rivertype.JobStatePending,
+		rivertype.JobStateRunning,
+		rivertype.JobStateScheduled,
+	},
 }
 
-// NewConnectorDrainHandler returns the asynq handler that delivers pending
+// connectorDrainRecheckDelay is how soon a drain that found newly dispatched
+// rows on its way out runs again. Not zero, so that a drain which cannot make
+// progress on them (a claim that keeps failing) polls once a second rather than
+// spinning.
+const connectorDrainRecheckDelay = time.Second
+
+// NewConnectorDrainHandler returns the handler that delivers pending
 // announcements for one instance.
 //
-// It always returns nil. A connector failure is recorded on the delivery row and
-// rescheduled from there; surfacing it to asynq as well would produce a second,
-// competing retry schedule on top of the one in the database.
-func NewConnectorDrainHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, t *asynq.Task) error {
+// It never returns a failure. A connector failure is recorded on the delivery
+// row and rescheduled from there; surfacing it to the queue as well would
+// produce a second, competing retry schedule on top of the one in the database.
+// What it can return is a snooze: when the instance has more to send right now,
+// or is waiting out its rate limit, the same job reschedules itself instead of
+// queuing a copy. A snooze does not use up the job's single attempt.
+//
+// Its worst case is a process killed outright mid-drain (OOM, SIGKILL): the row
+// stays "running", which River's uniqueness counts, so dispatches for that
+// instance collapse into a job nobody is working until the rescuer discards it
+// (rescueStuckJobsAfter) and the next maintenance sweep starts a fresh drain —
+// about fifteen minutes. A graceful shutdown does not get there: it cancels the
+// drain, which snoozes instead.
+func NewConnectorDrainHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[ConnectorDrainArgs]) error {
+	return func(ctx context.Context, job *river.Job[ConnectorDrainArgs]) error {
 		if deps.ConnectorRepo == nil || deps.ConnectorDeliveryRepo == nil || deps.ConnectorRegistry == nil {
-			return nil
-		}
-
-		var payload ConnectorDrainPayload
-		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-			slog.Error("connector drain: invalid payload", "error", err)
 			return nil
 		}
 
 		drainCtx, cancel := context.WithTimeout(ctx, connectorDrainDeadline)
 		defer cancel()
 
-		drainInstance(drainCtx, deps, payload.InstanceID)
+		again, after := drainInstance(drainCtx, deps, job.Args.InstanceID)
+		if drainCtx.Err() != nil {
+			// The run was cut short — its own deadline mid-batch, or shutdown
+			// cancelling it. Whatever it did not reach is still due, so hand the
+			// job straight back rather than ending it: an ended drain would leave
+			// those rows for the maintenance sweep, and a process exiting with
+			// the drain still "running" would block every dispatch for the
+			// instance until River's rescuer reached it.
+			return river.JobSnooze(0)
+		}
+		if again {
+			return river.JobSnooze(after)
+		}
 		return nil
 	}
 }
 
-func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
+// drainInstance delivers what is due for one instance. It reports whether the
+// drain should run again, and after how long: the job snoozes for that long
+// rather than ending.
+//
+// Two follow-ups snooze. A full batch means more is due right now, and a spent
+// rate budget — before the run, or partway through it for a kind that cannot
+// coalesce — means everything waits for the window to roll. Either way any
+// dispatch that arrives in the meantime would only find this job and be
+// collapsed into it, which is exactly right: the snoozed run will see those rows
+// too. A retry is different and is enqueued separately — see enqueueDrain.
+func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (again bool, after time.Duration) {
 	now := time.Now()
 
 	due, err := deps.ConnectorDeliveryRepo.ListDue(ctx, instanceID, now, connectorDrainBatch)
 	if err != nil {
 		slog.Error("connector drain: failed to list due deliveries", "instance_id", instanceID, "error", err)
-		return
+		return false, 0
 	}
 	if len(due) == 0 {
-		return
+		return false, 0
 	}
 
 	inst, err := deps.ConnectorRepo.GetByID(ctx, instanceID)
@@ -150,10 +176,10 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 		if errors.Is(err, sql.ErrNoRows) {
 			// The instance was deleted; its rows went with it via cascade, and
 			// anything we are holding is already gone.
-			return
+			return false, 0
 		}
 		slog.Error("connector drain: failed to load instance", "instance_id", instanceID, "error", err)
-		return
+		return false, 0
 	}
 	if !inst.Enabled {
 		// Only give up on rows that have been waiting longer than the grace
@@ -166,12 +192,12 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 			}
 		}
 		failAll(ctx, deps, stale, "connector instance is disabled")
-		return
+		return false, 0
 	}
 	impl, ok := deps.ConnectorRegistry.Get(inst.Kind)
 	if !ok {
 		failAll(ctx, deps, due, fmt.Sprintf("unknown connector kind %q", inst.Kind))
-		return
+		return false, 0
 	}
 
 	budget, err := rateBudget(ctx, deps, inst.ID, inst.Config, now)
@@ -182,8 +208,7 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 	if budget <= 0 {
 		// Nothing failed — the instance has simply said its piece for this
 		// minute. Come back when the window rolls, without touching any row.
-		enqueueDrain(ctx, deps, instanceID, connectorRateWindow)
-		return
+		return true, connectorRateWindow
 	}
 
 	// With more due than budget, a kind a person reads spends its last unit of
@@ -192,7 +217,11 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 	// that — a summary is unrecoverable for a bot — so it spends the whole
 	// budget on individual deliveries and leaves the rest pending for the next
 	// window.
+	// retryIn is when the earliest failed row is due again; rateLimited is
+	// whether rows were left for the next rate window. They are kept apart
+	// because they are scheduled differently (see the end of this function).
 	retryIn := time.Duration(0)
+	rateLimited := false
 	individual := len(due)
 	var toCoalesce []model.ConnectorDelivery
 	if len(due) > budget {
@@ -201,7 +230,7 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 			toCoalesce = due[individual:]
 		} else {
 			individual = budget
-			retryIn = connectorRateWindow
+			rateLimited = true
 		}
 	}
 
@@ -232,22 +261,48 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) {
 		retryIn = minNonZero(retryIn, deliverCoalesced(ctx, deps, impl, inject, claimed, inst.Config, secretFields))
 	}
 
-	// Schedule at most one follow-up. Two enqueues here would collide anyway:
-	// asynq keys uniqueness on type + payload, and the payload is just the
-	// instance ID, so the second would be rejected as a duplicate.
-	//
-	// A full batch wins, because that work is due now while a retry is at least
-	// 30s out — and the follow-up drain re-evaluates the retry when it runs. The
-	// one gap is a full batch whose leftovers are *all* future-dated retries: the
-	// follow-up then finds nothing due and schedules nothing, and the rows wait
-	// for the maintenance sweep (≤5 min) to re-enqueue them. That is the sweep's
-	// job, and it only costs extra latency in an already-failing instance.
-	switch {
-	case len(due) == connectorDrainBatch:
-		enqueueDrain(ctx, deps, instanceID, 0)
-	case retryIn > 0:
+	// A retry is its own job, scheduled for when the earliest failed row is due
+	// again. It is enqueued even when a full batch is about to snooze this one:
+	// the two are separate jobs, so they cannot collide, and the retry would
+	// otherwise be lost whenever the snoozed run found only future-dated rows.
+	if retryIn > 0 {
 		enqueueDrain(ctx, deps, instanceID, retryIn)
 	}
+	if len(due) == connectorDrainBatch {
+		return true, 0
+	}
+	if rateLimited {
+		return true, connectorRateWindow
+	}
+	if dispatchedSince(ctx, deps, instanceID, due[len(due)-1].ID) {
+		return true, connectorDrainRecheckDelay
+	}
+	return false, 0
+}
+
+// dispatchedSince reports whether rows newer than lastSeen became due while
+// this drain was running.
+//
+// Those rows were dispatched, but their dispatch could not start a drain: this
+// job holds the instance's uniqueness for as long as it runs, so the insert was
+// skipped as a duplicate of a drain that had already listed its rows. Without
+// this check they would wait for the maintenance sweep. Rows at or below
+// lastSeen are not counted, so a row this drain failed to claim does not keep
+// rescheduling it.
+func dispatchedSince(ctx context.Context, deps *WorkerDeps, instanceID, lastSeen int64) bool {
+	due, err := deps.ConnectorDeliveryRepo.ListDue(ctx, instanceID, time.Now(), connectorDrainBatch)
+	if err != nil {
+		// The sweep will find them; this was only ever a latency shortcut.
+		slog.Warn("connector drain: could not check for newly dispatched deliveries",
+			"instance_id", instanceID, "error", err)
+		return false
+	}
+	for _, row := range due {
+		if row.ID > lastSeen {
+			return true
+		}
+	}
+	return false
 }
 
 // deliverOne attempts a single delivery, returning the delay after which the row
@@ -492,8 +547,15 @@ func decodeAnnouncement(row model.ConnectorDelivery) (connector.Announcement, er
 	return a, nil
 }
 
-// enqueueDrain schedules this drain's own follow-up. It uses the non-collapsing
-// path because the uniqueness lock for this very task is still held.
+// enqueueDrain schedules a retry for this instance as a separate, non-unique
+// job, rather than snoozing this one.
+//
+// A snoozed drain keeps the instance's uniqueness until it runs, so every
+// dispatch in between is collapsed into it. That is harmless for a one-minute
+// rate window, but a retry can be ten minutes out (connectorBackoff), and one
+// failing row must not hold back a fresh announcement for that long. A separate
+// job leaves the dispatcher free to start an immediate drain; ClaimForDelivery
+// already makes overlapping drains safe.
 func enqueueDrain(ctx context.Context, deps *WorkerDeps, instanceID int64, delay time.Duration) {
 	if deps.ConnectorEnqueuer == nil {
 		return

@@ -53,7 +53,7 @@ type NotificationDigestService struct {
 }
 
 // NewNotificationDigestService creates a new NotificationDigestService.
-// taskEnqueuer reuses the same asynq-backed email pipeline as AuthService
+// taskEnqueuer reuses the same River-backed email pipeline as AuthService
 // (see TaskEnqueuer) rather than sending mail inline from the scheduler.
 func NewNotificationDigestService(
 	digestPrefs repository.NotificationDigestPreferenceRepository,

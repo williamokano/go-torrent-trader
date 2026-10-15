@@ -8,7 +8,7 @@ are the right places.
 
 | Tool | Version | Why |
 |---|---|---|
-| Go | 1.25+ | backend and migration tool |
+| Go | 1.27+ | backend, CLI and migration tool |
 | Node.js | 22+ | frontend |
 | Docker | any recent | Postgres, Redis, MinIO, Mailpit — and the repository tests |
 | [Task](https://taskfile.dev/installation/) | 3+ | build orchestration |
@@ -54,7 +54,7 @@ backend/          Go API server and tracker
     connector/    outbound announcement framework
     event/        in-process event bus and types
     listener/     event handlers (services publish, listeners react)
-    worker/       asynq background jobs
+    worker/       River background jobs (Postgres-backed)
   migrations/     goose, forward-only, numbered
 
 frontend/         React 19 + Vite + TypeScript

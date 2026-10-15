@@ -198,10 +198,10 @@ shipped unguarded.
 
 ## Project Structure
 
-- `backend/` — Go 1.25, Chi router, goose migrations, pgx, minio-go. API contract in `backend/api/`
+- `backend/` — Go 1.27, Chi router, goose migrations, pgx, minio-go. API contract in `backend/api/`
 - `frontend/` — React 19, Vite 6, TypeScript 5.7, React Router 7
 - `migration-tool/` — Go 1.23, Cobra CLI (TorrentTrader data migration)
-- `cli/` — Go 1.25, Cobra CLI (`tt`), a REST client for administering a running site
+- `cli/` — Go 1.27, Cobra CLI (`tt`), a REST client for administering a running site
 - `docs/` — architecture, decision log, backlog, and the porting reference (see Key References)
 - `tasks/` — `todo.md` session context and `lessons.md` accumulated rules
 - `Taskfile.yml` — build orchestration (use `task --list` to see available tasks)

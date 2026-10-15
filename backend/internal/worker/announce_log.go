@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskAnnounceLogMaintenance is the task type for the nightly announce-log job.
@@ -46,12 +46,16 @@ const (
 	announcePruneMaxChunks = 2000
 )
 
-// NewAnnounceLogMaintenanceTask creates a task for the nightly announce-log job.
-func NewAnnounceLogMaintenanceTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskAnnounceLogMaintenance, nil, asynq.MaxRetry(1), asynq.Unique(time.Hour)), nil
+// AnnounceLogMaintenanceArgs is the job for the nightly announce-log job.
+type AnnounceLogMaintenanceArgs struct{}
+
+func (AnnounceLogMaintenanceArgs) Kind() string { return TaskAnnounceLogMaintenance }
+
+func (AnnounceLogMaintenanceArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{MaxAttempts: 2}
 }
 
-// NewAnnounceLogMaintenanceHandler returns an asynq handler that keeps the
+// NewAnnounceLogMaintenanceHandler returns the handler that keeps the
 // announce log bounded: it aggregates closed days into monthly per-user totals,
 // then deletes raw rows past the configured retention window.
 //
@@ -64,8 +68,8 @@ func NewAnnounceLogMaintenanceTask() (*asynq.Task, error) {
 // It runs nightly rather than in the five-minute maintenance sweep because it is
 // not lightweight: a first run on an existing deployment aggregates the whole
 // history and deletes everything past the window.
-func NewAnnounceLogMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func NewAnnounceLogMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[AnnounceLogMaintenanceArgs]) error {
+	return func(ctx context.Context, _ *river.Job[AnnounceLogMaintenanceArgs]) error {
 		rolledThrough, ok, rollupErr := rollUpAnnounces(ctx, deps)
 		if ok {
 			pruneAnnounces(ctx, deps, rolledThrough)

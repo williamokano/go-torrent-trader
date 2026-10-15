@@ -6,21 +6,23 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskMaintenance is the task type for the general maintenance job.
 const TaskMaintenance = "maintenance:run"
 
-// NewMaintenanceTask creates a task for the general maintenance job.
-func NewMaintenanceTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskMaintenance, nil, asynq.MaxRetry(1), asynq.Unique(4*time.Minute)), nil
-}
+// MaintenanceArgs is the job for the general maintenance job.
+type MaintenanceArgs struct{}
 
-// NewMaintenanceHandler returns an asynq handler that performs lightweight
+func (MaintenanceArgs) Kind() string { return TaskMaintenance }
+
+func (MaintenanceArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewMaintenanceHandler returns the handler that performs lightweight
 // housekeeping tasks on a frequent interval (every 5 minutes).
-func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[MaintenanceArgs]) error {
+	return func(ctx context.Context, _ *river.Job[MaintenanceArgs]) error {
 		// 1. Resolve expired manual warnings
 		if deps.WarningSvc != nil {
 			if resolved, err := deps.WarningSvc.ResolveExpiredManualWarnings(ctx); err != nil {
@@ -94,7 +96,7 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.
 
 		// 7. Re-enqueue drains for instances with work that is due. This is the
 		// safety net for anything stranded between the delivery row being
-		// written and its drain being queued — a crash, or a Redis blip while
+		// written and its drain being queued — a crash, or a failed insert while
 		// the dispatcher was enqueuing.
 		if deps.ConnectorDeliveryRepo != nil && deps.ConnectorEnqueuer != nil {
 			ids, err := deps.ConnectorDeliveryRepo.InstancesWithDue(ctx, time.Now())

@@ -490,3 +490,36 @@ func TestLoadTrustedProxiesRejectsGarbage(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadJobPoolMaxConns(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Database.JobPoolMaxConns != 10 {
+		t.Errorf("expected Database.JobPoolMaxConns 10 by default, got %d", cfg.Database.JobPoolMaxConns)
+	}
+
+	t.Setenv("DB_JOB_POOL_MAX_CONNS", "16")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Database.JobPoolMaxConns != 16 {
+		t.Errorf("expected Database.JobPoolMaxConns 16 from env, got %d", cfg.Database.JobPoolMaxConns)
+	}
+}
+
+// River holds one connection for LISTEN for good; a pool of one or two would
+// leave it unable to fetch, rather than merely slow.
+func TestLoadRejectsATooSmallJobPool(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	for _, v := range []string{"3", "0", "-1", "lots"} {
+		t.Setenv("DB_JOB_POOL_MAX_CONNS", v)
+		if _, err := Load(); err == nil {
+			t.Errorf("DB_JOB_POOL_MAX_CONNS=%q was accepted", v)
+		}
+	}
+}

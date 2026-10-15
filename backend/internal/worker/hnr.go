@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
@@ -14,23 +13,21 @@ import (
 // TaskHnREvaluate is the task type for the hit-and-run daemon sweep.
 const TaskHnREvaluate = "hnr:evaluate"
 
-// NewHnREvaluateTask creates a task for the HnR daemon. The unique window is
-// shorter than the schedule interval (hourly), the same relationship
-// promotion's daily task has to its 23h window: it only guards against a
-// literal duplicate enqueue in the same cycle. The service's own two-stage
-// advisory lock (HnRService.RunDaemon) is what actually makes concurrent
-// invocations — from asynq retries, a manual "run now", or another worker
-// process entirely — safe, not this.
-func NewHnREvaluateTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskHnREvaluate, nil, asynq.MaxRetry(1), asynq.Unique(55*time.Minute)), nil
-}
+// HnREvaluateArgs is the job for the HnR daemon. The service's own two-stage
+// advisory lock (HnRService.RunDaemon) is what makes concurrent invocations —
+// a retry, a manual "run now", or a slow run meeting the next tick — safe.
+type HnREvaluateArgs struct{}
 
-// NewHnREvaluateHandler returns an asynq handler that runs the HnR daemon
+func (HnREvaluateArgs) Kind() string { return TaskHnREvaluate }
+
+func (HnREvaluateArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewHnREvaluateHandler returns the handler that runs the HnR daemon
 // sweep. Skipping (another instance already queued) is not an error — it is
 // the lock working as intended, so it is logged at Info and swallowed rather
 // than surfaced as a task failure that would trigger a retry.
-func NewHnREvaluateHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func NewHnREvaluateHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[HnREvaluateArgs]) error {
+	return func(ctx context.Context, _ *river.Job[HnREvaluateArgs]) error {
 		if deps.HnRSvc == nil {
 			slog.Warn("hnr: missing service, skipping")
 			return nil

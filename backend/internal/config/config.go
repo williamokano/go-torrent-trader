@@ -41,7 +41,6 @@ type CacheConfig struct {
 
 // WorkerConfig holds background worker settings.
 type WorkerConfig struct {
-	EnableScheduler bool // ENABLE_SCHEDULER, default true
 	// NotificationRetention is how long read notifications are kept before the
 	// maintenance job purges them. Zero disables the purge.
 	NotificationRetention time.Duration // NOTIFICATION_RETENTION, default 2160h (90 days)
@@ -71,6 +70,7 @@ type ServerConfig struct {
 type DatabaseConfig struct {
 	URL             string        // DATABASE_URL, required
 	MaxOpenConns    int           // DB_MAX_OPEN_CONNS, default 25
+	JobPoolMaxConns int           // DB_JOB_POOL_MAX_CONNS, default 10 (the job queue's own pool)
 	MaxIdleConns    int           // DB_MAX_IDLE_CONNS, default 5
 	ConnMaxLifetime time.Duration // DB_CONN_MAX_LIFETIME, default 5m
 }

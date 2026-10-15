@@ -4,26 +4,27 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskInviteDistribution is the task type for the auto invite distribution run.
 const TaskInviteDistribution = "invite_distribution:run"
 
-// NewInviteDistributionTask creates a task for the invite distribution engine.
-// The unique window prevents duplicate enqueues; the engine itself enforces
+// InviteDistributionArgs is the job for the invite distribution engine.
+// The engine itself enforces
 // the configurable interval, so this can be scheduled daily and simply no-op
 // between cycles.
-func NewInviteDistributionTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskInviteDistribution, nil, asynq.MaxRetry(1), asynq.Unique(23*time.Hour)), nil
-}
+type InviteDistributionArgs struct{}
 
-// NewInviteDistributionHandler returns an asynq handler that runs the invite
+func (InviteDistributionArgs) Kind() string { return TaskInviteDistribution }
+
+func (InviteDistributionArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewInviteDistributionHandler returns the handler that runs the invite
 // distribution engine.
-func NewInviteDistributionHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func NewInviteDistributionHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[InviteDistributionArgs]) error {
+	return func(ctx context.Context, _ *river.Job[InviteDistributionArgs]) error {
 		if deps.InviteDistributionSvc == nil {
 			slog.Warn("invite distribution: missing service, skipping")
 			return nil

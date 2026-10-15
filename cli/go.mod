@@ -1,8 +1,8 @@
 module github.com/williamokano/go-torrent-trader/cli
 
-go 1.25.0
+go 1.27.0
 
-toolchain go1.25.5
+toolchain go1.27.2
 
 require (
 	github.com/spf13/cobra v1.10.2

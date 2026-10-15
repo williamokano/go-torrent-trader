@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
@@ -15,14 +15,16 @@ import (
 // TaskRatioWarning is the task type for the ratio warning check job.
 const TaskRatioWarning = "ratio:warning"
 
-// NewRatioWarningTask creates a task for the ratio warning check.
-func NewRatioWarningTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskRatioWarning, nil, asynq.MaxRetry(1), asynq.Unique(5*time.Hour)), nil
-}
+// RatioWarningArgs is the job for the ratio warning check.
+type RatioWarningArgs struct{}
 
-// NewRatioWarningHandler returns an asynq handler that checks user ratios and issues warnings/bans.
-func NewRatioWarningHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func (RatioWarningArgs) Kind() string { return TaskRatioWarning }
+
+func (RatioWarningArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewRatioWarningHandler returns the handler that checks user ratios and issues warnings/bans.
+func NewRatioWarningHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[RatioWarningArgs]) error {
+	return func(ctx context.Context, _ *river.Job[RatioWarningArgs]) error {
 		if deps.WarningSvc == nil || deps.SiteSettingsSvc == nil {
 			slog.Warn("ratio warning: missing dependencies, skipping")
 			return nil

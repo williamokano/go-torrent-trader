@@ -4,23 +4,23 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
-	"github.com/hibiken/asynq"
+	"github.com/riverqueue/river"
 )
 
 // TaskBonusAward is the task type for the hourly bonus point award cycle.
 const TaskBonusAward = "bonus:award"
 
-// NewBonusAwardTask creates a task for one bonus award cycle. The unique window
-// prevents duplicate enqueues when multiple scheduler instances run.
-func NewBonusAwardTask() (*asynq.Task, error) {
-	return asynq.NewTask(TaskBonusAward, nil, asynq.MaxRetry(1), asynq.Unique(50*time.Minute)), nil
-}
+// BonusAwardArgs is the job for one bonus award cycle.
+type BonusAwardArgs struct{}
 
-// NewBonusAwardHandler returns an asynq handler that runs the bonus award cycle.
-func NewBonusAwardHandler(deps *WorkerDeps) func(ctx context.Context, t *asynq.Task) error {
-	return func(ctx context.Context, _ *asynq.Task) error {
+func (BonusAwardArgs) Kind() string { return TaskBonusAward }
+
+func (BonusAwardArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+
+// NewBonusAwardHandler returns the handler that runs the bonus award cycle.
+func NewBonusAwardHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[BonusAwardArgs]) error {
+	return func(ctx context.Context, _ *river.Job[BonusAwardArgs]) error {
 		if deps.BonusSvc == nil {
 			slog.Warn("bonus award: missing service, skipping")
 			return nil
