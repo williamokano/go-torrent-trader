@@ -257,3 +257,24 @@ func TestHandleRSS_LimitParam(t *testing.T) {
 
 // Ensure unused imports are referenced.
 var _ repository.UserRepository = (*passkeyAwareMockUserRepo)(nil)
+
+// The feed's enclosure links carry the passkey, so a banned member's feed must
+// stop as the tracker does (#291).
+func TestHandleRSS_DisabledAccountIsRefused(t *testing.T) {
+	router, _, userRepo := setupRSSRouter()
+	registerAndGetToken(t, router)
+	passkey := getPasskeyFromRepo(t, userRepo)
+
+	userRepo.mu.Lock()
+	for _, u := range userRepo.users {
+		u.Enabled = false
+	}
+	userRepo.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/rss?passkey="+passkey, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("disabled account's feed: status %d, want 401", rec.Code)
+	}
+}

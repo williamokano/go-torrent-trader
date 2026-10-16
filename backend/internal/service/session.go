@@ -23,6 +23,11 @@ const SessionTouchInterval = time.Minute
 // testutil.MemorySessionStore stands in for tests. It is the seam a different
 // backend — Redis again, say — would plug into, without touching auth.
 //
+// A lookup answers with the member's current authority, never a copy taken at
+// login (#291): it returns no session when the account is disabled, and the
+// GroupID and Permissions of the member's group as it is now. The PostgreSQL
+// store does this by joining the account on every lookup.
+//
 // A lookup returns (nil, nil) when there is no such live session, and an error
 // only when the store could not answer. The two must stay apart: a member whose
 // session simply could not be read during a database blip has to see a

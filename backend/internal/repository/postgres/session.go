@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
@@ -23,6 +23,13 @@ const sessionQueryTimeout = 5 * time.Second
 // It stores token hashes, never tokens (see migration 092). A lookup hashes the
 // presented token and puts it back on the returned Session, so callers see the
 // same Session the Redis store returned.
+//
+// A session records who is signed in, not what they may do. Every lookup reads
+// the member's account and class as they are now (#291): a disabled account has
+// no live sessions, and a member's permissions are their current group's, the
+// moment either changes — whichever code path changed it. A permission snapshot
+// taken at login, as sessions used to carry, outlived bans and demotions for as
+// long as the client kept refreshing.
 type SessionStore struct {
 	db *sql.DB
 }
@@ -43,8 +50,25 @@ func sessionCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), sessionQueryTimeout)
 }
 
-const sessionColumns = `user_id, group_id, permissions, device_name, ip,
+// sessionColumns are the columns a session row is written with.
+const sessionColumns = `user_id, device_name, ip,
 	created_at, last_active_at, access_expires_at, refresh_expires_at`
+
+// liveSessionSelect reads a session together with the account and class it
+// belongs to, so a lookup answers with current authority. The join on users
+// with enabled = true is what makes a ban take effect on the next request; the
+// join on groups is what makes a demotion, a promotion or an edit to the class
+// itself do the same.
+const liveSessionSelect = `SELECT s.user_id, s.device_name, s.ip,
+	s.created_at, s.last_active_at, s.access_expires_at, s.refresh_expires_at,
+	u.username,
+	g.id, g.name, g.level, g.can_upload, g.can_download, g.can_invite,
+	g.can_comment, g.can_forum, g.is_admin, g.is_moderator, g.is_immune,
+	g.can_self_approve
+	FROM sessions s
+	JOIN users u ON u.id = s.user_id AND u.enabled = true
+	JOIN groups g ON g.id = u.group_id
+	WHERE `
 
 // Create stores a new session.
 func (s *SessionStore) Create(session *service.Session) error {
@@ -58,16 +82,14 @@ type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+// insertSession writes a session row. Session.GroupID and Permissions are not
+// stored: lookups derive them from the member's current account and class.
 func insertSession(ctx context.Context, db execer, session *service.Session) error {
-	perms, err := json.Marshal(session.Permissions)
-	if err != nil {
-		return fmt.Errorf("marshal session permissions: %w", err)
-	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO sessions
 		(access_token_hash, refresh_token_hash, `+sessionColumns+`)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		sessionTokenHash(session.AccessToken), sessionTokenHash(session.RefreshToken),
-		session.UserID, session.GroupID, perms, session.DeviceName, session.IP,
+		session.UserID, session.DeviceName, session.IP,
 		session.CreatedAt, session.LastActive, session.ExpiresAt, session.RefreshExpiresAt,
 	); err != nil {
 		return fmt.Errorf("insert session: %w", err)
@@ -78,7 +100,7 @@ func insertSession(ctx context.Context, db execer, session *service.Session) err
 // GetByAccessToken returns the session whose access token this is, or nil if
 // there is none or the access token has expired.
 func (s *SessionStore) GetByAccessToken(token string) (*service.Session, error) {
-	sess, err := s.get(`access_token_hash = $1 AND access_expires_at > $2`, token)
+	sess, err := s.get(`s.access_token_hash = $1 AND s.access_expires_at > $2`, token)
 	if sess != nil {
 		sess.AccessToken = token
 	}
@@ -89,7 +111,7 @@ func (s *SessionStore) GetByAccessToken(token string) (*service.Session, error) 
 // there is none or the refresh token has expired. It works after the access
 // token has expired, which is what refreshing is for.
 func (s *SessionStore) GetByRefreshToken(token string) (*service.Session, error) {
-	sess, err := s.get(`refresh_token_hash = $1 AND refresh_expires_at > $2`, token)
+	sess, err := s.get(`s.refresh_token_hash = $1 AND s.refresh_expires_at > $2`, token)
 	if sess != nil {
 		sess.RefreshToken = token
 	}
@@ -106,13 +128,19 @@ func (s *SessionStore) get(where, token string) (*service.Session, error) {
 
 	var (
 		sess  service.Session
-		perms []byte
+		group model.Group
 	)
-	err := s.db.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE `+where,
+	err := s.db.QueryRowContext(ctx, liveSessionSelect+where,
 		sessionTokenHash(token), time.Now(),
-	).Scan(&sess.UserID, &sess.GroupID, &perms, &sess.DeviceName, &sess.IP,
-		&sess.CreatedAt, &sess.LastActive, &sess.ExpiresAt, &sess.RefreshExpiresAt)
+	).Scan(&sess.UserID, &sess.DeviceName, &sess.IP,
+		&sess.CreatedAt, &sess.LastActive, &sess.ExpiresAt, &sess.RefreshExpiresAt,
+		&sess.Permissions.Username,
+		&group.ID, &group.Name, &group.Level, &group.CanUpload, &group.CanDownload, &group.CanInvite,
+		&group.CanComment, &group.CanForum, &group.IsAdmin, &group.IsModerator, &group.IsImmune,
+		&group.CanSelfApprove)
 	if errors.Is(err, sql.ErrNoRows) {
+		// No such session — or the account behind it is disabled, which is the
+		// same answer: there is nobody signed in.
 		return nil, nil
 	}
 	if err != nil {
@@ -120,10 +148,10 @@ func (s *SessionStore) get(where, token string) (*service.Session, error) {
 		// with a retryable error rather than a 401 that logs the member out.
 		return nil, fmt.Errorf("%w: read session: %v", service.ErrSessionStoreUnavailable, err)
 	}
-	if err := json.Unmarshal(perms, &sess.Permissions); err != nil {
-		return nil, fmt.Errorf("%w: session for user %d has unreadable permissions: %v",
-			service.ErrSessionStoreUnavailable, sess.UserID, err)
-	}
+	username := sess.Permissions.Username
+	sess.Permissions = model.PermissionsFromGroup(&group)
+	sess.Permissions.Username = username
+	sess.GroupID = group.ID
 	return &sess, nil
 }
 

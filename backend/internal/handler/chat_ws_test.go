@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -532,4 +535,62 @@ func writeText(conn *websocket.Conn, text string) error {
 		return err
 	}
 	return conn.WriteMessage(websocket.TextMessage, raw)
+}
+
+func (h *wsHarness) clientsOf(userID int64) int {
+	h.hub.mu.RLock()
+	defer h.hub.mu.RUnlock()
+	n := 0
+	for c := range h.hub.clients {
+		if c.userID == userID {
+			n++
+		}
+	}
+	return n
+}
+
+// A chat connection re-checks its session only every few messages it sends, so
+// a ban has to close it: a member who only listens would otherwise stay
+// connected for as long as they like (#291).
+func TestChatHubClosesABannedMembersConnections(t *testing.T) {
+	h := newWSHarness(t, nil,
+		&model.User{ID: 7, Username: "banned", CanChat: true},
+		&model.User{ID: 8, Username: "bystander", CanChat: true})
+	h.hub.WatchBans(h.bus)
+	h.session(t, "banned-token", 7, model.Permissions{})
+	h.session(t, "bystander-token", 8, model.Permissions{})
+	victim := h.mustDial(t, "banned-token")
+	h.mustDial(t, "bystander-token")
+
+	deadline := time.Now().Add(3 * time.Second)
+	for h.clientsOf(7) != 1 || h.clientsOf(8) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("clients never registered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	h.bus.Publish(context.Background(), &event.UserBannedEvent{
+		Base: event.NewBase(event.UserBanned, event.Actor{ID: 1}), UserID: 7,
+	})
+
+	_ = victim.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		if _, _, err := victim.ReadMessage(); err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				t.Fatal("the banned member's connection stayed open")
+			}
+			break
+		}
+	}
+	for h.clientsOf(7) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the banned member is still registered with the hub")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if h.clientsOf(8) != 1 {
+		t.Error("someone else's ban closed the bystander's connection")
+	}
 }
