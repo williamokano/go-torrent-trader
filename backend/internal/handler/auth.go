@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 
@@ -253,6 +254,11 @@ func handleAuthError(w http.ResponseWriter, err error) {
 		ErrorResponse(w, http.StatusConflict, "email_taken", "email is already taken")
 	case errors.Is(err, service.ErrInvalidToken):
 		ErrorResponse(w, http.StatusUnauthorized, "invalid_token", "invalid or expired token")
+	case errors.Is(err, service.ErrSessionStoreUnavailable):
+		// Not a 401: the frontend discards its tokens on a 401 from refresh,
+		// and a database blip must not log everyone out.
+		slog.Error("auth: session store unavailable", "error", err)
+		ErrorResponse(w, http.StatusServiceUnavailable, "unavailable", "sessions are temporarily unavailable, try again shortly")
 	case errors.Is(err, service.ErrInvalidResetToken):
 		ErrorResponse(w, http.StatusBadRequest, "invalid_token", "invalid or expired reset token")
 	case errors.Is(err, service.ErrValidationFailed):

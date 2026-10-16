@@ -363,7 +363,7 @@ func TestDispatchBadFiltersSkipsOnlyThatInstance(t *testing.T) {
 	}
 }
 
-// The delivery row is already safely persisted, so a Redis blip delays delivery
+// The delivery row is already safely persisted, so a failed enqueue delays delivery
 // (the maintenance sweep re-enqueues) rather than losing it — and must not stop
 // the loop over the other instances.
 func TestDispatchEnqueueFailureStillRecordsEveryDelivery(t *testing.T) {
@@ -371,7 +371,7 @@ func TestDispatchEnqueueFailureStillRecordsEveryDelivery(t *testing.T) {
 		instance(1, "webhook", true, `{}`),
 		instance(2, "chat", true, `{}`),
 	})
-	h.enqueuer.err = errors.New("redis down")
+	h.enqueuer.err = errors.New("queue unavailable")
 
 	h.bus.Publish(context.Background(), publishedEvent())
 

@@ -20,10 +20,3 @@ type CleanupPeersArgs struct{}
 func (CleanupPeersArgs) Kind() string { return TaskCleanupPeers }
 
 func (CleanupPeersArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
-
-// RecalcStatsArgs is the job to recalculate site statistics.
-type RecalcStatsArgs struct{}
-
-func (RecalcStatsArgs) Kind() string { return TaskRecalcStats }
-
-func (RecalcStatsArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }

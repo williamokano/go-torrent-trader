@@ -6,7 +6,6 @@ Go-based REST API and BitTorrent tracker for the TorrentTrader platform.
 
 - **Go 1.27** with [Chi](https://github.com/go-chi/chi) router
 - **PostgreSQL 16** with [Goose](https://github.com/pressly/goose) migrations
-- **Redis** for sessions
 - **River** for the background job queue and periodic jobs, stored in PostgreSQL
 - **MinIO/S3** for torrent file storage
 - **gorilla/websocket** for real-time chat
@@ -44,11 +43,9 @@ All configuration is via environment variables. See `.env.example` at the repo r
 |----------|---------|-------------|
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string |
 | `DB_JOB_POOL_MAX_CONNS` | `10` | Connections for the job queue (River), on top of `DB_MAX_OPEN_CONNS`; minimum 4 |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
 | `SERVER_HOST` | `0.0.0.0` | Listen address |
 | `SERVER_PORT` | `8080` | Listen port |
 | `TRUSTED_PROXIES` | | Comma-separated CIDRs/IPs the reverse proxy connects from; only then is `X-Forwarded-For` trusted for the recorded client IP. Keep narrow. Unset = trust none |
-| `SESSION_STORE` | `redis` | `redis` or `memory` |
 | `ACCESS_TOKEN_TTL` | `1h` | Access token lifetime |
 | `REFRESH_TOKEN_TTL` | `720h` | Refresh token lifetime (30 days) |
 | `STORAGE_TYPE` | `local` | `local` or `s3` |
@@ -153,7 +150,7 @@ Handler (HTTP) → Service (business logic) → Repository (data access) → Pos
 - **Repository interfaces** in `repository/repository.go`, PostgreSQL implementations in `repository/postgres/`
 - **Event-driven**: Services publish domain events, listeners handle side effects
 - **Dependency injection**: All dependencies passed via constructors, wired in `main.go`
-- **Session store interface**: Redis (production) or in-memory (testing)
+- **Session store interface**: PostgreSQL (production) or in-memory (testing); tokens stored as hashes only
 - **RBAC**: Groups with capabilities (`upload`, `download`, `comment`, `invite`, `forum`)
 
 ### WebSocket Chat
@@ -168,7 +165,6 @@ Handler (HTTP) → Service (business logic) → Repository (data access) → Pos
 ### Prerequisites
 - Go 1.27+
 - PostgreSQL 16
-- Redis 7
 - MinIO (or S3-compatible, for file storage)
 
 ### Run

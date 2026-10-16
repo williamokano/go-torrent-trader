@@ -60,7 +60,6 @@ func registrations(deps *WorkerDeps) []registration {
 		register(NewSendEmailHandler(deps)),
 		register(NewConnectorDrainHandler(deps)),
 		registerWithTimeout(NewCleanupHandler(deps), longJobTimeout),
-		registerWithTimeout(NewRecalcStatsHandler(deps), longJobTimeout),
 		registerWithTimeout(NewRatioWarningHandler(deps), longJobTimeout),
 		registerWithTimeout(NewMaintenanceHandler(deps), longJobTimeout),
 		registerWithTimeout(NewBackupHandler(deps), backupJobTimeout(deps)),

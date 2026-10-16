@@ -34,11 +34,7 @@ services:
       DB_CONN_MAX_LIFETIME: "${DB_CONN_MAX_LIFETIME:-5m}"
       DB_JOB_POOL_MAX_CONNS: "${DB_JOB_POOL_MAX_CONNS:-10}"
 
-      # Redis (connects to the redis service)
-      REDIS_URL: "redis://redis:6379/0"
-
       # Sessions
-      SESSION_STORE: "${SESSION_STORE:-redis}"
       ACCESS_TOKEN_TTL: "${ACCESS_TOKEN_TTL:-1h}"
       REFRESH_TOKEN_TTL: "${REFRESH_TOKEN_TTL:-720h}"
 
@@ -76,8 +72,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
       - torrenttrader
     restart: unless-stopped
@@ -103,19 +97,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-torrenttrader} -d ${POSTGRES_DB:-torrenttrader}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - torrenttrader
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -160,7 +141,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   minio_data:
   backup_data:
 

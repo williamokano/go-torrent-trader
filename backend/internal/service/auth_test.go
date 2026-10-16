@@ -586,7 +586,7 @@ func TestRefresh_Success(t *testing.T) {
 	}
 
 	// Old tokens should be invalid
-	if sessions.GetByAccessToken(tokens.AccessToken) != nil {
+	if sessionOf(sessions.GetByAccessToken(tokens.AccessToken)) != nil {
 		t.Error("old access token should be invalidated")
 	}
 }
@@ -618,7 +618,7 @@ func TestLogout(t *testing.T) {
 
 	svc.Logout(result.Tokens.AccessToken)
 
-	if sessions.GetByAccessToken(result.Tokens.AccessToken) != nil {
+	if sessionOf(sessions.GetByAccessToken(result.Tokens.AccessToken)) != nil {
 		t.Error("session should be invalidated after logout")
 	}
 }
@@ -750,7 +750,7 @@ func TestResetPassword_Success(t *testing.T) {
 
 	tokens := result.Tokens
 	// Verify the session exists
-	if sessions.GetByAccessToken(tokens.AccessToken) == nil {
+	if sessionOf(sessions.GetByAccessToken(tokens.AccessToken)) == nil {
 		t.Fatal("session should exist before reset")
 	}
 
@@ -789,7 +789,7 @@ func TestResetPassword_Success(t *testing.T) {
 	}
 
 	// Old session should be invalidated
-	if sessions.GetByAccessToken(tokens.AccessToken) != nil {
+	if sessionOf(sessions.GetByAccessToken(tokens.AccessToken)) != nil {
 		t.Error("old session should be invalidated after password reset")
 	}
 

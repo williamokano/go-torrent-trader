@@ -61,7 +61,8 @@ func (c *sseClient) close() {
 // It is modelled directly on ChatHub, and shares its limitation: fan-out only
 // reaches clients connected to the node that ran the delivery. With the
 // single-process default that is every client. A multi-node deployment would
-// need Redis pub/sub between the hubs — deliberately not built yet.
+// need pub/sub between the hubs (PostgreSQL LISTEN/NOTIFY, now that Redis is
+// gone) — deliberately not built yet.
 type AnnounceHub struct {
 	sessionStore service.SessionStore
 	access       FeedAccess
@@ -350,7 +351,12 @@ func (h *AnnounceHub) HandleStream(w http.ResponseWriter, r *http.Request) {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "missing token")
 		return
 	}
-	session := h.sessionStore.GetByAccessToken(token)
+	session, err := h.sessionStore.GetByAccessToken(token)
+	if err != nil {
+		slog.Error("announce feed: session store unavailable", "error", err)
+		ErrorResponse(w, http.StatusServiceUnavailable, "unavailable", "sessions are temporarily unavailable, try again shortly")
+		return
+	}
 	if session == nil {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
 		return

@@ -48,6 +48,21 @@ func TestMain(m *testing.M) {
 
 	ctx := context.Background()
 
+	// An existing database instead of a container, for machines without Docker
+	// (the worker package has the same switch). It is migrated like the
+	// container would be, and tests assume it starts empty — so create a fresh
+	// one for each run and throw it away after.
+	if dsn := os.Getenv("REPOSITORY_TEST_DATABASE_URL"); dsn != "" {
+		if err := requireThrowawayDatabase(ctx, dsn); err != nil {
+			log.Fatalf("REPOSITORY_TEST_DATABASE_URL: %v", err)
+		}
+		code, err := runWithDSN(ctx, dsn, m)
+		if err != nil {
+			log.Fatalf("preparing test database: %v", err)
+		}
+		os.Exit(code)
+	}
+
 	container, err := tcpostgres.Run(ctx, postgresImage,
 		tcpostgres.WithDatabase("torrenttrader_test"),
 		tcpostgres.WithUsername("test"),
@@ -87,7 +102,11 @@ func runWithContainer(ctx context.Context, container *tcpostgres.PostgresContain
 	if err != nil {
 		return 0, fmt.Errorf("building connection string: %w", err)
 	}
+	return runWithDSN(ctx, dsn, m)
+}
 
+// runWithDSN migrates the database at dsn and runs the suite against it.
+func runWithDSN(ctx context.Context, dsn string, m *testing.M) (int, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return 0, fmt.Errorf("opening test database: %w", err)
@@ -184,4 +203,25 @@ func resetTestData(t *testing.T, db *sql.DB) {
 // bind parameters, so quote them rather than concatenating raw.
 func pq(ident string) string {
 	return `"` + ident + `"`
+}
+
+// requireThrowawayDatabase refuses a database whose name does not end in
+// "_test". These suites migrate the database and then truncate every table
+// between tests, so pointing the override at a dev database by mistake would
+// wipe it; the name check makes that an error instead.
+func requireThrowawayDatabase(ctx context.Context, dsn string) error {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var name string
+	if err := db.QueryRowContext(ctx, `SELECT current_database()`).Scan(&name); err != nil {
+		return fmt.Errorf("reading database name: %w", err)
+	}
+	if !strings.HasSuffix(name, "_test") {
+		return fmt.Errorf("refusing to run against %q: the tests truncate every table, "+
+			"so the database name must end in _test", name)
+	}
+	return nil
 }

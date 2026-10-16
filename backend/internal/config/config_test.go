@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,11 +34,6 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Database.ConnMaxLifetime != 5*time.Minute {
 		t.Errorf("expected Database.ConnMaxLifetime 5m, got %s", cfg.Database.ConnMaxLifetime)
-	}
-
-	// Redis defaults.
-	if cfg.Redis.URL != "redis://localhost:6379/0" {
-		t.Errorf("expected Redis.URL redis://localhost:6379/0, got %s", cfg.Redis.URL)
 	}
 
 	// SMTP defaults.
@@ -136,7 +132,6 @@ func TestLoadAllEnvVarsSet(t *testing.T) {
 	t.Setenv("DB_MAX_OPEN_CONNS", "50")
 	t.Setenv("DB_MAX_IDLE_CONNS", "10")
 	t.Setenv("DB_CONN_MAX_LIFETIME", "10m")
-	t.Setenv("REDIS_URL", "redis://redis:6379/1")
 	t.Setenv("SMTP_HOST", "mail.example.com")
 	t.Setenv("SMTP_PORT", "587")
 	t.Setenv("SMTP_FROM", "admin@example.com")
@@ -177,9 +172,6 @@ func TestLoadAllEnvVarsSet(t *testing.T) {
 	}
 	if cfg.Database.ConnMaxLifetime != 10*time.Minute {
 		t.Errorf("expected Database.ConnMaxLifetime 10m, got %s", cfg.Database.ConnMaxLifetime)
-	}
-	if cfg.Redis.URL != "redis://redis:6379/1" {
-		t.Errorf("expected Redis.URL redis://redis:6379/1, got %s", cfg.Redis.URL)
 	}
 	if cfg.SMTP.Host != "mail.example.com" {
 		t.Errorf("expected SMTP.Host mail.example.com, got %s", cfg.SMTP.Host)
@@ -521,5 +513,39 @@ func TestLoadRejectsATooSmallJobPool(t *testing.T) {
 		if _, err := Load(); err == nil {
 			t.Errorf("DB_JOB_POOL_MAX_CONNS=%q was accepted", v)
 		}
+	}
+}
+
+// A retired setting still in an operator's env file is reported, not fatal: it
+// changes nothing, so refusing to start over it would make an upgrade an outage.
+func TestLoadReportsRetiredSettings(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	t.Setenv("REDIS_URL", "redis://redis:6379/0")
+	t.Setenv("SESSION_STORE", "redis")
+	t.Setenv("STATS_CACHE_TTL", "not even a duration")
+	t.Setenv("ENABLE_SCHEDULER", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load refused retired settings: %v", err)
+	}
+	if len(cfg.IgnoredEnv) != 4 {
+		t.Fatalf("IgnoredEnv = %q, want all four retired settings", cfg.IgnoredEnv)
+	}
+	for i, name := range []string{"ENABLE_SCHEDULER", "REDIS_URL", "SESSION_STORE", "STATS_CACHE_TTL"} {
+		if !strings.HasPrefix(cfg.IgnoredEnv[i], name+": ") {
+			t.Errorf("IgnoredEnv[%d] = %q, want it to name %s and why", i, cfg.IgnoredEnv[i], name)
+		}
+	}
+}
+
+func TestLoadReportsNothingWhenNoRetiredSettingIsSet(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost/test")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.IgnoredEnv) != 0 {
+		t.Errorf("IgnoredEnv = %q, want none", cfg.IgnoredEnv)
 	}
 }

@@ -398,3 +398,21 @@ would fail if the value drifted (`TestWorkerConfigOverridesRiversDefaults`,
 `TestRiverCollapsesDispatchesButNotRetries`), read the library's source for what a
 setting actually gates before reasoning about it, and apply vendored migrations to
 a real database before trusting them.
+
+## "Not found" and "could not look" must not share a return value
+
+Moving sessions from Redis to PostgreSQL first kept the old store's contract: a
+lookup returned nil both when there was no session and when the read failed. Review
+traced what that does now. A nil becomes a 401; the frontend answers a 401 by
+refreshing; the refresh lookup fails the same way and returns 401 too; and on that
+second 401 the frontend throws its tokens away. With sessions sharing the main
+connection pool, any database hiccup — pool exhaustion, a lock held by a migration —
+would have logged out every member who made a request during it. Redis had the same
+contract, but as a separate quiet dependency it rarely had a bad minute.
+
+**Rule:** a lookup that can fail returns the failure separately from "not found"
+(here `(*Session, error)`, with `ErrSessionStoreUnavailable` answered by 503), and
+every caller that turns "not found" into a client-visible verdict — 401, delete,
+logout — must handle the error case as a third outcome. Check what the client does
+with each status before choosing it: the frontend's reaction to 401 is what made
+this a mass logout rather than a failed request.

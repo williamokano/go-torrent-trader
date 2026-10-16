@@ -7,7 +7,10 @@ import { getConfig } from "@/config";
 import { formatNumber } from "@/utils/format";
 import { Chat } from "@/components/Chat";
 import { useChat } from "@/lib/useChat";
+import { useVisiblePolling } from "@/lib/useVisiblePolling";
 import "./RootLayout.css";
+
+const SITE_STATS_INTERVAL_MS = 5 * 60_000;
 
 function Dropdown({
   label,
@@ -98,23 +101,36 @@ export function RootLayout() {
     online_users: number;
   } | null>(null);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    function fetchStats() {
+  // Every signed-in tab polls this, and the counts barely move in a few
+  // minutes; hidden tabs skip it altogether (see useVisiblePolling).
+  const statsRequest = useRef<AbortController | null>(null);
+  useVisiblePolling(
+    () => {
       const token = getAccessToken();
       if (!token) return;
+      statsRequest.current?.abort();
+      const request = new AbortController();
+      statsRequest.current = request;
       fetch(`${getConfig().API_URL}/api/v1/stats`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: request.signal,
       })
-        .then((r) => r.json())
-        .then((d) => setSiteStats(d?.stats ?? null))
+        // A failed poll (an expired token, a 503) keeps the last numbers rather
+        // than blanking the footer until the next one, five minutes away.
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.stats) setSiteStats(d.stats);
+        })
         .catch(() => {});
-    }
-    fetchStats();
-    const interval = setInterval(fetchStats, 60_000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+    },
+    SITE_STATS_INTERVAL_MS,
+    isAuthenticated,
+  );
+  // A request still in flight at logout or unmount must not land afterwards.
+  useEffect(() => () => statsRequest.current?.abort(), [isAuthenticated]);
+  // Stats are for members: once signed out, none are shown, whatever the last
+  // poll returned.
+  const shownStats = isAuthenticated ? siteStats : null;
 
   return (
     <div className="root-layout">
@@ -411,12 +427,12 @@ export function RootLayout() {
       <footer className="footer">
         {isAuthenticated && (
           <p className="footer__stats">
-            Online: {siteStats ? formatNumber(siteStats.online_users) : "--"} |
-            Users: {siteStats ? formatNumber(siteStats.users) : "--"} |
-            Torrents: {siteStats ? formatNumber(siteStats.torrents) : "--"} |
-            Peers: {siteStats ? formatNumber(siteStats.peers) : "--"} | Seeders:{" "}
-            {siteStats ? formatNumber(siteStats.seeders) : "--"} | Leechers:{" "}
-            {siteStats ? formatNumber(siteStats.leechers) : "--"}
+            Online: {shownStats ? formatNumber(shownStats.online_users) : "--"}{" "}
+            | Users: {shownStats ? formatNumber(shownStats.users) : "--"} |
+            Torrents: {shownStats ? formatNumber(shownStats.torrents) : "--"} |
+            Peers: {shownStats ? formatNumber(shownStats.peers) : "--"} |
+            Seeders: {shownStats ? formatNumber(shownStats.seeders) : "--"} |
+            Leechers: {shownStats ? formatNumber(shownStats.leechers) : "--"}
           </p>
         )}
         <div className="footer__links">

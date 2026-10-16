@@ -2,122 +2,128 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
 
-// newTestSessionStore creates a MemorySessionStore for service-package tests.
-// This avoids an import cycle with the testutil package.
+// memorySessionStore is testutil.MemorySessionStore for this package, which
+// cannot import testutil (testutil imports service). Keep the two in step.
+//
+// It mirrors the PostgreSQL store's behaviour, because handler tests prove
+// revocation and expiry against this double: one record per session holding
+// both halves; lookups that ignore an expired half without deleting the other
+// (an expired access token leaves the refresh token usable); revocation by user
+// that reaches sessions whose access token has expired (#231); and a Rotate
+// that only succeeds once per refresh token.
 type memorySessionStore struct {
-	mu             sync.RWMutex
-	byAccessToken  map[string]*Session
-	byRefreshToken map[string]*Session
+	mu       sync.Mutex
+	sessions []*Session
 }
 
+var _ SessionStore = (*memorySessionStore)(nil)
+
 func newTestSessionStore() *memorySessionStore {
-	return &memorySessionStore{
-		byAccessToken:  make(map[string]*Session),
-		byRefreshToken: make(map[string]*Session),
-	}
+	return &memorySessionStore{}
 }
 
 func (s *memorySessionStore) Create(session *Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.byAccessToken[session.AccessToken] = session
-	s.byRefreshToken[session.RefreshToken] = session
+	stored := *session
+	s.sessions = append(s.sessions, &stored)
 	return nil
 }
 
-func (s *memorySessionStore) GetByAccessToken(token string) *Session {
+func (s *memorySessionStore) GetByAccessToken(token string) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.byAccessToken[token]
-	if !ok {
-		return nil
+	now := time.Now()
+	for _, sess := range s.sessions {
+		if token != "" && sess.AccessToken == token && now.Before(sess.ExpiresAt) {
+			found := *sess
+			return &found, nil
+		}
 	}
-	if time.Now().After(sess.ExpiresAt) {
-		delete(s.byAccessToken, token)
-		delete(s.byRefreshToken, sess.RefreshToken)
-		return nil
-	}
-	return sess
+	return nil, nil
 }
 
-func (s *memorySessionStore) GetByRefreshToken(token string) *Session {
+func (s *memorySessionStore) GetByRefreshToken(token string) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.byRefreshToken[token]
-	if !ok {
-		return nil
+	now := time.Now()
+	for _, sess := range s.sessions {
+		if token != "" && sess.RefreshToken == token && now.Before(sess.RefreshExpiresAt) {
+			found := *sess
+			return &found, nil
+		}
 	}
-	if time.Now().After(sess.RefreshExpiresAt) {
-		delete(s.byRefreshToken, token)
-		delete(s.byAccessToken, sess.AccessToken)
-		return nil
+	return nil, nil
+}
+
+// remove deletes every session drop reports true for, and returns how many.
+func (s *memorySessionStore) remove(drop func(*Session) bool) int {
+	kept := s.sessions[:0]
+	removed := 0
+	for _, sess := range s.sessions {
+		if drop(sess) {
+			removed++
+			continue
+		}
+		kept = append(kept, sess)
 	}
-	return sess
+	s.sessions = kept
+	return removed
 }
 
 func (s *memorySessionStore) Delete(accessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.byAccessToken[accessToken]; ok {
-		delete(s.byRefreshToken, sess.RefreshToken)
-		delete(s.byAccessToken, accessToken)
-	}
+	s.remove(func(sess *Session) bool { return accessToken != "" && sess.AccessToken == accessToken })
 }
 
-// Mirrors the production store: revoking by refresh token has to remove both keys,
-// or a test double would let a session survive the revocation it was asked for.
+// DeleteByRefreshToken revokes a session by its refresh token, which is the half
+// that outlives the access token (#231).
 func (s *memorySessionStore) DeleteByRefreshToken(refreshToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.byRefreshToken[refreshToken]; ok {
-		delete(s.byAccessToken, sess.AccessToken)
-		delete(s.byRefreshToken, refreshToken)
-	}
+	s.remove(func(sess *Session) bool { return refreshToken != "" && sess.RefreshToken == refreshToken })
 }
 
 func (s *memorySessionStore) Rotate(oldRefreshToken string, newSession *Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if old, ok := s.byRefreshToken[oldRefreshToken]; ok {
-		delete(s.byAccessToken, old.AccessToken)
-		delete(s.byRefreshToken, oldRefreshToken)
+	now := time.Now()
+	removed := s.remove(func(sess *Session) bool {
+		return oldRefreshToken != "" && sess.RefreshToken == oldRefreshToken && now.Before(sess.RefreshExpiresAt)
+	})
+	if removed != 1 {
+		return ErrInvalidToken
 	}
-	s.byAccessToken[newSession.AccessToken] = newSession
-	s.byRefreshToken[newSession.RefreshToken] = newSession
+	stored := *newSession
+	s.sessions = append(s.sessions, &stored)
 	return nil
 }
 
 func (s *memorySessionStore) DeleteByUserID(userID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for token, sess := range s.byAccessToken {
-		if sess.UserID == userID {
-			delete(s.byRefreshToken, sess.RefreshToken)
-			delete(s.byAccessToken, token)
-		}
-	}
+	s.remove(func(sess *Session) bool { return sess.UserID == userID })
 }
 
 func (s *memorySessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for token, sess := range s.byAccessToken {
-		if sess.UserID == userID && token != keepAccessToken {
-			delete(s.byRefreshToken, sess.RefreshToken)
-			delete(s.byAccessToken, token)
-		}
-	}
+	s.remove(func(sess *Session) bool { return sess.UserID == userID && sess.AccessToken != keepAccessToken })
 }
 
 func (s *memorySessionStore) TouchLastActive(accessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.byAccessToken[accessToken]; ok {
-		sess.LastActive = time.Now()
+	for _, sess := range s.sessions {
+		if accessToken != "" && sess.AccessToken == accessToken {
+			sess.LastActive = time.Now()
+		}
 	}
 }
 
@@ -193,4 +199,13 @@ func (n *noopSender) Send(_ context.Context, to, subject, body string) error {
 	n.LastBody = body
 	n.SendCount++
 	return nil
+}
+
+// sessionOf unwraps a session lookup for tests that only care whether a
+// session came back: a store error is a broken fixture, not an answer.
+func sessionOf(sess *Session, err error) *Session {
+	if err != nil {
+		panic(fmt.Sprintf("session lookup failed: %v", err))
+	}
+	return sess
 }

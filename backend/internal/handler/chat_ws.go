@@ -311,7 +311,12 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := h.sessionStore.GetByAccessToken(token)
+	sess, err := h.sessionStore.GetByAccessToken(token)
+	if err != nil {
+		slog.Error("chat: session store unavailable", "error", err)
+		http.Error(w, "sessions are temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if sess == nil {
 		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 		return
@@ -471,8 +476,11 @@ func (c *ChatClient) readPump() {
 		msgsSinceValidation++
 		if msgsSinceValidation >= revalidateEveryN {
 			msgsSinceValidation = 0
-			if sess := c.hub.sessionStore.GetByAccessToken(c.accessToken); sess == nil {
-				slog.Debug("websocket session expired, closing", "user_id", c.userID)
+			// A store error closes the connection too: chatting on a session
+			// nobody can confirm is not allowed, and the client reconnects —
+			// through the 503 above until the store is back.
+			if sess, err := c.hub.sessionStore.GetByAccessToken(c.accessToken); err != nil || sess == nil {
+				slog.Debug("websocket session no longer valid, closing", "user_id", c.userID, "error", err)
 				return
 			}
 		}

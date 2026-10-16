@@ -30,15 +30,15 @@ func TestLogoutRevokesASessionWhoseAccessTokenIsGone(t *testing.T) {
 	tokens := registerForTokens(t, router, "expireduser")
 
 	// The state an hour in: the access token no longer resolves, the refresh token
-	// still does. Simulated by dropping just the access half, which is what Redis
-	// TTL expiry does.
-	sess := sessions.GetByAccessToken(tokens.Access)
+	// still does. Simulated by dropping just the access half, which is what the
+	// access token's expiry does.
+	sess := sessionOf(sessions.GetByAccessToken(tokens.Access))
 	if sess == nil {
 		t.Fatal("fixture: the new session should resolve by access token")
 	}
 	dropAccessHalf(t, sessions, sess)
 
-	if sessions.GetByRefreshToken(tokens.Refresh) == nil {
+	if sessionOf(sessions.GetByRefreshToken(tokens.Refresh)) == nil {
 		t.Fatal("fixture: the refresh token must still resolve, or this proves nothing")
 	}
 
@@ -54,7 +54,7 @@ func TestLogoutRevokesASessionWhoseAccessTokenIsGone(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
-	if sessions.GetByRefreshToken(tokens.Refresh) != nil {
+	if sessionOf(sessions.GetByRefreshToken(tokens.Refresh)) != nil {
 		t.Error("the refresh token still resolves after logout, so the session is " +
 			"still usable at /auth/refresh and nobody can revoke it")
 	}
@@ -76,10 +76,10 @@ func TestLogoutAcceptsTheRefreshTokenWithNoAuthorizationHeader(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
-	if sessions.GetByRefreshToken(tokens.Refresh) != nil {
+	if sessionOf(sessions.GetByRefreshToken(tokens.Refresh)) != nil {
 		t.Error("the refresh token survived")
 	}
-	if sessions.GetByAccessToken(tokens.Access) != nil {
+	if sessionOf(sessions.GetByAccessToken(tokens.Access)) != nil {
 		t.Error("the access token survived a revocation by refresh token; both halves " +
 			"must go or the session lives on the one nobody looked at")
 	}
@@ -99,10 +99,10 @@ func TestLogoutByAccessTokenRemovesBothHalves(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
-	if sessions.GetByAccessToken(tokens.Access) != nil {
+	if sessionOf(sessions.GetByAccessToken(tokens.Access)) != nil {
 		t.Error("the access token survived")
 	}
-	if sessions.GetByRefreshToken(tokens.Refresh) != nil {
+	if sessionOf(sessions.GetByRefreshToken(tokens.Refresh)) != nil {
 		t.Error("the refresh token survived a logout by access token")
 	}
 }
@@ -182,7 +182,7 @@ func TestLogoutLeavesTheUsersOtherSessionsAlone(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", rec.Code, rec.Body.String())
 	}
-	if sessions.GetByRefreshToken(laptop.Refresh) == nil {
+	if sessionOf(sessions.GetByRefreshToken(laptop.Refresh)) == nil {
 		t.Error("logging out one session revoked another")
 	}
 }
@@ -233,7 +233,7 @@ func postForTokens(t *testing.T, router http.Handler, path string, body []byte) 
 }
 
 // dropAccessHalf leaves the session reachable only by its refresh token, which is what
-// the access key's one-hour TTL produces in Redis.
+// the access token's one-hour expiry produces.
 func dropAccessHalf(t *testing.T, sessions service.SessionStore, sess *service.Session) {
 	t.Helper()
 	// Copied before Delete, which removes both halves.

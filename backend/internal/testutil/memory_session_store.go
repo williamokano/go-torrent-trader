@@ -8,65 +8,78 @@ import (
 )
 
 // MemorySessionStore provides in-memory session storage for tests.
+//
+// It mirrors the PostgreSQL store's behaviour, because handler tests prove
+// revocation and expiry against this double: one record per session holding
+// both halves; lookups that ignore an expired half without deleting the other
+// (an expired access token leaves the refresh token usable); revocation by user
+// that reaches sessions whose access token has expired (#231); and a Rotate
+// that only succeeds once per refresh token.
 type MemorySessionStore struct {
-	mu             sync.RWMutex
-	byAccessToken  map[string]*service.Session
-	byRefreshToken map[string]*service.Session
+	mu       sync.Mutex
+	sessions []*service.Session
 }
+
+var _ service.SessionStore = (*MemorySessionStore)(nil)
 
 // NewMemorySessionStore creates a new in-memory session store.
 func NewMemorySessionStore() *MemorySessionStore {
-	return &MemorySessionStore{
-		byAccessToken:  make(map[string]*service.Session),
-		byRefreshToken: make(map[string]*service.Session),
-	}
+	return &MemorySessionStore{}
 }
 
 func (s *MemorySessionStore) Create(session *service.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.byAccessToken[session.AccessToken] = session
-	s.byRefreshToken[session.RefreshToken] = session
+	stored := *session
+	s.sessions = append(s.sessions, &stored)
 	return nil
 }
 
-func (s *MemorySessionStore) GetByAccessToken(token string) *service.Session {
+func (s *MemorySessionStore) GetByAccessToken(token string) (*service.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.byAccessToken[token]
-	if !ok {
-		return nil
+	now := time.Now()
+	for _, sess := range s.sessions {
+		if token != "" && sess.AccessToken == token && now.Before(sess.ExpiresAt) {
+			found := *sess
+			return &found, nil
+		}
 	}
-	if time.Now().After(sess.ExpiresAt) {
-		delete(s.byAccessToken, token)
-		delete(s.byRefreshToken, sess.RefreshToken)
-		return nil
-	}
-	return sess
+	return nil, nil
 }
 
-func (s *MemorySessionStore) GetByRefreshToken(token string) *service.Session {
+func (s *MemorySessionStore) GetByRefreshToken(token string) (*service.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.byRefreshToken[token]
-	if !ok {
-		return nil
+	now := time.Now()
+	for _, sess := range s.sessions {
+		if token != "" && sess.RefreshToken == token && now.Before(sess.RefreshExpiresAt) {
+			found := *sess
+			return &found, nil
+		}
 	}
-	if time.Now().After(sess.RefreshExpiresAt) {
-		delete(s.byRefreshToken, token)
-		delete(s.byAccessToken, sess.AccessToken)
-		return nil
+	return nil, nil
+}
+
+// remove deletes every session drop reports true for, and returns how many.
+func (s *MemorySessionStore) remove(drop func(*service.Session) bool) int {
+	kept := s.sessions[:0]
+	removed := 0
+	for _, sess := range s.sessions {
+		if drop(sess) {
+			removed++
+			continue
+		}
+		kept = append(kept, sess)
 	}
-	return sess
+	s.sessions = kept
+	return removed
 }
 
 func (s *MemorySessionStore) Delete(accessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.byAccessToken[accessToken]; ok {
-		delete(s.byRefreshToken, sess.RefreshToken)
-		delete(s.byAccessToken, accessToken)
-	}
+	s.remove(func(sess *service.Session) bool { return accessToken != "" && sess.AccessToken == accessToken })
 }
 
 // DeleteByRefreshToken revokes a session by its refresh token, which is the half
@@ -74,50 +87,42 @@ func (s *MemorySessionStore) Delete(accessToken string) {
 func (s *MemorySessionStore) DeleteByRefreshToken(refreshToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.byRefreshToken[refreshToken]; ok {
-		delete(s.byAccessToken, sess.AccessToken)
-		delete(s.byRefreshToken, refreshToken)
-	}
+	s.remove(func(sess *service.Session) bool { return refreshToken != "" && sess.RefreshToken == refreshToken })
 }
 
 func (s *MemorySessionStore) Rotate(oldRefreshToken string, newSession *service.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if old, ok := s.byRefreshToken[oldRefreshToken]; ok {
-		delete(s.byAccessToken, old.AccessToken)
-		delete(s.byRefreshToken, oldRefreshToken)
+	now := time.Now()
+	removed := s.remove(func(sess *service.Session) bool {
+		return oldRefreshToken != "" && sess.RefreshToken == oldRefreshToken && now.Before(sess.RefreshExpiresAt)
+	})
+	if removed != 1 {
+		return service.ErrInvalidToken
 	}
-	s.byAccessToken[newSession.AccessToken] = newSession
-	s.byRefreshToken[newSession.RefreshToken] = newSession
+	stored := *newSession
+	s.sessions = append(s.sessions, &stored)
 	return nil
 }
 
 func (s *MemorySessionStore) DeleteByUserID(userID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for token, sess := range s.byAccessToken {
-		if sess.UserID == userID {
-			delete(s.byRefreshToken, sess.RefreshToken)
-			delete(s.byAccessToken, token)
-		}
-	}
+	s.remove(func(sess *service.Session) bool { return sess.UserID == userID })
 }
 
 func (s *MemorySessionStore) DeleteByUserIDExcept(userID int64, keepAccessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for token, sess := range s.byAccessToken {
-		if sess.UserID == userID && token != keepAccessToken {
-			delete(s.byRefreshToken, sess.RefreshToken)
-			delete(s.byAccessToken, token)
-		}
-	}
+	s.remove(func(sess *service.Session) bool { return sess.UserID == userID && sess.AccessToken != keepAccessToken })
 }
 
 func (s *MemorySessionStore) TouchLastActive(accessToken string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.byAccessToken[accessToken]; ok {
-		sess.LastActive = time.Now()
+	for _, sess := range s.sessions {
+		if accessToken != "" && sess.AccessToken == accessToken {
+			sess.LastActive = time.Now()
+		}
 	}
 }

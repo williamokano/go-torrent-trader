@@ -10,12 +10,24 @@ are the right places.
 |---|---|---|
 | Go | 1.27+ | backend, CLI and migration tool |
 | Node.js | 22+ | frontend |
-| Docker | any recent | Postgres, Redis, MinIO, Mailpit — and the repository tests |
+| Docker | any recent | Postgres, MinIO, Mailpit — and the repository tests |
 | [Task](https://taskfile.dev/installation/) | 3+ | build orchestration |
 
 Docker is not optional for the full test suite: the Postgres repository tests spin a
 real database with testcontainers and apply the real migrations to it. Use
 `go test -short` to skip them when Docker is unavailable.
+
+Without Docker you can still run them against a PostgreSQL 16 you already have, by
+pointing each suite at a fresh, empty database. The tests migrate it and truncate
+every table between cases, so the database name must end in `_test` — anything else
+is refused:
+
+```bash
+createdb repo_test && REPOSITORY_TEST_DATABASE_URL="postgres://localhost/repo_test?sslmode=disable" \
+  go test ./internal/repository/postgres/
+createdb worker_test && WORKER_TEST_DATABASE_URL="postgres://localhost/worker_test?sslmode=disable" \
+  go test ./internal/worker/
+```
 
 ## Getting started
 
@@ -26,7 +38,7 @@ cp .env.example .env
 
 task tools              # golangci-lint, air
 task frontend:install
-task dev:up             # Postgres, Redis, MinIO, Mailpit
+task dev:up             # Postgres, MinIO, Mailpit
 task dev                # backend + frontend, both hot-reloading
 ```
 

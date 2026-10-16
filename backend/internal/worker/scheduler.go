@@ -43,9 +43,6 @@ func periodicSpecs(backupCron string) []periodicSpec {
 		// Clean stale peers every 15 minutes.
 		{"*/15 * * * *", CleanupPeersArgs{}},
 
-		// Recalculate stats every hour.
-		{"0 * * * *", RecalcStatsArgs{}},
-
 		// Check ratio warnings every 6 hours.
 		{"0 */6 * * *", RatioWarningArgs{}},
 

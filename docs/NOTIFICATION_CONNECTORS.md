@@ -191,7 +191,8 @@ double-post and collide on the nick. So each persistent instance needs
     the lock releases, so another node acquires it and reconnects. Simple and
     crash-safe.
   - **or Redis lease** (`SET owner NX PX <ttl>` renewed on a heartbeat; on expiry
-    another node takes over). We already use Redis for sessions.
+    another node takes over). We used Redis for sessions at the time; it has
+    since been removed (#286), which settles this in favour of the advisory lock.
 - On **takeover**, the new owner reconnects to IRC and resumes announcing. The
   brief gap during failover is acceptable for an announce bot; combined with the
   pipeline's at-least-once + dedup (§6), the window costs at most a short delay or

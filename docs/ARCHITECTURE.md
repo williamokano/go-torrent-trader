@@ -86,7 +86,7 @@ The backend follows a **layered architecture**: `handler → service → reposit
 
 Additional components:
 
-- **Middleware**: Auth (opaque Bearer token resolved against a Redis session), request logging, activity tracking, CORS. Applied at the router level. **There is no general rate-limiting middleware** — limiting is per-surface (login attempts, WebSocket messages, connector sends, SSE stream count). See decision 10.
+- **Middleware**: Auth (opaque Bearer token resolved against a session row in PostgreSQL), request logging, activity tracking, CORS. Applied at the router level. **There is no general rate-limiting middleware** — limiting is per-surface (login attempts, WebSocket messages, connector sends, SSE stream count). See decision 10.
 - **Tracker**: BitTorrent announce/scrape handler. This is a separate HTTP handler from the REST API — it speaks the BitTorrent tracker protocol and is performance-critical.
 - **Workers**: Background jobs for periodic tasks like cleanup (expired tokens, dead peers), stats aggregation, and email dispatch, queued in PostgreSQL with [River](https://riverqueue.com) (decision 5). Every node works jobs; River elects one node to run the periodic schedule (`internal/worker/scheduler.go`). A job is an `XArgs` type (its kind and attempt budget) plus a handler registered in `internal/worker/workers.go`; a handler that should run again soon returns `river.JobSnooze` instead of enqueueing a copy of itself.
   - **Retention jobs aggregate before they delete.** Where a log is pruned but its history still has to be answerable, the job that deletes is the job that rolls up, in that order, and the prune is bounded by how far the rollup got. `announce_log:maintain` is the reference case: it totals each closed UTC day into `user_period_stats`, advances a watermark in `announce_rollup_state`, and only then deletes `announce_events` rows past the effective retention window — never past the watermark. A failed rollup therefore leaves the log growing (recoverable) rather than deleting uncounted bytes (not). **Effective, not configured:** `announce_log_retention_days` is a floor other features can raise, because class promotion reads raw announces over its own seeding window and pruning inside it would silently zero every member's seed hours. `service.ResolveAnnounceRetention` is the single place that resolves the two, and every surface that reports a retention window reads it — the prune, the member-facing endpoint and the admin panel — so none of them can tell an operator or a member something the prune does not do (#255).
@@ -144,8 +144,8 @@ Key tasks:
 
 ## Docker Setup
 
-- **Development** (`docker-compose.yml`): Runs infrastructure services only — PostgreSQL 16, Redis 7, MinIO (S3-compatible object storage; **`.torrent` files only** — avatars are external URLs, there is no upload endpoint), and Mailpit (email testing). The backend and frontend run on the host with hot reload (air and vite respectively) for fast iteration.
-- **Production** (`docker-compose.prod.yml`): Multi-stage Dockerfiles for all 3 projects produce minimal images. The backend runs behind nginx, which also serves the frontend's static files. Redis handles session storage and caching.
+- **Development** (`docker-compose.yml`): Runs infrastructure services only — PostgreSQL 16, MinIO (S3-compatible object storage; **`.torrent` files only** — avatars are external URLs, there is no upload endpoint), and Mailpit (email testing). The backend and frontend run on the host with hot reload (air and vite respectively) for fast iteration.
+- **Production** (`docker-compose.prod.yml`): Multi-stage Dockerfiles for all 3 projects produce minimal images. The backend runs behind nginx, which also serves the frontend's static files. PostgreSQL holds everything stateful — data, sessions and the job queue — beside the object storage for `.torrent` files; there is no Redis.
 
 ## Conventions
 

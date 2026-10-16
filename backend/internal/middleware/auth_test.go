@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,14 +15,18 @@ type mockValidator struct {
 		userID int64
 		perms  model.Permissions
 	}
+	err error
 }
 
-func (m *mockValidator) ValidateSession(token string) (int64, model.Permissions, bool) {
+func (m *mockValidator) ValidateSession(token string) (int64, model.Permissions, bool, error) {
+	if m.err != nil {
+		return 0, model.Permissions{}, false, m.err
+	}
 	s, ok := m.sessions[token]
 	if !ok {
-		return 0, model.Permissions{}, false
+		return 0, model.Permissions{}, false, nil
 	}
-	return s.userID, s.perms, true
+	return s.userID, s.perms, true, nil
 }
 
 func TestRequireAuth_ValidToken(t *testing.T) {
@@ -277,5 +282,34 @@ func TestRequireCapability_Comment_Denied(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d", rec.Code)
+	}
+}
+
+// A store failure must not read as bad credentials: the frontend logs the
+// member out on a 401, so a database blip would sign everyone out.
+func TestAuthMiddlewareAnswersStoreFailureWith503(t *testing.T) {
+	v := &mockValidator{err: errors.New("database down")}
+	reached := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for name, mw := range map[string]func(http.Handler) http.Handler{
+		"RequireAuth":  middleware.RequireAuth(v),
+		"OptionalAuth": middleware.OptionalAuth(v),
+	} {
+		reached = false
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set("Authorization", "Bearer some-token")
+		rec := httptest.NewRecorder()
+		mw(next).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: status = %d, want 503", name, rec.Code)
+		}
+		if reached {
+			t.Errorf("%s: the request went through on a session nobody could check", name)
+		}
 	}
 }
