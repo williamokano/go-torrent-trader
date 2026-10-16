@@ -22,7 +22,6 @@ func TestJobsCarryTheirAttemptBudget(t *testing.T) {
 	}{
 		{SendEmailArgs{}, 4},
 		{CleanupPeersArgs{}, 2},
-		{RecalcStatsArgs{}, 2},
 		{RatioWarningArgs{}, 2},
 		{MaintenanceArgs{}, 2},
 		{BackupArgs{}, 2},
@@ -72,7 +71,6 @@ func TestJobKinds(t *testing.T) {
 	cases := map[string]river.JobArgs{
 		TaskSendEmail:              SendEmailArgs{},
 		TaskCleanupPeers:           CleanupPeersArgs{},
-		TaskRecalcStats:            RecalcStatsArgs{},
 		TaskRatioWarning:           RatioWarningArgs{},
 		TaskMaintenance:            MaintenanceArgs{},
 		TaskBackupDatabase:         BackupArgs{},

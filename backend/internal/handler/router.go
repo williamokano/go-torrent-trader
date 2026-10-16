@@ -15,7 +15,7 @@ import (
 // Deps holds handler dependencies. Pass nil for a minimal router (e.g. in tests).
 type Deps struct {
 	DB                        *sql.DB
-	StatsCache                *service.StatsCache
+	Stats                     StatsReader
 	AuthService               *service.AuthService
 	SessionStore              service.SessionStore
 	UserService               *service.UserService
@@ -196,10 +196,10 @@ func NewRouter(deps *Deps) chi.Router {
 			}
 
 			// Site stats (members only — private tracker, no anonymous browsing)
-			if deps.StatsCache != nil {
+			if deps.Stats != nil {
 				r.Route("/stats", func(r chi.Router) {
 					authMiddleware(r)
-					r.Get("/", HandleStats(deps.StatsCache))
+					r.Get("/", HandleStats(deps.Stats))
 				})
 			}
 

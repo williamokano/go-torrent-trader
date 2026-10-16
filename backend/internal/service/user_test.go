@@ -255,12 +255,12 @@ func TestChangePassword_Success(t *testing.T) {
 	}
 
 	// Current session should still work
-	if sessions.GetByAccessToken(result.Tokens.AccessToken) == nil {
+	if sessionOf(sessions.GetByAccessToken(result.Tokens.AccessToken)) == nil {
 		t.Error("current session should be kept")
 	}
 
 	// Other session should be invalidated
-	if sessions.GetByAccessToken(tokens2.AccessToken) != nil {
+	if sessionOf(sessions.GetByAccessToken(tokens2.AccessToken)) != nil {
 		t.Error("other session should be invalidated")
 	}
 
@@ -427,13 +427,13 @@ func TestDeleteByUserIDExcept(t *testing.T) {
 
 	sessions.DeleteByUserIDExcept(1, "keep")
 
-	if sessions.GetByAccessToken("keep") == nil {
+	if sessionOf(sessions.GetByAccessToken("keep")) == nil {
 		t.Error("kept session should still exist")
 	}
-	if sessions.GetByAccessToken("delete") != nil {
+	if sessionOf(sessions.GetByAccessToken("delete")) != nil {
 		t.Error("other user 1 session should be deleted")
 	}
-	if sessions.GetByAccessToken("other") == nil {
+	if sessionOf(sessions.GetByAccessToken("other")) == nil {
 		t.Error("user 2 session should not be affected")
 	}
 }

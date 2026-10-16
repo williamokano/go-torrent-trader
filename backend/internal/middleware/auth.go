@@ -20,8 +20,17 @@ const (
 )
 
 // SessionValidator validates an access token and returns user info and permissions.
+//
+// ok is false when the token does not name a live session. err is set when the
+// session could not be checked at all — the store is down — and is answered
+// with 503 rather than 401: a 401 tells the client its credentials are bad,
+// and the frontend reacts to that by logging the member out.
 type SessionValidator interface {
-	ValidateSession(accessToken string) (userID int64, perms model.Permissions, ok bool)
+	ValidateSession(accessToken string) (userID int64, perms model.Permissions, ok bool, err error)
+}
+
+func writeSessionUnavailable(w http.ResponseWriter) {
+	writeJSONError(w, http.StatusServiceUnavailable, "unavailable", "sessions are temporarily unavailable, try again shortly")
 }
 
 // RequireAuth is a middleware that extracts the Bearer token from the Authorization
@@ -35,7 +44,11 @@ func RequireAuth(validator SessionValidator) func(http.Handler) http.Handler {
 				return
 			}
 
-			userID, perms, ok := validator.ValidateSession(token)
+			userID, perms, ok, err := validator.ValidateSession(token)
+			if err != nil {
+				writeSessionUnavailable(w)
+				return
+			}
 			if !ok {
 				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
 				return
@@ -58,7 +71,14 @@ func OptionalAuth(validator SessionValidator) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := ExtractBearerToken(r)
 			if token != "" {
-				userID, perms, ok := validator.ValidateSession(token)
+				userID, perms, ok, err := validator.ValidateSession(token)
+				if err != nil {
+					// A token was presented and could not be checked. Carrying on
+					// anonymously would serve the member a logged-out page — or, at
+					// logout, report success without revoking anything.
+					writeSessionUnavailable(w)
+					return
+				}
 				if ok {
 					ctx := context.WithValue(r.Context(), UserIDKey, userID)
 					ctx = context.WithValue(ctx, GroupIDKey, perms.GroupID)

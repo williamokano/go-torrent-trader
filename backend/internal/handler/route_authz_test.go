@@ -13,9 +13,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -113,17 +111,6 @@ func fullRouterDeps(t *testing.T) *Deps {
 	torrentSvc := service.NewTorrentService(nil, &stubTorrentRepo{}, users, &stubStorage{},
 		service.TorrentServiceConfig{AnnounceURL: "http://localhost/announce"}, bus, &stubReseedRepo{})
 
-	// StatsCache needs a real (mocked) DB/Redis pair — no stub interface exists
-	// for it, since the service type itself is concrete, not an interface.
-	statsDB, _, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to create sqlmock: %v", err)
-	}
-	t.Cleanup(func() { _ = statsDB.Close() })
-	statsRedis := miniredis.RunT(t)
-	statsRDB := redis.NewClient(&redis.Options{Addr: statsRedis.Addr()})
-	t.Cleanup(func() { _ = statsRDB.Close() })
-
 	// /api/v1/categories is registered off a raw *sql.DB rather than a service,
 	// so it needs a handle even though nothing here queries it.
 	categoriesDB, _, err := sqlmock.New()
@@ -190,7 +177,7 @@ func fullRouterDeps(t *testing.T) *Deps {
 		AnnounceEventRepo:   &stubAnnounceEventRepo{},
 		AnnounceRollupRepo:  &stubAnnounceRollupRepo{},
 		RSSConfig:           &RSSConfig{SiteName: "test", BaseURL: "http://localhost", ApiURL: "http://localhost:8080"},
-		StatsCache:          service.NewStatsCache(statsDB, statsRDB, 30*time.Second),
+		Stats:               stubStatsReader{},
 	}
 }
 
@@ -421,4 +408,11 @@ func TestAnnounceStreamRequiresASession(t *testing.T) {
 			t.Errorf("GET %s = %d, want 401", path, w.Code)
 		}
 	}
+}
+
+// stubStatsReader satisfies the stats route so the authz walk reaches it.
+type stubStatsReader struct{}
+
+func (stubStatsReader) Get(context.Context) (*service.SiteStats, error) {
+	return &service.SiteStats{}, nil
 }

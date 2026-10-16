@@ -168,7 +168,7 @@ func TestMaintenanceSkipsConnectorPruneWhenRetentionNonPositive(t *testing.T) {
 }
 
 // The safety net for work stranded between the delivery row being written and
-// its drain being queued — a crash, or Redis being briefly unavailable.
+// its drain being queued — a crash, or a failed enqueue.
 func TestMaintenanceReEnqueuesInstancesWithDueDeliveries(t *testing.T) {
 	deliveries := &dueDeliveryRepo{fakeDeliveryRepo: *newFakeDeliveryRepo(), due: []int64{3, 7}}
 	enqueuer := &fakeEnqueuer{}
@@ -202,5 +202,36 @@ func TestMaintenanceToleratesDueLookupFailure(t *testing.T) {
 func TestMaintenanceSkipsConnectorStepsWhenUnwired(t *testing.T) {
 	if err := NewMaintenanceHandler(&WorkerDeps{ConnectorDeliveryRetention: func() time.Duration { return time.Hour }})(context.Background(), nil); err != nil {
 		t.Fatalf("maintenance: %v", err)
+	}
+}
+
+type fakeSessionPurger struct {
+	calls int
+	err   error
+}
+
+func (f *fakeSessionPurger) PurgeExpired(context.Context) (int64, error) {
+	f.calls++
+	return 3, f.err
+}
+
+// Nothing else deletes an expired session row, so a sweep that silently stops
+// running lets the table grow by one row per login, forever.
+func TestMaintenancePurgesExpiredSessions(t *testing.T) {
+	purger := &fakeSessionPurger{}
+	if err := NewMaintenanceHandler(&WorkerDeps{SessionPurger: purger})(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance returned %v", err)
+	}
+	if purger.calls != 1 {
+		t.Fatalf("PurgeExpired called %d times, want 1", purger.calls)
+	}
+}
+
+// A failed purge is logged, not returned: returning it would retry the whole
+// job, re-running every unrelated step with it.
+func TestMaintenanceSurvivesASessionPurgeFailure(t *testing.T) {
+	purger := &fakeSessionPurger{err: errors.New("database down")}
+	if err := NewMaintenanceHandler(&WorkerDeps{SessionPurger: purger})(context.Background(), nil); err != nil {
+		t.Fatalf("maintenance returned %v, want the failure logged and swallowed", err)
 	}
 }

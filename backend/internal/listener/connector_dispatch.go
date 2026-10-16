@@ -16,7 +16,7 @@ import (
 
 // dispatchTimeout bounds the work this listener does. The event bus is
 // synchronous, so everything here runs inside the HTTP request that approved the
-// torrent — it must stay to fast DB inserts plus a Redis enqueue.
+// torrent — it must stay to fast DB inserts plus a job enqueue.
 const dispatchTimeout = 5 * time.Second
 
 // unresolvedCategoryPath is what an admin reads in the delivery log when an

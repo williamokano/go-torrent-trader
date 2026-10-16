@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,9 @@ func TestMain(m *testing.M) {
 	// assume it starts empty, as a container does — so create a fresh one for
 	// each run and throw it away after.
 	if dsn := os.Getenv("WORKER_TEST_DATABASE_URL"); dsn != "" {
+		if err := requireThrowawayDatabase(ctx, dsn); err != nil {
+			log.Fatalf("WORKER_TEST_DATABASE_URL: %v", err)
+		}
 		code, err := runWithDSN(ctx, dsn, m)
 		if err != nil {
 			log.Fatalf("preparing test database: %v", err)
@@ -127,4 +131,25 @@ func requireDB(t *testing.T) *sql.DB {
 		t.Skip("skipping: needs the Postgres container (not available under -short)")
 	}
 	return testDB
+}
+
+// requireThrowawayDatabase refuses a database whose name does not end in
+// "_test". These suites migrate the database and then truncate every table
+// between tests, so pointing the override at a dev database by mistake would
+// wipe it; the name check makes that an error instead.
+func requireThrowawayDatabase(ctx context.Context, dsn string) error {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var name string
+	if err := db.QueryRowContext(ctx, `SELECT current_database()`).Scan(&name); err != nil {
+		return fmt.Errorf("reading database name: %w", err)
+	}
+	if !strings.HasSuffix(name, "_test") {
+		return fmt.Errorf("refusing to run against %q: the tests truncate every table, "+
+			"so the database name must end in _test", name)
+	}
+	return nil
 }

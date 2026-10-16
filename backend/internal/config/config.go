@@ -10,15 +10,17 @@ type Config struct {
 	LogLevel string // LOG_LEVEL, default "info" (debug|info|warn|error)
 	Server   ServerConfig
 	Database DatabaseConfig
-	Redis    RedisConfig
 	Session  SessionConfig
 	SMTP     SMTPConfig
 	Storage  StorageConfig
 	Tracker  TrackerConfig
 	Site     SiteConfig
-	Cache    CacheConfig
 	Worker   WorkerConfig
 	Backup   BackupConfig
+
+	// IgnoredEnv lists settings that are still set but no longer do anything,
+	// each with why. Load does not fail on them; main logs a warning per entry.
+	IgnoredEnv []string
 }
 
 // BackupConfig holds database backup settings.
@@ -34,11 +36,6 @@ type BackupConfig struct {
 	ScheduleCron string // BACKUP_SCHEDULE_CRON, default "" (disabled)
 }
 
-// CacheConfig holds cache-related settings.
-type CacheConfig struct {
-	StatsTTL time.Duration // STATS_CACHE_TTL, default 30s
-}
-
 // WorkerConfig holds background worker settings.
 type WorkerConfig struct {
 	// NotificationRetention is how long read notifications are kept before the
@@ -48,7 +45,6 @@ type WorkerConfig struct {
 
 // SessionConfig holds session store settings.
 type SessionConfig struct {
-	Store           string        // SESSION_STORE, default "redis" (memory|redis)
 	AccessTokenTTL  time.Duration // ACCESS_TOKEN_TTL, default 1h
 	RefreshTokenTTL time.Duration // REFRESH_TOKEN_TTL, default 720h (30 days)
 }
@@ -73,11 +69,6 @@ type DatabaseConfig struct {
 	JobPoolMaxConns int           // DB_JOB_POOL_MAX_CONNS, default 10 (the job queue's own pool)
 	MaxIdleConns    int           // DB_MAX_IDLE_CONNS, default 5
 	ConnMaxLifetime time.Duration // DB_CONN_MAX_LIFETIME, default 5m
-}
-
-// RedisConfig holds Redis connection settings.
-type RedisConfig struct {
-	URL string // REDIS_URL, default "redis://localhost:6379/0"
 }
 
 // SMTPConfig holds email sending settings.

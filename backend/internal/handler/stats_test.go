@@ -5,17 +5,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
-func newTestStatsCache(t *testing.T) (*service.StatsCache, sqlmock.Sqlmock) {
+// newTestStatsService wires the real StatsService to a mocked database, so the
+// handler tests also cover the query's column mapping.
+func newTestStatsService(t *testing.T) (*service.StatsService, sqlmock.Sqlmock) {
 	t.Helper()
 
 	db, mock, err := sqlmock.New()
@@ -23,21 +22,19 @@ func newTestStatsCache(t *testing.T) (*service.StatsCache, sqlmock.Sqlmock) {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	return service.NewStatsService(db), mock
+}
 
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = rdb.Close() })
-
-	cache := service.NewStatsCache(db, rdb, 30*time.Second)
-	return cache, mock
+func statsRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"users", "torrents", "total", "seeders", "online_users"}).
+		AddRow(100, 500, 42, 30, 7)
 }
 
 func TestHandleStatsReturnsJSON(t *testing.T) {
-	cache, mock := newTestStatsCache(t)
+	cache, mock := newTestStatsService(t)
 
 	mock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers", "online_users"}).
-			AddRow(100, 500, 42, 30, 12, 7))
+		WillReturnRows(statsRows())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	rec := httptest.NewRecorder()
@@ -80,12 +77,11 @@ func TestHandleStatsReturnsJSON(t *testing.T) {
 }
 
 func TestHandleStatsReturnsCachedResult(t *testing.T) {
-	cache, mock := newTestStatsCache(t)
+	cache, mock := newTestStatsService(t)
 
 	// First call: DB hit
 	mock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"users", "torrents", "peers", "seeders", "leechers", "online_users"}).
-			AddRow(100, 500, 42, 30, 12, 7))
+		WillReturnRows(statsRows())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	rec := httptest.NewRecorder()
@@ -122,7 +118,7 @@ func TestHandleStatsReturnsCachedResult(t *testing.T) {
 }
 
 func TestHandleStatsReturnsErrorOnDBFailure(t *testing.T) {
-	cache, mock := newTestStatsCache(t)
+	cache, mock := newTestStatsService(t)
 
 	mock.ExpectQuery(`SELECT`).
 		WillReturnError(http.ErrAbortHandler) // any error

@@ -17,20 +17,6 @@ services:
     networks:
       - torrenttrader
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - torrenttrader
-
   minio:
     image: minio/minio:RELEASE.2025-02-28T09-55-16Z
     ports:
@@ -83,7 +69,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   minio_data:
 
 networks:

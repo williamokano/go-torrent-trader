@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/chat"
@@ -57,6 +56,10 @@ func run() int {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel, AddSource: true}))
 	slog.SetDefault(logger)
 
+	for _, ignored := range cfg.IgnoredEnv {
+		slog.Warn("setting is no longer used and is ignored: " + ignored)
+	}
+
 	// Connect to PostgreSQL
 	connCfg := database.ConnConfig{
 		MaxOpenConns:    cfg.Database.MaxOpenConns,
@@ -93,28 +96,11 @@ func run() int {
 	peerRepo := postgres.NewPeerRepo(db)
 	groupRepo := postgres.NewGroupRepo(db)
 
-	// Shared Redis client used by both session store and stats cache.
-	redisOpts, err := redis.ParseURL(cfg.Redis.URL)
-	if err != nil {
-		slog.Error("failed to parse redis URL", "error", err)
-		return 1
-	}
-	redisClient := redis.NewClient(redisOpts)
-	defer func() { _ = redisClient.Close() }()
+	// Sessions live in PostgreSQL behind service.SessionStore, so a different
+	// store can be swapped in here without touching anything that uses one.
+	sessionStore := postgres.NewSessionStore(db)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		slog.Error("failed to ping redis", "error", err)
-		return 1
-	}
-	slog.Info("redis connected")
-
-	sessionStore := service.NewSessionStoreWithClient(redisClient, cfg.Session.AccessTokenTTL, cfg.Session.RefreshTokenTTL)
-	slog.Info("session store initialized", "type", cfg.Session.Store)
-
-	statsCache := service.NewStatsCache(db, redisClient, cfg.Cache.StatsTTL)
-	slog.Info("stats cache initialized", "ttl", cfg.Cache.StatsTTL)
+	statsService := service.NewStatsService(db)
 
 	passwordResetStore := postgres.NewPasswordResetRepo(db)
 
@@ -373,7 +359,7 @@ func run() int {
 
 	deps := &handler.Deps{
 		DB:                        db,
-		StatsCache:                statsCache,
+		Stats:                     statsService,
 		TrustedProxies:            cfg.Server.TrustedProxies,
 		AuthService:               authService,
 		SessionStore:              sessionStore,
@@ -438,7 +424,7 @@ func run() int {
 		WarningSvc:            warningService,
 		SiteSettingsSvc:       siteSettingsService,
 		EmailSender:           emailSender,
-		StatsCache:            statsCache,
+		SessionPurger:         sessionStore,
 		ChatSvc:               chatService,
 		RestrictionSvc:        restrictionService,
 		AdminSvc:              adminService,
@@ -513,13 +499,6 @@ func run() int {
 	}
 	defer stopWorker()
 	slog.Info("worker started", "periodic_jobs", len(periodicJobs))
-	if v := os.Getenv("ENABLE_SCHEDULER"); v != "" {
-		// Removed with asynq: River elects one node to run the schedule, so
-		// there is nothing left to switch. Said once, so an operator who set it
-		// to false on some nodes is not left wondering whether it still applies.
-		slog.Warn("ENABLE_SCHEDULER is no longer used and is ignored: "+
-			"the periodic schedule runs on one elected node automatically", "value", v)
-	}
 
 	// Start HTTP server
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

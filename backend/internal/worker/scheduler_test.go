@@ -44,7 +44,6 @@ func TestPeriodicJobsScheduleEveryRecurringJob(t *testing.T) {
 	// derived from the code it checks would agree with any typo.
 	want := map[string]string{
 		TaskCleanupPeers:           "*/15 * * * *",
-		TaskRecalcStats:            "0 * * * *",
 		TaskRatioWarning:           "0 */6 * * *",
 		TaskMaintenance:            "*/5 * * * *",
 		TaskPromotion:              "0 5 * * *",

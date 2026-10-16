@@ -480,7 +480,10 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 
 // Refresh issues a new token pair using a valid refresh token.
 func (s *AuthService) Refresh(req RefreshRequest, ip string) (*AuthTokens, error) {
-	sess := s.sessions.GetByRefreshToken(req.RefreshToken)
+	sess, err := s.sessions.GetByRefreshToken(req.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
 	if sess == nil {
 		return nil, ErrInvalidToken
 	}
@@ -510,6 +513,9 @@ func (s *AuthService) Refresh(req RefreshRequest, ip string) (*AuthTokens, error
 	}
 
 	if err := s.sessions.Rotate(req.RefreshToken, newSession); err != nil {
+		// ErrInvalidToken here means the session went away after the lookup
+		// above: a concurrent refresh used the token first, or it was revoked.
+		// Either way this refresh must fail — %w keeps it a 401.
 		return nil, fmt.Errorf("rotate session: %w", err)
 	}
 
@@ -541,7 +547,12 @@ func (s *AuthService) LogoutByRefreshToken(refreshToken string) bool {
 	if refreshToken == "" {
 		return false
 	}
-	if s.sessions.GetByRefreshToken(refreshToken) == nil {
+	sess, err := s.sessions.GetByRefreshToken(refreshToken)
+	if err != nil {
+		slog.Error("logout: could not look up the refresh token's session", "error", err)
+		return false
+	}
+	if sess == nil {
 		return false
 	}
 	s.sessions.DeleteByRefreshToken(refreshToken)

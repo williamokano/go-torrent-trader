@@ -211,7 +211,7 @@ shipped unguarded.
 - Backend uses `run() int` pattern in main for testability
 - Frontend uses `@/` path alias for imports
 - All config via environment variables (`.env.example` with placeholders)
-- Sessions stored in Redis; dev infra via Docker Compose
+- Sessions stored in PostgreSQL (token hashes only); dev infra via Docker Compose
 - Event system: `event/` (bus + types) → `listener/` (handlers) → `service/` (publishers only)
 - Prefer libraries over custom implementations (e.g., zeebo/bencode, not custom)
 - Frontend fetch must use `${getConfig().API_URL}` — never relative URLs (they hit the dev server, not backend)

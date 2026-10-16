@@ -189,19 +189,3 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		return nil
 	}
 }
-
-// NewRecalcStatsHandler returns the handler that pre-warms the stats cache.
-func NewRecalcStatsHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[RecalcStatsArgs]) error {
-	return func(ctx context.Context, _ *river.Job[RecalcStatsArgs]) error {
-		if deps.StatsCache == nil {
-			slog.Info("recalc stats: stats cache not configured, skipping")
-			return nil
-		}
-
-		if err := deps.StatsCache.Warm(ctx); err != nil {
-			return fmt.Errorf("recalc stats: %w", err)
-		}
-		slog.Info("recalc stats: cache warmed successfully")
-		return nil
-	}
-}

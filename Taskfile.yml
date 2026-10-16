@@ -57,7 +57,7 @@ tasks:
       - go install github.com/air-verse/air@latest
 
   dev:up:
-    desc: Start infrastructure services (postgres, redis, minio, mailpit)
+    desc: Start infrastructure services (postgres, minio, mailpit)
     cmds:
       - docker compose up -d
 

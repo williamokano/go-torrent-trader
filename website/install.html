@@ -37,7 +37,7 @@
           <p class="eyebrow">Install</p>
           <h1>Running your own tracker</h1>
           <p class="lede">
-            One Docker stack brings up the tracker, the database, Redis and object
+            One Docker stack brings up the tracker, the database and object
             storage. You need a machine, a domain, and about ten minutes.
           </p>
         </div>
@@ -215,7 +215,7 @@ tt whoami</code></pre>
           <pre><code>cp .env.example .env
 task tools              # golangci-lint, air
 task frontend:install
-task dev:up             # Postgres, Redis, MinIO, Mailpit
+task dev:up             # Postgres, MinIO, Mailpit
 task dev                # backend and frontend, both reloading</code></pre>
           <p>
             The frontend serves on <code>:5173</code>, the backend on
@@ -392,6 +392,34 @@ tracker.example.com {
             them. Back up the object storage volume too — that is where
             <code>.torrent</code> files live, and a database without them leaves
             every torrent undownloadable.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Keeping it running</p>
+          <h2>Upgrading</h2>
+          <p>
+            Pull the new images and bring the stack up again; migrations run on
+            start. If you run more than one backend, stop all of the old ones
+            before starting a new one, so two versions never run scheduled jobs
+            side by side.
+          </p>
+          <p>
+            Upgrading from a release that still used Redis: sessions now live in
+            PostgreSQL and are not carried over, so every member signs in once
+            afterwards. The stack no longer has a Redis service. Add
+            <code>--remove-orphans</code> to the <code>up</code> command to
+            remove the old container, then delete its <code>redis_data</code>
+            volume. Settings it used, such as <code>REDIS_URL</code> and
+            <code>SESSION_STORE</code>, are ignored with a warning in the log, so
+            you can tidy your env file whenever you like.
+          </p>
+          <p>
+            Going back to an earlier release is one-way in the same sense: it
+            needs its Redis service and volume again, and it does not see the
+            sessions created since, so members sign in once more.
           </p>
         </div>
       </section>

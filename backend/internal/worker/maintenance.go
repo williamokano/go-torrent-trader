@@ -94,7 +94,17 @@ func NewMaintenanceHandler(deps *WorkerDeps) func(ctx context.Context, job *rive
 			}
 		}
 
-		// 7. Re-enqueue drains for instances with work that is due. This is the
+		// 7. Delete sessions whose refresh token has expired. Redis did this
+		// with key TTLs; in Postgres nothing removes them unless something does.
+		if deps.SessionPurger != nil {
+			if purged, err := deps.SessionPurger.PurgeExpired(ctx); err != nil {
+				slog.Error("maintenance: failed to purge expired sessions", "error", err)
+			} else if purged > 0 {
+				slog.Info("maintenance: purged expired sessions", "count", purged)
+			}
+		}
+
+		// 8. Re-enqueue drains for instances with work that is due. This is the
 		// safety net for anything stranded between the delivery row being
 		// written and its drain being queued — a crash, or a failed insert while
 		// the dispatcher was enqueuing.

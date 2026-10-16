@@ -23,7 +23,6 @@ type WorkerDeps struct {
 	WarningSvc            *service.WarningService
 	SiteSettingsSvc       *service.SiteSettingsService
 	EmailSender           service.EmailSender
-	StatsCache            *service.StatsCache
 	ChatSvc               *service.ChatService
 	RestrictionSvc        *service.RestrictionService
 	AdminSvc              *service.AdminService
@@ -34,6 +33,10 @@ type WorkerDeps struct {
 	DigestSvc             *service.NotificationDigestService
 	HnRSvc                *service.HnRService
 	SendToUser            SendToUserFunc
+
+	// SessionPurger deletes sessions nothing can use any more. Nil-checked: the
+	// in-memory store used by tests has nothing to purge.
+	SessionPurger SessionPurger
 
 	NotificationRepo repository.NotificationRepository
 	// NotificationRetention is how long read notifications are kept before the
@@ -76,6 +79,11 @@ type WorkerDeps struct {
 	// silently do nothing until the next restart. Zero or negative disables
 	// pruning; a nil func disables it too.
 	ConnectorDeliveryRetention func() time.Duration
+}
+
+// SessionPurger is the part of the session store the maintenance job uses.
+type SessionPurger interface {
+	PurgeExpired(ctx context.Context) (int64, error)
 }
 
 // ConnectorDrainEnqueuer queues connector drain jobs.

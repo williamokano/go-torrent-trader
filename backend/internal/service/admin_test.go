@@ -380,7 +380,7 @@ func TestAdminResetPassword_AutoGenerate(t *testing.T) {
 	}
 
 	// Verify session was invalidated
-	if sessions.GetByAccessToken("target-token") != nil {
+	if sessionOf(sessions.GetByAccessToken("target-token")) != nil {
 		t.Error("expected target session to be deleted")
 	}
 
@@ -916,7 +916,7 @@ func TestQuickBanUser_Basic(t *testing.T) {
 	}
 
 	// Verify session was invalidated
-	if sessions.GetByAccessToken("target-token") != nil {
+	if sessionOf(sessions.GetByAccessToken("target-token")) != nil {
 		t.Error("expected target session to be deleted")
 	}
 }

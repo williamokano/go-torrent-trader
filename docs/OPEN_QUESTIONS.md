@@ -27,18 +27,30 @@ This document records technology decisions made for the project. All decisions a
 
 ### 4. Authentication
 
-**Decision:** Short-lived **opaque** access tokens + Redis-backed sessions for revocation
-and persistence. `SessionStore` is an interface (memory for tests, Redis for production).
+**Decision:** Short-lived **opaque** access tokens + PostgreSQL-backed sessions for
+revocation and persistence. `SessionStore` is an interface: `repository/postgres.SessionStore`
+in production, an in-memory store for tests. Sessions were in Redis until #288; the
+interface is where a different store would plug in again.
 
 Access tokens are 64-character hex strings with a 1-hour TTL; refresh tokens are the same
 shape with a 30-day TTL and rotate on use. The token carries no claims — every request
-resolves it against Redis, which is what makes instant revocation possible.
+resolves it against the `sessions` table, which is what makes instant revocation possible.
+
+- **Only token hashes are stored** (SHA-256, as for password resets), so the table — or a
+  backup of it — cannot be replayed as a login. No caller reads a token back out of a
+  session; every lookup starts from the token presented.
+- **One row per session, holding both halves**, so revoking by user reaches sessions whose
+  access token expired weeks ago — the class of bug #231 was in the Redis store's index.
+- **Last-active is written at most once a minute per session.** It is touched on every
+  authenticated request, and nothing needs it more precise.
+- **Expired sessions are deleted by the 5-minute maintenance job**, which is what Redis key
+  expiry used to do.
 
 **Corrected 2026-07-26:** this decision previously read "short-lived **JWT** access
 tokens". No JWT was ever implemented — there is no JWT library in `go.mod` and no `jwt`
 reference anywhere in the backend. The `JWT_SECRET` environment variable that this wording
 produced was read by no code and has been removed from `.env.example`, `stack.env.example`,
-`docker-compose.stack.yml` and the README's required-variables table. Opaque-plus-Redis is
+`docker-compose.stack.yml` and the README's required-variables table. Opaque-plus-a-store is
 the better fit for this project anyway: a stateless JWT cannot be revoked before it expires,
 which a tracker with bans and quick-ban tooling actually needs.
 

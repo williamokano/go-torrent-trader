@@ -285,11 +285,11 @@ type mockEscalationSessionStore struct {
 }
 
 func (m *mockEscalationSessionStore) Create(_ *service.Session) error { return nil }
-func (m *mockEscalationSessionStore) GetByAccessToken(_ string) *service.Session {
-	return nil
+func (m *mockEscalationSessionStore) GetByAccessToken(_ string) (*service.Session, error) {
+	return nil, nil
 }
-func (m *mockEscalationSessionStore) GetByRefreshToken(_ string) *service.Session {
-	return nil
+func (m *mockEscalationSessionStore) GetByRefreshToken(_ string) (*service.Session, error) {
+	return nil, nil
 }
 func (m *mockEscalationSessionStore) Delete(_ string)                           {}
 func (m *mockEscalationSessionStore) DeleteByRefreshToken(_ string)             {}

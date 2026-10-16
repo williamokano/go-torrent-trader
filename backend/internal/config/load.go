@@ -11,6 +11,17 @@ import (
 	realclientip "github.com/realclientip/realclientip-go"
 )
 
+// removedEnvVars are settings that no longer do anything. Load reports any that
+// are still set (Config.IgnoredEnv) instead of failing on them: an operator's
+// env file outlives the release that retired a setting, and refusing to start
+// over a setting that changes nothing would turn an upgrade into an outage.
+var removedEnvVars = []struct{ name, why string }{
+	{"ENABLE_SCHEDULER", "the periodic schedule runs on one elected node automatically"},
+	{"REDIS_URL", "Redis is no longer used"},
+	{"SESSION_STORE", "sessions are stored in PostgreSQL"},
+	{"STATS_CACHE_TTL", "site stats are cached in process for a fixed 30s"},
+}
+
 // minJobPoolConns is the smallest job queue pool Load accepts.
 const minJobPoolConns = 4
 
@@ -29,11 +40,7 @@ func Load() (*Config, error) {
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
 		},
-		Redis: RedisConfig{
-			URL: envOrDefault("REDIS_URL", "redis://localhost:6379/0"),
-		},
 		Session: SessionConfig{
-			Store:           envOrDefault("SESSION_STORE", "redis"),
 			AccessTokenTTL:  1 * time.Hour,
 			RefreshTokenTTL: 30 * 24 * time.Hour, // 720h
 		},
@@ -64,9 +71,6 @@ func Load() (*Config, error) {
 			// Empty is correct for a site that was never migrated, and for one
 			// whose legacy install used the unsalted SHA1 or MD5 variants.
 			LegacyPasswordSecret: os.Getenv("LEGACY_PASSWORD_SECRET"),
-		},
-		Cache: CacheConfig{
-			StatsTTL: 30 * time.Second,
 		},
 		Worker: WorkerConfig{
 			NotificationRetention: 90 * 24 * time.Hour,
@@ -167,13 +171,6 @@ func Load() (*Config, error) {
 		}
 	}
 
-	if v := os.Getenv("STATS_CACHE_TTL"); v != "" {
-		cfg.Cache.StatsTTL, err = time.ParseDuration(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid STATS_CACHE_TTL %q: %w", v, err)
-		}
-	}
-
 	if v := os.Getenv("NOTIFICATION_RETENTION"); v != "" {
 		cfg.Worker.NotificationRetention, err = time.ParseDuration(v)
 		if err != nil {
@@ -260,11 +257,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("TRACKER_MAX_PEERS must be greater than 0, got %d", cfg.Tracker.MaxPeersPerResponse)
 	}
 
-	sessionStore := cfg.Session.Store
-	if sessionStore != "memory" && sessionStore != "redis" {
-		return nil, fmt.Errorf("SESSION_STORE must be \"memory\" or \"redis\", got %q", sessionStore)
-	}
-
 	if cfg.Session.AccessTokenTTL <= 0 {
 		return nil, fmt.Errorf("ACCESS_TOKEN_TTL must be greater than 0, got %s", cfg.Session.AccessTokenTTL)
 	}
@@ -298,6 +290,12 @@ func Load() (*Config, error) {
 		}
 		if cfg.Storage.S3Bucket == "" {
 			return nil, fmt.Errorf("S3_BUCKET is required when STORAGE_TYPE=s3")
+		}
+	}
+
+	for _, removed := range removedEnvVars {
+		if os.Getenv(removed.name) != "" {
+			cfg.IgnoredEnv = append(cfg.IgnoredEnv, removed.name+": "+removed.why)
 		}
 	}
 
