@@ -1,6 +1,8 @@
 package model
 
-// Permissions is a lightweight struct embedded in sessions for authorization checks.
+// Permissions is what a member may do, as carried on a looked-up session for
+// authorization checks. The session store derives it on every lookup from the
+// member's current group (#291); it is not stored with the session.
 type Permissions struct {
 	GroupID     int64  `json:"group_id"`
 	GroupName   string `json:"group_name"`

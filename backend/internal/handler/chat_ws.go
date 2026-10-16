@@ -253,6 +253,39 @@ func (h *ChatHub) SendToUser(userID int64, payload []byte) {
 	}
 }
 
+// DisconnectUser closes every chat connection the user has, returning how many.
+// Closing the socket ends the client's read loop, which unregisters it the
+// usual way; closeConn makes a second close harmless.
+func (h *ChatHub) DisconnectUser(userID int64) int {
+	h.mu.RLock()
+	var mine []*ChatClient
+	for client := range h.clients {
+		if client.userID == userID {
+			mine = append(mine, client)
+		}
+	}
+	h.mu.RUnlock()
+	for _, client := range mine {
+		client.closeConn()
+	}
+	return len(mine)
+}
+
+// WatchBans closes a member's chat connections the moment they are banned
+// (#291). The connection re-checks its session only every few messages it
+// sends, so without this a banned member could send a few more lines, and one
+// who only listens would stay connected indefinitely.
+func (h *ChatHub) WatchBans(bus event.Bus) {
+	bus.Subscribe(event.UserBanned, func(_ context.Context, evt event.Event) error {
+		if e, ok := evt.(*event.UserBannedEvent); ok {
+			if dropped := h.DisconnectUser(e.UserID); dropped > 0 {
+				slog.Info("chat: closed a banned member's connections", "user_id", e.UserID, "connections", dropped)
+			}
+		}
+		return nil
+	})
+}
+
 // BroadcastDelete sends a delete event to all connected clients.
 func (h *ChatHub) BroadcastDelete(id int64) {
 	payload := map[string]interface{}{

@@ -51,12 +51,16 @@ func TestSessionStore_CreateAndLookUpByEitherToken(t *testing.T) {
 	if byAccess == nil {
 		t.Fatal("GetByAccessToken found nothing")
 	}
-	if byAccess.UserID != userID || byAccess.GroupID != 3 || byAccess.DeviceName != "laptop" ||
+	if byAccess.UserID != userID || byAccess.DeviceName != "laptop" ||
 		byAccess.IP != "203.0.113.7" || byAccess.AccessToken != "access-1" {
 		t.Errorf("GetByAccessToken = %+v, want the stored session", byAccess)
 	}
-	if byAccess.Permissions != sess.Permissions {
-		t.Errorf("permissions = %+v, want %+v", byAccess.Permissions, sess.Permissions)
+	// Authority comes from the account, not from what the session was created
+	// with: testSession claims group 3 with moderator rights, the seeded user's
+	// group says otherwise.
+	if want := livePermissions(t, userID); byAccess.Permissions != want || byAccess.GroupID != want.GroupID {
+		t.Errorf("permissions = %+v (group %d), want the account's current %+v",
+			byAccess.Permissions, byAccess.GroupID, want)
 	}
 
 	byRefresh := sessionOf(store.GetByRefreshToken("refresh-1"))
@@ -367,4 +371,151 @@ func sessionOf(sess *service.Session, err error) *service.Session {
 		panic(fmt.Sprintf("session lookup failed: %v", err))
 	}
 	return sess
+}
+
+// livePermissions is what a session for userID should carry right now: the
+// permissions of the user's current group, with their current username.
+func livePermissions(t *testing.T, userID int64) model.Permissions {
+	t.Helper()
+	var (
+		groupID  int64
+		username string
+	)
+	if err := testDB.QueryRow(`SELECT group_id, username FROM users WHERE id = $1`, userID).
+		Scan(&groupID, &username); err != nil {
+		t.Fatalf("reading user: %v", err)
+	}
+	group, err := NewGroupRepo(testDB).GetByID(context.Background(), groupID)
+	if err != nil {
+		t.Fatalf("reading group: %v", err)
+	}
+	perms := model.PermissionsFromGroup(group)
+	perms.Username = username
+	return perms
+}
+
+func groupBySlug(t *testing.T, slug string) int64 {
+	t.Helper()
+	var id int64
+	if err := testDB.QueryRow(`SELECT id FROM groups WHERE slug = $1`, slug).Scan(&id); err != nil {
+		t.Fatalf("group %q: %v", slug, err)
+	}
+	return id
+}
+
+// #291: a ban takes effect on the member's very next request, through either
+// token, whichever code path disabled the account — the admin edit, the
+// warning ladder, or a direct UPDATE as here.
+func TestSessionStore_DisabledAccountHasNoLiveSession(t *testing.T) {
+	store, userID := newSessionStore(t)
+	if err := store.Create(testSession(userID, "ban-a", "ban-r", time.Hour, 30*24*time.Hour)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := testDB.Exec(`UPDATE users SET enabled = false WHERE id = $1`, userID); err != nil {
+		t.Fatalf("disabling user: %v", err)
+	}
+
+	if sessionOf(store.GetByAccessToken("ban-a")) != nil {
+		t.Error("a disabled member's access token still works")
+	}
+	if sessionOf(store.GetByRefreshToken("ban-r")) != nil {
+		t.Error("a disabled member can still refresh")
+	}
+}
+
+// #291: a demotion takes effect at once. The old store copied the login-time
+// snapshot forward on every refresh, so a demoted admin stayed one for as long
+// as their client kept refreshing.
+func TestSessionStore_PermissionsFollowTheMembersCurrentGroup(t *testing.T) {
+	store, userID := newSessionStore(t)
+	admin := groupBySlug(t, "administrator")
+	if _, err := testDB.Exec(`UPDATE users SET group_id = $1 WHERE id = $2`, admin, userID); err != nil {
+		t.Fatalf("promoting user: %v", err)
+	}
+	if err := store.Create(testSession(userID, "demote-a", "demote-r", time.Hour, time.Hour)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !sessionOf(store.GetByAccessToken("demote-a")).Permissions.IsAdmin {
+		t.Fatal("setup: the admin's session is not an admin's")
+	}
+
+	user := groupBySlug(t, "user")
+	if _, err := testDB.Exec(`UPDATE users SET group_id = $1 WHERE id = $2`, user, userID); err != nil {
+		t.Fatalf("demoting user: %v", err)
+	}
+	for name, sess := range map[string]*service.Session{
+		"access":  sessionOf(store.GetByAccessToken("demote-a")),
+		"refresh": sessionOf(store.GetByRefreshToken("demote-r")),
+	} {
+		if sess == nil {
+			t.Fatalf("%s: the demoted member's session is gone; it should stay, with less authority", name)
+		}
+		if sess.Permissions.IsAdmin || sess.GroupID != user {
+			t.Errorf("%s: permissions after demotion = %+v (group %d), want the user class", name, sess.Permissions, sess.GroupID)
+		}
+	}
+}
+
+// Editing a class reaches every member in it at once, and so does a rename.
+func TestSessionStore_PermissionsFollowEditsToTheClassAndAccount(t *testing.T) {
+	store, userID := newSessionStore(t)
+	if err := store.Create(testSession(userID, "edit-a", "edit-r", time.Hour, time.Hour)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	before := sessionOf(store.GetByAccessToken("edit-a")).Permissions
+
+	if _, err := testDB.Exec(`UPDATE groups SET can_upload = NOT can_upload
+		WHERE id = (SELECT group_id FROM users WHERE id = $1)`, userID); err != nil {
+		t.Fatalf("editing the class: %v", err)
+	}
+	if _, err := testDB.Exec(`UPDATE users SET username = 'renamed' WHERE id = $1`, userID); err != nil {
+		t.Fatalf("renaming: %v", err)
+	}
+
+	after := sessionOf(store.GetByAccessToken("edit-a")).Permissions
+	if after.CanUpload == before.CanUpload {
+		t.Error("an edit to the member's class did not reach their session")
+	}
+	if after.Username != "renamed" {
+		t.Errorf("username = %q after a rename, want renamed", after.Username)
+	}
+}
+
+// Every permission column is read into its own field. The seeded classes set
+// most flags alike, so a swapped pair in the SELECT or the Scan would pass the
+// other tests; this class alternates them, so it would not.
+func TestSessionStore_ReadsEveryPermissionFromItsOwnColumn(t *testing.T) {
+	store, userID := newSessionStore(t)
+	var groupID int64
+	if err := testDB.QueryRow(`INSERT INTO groups
+		(name, slug, level, can_upload, can_download, can_invite, can_comment, can_forum,
+		 is_admin, is_moderator, is_immune, can_self_approve)
+		VALUES ('Checkerboard', 'checkerboard', 37, true, false, true, false, true,
+		        false, true, false, true)
+		RETURNING id`).Scan(&groupID); err != nil {
+		t.Fatalf("creating class: %v", err)
+	}
+	if _, err := testDB.Exec(`UPDATE users SET group_id = $1 WHERE id = $2`, groupID, userID); err != nil {
+		t.Fatalf("moving user: %v", err)
+	}
+	if err := store.Create(testSession(userID, "check-a", "check-r", time.Hour, time.Hour)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	want := model.Permissions{
+		GroupID: groupID, GroupName: "Checkerboard", Username: "sessionuser", Level: 37,
+		CanUpload: true, CanDownload: false, CanInvite: true, CanComment: false, CanForum: true,
+		IsAdmin: false, IsModerator: true, IsImmune: false, CanSelfApprove: true,
+	}
+	for name, sess := range map[string]*service.Session{
+		"access":  sessionOf(store.GetByAccessToken("check-a")),
+		"refresh": sessionOf(store.GetByRefreshToken("check-r")),
+	} {
+		if sess == nil {
+			t.Fatalf("%s: no session", name)
+		}
+		if sess.Permissions != want || sess.GroupID != groupID {
+			t.Errorf("%s: permissions = %+v (group %d), want %+v", name, sess.Permissions, sess.GroupID, want)
+		}
+	}
 }

@@ -36,6 +36,22 @@ Access tokens are 64-character hex strings with a 1-hour TTL; refresh tokens are
 shape with a 30-day TTL and rotate on use. The token carries no claims — every request
 resolves it against the `sessions` table, which is what makes instant revocation possible.
 
+- **A session records who is signed in, not what they may do** (#291). Every lookup joins the
+  member's account and current group: a disabled account has no live session, and permissions
+  are the current class's, the moment either changes — through the admin edit, the promotion
+  engine, the warning ladder or a class edit alike. Sessions used to carry a permission
+  snapshot from login that refresh copied forward, so a banned or demoted member kept the old
+  access for as long as their client kept refreshing.
+  - Every ban publishes `UserBanned` — the admin edit, the warning ladder, and the automatic
+    ratio and hit-and-run bans (quick-ban has its own event and deletes sessions itself). On it,
+    the member's sessions are deleted, and their open chat connections and live-feed streams
+    are closed: those authorise once at connect, so the live lookup alone would not reach them.
+    A class change closes live-feed streams too, so reconnecting re-checks feed access.
+  - An unban deletes whatever sessions are left, so nothing from before a ban revives when the
+    account is re-enabled — including a session the member tried to log out of while banned,
+    which cannot be found to delete because a disabled account's session no longer resolves.
+  - The RSS feed refuses a disabled account's passkey, as the tracker does: its enclosure links
+    carry the passkey.
 - **Only token hashes are stored** (SHA-256, as for password resets), so the table — or a
   backup of it — cannot be replayed as a login. No caller reads a token back out of a
   session; every lookup starts from the token presented.

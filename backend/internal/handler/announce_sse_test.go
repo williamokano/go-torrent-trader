@@ -875,3 +875,32 @@ func TestAnnounceHubDisconnectsOneMember(t *testing.T) {
 		break
 	}
 }
+
+// A stream is authorised once, at connect, so a ban or a change of class has
+// to close it: the next connect is what re-checks (#291).
+func TestAnnounceHubClosesStreamsOnBanAndClassChange(t *testing.T) {
+	for name, evt := range map[string]event.Event{
+		"ban": &event.UserBannedEvent{Base: event.NewBase(event.UserBanned, event.Actor{ID: 9}), UserID: 1},
+		"class change": &event.UserGroupChangedEvent{
+			Base: event.NewBase(event.UserGroupChanged, event.Actor{ID: 9}), UserID: 1,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newStreamHarness(t)
+			bus := event.NewInMemoryBus()
+			h.hub.WatchAccountChanges(bus)
+
+			victim, closeVictim := h.connect(t, h.login(t, 1))
+			defer closeVictim()
+			readSSEFrame(t, victim)
+			bystander, closeBystander := h.connect(t, h.login(t, 2))
+			defer closeBystander()
+			readSSEFrame(t, bystander)
+			h.waitForClients(t, 2)
+
+			bus.Publish(context.Background(), evt)
+
+			waitFor(t, "the member's stream to close", func() bool { return h.hub.clientCount() == 1 })
+		})
+	}
+}

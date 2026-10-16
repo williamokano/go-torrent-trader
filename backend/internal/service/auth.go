@@ -498,6 +498,9 @@ func (s *AuthService) Refresh(req RefreshRequest, ip string) (*AuthTokens, error
 	}
 
 	now := time.Now()
+	// GroupID and Permissions are passed along for stores that keep them; the
+	// PostgreSQL store derives both from the account on every lookup instead,
+	// so a refresh never extends authority the member has lost (#291).
 	newSession := &Session{
 		UserID:           sess.UserID,
 		GroupID:          sess.GroupID,
@@ -881,7 +884,9 @@ func (s *AuthService) createSession(ctx context.Context, userID, groupID int64, 
 		return nil, err
 	}
 
-	// Load group permissions into the session
+	// Group permissions for the session as created. The PostgreSQL store does
+	// not keep them (it reads the member's current group on every lookup), but
+	// the in-memory store used by tests does, so they are still filled in.
 	var perms model.Permissions
 	if s.groups != nil {
 		group, err := s.groups.GetByID(ctx, groupID)

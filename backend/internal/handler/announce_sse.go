@@ -259,6 +259,32 @@ func (h *AnnounceHub) WatchRestrictions(bus event.Bus) {
 	})
 }
 
+// WatchAccountChanges closes a member's streams when they are banned or moved
+// to another class (#291). A stream is authorised once, at connect; the session
+// store answers every later lookup with current authority, but an open stream
+// makes no more lookups. Closing it sends the client back through connect,
+// which refuses a banned member and re-checks feed access for a moved one.
+func (h *AnnounceHub) WatchAccountChanges(bus event.Bus) {
+	disconnect := func(userID int64, why string) {
+		if dropped := h.DisconnectUser(userID); dropped > 0 {
+			slog.Info("live feed: closed open streams after an account change",
+				"user_id", userID, "reason", why, "streams", dropped)
+		}
+	}
+	bus.Subscribe(event.UserBanned, func(_ context.Context, evt event.Event) error {
+		if e, ok := evt.(*event.UserBannedEvent); ok {
+			disconnect(e.UserID, "banned")
+		}
+		return nil
+	})
+	bus.Subscribe(event.UserGroupChanged, func(_ context.Context, evt event.Event) error {
+		if e, ok := evt.(*event.UserGroupChangedEvent); ok {
+			disconnect(e.UserID, "class changed")
+		}
+		return nil
+	})
+}
+
 // WatchConfigChanges disconnects every watcher whenever a live feed is created,
 // edited, toggled or deleted.
 //

@@ -635,3 +635,54 @@ func TestListWarnings(t *testing.T) {
 		t.Errorf("expected 2 warnings for user 1, got %d", len(userWarnings))
 	}
 }
+
+// Automatic bans are bans: they have to say so, or the session revocation
+// listener and the activity log never hear about them (#291).
+func TestAutomaticBansPublishUserBanned(t *testing.T) {
+	t.Run("hit-and-run", func(t *testing.T) {
+		warnRepo := newMockWarningRepo()
+		userRepo := newMockUserRepoForWarnings()
+		bus := event.NewInMemoryBus()
+		var banned []int64
+		bus.Subscribe(event.UserBanned, func(_ context.Context, evt event.Event) error {
+			banned = append(banned, evt.(*event.UserBannedEvent).UserID)
+			return nil
+		})
+		userRepo.addUser(&model.User{ID: 1, Username: "hnr", Enabled: true})
+		svc := NewWarningService(warnRepo, userRepo, newMockMessageRepoForWarnings(), bus)
+
+		if err := svc.IssueHnRBan(context.Background(), 1, "too many"); err != nil {
+			t.Fatalf("IssueHnRBan: %v", err)
+		}
+		if len(banned) != 1 || banned[0] != 1 {
+			t.Fatalf("UserBanned published for %v, want [1]", banned)
+		}
+	})
+
+	t.Run("ratio", func(t *testing.T) {
+		warnRepo := newMockWarningRepo()
+		userRepo := newMockUserRepoForWarnings()
+		bus := event.NewInMemoryBus()
+		var banned []int64
+		bus.Subscribe(event.UserBanned, func(_ context.Context, evt event.Event) error {
+			banned = append(banned, evt.(*event.UserBannedEvent).UserID)
+			return nil
+		})
+		userRepo.addUser(&model.User{ID: 1, Username: "lowratio", Enabled: true})
+		svc := NewWarningService(warnRepo, userRepo, newMockMessageRepoForWarnings(), bus)
+
+		w, err := svc.IssueRatioWarning(context.Background(), 1, "low ratio")
+		if err != nil {
+			t.Fatalf("IssueRatioWarning: %v", err)
+		}
+		if len(banned) != 0 {
+			t.Fatalf("a warning alone published UserBanned for %v", banned)
+		}
+		if err := svc.EscalateRatioWarning(context.Background(), w.ID, "Account disabled"); err != nil {
+			t.Fatalf("EscalateRatioWarning: %v", err)
+		}
+		if len(banned) != 1 || banned[0] != 1 {
+			t.Fatalf("UserBanned published for %v, want [1]", banned)
+		}
+	})
+}

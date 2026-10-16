@@ -233,6 +233,7 @@ func run() int {
 
 	// Warning escalation listener — auto-restrict or ban based on manual warning count.
 	listener.RegisterWarningEscalationListener(eventBus, siteSettingsService, warningRepo, restrictionService, userRepo, activityLogService, sessionStore, messageRepo)
+	listener.RegisterSessionRevocationListener(eventBus, sessionStore)
 
 	adminService := service.NewAdminService(userRepo, groupRepo, eventBus)
 	adminService.SetSessionStore(sessionStore)
@@ -285,6 +286,7 @@ func run() int {
 
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
 	go chatHub.Run()
+	chatHub.WatchBans(eventBus)
 
 	// External notification connectors (BE-10). The registry is fixed at compile
 	// time; adding a destination means adding a package and one Register call.
@@ -311,6 +313,7 @@ func run() int {
 	go announceHub.Run()
 	announceHub.WatchConfigChanges(eventBus)
 	announceHub.WatchRestrictions(eventBus)
+	announceHub.WatchAccountChanges(eventBus)
 	connectorRegistry.Register(sse.New(announceHub.Broadcast))
 
 	connectorRepo := postgres.NewConnectorRepo(db)

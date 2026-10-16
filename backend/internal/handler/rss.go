@@ -77,9 +77,12 @@ func (h *RSSHandler) HandleRSS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate passkey
-	_, err := h.userRepo.GetByPasskey(r.Context(), passkey)
-	if err != nil {
+	// Validate passkey. A disabled account's passkey is refused here as the
+	// tracker refuses it: the feed's enclosure links carry the passkey, so a
+	// banned member's feed would otherwise keep handing out working downloads
+	// (#291).
+	feedUser, err := h.userRepo.GetByPasskey(r.Context(), passkey)
+	if err != nil || !feedUser.Enabled {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized", "invalid passkey")
 		return
 	}

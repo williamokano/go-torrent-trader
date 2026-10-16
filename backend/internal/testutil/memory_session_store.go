@@ -15,6 +15,11 @@ import (
 // (an expired access token leaves the refresh token usable); revocation by user
 // that reaches sessions whose access token has expired (#231); and a Rotate
 // that only succeeds once per refresh token.
+//
+// One difference is deliberate: it returns the GroupID and Permissions a
+// session was created with, while the real store reads the member's account
+// and class on every lookup (#291). Tests that need bans or demotions to take
+// effect belong against repository/postgres.SessionStore.
 type MemorySessionStore struct {
 	mu       sync.Mutex
 	sessions []*service.Session

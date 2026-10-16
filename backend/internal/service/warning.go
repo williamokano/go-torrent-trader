@@ -210,6 +210,13 @@ func (s *WarningService) IssueHnRBan(ctx context.Context, userID int64, reason s
 		Username:    user.Username,
 		WarningType: model.WarningTypeHnRBan,
 	})
+	// A ban, said as one: the session revocation listener ends the member's
+	// sessions on it (#291), and the activity log records it like any other.
+	s.eventBus.Publish(ctx, &event.UserBannedEvent{
+		Base:     event.NewBase(event.UserBanned, actor),
+		UserID:   userID,
+		Username: user.Username,
+	})
 
 	return nil
 }
@@ -270,6 +277,12 @@ func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int
 		UserID:      w.UserID,
 		Username:    user.Username,
 		WarningType: model.WarningTypeRatioBan,
+	})
+	// See IssueHnRBan: the disable is a ban, and has to be announced as one.
+	s.eventBus.Publish(ctx, &event.UserBannedEvent{
+		Base:     event.NewBase(event.UserBanned, actor),
+		UserID:   w.UserID,
+		Username: user.Username,
 	})
 
 	return nil
