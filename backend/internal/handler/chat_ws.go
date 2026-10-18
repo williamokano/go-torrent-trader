@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/cluster"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/service"
@@ -78,7 +80,30 @@ type chatSpamSettings struct {
 	spamMuteMessage    string
 }
 
+// Cluster topics the chat hub publishes and applies. Each carries a change one
+// node made to its own connections, for every other node to repeat on theirs.
+const (
+	topicChatBroadcast  = "chat.broadcast"
+	topicChatToUser     = "chat.to_user"
+	topicChatDisconnect = "chat.disconnect"
+)
+
+// chatToUser is the payload of topicChatToUser.
+type chatToUser struct {
+	UserID int64           `json:"user_id"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// chatUser is the payload of topicChatDisconnect.
+type chatUser struct {
+	UserID int64 `json:"user_id"`
+}
+
 // ChatHub manages WebSocket connections for the shoutbox.
+//
+// Its clients are the ones connected to this process. Everything that reaches
+// clients — a message, a delete, a mute, a disconnect — is applied here and
+// published through cluster, so the other replicas apply it to theirs (#295).
 type ChatHub struct {
 	chatSvc         *service.ChatService
 	sessionStore    service.SessionStore
@@ -86,8 +111,19 @@ type ChatHub struct {
 	eventBus        event.Bus
 	allowedOrigins  []string
 
+	// cluster is nil on a single node. Set once by UseCluster, before Run.
+	cluster cluster.Publisher
+	// resyncSpread is a field so a test need not wait out the real one.
+	resyncSpread time.Duration
+
 	spamSettings chatSpamSettings
 	settingsMu   sync.RWMutex
+	// reloadMu serialises loadSpamSettings, so of two reloads racing, the one
+	// that reads last is the one that is kept.
+	reloadMu sync.Mutex
+	// reloadSettings wakes the reloader UseCluster starts. Depth 1: a burst of
+	// changes needs one reload.
+	reloadSettings chan struct{}
 
 	clients    map[*ChatClient]struct{}
 	broadcast  chan ChatBroadcast
@@ -108,6 +144,8 @@ func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore,
 		broadcast:       make(chan ChatBroadcast, 256),
 		register:        make(chan *ChatClient, 64),
 		unregister:      make(chan *ChatClient, 64),
+		resyncSpread:    resyncSpread,
+		reloadSettings:  make(chan struct{}, 1),
 	}
 	h.loadSpamSettings()
 	return h
@@ -115,6 +153,9 @@ func NewChatHub(chatSvc *service.ChatService, sessionStore service.SessionStore,
 
 // loadSpamSettings reads anti-spam configuration from site settings.
 func (h *ChatHub) loadSpamSettings() {
+	h.reloadMu.Lock()
+	defer h.reloadMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -153,19 +194,109 @@ func (h *ChatHub) getSpamSettings() chatSpamSettings {
 	return h.spamSettings
 }
 
+// UseCluster connects the hub to the other replicas: what this node changes is
+// published, and what they publish is applied to the clients connected here.
+// Call it once, before Run.
+//
+// After the cluster listener reconnects, every client here is disconnected.
+// Messages sent while it was down never arrived, and the reconnect gives each
+// browser a fresh backfill and a fresh session check — the cheapest way to make
+// sure nothing missed in the gap stays missing.
+func (h *ChatHub) UseCluster(node cluster.Node) {
+	h.cluster = node
+	node.Subscribe(topicChatBroadcast, func(payload json.RawMessage) {
+		h.broadcastLocal(payload)
+	})
+	node.Subscribe(topicChatToUser, func(payload json.RawMessage) {
+		if msg, ok := cluster.Decode[chatToUser](topicChatToUser, payload); ok {
+			h.sendToUserLocal(msg.UserID, msg.Data)
+		}
+	})
+	node.Subscribe(topicChatDisconnect, func(payload json.RawMessage) {
+		if msg, ok := cluster.Decode[chatUser](topicChatDisconnect, payload); ok {
+			if dropped := h.disconnectUserLocal(msg.UserID); dropped > 0 {
+				slog.Info("chat: closed connections on another node's request",
+					"user_id", msg.UserID, "connections", dropped)
+			}
+		}
+	})
+	node.Subscribe(service.TopicSiteSettingChanged, func(payload json.RawMessage) {
+		if msg, ok := cluster.Decode[service.SiteSettingChange](service.TopicSiteSettingChanged, payload); ok &&
+			isChatSpamSetting(msg.Key) {
+			h.requestSettingsReload()
+		}
+	})
+	node.OnResync(func() {
+		// A change missed in the gap would otherwise last until a restart:
+		// these settings are only ever reloaded when told to.
+		h.requestSettingsReload()
+		if dropped := h.disconnectAllLocal(h.resyncSpread); dropped > 0 {
+			slog.Info("chat: closing every connection to resync after a cluster gap", "connections", dropped)
+		}
+	})
+	go func() {
+		// Off the listener's goroutine, because a reload reads the database.
+		for range h.reloadSettings {
+			h.loadSpamSettings()
+		}
+	}()
+}
+
+// requestSettingsReload asks the reloader for a reload, without blocking.
+func (h *ChatHub) requestSettingsReload() {
+	select {
+	case h.reloadSettings <- struct{}{}:
+	default:
+	}
+}
+
+// resyncSpread is how long a resync takes to close every connection. A gap in
+// the broadcast usually means the database restarted, and every replica
+// resyncs at once: closing everything at the same instant would bring every
+// browser back together, each with a session lookup and a backfill query,
+// onto a database that has just come up.
+const resyncSpread = 10 * time.Second
+
+// closeWithin runs closeFn after a random delay of up to spread, or at once
+// when spread is zero.
+func closeWithin(spread time.Duration, closeFn func()) {
+	if spread <= 0 {
+		closeFn()
+		return
+	}
+	time.AfterFunc(rand.N(spread), closeFn)
+}
+
+// publish hands a change to the other replicas, when there are any.
+func (h *ChatHub) publish(topic string, v any) {
+	if h.cluster != nil {
+		h.cluster.Publish(topic, v)
+	}
+}
+
+// isChatSpamSetting reports whether a site setting feeds chatSpamSettings.
+func isChatSpamSetting(key string) bool {
+	switch key {
+	case service.SettingChatRateLimitWindow,
+		service.SettingChatRateLimitMax,
+		service.SettingChatSpamStrikeCount,
+		service.SettingChatSpamMuteMinutes,
+		service.SettingChatStrikeResetSeconds,
+		service.SettingChatRateLimitMessage,
+		service.SettingChatSpamMuteMessage:
+		return true
+	}
+	return false
+}
+
 // Run starts the hub event loop. Should be called in a goroutine.
 func (h *ChatHub) Run() {
 	// Subscribe to site setting changes for real-time config updates.
 	h.eventBus.Subscribe(event.SiteSettingChanged, func(_ context.Context, evt event.Event) error {
+		// The other replicas hear about it from SiteSettingsService.Set, which
+		// publishes every change (see UseCluster).
 		e := evt.(*event.SiteSettingChangedEvent)
-		switch e.Key {
-		case service.SettingChatRateLimitWindow,
-			service.SettingChatRateLimitMax,
-			service.SettingChatSpamStrikeCount,
-			service.SettingChatSpamMuteMinutes,
-			service.SettingChatStrikeResetSeconds,
-			service.SettingChatRateLimitMessage,
-			service.SettingChatSpamMuteMessage:
+		if isChatSpamSetting(e.Key) {
 			slog.Info("chat setting changed, reloading", "key", e.Key)
 			h.loadSpamSettings()
 		}
@@ -230,6 +361,13 @@ func (h *ChatHub) Run() {
 // the buffer, or a deployment where the hub goroutine never started — either
 // would park forever. Dropping a shoutbox line is the right trade against that.
 func (h *ChatHub) Broadcast(payload []byte) {
+	h.broadcastLocal(payload)
+	h.publish(topicChatBroadcast, json.RawMessage(payload))
+}
+
+// broadcastLocal queues a payload for the clients connected to this node,
+// without blocking (see Broadcast).
+func (h *ChatHub) broadcastLocal(payload []byte) {
 	select {
 	case h.broadcast <- ChatBroadcast{Data: payload}:
 	default:
@@ -237,8 +375,14 @@ func (h *ChatHub) Broadcast(payload []byte) {
 	}
 }
 
-// SendToUser sends a payload to all connected clients belonging to the given user.
+// SendToUser sends a payload to all connected clients belonging to the given
+// user, on every node: a member with two tabs may be connected to two replicas.
 func (h *ChatHub) SendToUser(userID int64, payload []byte) {
+	h.sendToUserLocal(userID, payload)
+	h.publish(topicChatToUser, chatToUser{UserID: userID, Data: payload})
+}
+
+func (h *ChatHub) sendToUserLocal(userID int64, payload []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -253,10 +397,17 @@ func (h *ChatHub) SendToUser(userID int64, payload []byte) {
 	}
 }
 
-// DisconnectUser closes every chat connection the user has, returning how many.
-// Closing the socket ends the client's read loop, which unregisters it the
-// usual way; closeConn makes a second close harmless.
+// DisconnectUser closes every chat connection the user has, here and on every
+// other node, returning how many it closed on this one. Closing the socket ends
+// the client's read loop, which unregisters it the usual way; closeConn makes a
+// second close harmless.
 func (h *ChatHub) DisconnectUser(userID int64) int {
+	dropped := h.disconnectUserLocal(userID)
+	h.publish(topicChatDisconnect, chatUser{UserID: userID})
+	return dropped
+}
+
+func (h *ChatHub) disconnectUserLocal(userID int64) int {
 	h.mu.RLock()
 	var mine []*ChatClient
 	for client := range h.clients {
@@ -269,6 +420,21 @@ func (h *ChatHub) DisconnectUser(userID int64) int {
 		client.closeConn()
 	}
 	return len(mine)
+}
+
+// disconnectAllLocal closes every connection on this node, each at a random
+// moment within spread; see UseCluster.
+func (h *ChatHub) disconnectAllLocal(spread time.Duration) int {
+	h.mu.RLock()
+	all := make([]*ChatClient, 0, len(h.clients))
+	for client := range h.clients {
+		all = append(all, client)
+	}
+	h.mu.RUnlock()
+	for _, client := range all {
+		closeWithin(spread, client.closeConn)
+	}
+	return len(all)
 }
 
 // WatchBans closes a member's chat connections the moment they are banned
@@ -297,7 +463,7 @@ func (h *ChatHub) BroadcastDelete(id int64) {
 		slog.Error("failed to marshal delete broadcast", "error", err)
 		return
 	}
-	h.broadcast <- ChatBroadcast{Data: data}
+	h.broadcastAll(data)
 }
 
 // BroadcastDeleteUser sends a delete_user event to all connected clients,
@@ -312,7 +478,7 @@ func (h *ChatHub) BroadcastDeleteUser(userID int64) {
 		slog.Error("failed to marshal delete_user broadcast", "error", err)
 		return
 	}
-	h.broadcast <- ChatBroadcast{Data: data}
+	h.broadcastAll(data)
 }
 
 // wsIncoming represents an incoming WebSocket message from a client.
@@ -650,7 +816,15 @@ func (h *ChatHub) handleIncomingMessage(client *ChatClient, text string) {
 		return
 	}
 
+	h.broadcastAll(data)
+}
+
+// broadcastAll sends a member-originated payload — a message, a delete — to
+// every client on every node. Unlike Broadcast, the local send waits for room
+// in the hub's queue: a member's own message is not something to drop.
+func (h *ChatHub) broadcastAll(data []byte) {
 	h.broadcast <- ChatBroadcast{Data: data}
+	h.publish(topicChatBroadcast, json.RawMessage(data))
 }
 
 func chatMessagePayload(msg *model.ChatMessage) map[string]interface{} {

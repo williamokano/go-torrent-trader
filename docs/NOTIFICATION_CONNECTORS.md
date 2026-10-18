@@ -38,11 +38,25 @@ Three things the implementation settled that this document left open:
   their whole rate budget on individual deliveries and defer the rest to the
   next window instead.
 - **"Not ready" is a third delivery outcome**, alongside success and failure.
-  A connector that is mid-reconnect, or running on a node that does not own the
-  connection, returns `connector.ErrNotReady`; the delivery is rescheduled
-  without consuming a retry attempt, bounded to 15 minutes. Leader election is
-  the Postgres advisory-lock variant, with a 10s ownership re-check that stops
-  the client the moment ownership cannot be proven.
+  A connector that is mid-reconnect returns `connector.ErrNotReady`; the
+  delivery is rescheduled without consuming a retry attempt, bounded to 15
+  minutes. Leader election is the Postgres advisory-lock variant, with a 10s
+  ownership re-check that stops the client the moment ownership cannot be
+  proven.
+- **A persistent instance is drained by its owner** (#294). The queued drain
+  job can run on any node, and only the owner holds the connection, so for a
+  persistent kind the job delivers nothing: it asks the owner to drain (a
+  cluster broadcast, see ARCHITECTURE.md) and dead-letters rows that have
+  waited past the 15-minute not-ready limit — the case where no node can
+  connect. The owner runs a drain loop inside `Manager.runOwned` for as long as
+  it holds the lock: at once on taking ownership, on request, when a retry or
+  rate window comes due, and on a 5s poll as the backstop. It waits for the
+  client to be connected before each pass, finishes the row in flight when
+  ownership ends (row bookkeeping runs on a detached context), and is joined
+  before the lock is released, so a node that lets go never delivers after it.
+  One duplicate stays possible, and is accepted under at-least-once delivery:
+  when the lock dies with its database session the new owner can take over at
+  once, while the old one is still finishing the row it was on.
 
 ## 1. Motivation
 
@@ -193,6 +207,11 @@ double-post and collide on the nick. So each persistent instance needs
   - **or Redis lease** (`SET owner NX PX <ttl>` renewed on a heartbeat; on expiry
     another node takes over). We used Redis for sessions at the time; it has
     since been removed (#286), which settles this in favour of the advisory lock.
+- **Deliveries follow the owner.** The owner drains its own instances (§1,
+  "A persistent instance is drained by its owner"); a standby never attempts
+  them. This replaced an earlier design where whichever node ran the drain job
+  attempted delivery and a standby answered `ErrNotReady`, which made delivery
+  latency depend on which node the queue happened to hand the job to (#294).
 - On **takeover**, the new owner reconnects to IRC and resumes announcing. The
   brief gap during failover is acceptable for an announce bot; combined with the
   pipeline's at-least-once + dedup (§6), the window costs at most a short delay or

@@ -1,0 +1,153 @@
+package cluster
+
+import (
+	"context"
+	"database/sql"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/database"
+)
+
+// postgresImage matches the other packages' test image, which in turn matches
+// docker-compose.
+const postgresImage = "postgres:16-alpine"
+
+// testDB is a connection to a throwaway Postgres container, shared by every
+// test in this package that needs one. It is nil under `go test -short`,
+// where the container is never started.
+var testDB *sql.DB
+
+// testDSN is testDB's connection string, for the tests that need a native pgx
+// pool rather than database/sql (River's driver).
+var testDSN string
+
+// TestMain mirrors internal/repository/postgres/main_test.go and
+// cmd/backfill-mentions/main_test.go: one throwaway Postgres container per
+// package run, migrated with the real goose migrations. LISTEN/NOTIFY is the
+// whole point of this package, and no mock reproduces its delivery and
+// connection semantics, so the tests that matter run against a real server.
+func TestMain(m *testing.M) {
+	// testing.Short() reads a flag, so the flags must be parsed before m.Run.
+	flag.Parse()
+
+	if testing.Short() {
+		// No Docker in short mode: tests that need testDB skip themselves.
+		os.Exit(m.Run())
+	}
+
+	ctx := context.Background()
+
+	// An existing database instead of a container, for machines without
+	// Docker. It is migrated like the container would be, and several tests
+	// assume it starts empty, as a container does — so create a fresh one for
+	// each run and throw it away after.
+	if dsn := os.Getenv("CLUSTER_TEST_DATABASE_URL"); dsn != "" {
+		if err := requireThrowawayDatabase(ctx, dsn); err != nil {
+			log.Fatalf("CLUSTER_TEST_DATABASE_URL: %v", err)
+		}
+		code, err := runWithDSN(ctx, dsn, m)
+		if err != nil {
+			log.Fatalf("preparing test database: %v", err)
+		}
+		os.Exit(code)
+	}
+
+	container, err := tcpostgres.Run(ctx, postgresImage,
+		tcpostgres.WithDatabase("cluster_test"),
+		tcpostgres.WithUsername("test"),
+		tcpostgres.WithPassword("test"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(90*time.Second),
+		),
+	)
+	if err != nil {
+		log.Fatalf("starting postgres container: %v", err)
+	}
+
+	code, err := runWithContainer(ctx, container, m)
+
+	// Terminate before exiting: os.Exit skips deferred functions, which would
+	// leak the container.
+	if termErr := testcontainers.TerminateContainer(container); termErr != nil {
+		log.Printf("terminating postgres container: %v", termErr)
+	}
+	if err != nil {
+		log.Fatalf("preparing test database: %v", err)
+	}
+
+	os.Exit(code)
+}
+
+func runWithContainer(ctx context.Context, container *tcpostgres.PostgresContainer, m *testing.M) (int, error) {
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		return 0, fmt.Errorf("building connection string: %w", err)
+	}
+	return runWithDSN(ctx, dsn, m)
+}
+
+func runWithDSN(ctx context.Context, dsn string, m *testing.M) (int, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return 0, fmt.Errorf("opening test database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := db.PingContext(ctx); err != nil {
+		return 0, fmt.Errorf("pinging test database: %w", err)
+	}
+
+	// Apply the real migrations rather than a hand-maintained test schema, so
+	// this also catches a migration that fails to apply from scratch.
+	if err := database.RunMigrations(db, "../../migrations"); err != nil {
+		return 0, fmt.Errorf("migrating test database: %w", err)
+	}
+
+	testDB = db
+	testDSN = dsn
+	return m.Run(), nil
+}
+
+// requireDB returns the shared test database, skipping the test when the
+// container was not started (`go test -short`).
+func requireDB(t *testing.T) *sql.DB {
+	t.Helper()
+	if testDB == nil {
+		t.Skip("skipping: needs the Postgres container (not available under -short)")
+	}
+	return testDB
+}
+
+// requireThrowawayDatabase refuses a database whose name does not end in
+// "_test". These suites migrate the database and then truncate every table
+// between tests, so pointing the override at a dev database by mistake would
+// wipe it; the name check makes that an error instead.
+func requireThrowawayDatabase(ctx context.Context, dsn string) error {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var name string
+	if err := db.QueryRowContext(ctx, `SELECT current_database()`).Scan(&name); err != nil {
+		return fmt.Errorf("reading database name: %w", err)
+	}
+	if !strings.HasSuffix(name, "_test") {
+		return fmt.Errorf("refusing to run against %q: the tests truncate every table, "+
+			"so the database name must end in _test", name)
+	}
+	return nil
+}

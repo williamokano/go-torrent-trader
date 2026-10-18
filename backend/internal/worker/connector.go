@@ -47,8 +47,8 @@ const (
 	// left over is picked up by the immediate follow-up.
 	connectorDrainDeadline = 60 * time.Second
 	// connectorNotReadyRetry is how soon to look again when a connector says it
-	// is not ready (an IRC client mid-reconnect, or a node that does not own the
-	// connection). Short, because the condition usually clears in seconds.
+	// is not ready (an IRC client mid-reconnect, a rate-limited Discord).
+	// Short, because the condition usually clears in seconds.
 	connectorNotReadyRetry = 15 * time.Second
 	// connectorNotReadyJitter spreads the retries of instances recovering from
 	// the same outage.
@@ -57,6 +57,12 @@ const (
 	// destination that has not come up within this window is treated as a real
 	// failure so the row dead-letters instead of being rescheduled forever.
 	connectorNotReadyMaxAge = 15 * time.Minute
+	// connectorUnownedMaxAge is how long a persistent row that has really
+	// failed before may wait for an owner before the queue gives up on it. It
+	// is longer than connectorNotReadyMaxAge so a row partway up its retry
+	// ladder (30s to 4m between attempts) gets its retries from the owner
+	// rather than being failed by a queued drain on another node.
+	connectorUnownedMaxAge = time.Hour
 	// connectorDisabledGrace is how long a disabled instance's queued rows are
 	// kept before being dead-lettered. Toggling an instance off to edit it is
 	// routine, and losing the announcements queued in those few minutes would be
@@ -132,7 +138,10 @@ func NewConnectorDrainHandler(deps *WorkerDeps) func(ctx context.Context, job *r
 		drainCtx, cancel := context.WithTimeout(ctx, connectorDrainDeadline)
 		defer cancel()
 
-		again, after := drainInstance(drainCtx, deps, job.Args.InstanceID)
+		instanceID := job.Args.InstanceID
+		again, after := drainInstance(drainCtx, deps, instanceID, drainRun{
+			retry: func(delay time.Duration) { enqueueDrain(drainCtx, deps, instanceID, delay) },
+		})
 		if drainCtx.Err() != nil {
 			// The run was cut short — its own deadline mid-batch, or shutdown
 			// cancelling it. Whatever it did not reach is still due, so hand the
@@ -149,6 +158,24 @@ func NewConnectorDrainHandler(deps *WorkerDeps) func(ctx context.Context, job *r
 	}
 }
 
+// drainRun is what differs between the two places a drain runs.
+type drainRun struct {
+	// owned is set on the node that owns a persistent instance's connection
+	// (connector.Manager's drain loop). Without it, a persistent instance is not
+	// delivered here at all — see handOffPersistent.
+	owned bool
+	// retry schedules another pass for when the earliest failed row is due
+	// again. The queue enqueues a separate job; the owner's loop just wakes up.
+	retry func(delay time.Duration)
+	// stopped, when set, is checked before each row is claimed. The owner's
+	// loop runs on a context that ends whenever ownership or the config
+	// changes, which happens routinely; it stops between rows rather than
+	// cancelling a delivery that is already in flight (see NewOwnedDrainer).
+	stopped func() bool
+}
+
+func (r drainRun) shouldStop() bool { return r.stopped != nil && r.stopped() }
+
 // drainInstance delivers what is due for one instance. It reports whether the
 // drain should run again, and after how long: the job snoozes for that long
 // rather than ending.
@@ -159,7 +186,7 @@ func NewConnectorDrainHandler(deps *WorkerDeps) func(ctx context.Context, job *r
 // dispatch that arrives in the meantime would only find this job and be
 // collapsed into it, which is exactly right: the snoozed run will see those rows
 // too. A retry is different and is enqueued separately — see enqueueDrain.
-func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (again bool, after time.Duration) {
+func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64, run drainRun) (again bool, after time.Duration) {
 	now := time.Now()
 
 	due, err := deps.ConnectorDeliveryRepo.ListDue(ctx, instanceID, now, connectorDrainBatch)
@@ -197,6 +224,10 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (aga
 	impl, ok := deps.ConnectorRegistry.Get(inst.Kind)
 	if !ok {
 		failAll(ctx, deps, due, fmt.Sprintf("unknown connector kind %q", inst.Kind))
+		return false, 0
+	}
+	if _, persistent := impl.(connector.PersistentConnector); persistent && !run.owned {
+		handOffPersistent(ctx, deps, instanceID, due, now)
 		return false, 0
 	}
 
@@ -238,6 +269,9 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (aga
 	secretFields := impl.SecretFields()
 
 	for i := range due[:individual] {
+		if run.shouldStop() {
+			return false, 0
+		}
 		row := due[i]
 		if !claim(ctx, deps, row, now) {
 			// Another drain is already delivering this row.
@@ -257,6 +291,9 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (aga
 		}
 	}
 
+	if run.shouldStop() {
+		return false, 0
+	}
 	if claimed := claimAll(ctx, deps, toCoalesce, now); len(claimed) > 0 {
 		retryIn = minNonZero(retryIn, deliverCoalesced(ctx, deps, impl, inject, claimed, inst.Config, secretFields))
 	}
@@ -265,8 +302,8 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (aga
 	// again. It is enqueued even when a full batch is about to snooze this one:
 	// the two are separate jobs, so they cannot collide, and the retry would
 	// otherwise be lost whenever the snoozed run found only future-dated rows.
-	if retryIn > 0 {
-		enqueueDrain(ctx, deps, instanceID, retryIn)
+	if retryIn > 0 && run.retry != nil {
+		run.retry(retryIn)
 	}
 	if len(due) == connectorDrainBatch {
 		return true, 0
@@ -278,6 +315,81 @@ func drainInstance(ctx context.Context, deps *WorkerDeps, instanceID int64) (aga
 		return true, connectorDrainRecheckDelay
 	}
 	return false, 0
+}
+
+// handOffPersistent is what a queued drain does for a persistent instance: it
+// asks the owning node to drain, and fails what has waited too long.
+//
+// Only the node holding the connection can deliver, and the queue hands a job
+// to whichever node fetches it first, so delivering here would mean a lottery
+// of ErrNotReady reschedules until the job happened to land on the owner
+// (#294). The owner drains on its own loop instead (connector.Manager), and a
+// queued drain — from the dispatcher, a retry, or the maintenance sweep — is
+// only a nudge.
+//
+// The age-out is what the queue still owns. A row is only this old if no node
+// has been able to deliver it for that long — every node failing to connect,
+// or none able to take the lease — and without this the sweep would keep
+// nudging nobody forever. It matches what ErrNotReady does on the owner. Each
+// row is claimed before it is failed: an owner that has just come back may be
+// delivering that very row, and the claim is what tells the two apart.
+func handOffPersistent(ctx context.Context, deps *WorkerDeps, instanceID int64, due []model.ConnectorDelivery, now time.Time) {
+	for _, row := range due {
+		limit := connectorNotReadyMaxAge
+		if row.Attempts > 0 {
+			limit = connectorUnownedMaxAge
+		}
+		if !row.CreatedAt.IsZero() && now.Sub(row.CreatedAt) > limit && claim(ctx, deps, row, now) {
+			reason := "no node was connected to this destination within " + connectorNotReadyMaxAge.String()
+			if row.LastError != nil {
+				reason = *row.LastError
+			}
+			markFailed(ctx, deps, row, row.Attempts+1, reason)
+		}
+	}
+	if deps.OwnerDrains != nil {
+		deps.OwnerDrains.RequestDrain(instanceID)
+	}
+}
+
+// NewOwnedDrainer returns the drain the owning node runs for a persistent
+// instance, for connector.Manager to call from its drain loop.
+func NewOwnedDrainer(deps *WorkerDeps) connector.OwnedDrainer {
+	return ownedDrainer{deps: deps}
+}
+
+type ownedDrainer struct{ deps *WorkerDeps }
+
+// DrainOwned runs one pass and reports whether, and how soon, to run the next.
+//
+// The row bookkeeping runs on a context detached from ctx. ctx ends whenever
+// the manager restarts the client — an edit, a lost lease, shutdown — and an
+// IRC line already sent whose MarkSent was then cancelled would be sent again
+// by the next owner once the claim lease ran out. Detached, the pass finishes
+// the row it is on and stops before claiming the next.
+func (d ownedDrainer) DrainOwned(ctx context.Context, instanceID int64) (again bool, after time.Duration) {
+	deps := d.deps
+	if deps.ConnectorRepo == nil || deps.ConnectorDeliveryRepo == nil || deps.ConnectorRegistry == nil {
+		return false, 0
+	}
+	workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), connectorDrainDeadline)
+	defer cancel()
+
+	var retryIn time.Duration
+	again, after = drainInstance(workCtx, deps, instanceID, drainRun{
+		owned:   true,
+		retry:   func(delay time.Duration) { retryIn = minNonZero(retryIn, delay) },
+		stopped: func() bool { return ctx.Err() != nil || workCtx.Err() != nil },
+	})
+	if workCtx.Err() != nil && ctx.Err() == nil {
+		// The pass ran out of time with rows left; carry on at once, as the
+		// queued drain's snooze does.
+		return true, 0
+	}
+	if retryIn > 0 && (!again || retryIn < after) {
+		return true, retryIn
+	}
+	return again, after
 }
 
 // dispatchedSince reports whether rows newer than lastSeen became due while

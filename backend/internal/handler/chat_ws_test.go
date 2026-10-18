@@ -31,6 +31,7 @@ type wsHarness struct {
 	messages *stubChatMessageRepo
 	mutes    *stubChatMuteRepo
 	users    *stubUserRepo
+	settings *stubSiteSettingsRepo
 	bus      event.Bus
 }
 
@@ -48,7 +49,8 @@ func newWSHarness(t *testing.T, allowedOrigins []string, users ...*model.User) *
 	sessions := testutil.NewMemorySessionStore()
 
 	chatSvc := service.NewChatService(messages, mutes, userRepo, bus, nil)
-	settingsSvc := service.NewSiteSettingsService(newStubSiteSettingsRepo(), bus)
+	settingsRepo := newStubSiteSettingsRepo()
+	settingsSvc := service.NewSiteSettingsService(settingsRepo, bus)
 
 	hub := NewChatHub(chatSvc, sessions, settingsSvc, bus, allowedOrigins)
 	go hub.Run()
@@ -58,7 +60,7 @@ func newWSHarness(t *testing.T, allowedOrigins []string, users ...*model.User) *
 
 	return &wsHarness{
 		hub: hub, srv: srv, sessions: sessions,
-		messages: messages, mutes: mutes, users: userRepo, bus: bus,
+		messages: messages, mutes: mutes, users: userRepo, settings: settingsRepo, bus: bus,
 	}
 }
 

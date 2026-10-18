@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/cluster"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -169,6 +171,36 @@ type SiteSettingsService struct {
 	// now is swappable for the same reason. Nil is never stored — the
 	// constructor fills it.
 	now func() time.Time
+
+	// cluster tells the other replicas which key changed, so they evict it
+	// too. Nil on a single node. Set once by UseCluster, before serving.
+	cluster cluster.Publisher
+}
+
+// TopicSiteSettingChanged is the cluster topic Set publishes on, carrying a
+// SiteSettingChange. Anything holding a node-local copy of a setting — this
+// service's cache, the chat hub's anti-spam limits — subscribes to it.
+const TopicSiteSettingChanged = "settings.changed"
+
+// SiteSettingChange is the payload of TopicSiteSettingChanged. Only the key: a
+// subscriber re-reads the value, so a stale or reordered message cannot plant
+// an old one.
+type SiteSettingChange struct {
+	Key string `json:"key"`
+}
+
+// UseCluster connects the cache to the other replicas: a setting saved on any
+// node is evicted on every node, instead of lingering for up to
+// cachedSettingTTL (#295). After a gap in the broadcast the whole cache goes,
+// since any eviction in it may have been missed.
+func (s *SiteSettingsService) UseCluster(node cluster.Node) {
+	s.cluster = node
+	node.Subscribe(TopicSiteSettingChanged, func(payload json.RawMessage) {
+		if change, ok := cluster.Decode[SiteSettingChange](TopicSiteSettingChanged, payload); ok {
+			s.evict(change.Key)
+		}
+	})
+	node.OnResync(s.evictAll)
 }
 
 // NewSiteSettingsService creates a new SiteSettingsService.
@@ -301,6 +333,9 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 	// Evict before anything else observable happens, so a listener reacting to
 	// the event below cannot read the value this call just replaced.
 	s.evict(key)
+	if s.cluster != nil {
+		s.cluster.Publish(TopicSiteSettingChanged, SiteSettingChange{Key: key})
+	}
 
 	// Publish generic setting changed event for all consumers
 	if oldValue != value {
@@ -425,15 +460,25 @@ func (s *SiteSettingsService) cacheStore(key, value string, expiresAt time.Time,
 	s.cache[key] = cachedSetting{value: value, expiresAt: expiresAt}
 }
 
-// evict drops a cached key. Called from Set, which is the only writer inside
-// this process; another process's write is only picked up when the entry
-// expires, which is what cachedSettingTTL is for.
+// evict drops a cached key. Called from Set, and for a write on another
+// replica from the cluster broadcast (UseCluster). A write nobody announced —
+// an operator's UPDATE in psql — is only picked up when the entry expires,
+// which is what cachedSettingTTL is for.
 func (s *SiteSettingsService) evict(key string) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
 	s.cacheGen++
 	delete(s.cache, key)
+}
+
+// evictAll empties the cache; see UseCluster.
+func (s *SiteSettingsService) evictAll() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	s.cacheGen++
+	clear(s.cache)
 }
 
 // GetString returns a site setting as a string, or the fallback if not found.
