@@ -101,8 +101,8 @@ func TestAnnounce_RejectsNegativeCounters(t *testing.T) {
 }
 
 // "Could not look the peer up" must not be read as "new peer": that path
-// skips cheat detection and the connection limits' existing-peer exemption,
-// and would reset the delta baseline.
+// would put an existing peer through the new-peer limits and wait time,
+// count it again in the swarm totals, and reset its delta baseline.
 func TestAnnounce_PeerLookupErrorFailsAnnounce(t *testing.T) {
 	svc, userRepo, _, peerRepo := setupTracker()
 	peerRepo.lookupErr = errors.New("connection reset")
@@ -112,5 +112,38 @@ func TestAnnounce_PeerLookupErrorFailsAnnounce(t *testing.T) {
 	}
 	if up, _ := userTotals(userRepo); up != 0 {
 		t.Errorf("uploaded = %d after a failed lookup, want 0", up)
+	}
+}
+
+// Counters restart at zero when the client does. A lower total must credit
+// nothing rather than a negative delta, and becomes the new baseline.
+func TestAnnounce_CounterResetClampsAtZero(t *testing.T) {
+	svc, userRepo, _, _ := setupTracker()
+
+	for _, up := range []int64{5000, 100, 300} {
+		if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventEmpty, up, up)); err != nil {
+			t.Fatalf("announce: %v", err)
+		}
+	}
+
+	if up, down := userTotals(userRepo); up != 200 || down != 200 {
+		t.Errorf("credited %d/%d, want 200/200 (only the growth after the reset)", up, down)
+	}
+}
+
+// A known peer's stopped announce carries its final totals; that last
+// stretch of the session is credited like any other announce.
+func TestAnnounce_StoppedKnownPeerIsCredited(t *testing.T) {
+	svc, userRepo, _, _ := setupTracker()
+
+	if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventStarted, 0, 0)); err != nil {
+		t.Fatalf("started: %v", err)
+	}
+	if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventStopped, 4000, 1000)); err != nil {
+		t.Fatalf("stopped: %v", err)
+	}
+
+	if up, down := userTotals(userRepo); up != 4000 || down != 1000 {
+		t.Errorf("credited %d/%d, want 4000/1000", up, down)
 	}
 }

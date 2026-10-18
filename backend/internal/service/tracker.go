@@ -184,8 +184,8 @@ func (s *TrackerService) canAnnounceUnapproved(ctx context.Context, torrent *mod
 
 // Announce processes an announce request and returns the response.
 func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*AnnounceResponse, error) {
-	// Counters are byte totals; a negative one can only be forged, and it would
-	// turn into a negative stats delta further down.
+	// Counters are byte totals; a negative one can only be forged, and stored
+	// as a baseline it would inflate the next delta.
 	if req.Uploaded < 0 || req.Downloaded < 0 || req.Left < 0 {
 		return nil, ErrInvalidCounters
 	}
@@ -222,8 +222,9 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 
 	// Look up existing peer by the exact peer_id for delta calculation.
 	// A user can have multiple peers (seedbox + home PC), each with a unique peer_id.
-	// A failed lookup must not read as "new peer": that path skips cheat
-	// detection and would reset the delta baseline.
+	// A failed lookup must not read as "new peer": that path would apply the
+	// new-peer limits and wait time, count the peer again in the swarm totals,
+	// and overwrite its delta baseline.
 	existingPeer, err := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("get peer: %w", err)
@@ -261,11 +262,10 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 		}
 	}
 
-	// Calculate upload/download deltas for user stats. Only a peer the tracker
-	// already holds a baseline for is credited: the first announce of a
-	// peer_id (started or not — a reaped peer resurfaces without one) only
-	// records its counters, otherwise any client could claim arbitrary totals
-	// under a fresh peer_id.
+	// Only a peer with a stored baseline is credited. A peer_id's first
+	// announce, started or not (a reaped peer comes back without one), just
+	// records its counters; crediting them would let any client claim
+	// arbitrary totals under a fresh peer_id.
 	var uploadDelta, downloadDelta int64
 	if existingPeer != nil {
 		// Clamp at zero: counters restart when the client does.

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -32,7 +33,13 @@ func (h *AnnounceHandler) HandleAnnounce(w http.ResponseWriter, r *http.Request)
 
 	resp, err := h.tracker.Announce(r.Context(), *req)
 	if err != nil {
-		writeBencodedError(w, mapAnnounceError(err))
+		reason := mapAnnounceError(err)
+		if reason == announceInternalError {
+			// The client only sees the generic reason, and a bencoded failure
+			// is a 200 to the request logger, so this is the only record.
+			slog.Error("announce failed", "info_hash", hex.EncodeToString(req.InfoHash), "error", err)
+		}
+		writeBencodedError(w, reason)
 		return
 	}
 
@@ -165,6 +172,10 @@ func announceClientIP(r *http.Request) string {
 	return host
 }
 
+// announceInternalError is the failure reason for any error not caused by the
+// request itself.
+const announceInternalError = "internal server error"
+
 func mapAnnounceError(err error) string {
 	var waitErr *service.WaitTimeError
 	if errors.As(err, &waitErr) {
@@ -189,7 +200,7 @@ func mapAnnounceError(err error) string {
 	case errors.Is(err, service.ErrInvalidCounters):
 		return "invalid uploaded, downloaded or left"
 	default:
-		return "internal server error"
+		return announceInternalError
 	}
 }
 

@@ -295,3 +295,19 @@ func TestCategoryRepoCountTorrentsByCategory(t *testing.T) {
 		t.Errorf("count = %d for an unused category, want 0", n)
 	}
 }
+
+// The tracker tells "no such peer" from a failed query with
+// errors.Is(err, sql.ErrNoRows); the repo must keep returning exactly that,
+// or every first announce would fail as a database error.
+func TestPeerRepoGetByTorrentUserAndPeerIDMissingIsErrNoRows(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+
+	_, err := NewPeerRepo(db).GetByTorrentUserAndPeerID(context.Background(), tor.ID, u.ID, infoHash(uniq("absent")))
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("err = %v, want sql.ErrNoRows", err)
+	}
+}
