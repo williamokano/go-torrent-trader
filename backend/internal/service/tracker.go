@@ -225,11 +225,8 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// A failed lookup must not read as "new peer": that path skips cheat
 	// detection and would reset the delta baseline.
 	existingPeer, err := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("get peer: %w", err)
-		}
-		existingPeer = nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("get peer: %w", err)
 	}
 
 	// Wait time check: only for new leechers (first announce on this torrent, left > 0).
@@ -271,15 +268,9 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// under a fresh peer_id.
 	var uploadDelta, downloadDelta int64
 	if existingPeer != nil {
-		uploadDelta = req.Uploaded - existingPeer.Uploaded
-		downloadDelta = req.Downloaded - existingPeer.Downloaded
-		// Protect against negative deltas (client reset).
-		if uploadDelta < 0 {
-			uploadDelta = 0
-		}
-		if downloadDelta < 0 {
-			downloadDelta = 0
-		}
+		// Clamp at zero: counters restart when the client does.
+		uploadDelta = max(0, req.Uploaded-existingPeer.Uploaded)
+		downloadDelta = max(0, req.Downloaded-existingPeer.Downloaded)
 	}
 
 	isSeeder := req.Left == 0

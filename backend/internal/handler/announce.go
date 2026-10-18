@@ -153,14 +153,7 @@ func parseInt64Param(q url.Values, name string) (int64, error) {
 	if s == "" {
 		return 0, nil
 	}
-	v, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	if v < 0 {
-		return 0, errors.New("must not be negative")
-	}
-	return v, nil
+	return strconv.ParseInt(s, 10, 64)
 }
 
 // announceClientIP extracts the IP from the request, stripping the port.
@@ -193,6 +186,8 @@ func mapAnnounceError(err error) string {
 		return "Too many peers on this torrent"
 	case errors.Is(err, service.ErrTooManyConns):
 		return "Too many connections"
+	case errors.Is(err, service.ErrInvalidCounters):
+		return "invalid uploaded, downloaded or left"
 	default:
 		return "internal server error"
 	}
