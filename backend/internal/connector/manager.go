@@ -2,12 +2,14 @@ package connector
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/cluster"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
 )
@@ -49,7 +51,40 @@ const (
 	// lock. The window between the lock actually being lost and us noticing is
 	// the window in which two nodes could both be announcing, so it stays short.
 	defaultConfirmInterval = 10 * time.Second
+	// defaultDrainPoll is how often the owner looks for due deliveries when
+	// nothing has asked it to. It is the backstop for a lost drain request, so
+	// it bounds the delay an announcement can see when the cluster broadcast is
+	// down: one indexed query per owned instance per tick.
+	defaultDrainPoll = 5 * time.Second
+	// defaultConnectPoll is how often a drain waiting for its client to finish
+	// connecting checks again. Draining before then would only reschedule
+	// every row as not ready, 15 seconds out.
+	defaultConnectPoll = time.Second
 )
+
+// Cluster topics the manager publishes and applies.
+const (
+	// topicReconcile asks every node to re-read the connector list, so an edit
+	// takes effect everywhere at once rather than on each node's next tick.
+	topicReconcile = "connector.reconcile"
+	// topicDrain asks whichever node owns an instance to drain it.
+	topicDrain = "connector.drain"
+)
+
+// drainRequest is the payload of topicDrain.
+type drainRequest struct {
+	InstanceID int64 `json:"instance_id"`
+}
+
+// OwnedDrainer delivers a persistent instance's due rows. It runs only on the
+// node that owns the connection (#294); worker.NewOwnedDrainer implements it,
+// injected here because worker already depends on this package.
+type OwnedDrainer interface {
+	// DrainOwned runs one pass, and reports whether to run another and after
+	// how long (zero: at once). ctx ends when ownership does; a pass stops at
+	// the next row rather than abandoning one mid-delivery.
+	DrainOwned(ctx context.Context, instanceID int64) (again bool, after time.Duration)
+}
 
 // ManagerStatus is one instance's lifecycle state on this node.
 type ManagerStatus struct {
@@ -89,8 +124,22 @@ type Manager struct {
 	// the ownership watchdog without waiting ten seconds. It is only ever set
 	// before Run starts, so the supervise goroutines read it safely.
 	confirmInterval time.Duration
+	// drainPoll and connectPoll are fields for the same reason; see the
+	// defaults above.
+	drainPoll   time.Duration
+	connectPoll time.Duration
 
-	mu      sync.Mutex
+	// drainer delivers owned instances; nil disables the drain loop (a
+	// deployment without the worker, or a test of the lifecycle alone). Set
+	// once by SetDrainer, before Run.
+	drainer OwnedDrainer
+	// cluster is nil on a single node. Set once by UseCluster, before Run.
+	cluster cluster.Publisher
+
+	mu sync.Mutex
+	// drains holds the wake-up channel of each drain loop running on this
+	// node, which is exactly the set of instances this node owns.
+	drains  map[int64]chan struct{}
 	running map[int64]*managed
 	status  map[int64]ManagerStatus
 	// kinds remembers each managed instance's kind so Status can find its
@@ -127,6 +176,9 @@ func NewManager(repo repository.ConnectorRepository, registry *Registry, newLeas
 		registry:        registry,
 		newLease:        newLease,
 		confirmInterval: defaultConfirmInterval,
+		drainPoll:       defaultDrainPoll,
+		connectPoll:     defaultConnectPoll,
+		drains:          make(map[int64]chan struct{}),
 		running:         make(map[int64]*managed),
 		status:          make(map[int64]ManagerStatus),
 		kinds:           make(map[int64]string),
@@ -165,11 +217,86 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-// HandleConfigChanged asks for a reconcile. It never blocks: a pending nudge
-// already covers whatever just changed.
+// SetDrainer gives the manager what it needs to deliver the instances it owns.
+// Call it once, before Run.
+func (m *Manager) SetDrainer(d OwnedDrainer) { m.drainer = d }
+
+// UseCluster connects the manager to the other replicas. Call it once, before
+// Run.
+//
+// A gap in the broadcast may have swallowed an edit or a drain request, so a
+// resync reconciles and wakes every drain loop here.
+func (m *Manager) UseCluster(node cluster.Node) {
+	m.cluster = node
+	node.Subscribe(topicReconcile, func(json.RawMessage) { m.requestReconcile() })
+	node.Subscribe(topicDrain, func(payload json.RawMessage) {
+		if req, ok := cluster.Decode[drainRequest](topicDrain, payload); ok {
+			m.wakeDrain(req.InstanceID)
+		}
+	})
+	node.OnResync(func() {
+		m.requestReconcile()
+		m.wakeAllDrains()
+	})
+}
+
+// HandleConfigChanged asks every node for a reconcile. It never blocks: a
+// pending nudge already covers whatever just changed.
 func (m *Manager) HandleConfigChanged() {
+	m.requestReconcile()
+	if m.cluster != nil {
+		m.cluster.Publish(topicReconcile, struct{}{})
+	}
+}
+
+func (m *Manager) requestReconcile() {
 	select {
 	case m.reconcile <- struct{}{}:
+	default:
+	}
+}
+
+// RequestDrain asks whichever node owns the instance to drain it now: this
+// one, if it is the owner, and otherwise the owner when it hears the
+// broadcast. Without either, the owner's poll still gets there.
+func (m *Manager) RequestDrain(instanceID int64) {
+	if m.wakeDrain(instanceID) {
+		return
+	}
+	if m.cluster != nil {
+		m.cluster.Publish(topicDrain, drainRequest{InstanceID: instanceID})
+	}
+}
+
+// wakeDrain nudges this node's drain loop for the instance, reporting whether
+// this node owns it.
+func (m *Manager) wakeDrain(instanceID int64) bool {
+	m.mu.Lock()
+	wake, owned := m.drains[instanceID]
+	m.mu.Unlock()
+	if owned {
+		signal(wake)
+	}
+	return owned
+}
+
+func (m *Manager) wakeAllDrains() {
+	m.mu.Lock()
+	wakes := make([]chan struct{}, 0, len(m.drains))
+	for _, wake := range m.drains {
+		wakes = append(wakes, wake)
+	}
+	m.mu.Unlock()
+	for _, wake := range wakes {
+		signal(wake)
+	}
+}
+
+// signal is a non-blocking send on a depth-1 channel: one pending wake-up
+// covers any number of requests.
+func signal(wake chan struct{}) {
+	select {
+	case wake <- struct{}{}:
 	default:
 	}
 }
@@ -367,9 +494,14 @@ func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector
 	// the moment this function returns. Leaving it running would be a data race
 	// on every path where Start returns for its own reasons.
 	watchdogDone := make(chan struct{})
+	// The drain loop is joined for a stronger reason: the lease is what makes
+	// this node the only one delivering, so no delivery may still be running
+	// once it is released.
+	drainDone := m.startDrainLoop(runCtx, inst.ID, impl)
 	defer func() {
 		cancel()
 		<-watchdogDone
+		<-drainDone
 	}()
 
 	// lostOwnership records why the client was stopped, so the admin sees
@@ -431,6 +563,96 @@ func (m *Manager) runOwned(ctx context.Context, inst model.NotificationConnector
 		m.setStatus(inst.ID, generation, StateError, RedactError(err, inst.Config, impl.SecretFields()))
 	default:
 		m.setStatus(inst.ID, generation, StateStopped, "")
+	}
+}
+
+// startDrainLoop runs the owner's drain loop for an instance until ctx ends,
+// returning a channel closed when it has. Without a drainer the returned
+// channel is already closed.
+func (m *Manager) startDrainLoop(ctx context.Context, instanceID int64, impl Connector) <-chan struct{} {
+	done := make(chan struct{})
+	if m.drainer == nil {
+		close(done)
+		return done
+	}
+
+	wake := make(chan struct{}, 1)
+	m.mu.Lock()
+	m.drains[instanceID] = wake
+	m.mu.Unlock()
+
+	reporter, _ := impl.(connectionReporter)
+	go func() {
+		defer close(done)
+		defer func() {
+			m.mu.Lock()
+			if m.drains[instanceID] == wake {
+				delete(m.drains, instanceID)
+			}
+			m.mu.Unlock()
+		}()
+		m.drainLoop(ctx, instanceID, reporter, wake)
+	}()
+	return done
+}
+
+// drainLoop delivers an owned instance's rows: at once on taking ownership
+// (whatever queued up while nobody owned it), then whenever asked, when a
+// retry or rate window comes due, and on a poll as the backstop.
+//
+// It waits for the client to be connected before each pass, because a pass
+// against a client still registering only reschedules every row 15 seconds
+// out — the very delay this loop exists to remove.
+func (m *Manager) drainLoop(ctx context.Context, instanceID int64, reporter connectionReporter, wake <-chan struct{}) {
+	wait := time.Duration(0)
+	for {
+		if !waitOrWake(ctx, wait, wake) {
+			return
+		}
+		if reporter != nil && !reporter.Connected(instanceID) {
+			wait = m.connectPoll
+			continue
+		}
+		again, after := m.safeDrain(ctx, instanceID)
+		if ctx.Err() != nil {
+			return
+		}
+		if again {
+			wait = after
+		} else {
+			wait = m.drainPoll
+		}
+	}
+}
+
+// safeDrain runs one pass, so a panic in the delivery path costs that pass and
+// not the loop: a dead loop on a live owner would hold the lease and deliver
+// nothing, with nothing else able to take over.
+func (m *Manager) safeDrain(ctx context.Context, instanceID int64) (again bool, after time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("connector manager: drain panicked", "instance_id", instanceID, "panic", r)
+			again, after = false, 0
+		}
+	}()
+	return m.drainer.DrainOwned(ctx, instanceID)
+}
+
+// waitOrWake waits for d (returning at once for zero) or a wake-up, reporting
+// false if ctx ended first.
+func waitOrWake(ctx context.Context, d time.Duration, wake <-chan struct{}) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-wake:
+		return true
+	case <-timer.C:
+		return true
 	}
 }
 

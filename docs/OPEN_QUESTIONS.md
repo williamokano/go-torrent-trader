@@ -95,7 +95,9 @@ which a tracker with bans and quick-ban tooling actually needs.
 
 ### 8. Real-time Communication
 
-**Decision:** WebSocket — used for chat (shoutbox), real-time private messages, and future notifications. gorilla/websocket with write pump pattern (single writer goroutine per client).
+**Decision:** WebSocket — used for chat (shoutbox), real-time private messages, and future notifications. gorilla/websocket with write pump pattern (single writer goroutine per client). The live feeds use server-sent events (`AnnounceHub`).
+
+**Across replicas** (#295): each hub holds only the connections to its own process, so what one node sends or closes is relayed to the others over PostgreSQL `LISTEN/NOTIFY` (`internal/cluster`; see ARCHITECTURE.md). Chosen over relaying event-bus events between nodes, because the bus also drives listeners with side effects — emails, database writes — that must run exactly once; and over a dedicated broker, because Redis was removed (#286) and nothing here needs more than best-effort fan-out of state the database already holds.
 
 ### 9. API Documentation
 
@@ -207,6 +209,8 @@ consequence. Scheduling stays UTC because it has one.
 ### 18. Container Orchestration (Production)
 
 **Decision:** Docker Compose + Portainer — `docker-compose.stack.yml` for single-node deployment. Kubernetes deferred until scaling demands it.
+
+Running more than one backend replica is supported (#294, #295): jobs and the periodic schedule are coordinated by River, persistent connectors by an advisory lock and owner-side draining, and node-local state by the cluster broadcast. The requirements it puts on the deployment — direct or session-mode database connections, shared storage for uploads and backups, upgrading every replica together — are listed in ARCHITECTURE.md and on the install page.
 
 ### 19. CI/CD Platform
 

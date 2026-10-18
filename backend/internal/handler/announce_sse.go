@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/cluster"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/sse"
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -56,16 +58,38 @@ func (c *sseClient) close() {
 	c.closeOnce.Do(func() { close(c.send) })
 }
 
+// Cluster topics the live feed hub publishes and applies, so a delivery or a
+// disconnect made on one node reaches the browsers connected to the others.
+const (
+	topicFeedBroadcast     = "feed.broadcast"
+	topicFeedDisconnect    = "feed.disconnect"
+	topicFeedDisconnectAll = "feed.disconnect_all"
+)
+
+// feedBroadcast is the payload of topicFeedBroadcast.
+type feedBroadcast struct {
+	Feed    string          `json:"feed"`
+	ID      string          `json:"id"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+// feedUser is the payload of topicFeedDisconnect.
+type feedUser struct {
+	UserID int64 `json:"user_id"`
+}
+
 // AnnounceHub fans announcements out to browsers over server-sent events.
 //
-// It is modelled directly on ChatHub, and shares its limitation: fan-out only
-// reaches clients connected to the node that ran the delivery. With the
-// single-process default that is every client. A multi-node deployment would
-// need pub/sub between the hubs (PostgreSQL LISTEN/NOTIFY, now that Redis is
-// gone) — deliberately not built yet.
+// It is modelled directly on ChatHub, and like it holds only the clients
+// connected to this process. A delivery runs on one node, so Broadcast and the
+// disconnects are published through cluster for the other replicas to repeat
+// on theirs (#295).
 type AnnounceHub struct {
 	sessionStore service.SessionStore
 	access       FeedAccess
+
+	// cluster is nil on a single node. Set once by UseCluster, before serving.
+	cluster cluster.Publisher
 
 	// clients is keyed by feed slug. A frame produced by one feed must never
 	// reach another's watchers: the whole point of several feeds is that each
@@ -74,8 +98,10 @@ type AnnounceHub struct {
 	broadcast chan feedFrame
 	mu        sync.RWMutex
 
-	// heartbeat is a field so tests need not wait twenty-five seconds.
-	heartbeat time.Duration
+	// heartbeat is a field so tests need not wait twenty-five seconds, and
+	// resyncSpread for the same reason.
+	heartbeat    time.Duration
+	resyncSpread time.Duration
 }
 
 // feedFrame is one rendered SSE frame together with the feed it belongs to.
@@ -97,6 +123,46 @@ func NewAnnounceHub(sessionStore service.SessionStore, access FeedAccess) *Annou
 		clients:      make(map[string]map[*sseClient]struct{}),
 		broadcast:    make(chan feedFrame, 256),
 		heartbeat:    sseHeartbeat,
+		resyncSpread: resyncSpread,
+	}
+}
+
+// UseCluster connects the hub to the other replicas. Call it once, before
+// serving.
+//
+// After the cluster listener reconnects, every stream here is closed, spread
+// over a few seconds. A disconnect missed in the gap may have been a ban or a
+// feed rename, and reconnecting is what re-checks both.
+func (h *AnnounceHub) UseCluster(node cluster.Node) {
+	h.cluster = node
+	node.Subscribe(topicFeedBroadcast, func(payload json.RawMessage) {
+		if msg, ok := cluster.Decode[feedBroadcast](topicFeedBroadcast, payload); ok {
+			h.broadcastLocal(msg.Feed, msg.ID, msg.Payload)
+		}
+	})
+	node.Subscribe(topicFeedDisconnect, func(payload json.RawMessage) {
+		if msg, ok := cluster.Decode[feedUser](topicFeedDisconnect, payload); ok {
+			if dropped := h.disconnectUserLocal(msg.UserID); dropped > 0 {
+				slog.Info("live feed: closed streams on another node's request",
+					"user_id", msg.UserID, "streams", dropped)
+			}
+		}
+	})
+	node.Subscribe(topicFeedDisconnectAll, func(json.RawMessage) {
+		if dropped := h.disconnectAllLocal(0); dropped > 0 {
+			slog.Info("live feed: closed every stream on another node's request", "streams", dropped)
+		}
+	})
+	node.OnResync(func() {
+		if dropped := h.disconnectAllLocal(h.resyncSpread); dropped > 0 {
+			slog.Info("live feed: closing every stream to resync after a cluster gap", "streams", dropped)
+		}
+	})
+}
+
+func (h *AnnounceHub) publish(topic string, v any) {
+	if h.cluster != nil {
+		h.cluster.Publish(topic, v)
 	}
 }
 
@@ -176,12 +242,17 @@ func (h *AnnounceHub) remove(client *sseClient) {
 	}
 }
 
-// Broadcast queues an announcement for every connected client.
+// Broadcast queues an announcement for every connected client, on every node.
 //
 // The id becomes the SSE event id, so each frame says which announcement it is.
 // The send is non-blocking: this runs on a worker goroutine holding one of ten
 // worker slots, and a stalled hub must not be able to park it.
 func (h *AnnounceHub) Broadcast(feed, id string, payload []byte) {
+	h.broadcastLocal(feed, id, payload)
+	h.publish(topicFeedBroadcast, feedBroadcast{Feed: feed, ID: id, Payload: payload})
+}
+
+func (h *AnnounceHub) broadcastLocal(feed, id string, payload []byte) {
 	queued := feedFrame{feed: feed, frame: sseFrame("announcement", id, payload)}
 	select {
 	case h.broadcast <- queued:
@@ -209,12 +280,19 @@ func (h *AnnounceHub) mayWatch(ctx context.Context, userID int64) bool {
 	return allowed
 }
 
-// DisconnectUser closes every stream a member has open.
+// DisconnectUser closes every stream a member has open, on every node, and
+// reports how many it closed on this one.
 //
 // Called when their feed access is revoked: an open stream would otherwise keep
 // delivering announcements to someone who has just been told they cannot watch,
 // for as long as they leave the tab open.
 func (h *AnnounceHub) DisconnectUser(userID int64) int {
+	dropped := h.disconnectUserLocal(userID)
+	h.publish(topicFeedDisconnect, feedUser{UserID: userID})
+	return dropped
+}
+
+func (h *AnnounceHub) disconnectUserLocal(userID int64) int {
 	h.mu.Lock()
 	var dropped []*sseClient
 	for feed, clients := range h.clients {
@@ -313,11 +391,20 @@ func (h *AnnounceHub) WatchConfigChanges(bus event.Bus) {
 	})
 }
 
-// DisconnectAll closes every stream and reports how many were closed.
+// DisconnectAll closes every stream on every node, and reports how many it
+// closed on this one.
 //
 // Exported because a class losing the feeds has to end the streams its members
 // already have open, and the admin group handler is where that is known.
 func (h *AnnounceHub) DisconnectAll() int {
+	dropped := h.disconnectAllLocal(0)
+	h.publish(topicFeedDisconnectAll, struct{}{})
+	return dropped
+}
+
+// disconnectAllLocal closes every stream on this node, each at a random moment
+// within spread (at once for zero).
+func (h *AnnounceHub) disconnectAllLocal(spread time.Duration) int {
 	h.mu.Lock()
 	clients := make([]*sseClient, 0, len(h.clients))
 	for _, feed := range h.clients {
@@ -331,7 +418,7 @@ func (h *AnnounceHub) DisconnectAll() int {
 	// Closed outside the lock: close() is idempotent, and holding the write lock
 	// while waking every handler goroutine would stall registration.
 	for _, client := range clients {
-		client.close()
+		closeWithin(spread, client.close)
 	}
 	return len(clients)
 }

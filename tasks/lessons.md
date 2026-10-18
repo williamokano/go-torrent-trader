@@ -416,3 +416,23 @@ every caller that turns "not found" into a client-visible verdict — 401, delet
 logout — must handle the error case as a third outcome. Check what the client does
 with each status before choosing it: the frontend's reaction to 401 is what made
 this a mass logout rather than a failed request.
+
+## Anything held in one process's memory is wrong on every other replica
+
+Removing Redis left the question "does this still work with two backends?", and the
+answer was mostly no — not because of Redis, which never carried any of it, but
+because a lot of state lived in a single process and was changed only by that
+process's own event bus: the chat and live-feed connections, the closes a ban
+triggers, the chat flood limits, the settings cache, the connector manager's
+reconcile. Each was correct on the node where the change happened and quietly stale
+everywhere else. IRC was worse: its deliveries were drained by whichever node the
+job queue picked, and only one node holds the connection, so delivery became a
+lottery of "not ready" retries (#294, #295).
+
+**Rule:** when you add state that lives in memory — a hub, a cache, a copy of a
+setting — decide how the other replicas learn about changes to it, and subscribe it
+to `internal/cluster` (apply locally, publish, apply remote messages through a
+local-only path that never republishes, rebuild on `OnResync`). Work that only one
+node can do goes to that node; don't let a queue hand it to whoever is free and hope.
+And a component reached only through the event bus is node-local by construction:
+the bus never leaves the process.

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/williamokano/go-torrent-trader/backend/internal/cluster"
 	"github.com/williamokano/go-torrent-trader/backend/internal/config"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector"
 	"github.com/williamokano/go-torrent-trader/backend/internal/connector/chat"
@@ -166,6 +167,13 @@ func run() int {
 	siteSettingsRepo := postgres.NewSiteSettingsRepo(db)
 	siteSettingsService := service.NewSiteSettingsService(siteSettingsRepo, eventBus)
 
+	// What one replica changes in its own memory — a chat line for its
+	// browsers, a closed stream, a cached setting — is broadcast to the others
+	// over LISTEN/NOTIFY (#295). Components subscribe as they are built; the
+	// bus starts once they all have, further down.
+	clusterBus := cluster.New(db, cfg.Database.URL)
+	siteSettingsService.UseCluster(clusterBus)
+
 	// Wire site settings + invite service into auth service for registration mode checks
 	authService.SetSiteSettings(siteSettingsService)
 	authService.SetInviteService(inviteService)
@@ -285,6 +293,7 @@ func run() int {
 	}
 
 	chatHub := handler.NewChatHub(chatService, sessionStore, siteSettingsService, eventBus, []string{cfg.Site.BaseURL})
+	chatHub.UseCluster(clusterBus)
 	go chatHub.Run()
 	chatHub.WatchBans(eventBus)
 
@@ -310,6 +319,7 @@ func run() int {
 
 	feedAccess := service.NewFeedAccessService(userRepo, groupRepo)
 	announceHub := handler.NewAnnounceHub(sessionStore, feedAccess)
+	announceHub.UseCluster(clusterBus)
 	go announceHub.Run()
 	announceHub.WatchConfigChanges(eventBus)
 	announceHub.WatchRestrictions(eventBus)
@@ -332,6 +342,7 @@ func run() int {
 	// acquires instantly and never notices there was an election.
 	connectorManager := connector.NewManager(connectorRepo, connectorRegistry,
 		func(instanceID int64) connector.Lease { return leader.NewLease(db, instanceID) })
+	connectorManager.UseCluster(clusterBus)
 	eventBus.Subscribe(event.ConnectorConfigChanged, func(_ context.Context, _ event.Event) error {
 		connectorManager.HandleConfigChanged()
 		return nil
@@ -341,7 +352,6 @@ func run() int {
 	// below also calls it explicitly so ordering against the database pool is
 	// obvious rather than implied by defer order.
 	defer stopConnectors()
-	go connectorManager.Run(connectorCtx)
 
 	// Wire PM notification listener — pushes real-time unread count via WebSocket.
 	listener.RegisterPMNotificationListener(eventBus, messageRepo, chatHub.SendToUser)
@@ -454,6 +464,9 @@ func run() int {
 		ConnectorRepo:         connectorRepo,
 		ConnectorDeliveryRepo: connectorDeliveryRepo,
 		ConnectorEnqueuer:     connectorEnqueuer,
+		// Only the node owning a persistent connection (IRC) can deliver to it,
+		// so a queued drain for one is handed to the owner's own loop (#294).
+		OwnerDrains: connectorManager,
 		// A func, not a value: unlike NotificationRetention (env-only), this is an
 		// admin-editable site setting, so reading it once at boot would make an
 		// edit appear to work and silently do nothing until the next restart.
@@ -461,6 +474,27 @@ func run() int {
 			return connectorDeliveryRetention(siteSettingsService)
 		},
 	}
+
+	// The manager delivers the persistent instances it owns itself, so it needs
+	// the worker's drain before it starts.
+	connectorManager.SetDrainer(worker.NewOwnedDrainer(workerDeps))
+	go connectorManager.Run(connectorCtx)
+
+	// Every subscriber is registered by now. The shutdown branch stops it after
+	// the connector manager, whose config changes and drain requests it carries;
+	// the defer is the safety net for the error exits. Either way it stops
+	// before the database pool closes, since its sender publishes through it.
+	clusterCtx, cancelCluster := context.WithCancel(context.Background())
+	clusterDone := make(chan struct{})
+	go func() {
+		defer close(clusterDone)
+		clusterBus.Run(clusterCtx)
+	}()
+	stopCluster := func() {
+		cancelCluster()
+		<-clusterDone
+	}
+	defer stopCluster()
 
 	// Scheduled backups are opt-in, and need the backup service to exist.
 	backupCron := ""
@@ -553,6 +587,7 @@ func run() int {
 		case <-time.After(15 * time.Second):
 			slog.Warn("connector manager did not stop in time; locks will be released by session end")
 		}
+		stopCluster()
 	}
 
 	slog.Info("server stopped")

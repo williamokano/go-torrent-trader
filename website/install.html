@@ -399,12 +399,51 @@ tracker.example.com {
       <section>
         <div class="wrap">
           <p class="eyebrow">Keeping it running</p>
+          <h2>Running more than one backend</h2>
+          <p>
+            One backend is enough for most sites, and needs nothing on this
+            page. You can run several behind a load balancer: background jobs,
+            the IRC connection and everything each backend keeps in memory
+            (chat, live feeds, cached settings) are coordinated through
+            PostgreSQL, so a chat message or a ban reaches members on every
+            backend, and IRC announcements go out from whichever backend holds
+            the connection.
+          </p>
+          <ul>
+            <li>
+              Connect every backend to PostgreSQL directly, or through a pooler
+              in session mode. Transaction pooling (PgBouncer's default for many
+              setups) breaks the notifications they use to stay in step, without
+              an error.
+            </li>
+            <li>
+              Each backend opens <code>DB_MAX_OPEN_CONNS</code> plus
+              <code>DB_JOB_POOL_MAX_CONNS</code> plus one connection, and one more
+              for each IRC connection it holds. Size PostgreSQL's
+              <code>max_connections</code> for all of them.
+            </li>
+            <li>
+              Uploads and backups must be on storage every backend can reach: S3,
+              or the same shared volume mounted on each.
+            </li>
+            <li>
+              Don't let roles you wouldn't trust with the site itself connect to
+              its database. Any role that can connect can send the notifications
+              the backends trust, including chat lines.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <p class="eyebrow">Keeping it running</p>
           <h2>Upgrading</h2>
           <p>
             Pull the new images and bring the stack up again; migrations run on
             start. If you run more than one backend, stop all of the old ones
             before starting a new one, so two versions never run scheduled jobs
-            side by side.
+            or hand each other IRC deliveries side by side.
           </p>
           <p>
             Upgrading from a release that still used Redis: sessions now live in

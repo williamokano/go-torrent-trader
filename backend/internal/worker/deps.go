@@ -73,6 +73,10 @@ type WorkerDeps struct {
 	// the maintenance sweep re-enqueue stranded work. (A full batch and a spent
 	// rate window snooze the running job instead.)
 	ConnectorEnqueuer ConnectorDrainEnqueuer
+	// OwnerDrains hands a persistent instance's drain to the node that owns its
+	// connection (connector.Manager), because no other node can deliver it
+	// (#294). Nil leaves persistent rows to be aged out and never delivered.
+	OwnerDrains OwnerDrainRequester
 	// ConnectorDeliveryRetention returns how long delivery-log rows are kept.
 	// It is a func, not a value, because the retention is an admin-editable site
 	// setting: reading it once at boot would make an edit appear to work and
@@ -84,6 +88,13 @@ type WorkerDeps struct {
 // SessionPurger is the part of the session store the maintenance job uses.
 type SessionPurger interface {
 	PurgeExpired(ctx context.Context) (int64, error)
+}
+
+// OwnerDrainRequester asks whichever node owns a persistent connector instance
+// to drain it. It never blocks and cannot fail: the owner also polls, so a
+// request that goes nowhere only costs latency.
+type OwnerDrainRequester interface {
+	RequestDrain(instanceID int64)
 }
 
 // ConnectorDrainEnqueuer queues connector drain jobs.
