@@ -26,6 +26,7 @@ var (
 	ErrDownloadSuspended  = errors.New("download privilege suspended")
 	ErrTooManyPeers       = errors.New("too many peers on this torrent")
 	ErrTooManyConns       = errors.New("too many connections")
+	ErrInvalidCounters    = errors.New("uploaded, downloaded and left must not be negative")
 )
 
 // WaitTimeError is returned when a user must wait before downloading a new torrent.
@@ -183,6 +184,12 @@ func (s *TrackerService) canAnnounceUnapproved(ctx context.Context, torrent *mod
 
 // Announce processes an announce request and returns the response.
 func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*AnnounceResponse, error) {
+	// Counters are byte totals; a negative one can only be forged, and it would
+	// turn into a negative stats delta further down.
+	if req.Uploaded < 0 || req.Downloaded < 0 || req.Left < 0 {
+		return nil, ErrInvalidCounters
+	}
+
 	// Validate passkey and get user.
 	user, err := s.users.GetByPasskey(ctx, req.Passkey)
 	if err != nil {
@@ -215,7 +222,15 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 
 	// Look up existing peer by the exact peer_id for delta calculation.
 	// A user can have multiple peers (seedbox + home PC), each with a unique peer_id.
-	existingPeer, _ := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
+	// A failed lookup must not read as "new peer": that path skips cheat
+	// detection and would reset the delta baseline.
+	existingPeer, err := s.peers.GetByTorrentUserAndPeerID(ctx, torrent.ID, user.ID, req.PeerID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("get peer: %w", err)
+		}
+		existingPeer = nil
+	}
 
 	// Wait time check: only for new leechers (first announce on this torrent, left > 0).
 	if existingPeer == nil && req.Left > 0 {
@@ -249,7 +264,11 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 		}
 	}
 
-	// Calculate upload/download deltas for user stats.
+	// Calculate upload/download deltas for user stats. Only a peer the tracker
+	// already holds a baseline for is credited: the first announce of a
+	// peer_id (started or not — a reaped peer resurfaces without one) only
+	// records its counters, otherwise any client could claim arbitrary totals
+	// under a fresh peer_id.
 	var uploadDelta, downloadDelta int64
 	if existingPeer != nil {
 		uploadDelta = req.Uploaded - existingPeer.Uploaded
@@ -261,10 +280,6 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 		if downloadDelta < 0 {
 			downloadDelta = 0
 		}
-	} else if req.Event != EventStarted {
-		// First time seeing this peer without a started event; use reported values.
-		uploadDelta = req.Uploaded
-		downloadDelta = req.Downloaded
 	}
 
 	isSeeder := req.Left == 0

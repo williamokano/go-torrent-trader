@@ -153,7 +153,14 @@ func parseInt64Param(q url.Values, name string) (int64, error) {
 	if s == "" {
 		return 0, nil
 	}
-	return strconv.ParseInt(s, 10, 64)
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 {
+		return 0, errors.New("must not be negative")
+	}
+	return v, nil
 }
 
 // announceClientIP extracts the IP from the request, stripping the port.

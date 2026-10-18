@@ -110,3 +110,39 @@ func TestFormatWaitTimeMessage(t *testing.T) {
 		}
 	}
 }
+
+// Byte counters are totals and can never be negative; a negative one is a
+// forged request and must be refused at the parse, before it reaches stats.
+func TestParseInt64Param(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    int64
+		wantErr bool
+	}{
+		{value: "", want: 0},
+		{value: "0", want: 0},
+		{value: "1048576", want: 1048576},
+		{value: "-1", wantErr: true},
+		{value: "-9223372036854775808", wantErr: true},
+		{value: "abc", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.value, func(t *testing.T) {
+			q := url.Values{}
+			if tc.value != "" {
+				q.Set("uploaded", tc.value)
+			}
+			got, err := parseInt64Param(q, "uploaded")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("got %d, want an error", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("got (%d, %v), want (%d, nil)", got, err, tc.want)
+			}
+		})
+	}
+}
