@@ -33,8 +33,19 @@ func TestAnnounce_FreeleechAccounting(t *testing.T) {
 			torrentRepo.torrents[0].Silver = tc.silver
 			torrentRepo.mu.Unlock()
 
-			// A first-time peer with an empty event takes the reported totals as
-			// the delta, giving a known download to account.
+			// A started announce at zero sets the baseline; the next announce's
+			// totals are then the delta, giving a known download to account.
+			if _, err := svc.Announce(context.Background(), AnnounceRequest{
+				Passkey:  testPasskey(),
+				InfoHash: testInfoHash(),
+				PeerID:   testPeerID(),
+				IP:       "192.168.1.1",
+				Port:     6881,
+				Left:     1,
+				Event:    EventStarted,
+			}); err != nil {
+				t.Fatalf("started announce: %v", err)
+			}
 			if _, err := svc.Announce(context.Background(), AnnounceRequest{
 				Passkey:    testPasskey(),
 				InfoHash:   testInfoHash(),

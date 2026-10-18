@@ -192,6 +192,9 @@ func (m *trackerMockTorrentRepo) ListByUploader(_ context.Context, _ int64, _ in
 type trackerMockPeerRepo struct {
 	mu    sync.Mutex
 	peers []*model.Peer
+	// lookupErr, when set, is returned by GetByTorrentUserAndPeerID in place
+	// of a result — a failed query rather than "no such peer".
+	lookupErr error
 }
 
 func newTrackerMockPeerRepo() *trackerMockPeerRepo {
@@ -212,6 +215,9 @@ func (m *trackerMockPeerRepo) GetByTorrentAndUser(_ context.Context, torrentID, 
 func (m *trackerMockPeerRepo) GetByTorrentUserAndPeerID(_ context.Context, torrentID, userID int64, peerID []byte) (*model.Peer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.lookupErr != nil {
+		return nil, m.lookupErr
+	}
 	for _, p := range m.peers {
 		if p.TorrentID == torrentID && p.UserID == userID && bytesEqual(p.PeerID, peerID) {
 			return p, nil

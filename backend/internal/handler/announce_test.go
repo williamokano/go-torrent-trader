@@ -387,6 +387,26 @@ func TestAnnounce_InvalidEvent(t *testing.T) {
 	}
 }
 
+// A negative counter is a forged request; the client is told so rather than
+// handed a generic server error.
+func TestAnnounce_NegativeCounterRejected(t *testing.T) {
+	router := setupAnnounceRouter()
+
+	target := buildAnnounceURL(announcePasskey(), announceInfoHash(), announcePeerID(), 6881, 0, -1, 1000, "")
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	var resp announceErrorResponse
+	if err := bencode.DecodeBytes(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode error: %v", err)
+	}
+	if resp.FailureReason != "invalid uploaded, downloaded or left" {
+		t.Errorf("expected the invalid-counters reason, got %q", resp.FailureReason)
+	}
+}
+
 func TestAnnounce_StoppedEvent(t *testing.T) {
 	router := setupAnnounceRouter()
 

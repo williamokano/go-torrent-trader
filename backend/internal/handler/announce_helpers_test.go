@@ -70,6 +70,7 @@ func TestMapAnnounceError(t *testing.T) {
 		{service.ErrUserDisabled, "account is disabled"},
 		{service.ErrTooManyPeers, "Too many peers on this torrent"},
 		{service.ErrTooManyConns, "Too many connections"},
+		{service.ErrInvalidCounters, "invalid uploaded, downloaded or left"},
 		{errors.New("something unexpected"), "internal server error"},
 	}
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +28,7 @@ func (s *stubPeerRepo) GetByTorrentAndUser(_ context.Context, _, _ int64) (*mode
 	return nil, errors.New("no peer")
 }
 func (s *stubPeerRepo) GetByTorrentUserAndPeerID(_ context.Context, _, _ int64, _ []byte) (*model.Peer, error) {
-	return nil, errors.New("no peer")
+	return nil, sql.ErrNoRows // what the real repo returns for a missing peer
 }
 func (s *stubPeerRepo) ListByTorrent(_ context.Context, _ int64, _ int) ([]model.Peer, error) {
 	return s.peers, s.listErr
