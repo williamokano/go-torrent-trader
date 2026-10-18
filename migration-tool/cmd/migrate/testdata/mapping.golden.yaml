@@ -987,6 +987,7 @@ tables:
                 action: custom
         # Target columns filled from something other than a single legacy column.
         derived:
+            awaiting_confirmation: true for a legacy status of pending, so the member can ask for a confirmation email and finish signing up; false otherwise
             bonus_points: 0 — TorrentTrader 3.0 has no bonus economy
             can_chat: true — no legacy per-member equivalent
             can_download: true — see can_upload

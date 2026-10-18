@@ -187,7 +187,7 @@ func (s *WarningService) IssueHnRBan(ctx context.Context, userID int64, reason s
 
 	s.sendSystemPM(ctx, userID, "Account Disabled - Hit-and-Run", reason)
 
-	user.Enabled = false
+	user.Disable()
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("disable user: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int
 	// Send PM with ban reason BEFORE disabling the account
 	s.sendSystemPM(ctx, w.UserID, "Account Disabled - Ratio Ban", banMessage)
 
-	user.Enabled = false
+	user.Disable()
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("disable user: %w", err)
 	}

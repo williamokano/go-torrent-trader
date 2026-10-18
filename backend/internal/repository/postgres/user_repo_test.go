@@ -1030,3 +1030,73 @@ func TestGroupRepoRoundTripsCanFeed(t *testing.T) {
 		t.Fatalf("update disturbed another column: %+v", after)
 	}
 }
+
+// Rows that exist when migration 096 lands, and any insert that does not name
+// the column, are not awaiting confirmation: only a registration that asks
+// for it may become confirmable.
+func TestSchemaDefaultsAwaitingConfirmationToFalse(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	var userID int64
+	err := db.QueryRowContext(ctx,
+		`INSERT INTO users (username, email, password_hash, group_id, enabled)
+		 VALUES ($1, $2, 'hash', $3, false) RETURNING id`,
+		uniq("legacy"), uniq("legacy")+"@example.test", anyGroupID(t, db),
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("raw insert: %v", err)
+	}
+
+	u, err := NewUserRepo(db).GetByID(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if u.AwaitingConfirmation {
+		t.Fatal("a disabled row created without the flag must not be confirmable")
+	}
+}
+
+// Create and Update both write the column; a struct-writing insert that left
+// it out would make every registration unconfirmable.
+func TestUserRepoRoundTripsAwaitingConfirmation(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+
+	u := &model.User{
+		Username:             uniq("pending"),
+		Email:                uniq("pending") + "@example.test",
+		PasswordHash:         "hash",
+		PasswordScheme:       "argon2id",
+		GroupID:              anyGroupID(t, db),
+		AwaitingConfirmation: true,
+	}
+	if err := repo.Create(ctx, u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if !stored.AwaitingConfirmation || stored.Enabled {
+		t.Fatalf("awaiting=%v enabled=%v, want true/false after Create", stored.AwaitingConfirmation, stored.Enabled)
+	}
+
+	stored.Disable()
+	if err := repo.Update(ctx, stored); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	after, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update: %v", err)
+	}
+	if after.AwaitingConfirmation {
+		t.Fatal("Update did not persist the cleared flag")
+	}
+	if after.Username != stored.Username || after.GroupID != stored.GroupID {
+		t.Fatalf("update disturbed another column: %+v", after)
+	}
+}

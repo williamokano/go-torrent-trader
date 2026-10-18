@@ -315,12 +315,14 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		Passkey:        &passkey,
 		GroupID:        groupID,
 		Enabled:        !needsConfirmation,
-		IP:             &ip,
-		CanDownload:    true,
-		CanUpload:      true,
-		CanChat:        true,
-		CanForum:       true,
-		CanInvite:      true,
+		// Only this flag makes the disabled account confirmable later.
+		AwaitingConfirmation: needsConfirmation,
+		IP:                   &ip,
+		CanDownload:          true,
+		CanUpload:            true,
+		CanChat:              true,
+		CanForum:             true,
+		CanInvite:            true,
 		// Set here as well as defaulted in the schema: Create writes the struct,
 		// so a field left zero inserts false and the column default never
 		// applies. A new member would silently have no live feeds.
@@ -438,13 +440,10 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	}
 
 	if !user.Enabled {
-		// Password is correct but account is disabled. Check if this is a pending
-		// email confirmation (vs admin-disabled account).
-		if s.emailConfirmations != nil {
-			latest, ecErr := s.emailConfirmations.GetLatestByUserID(ctx, user.ID)
-			if ecErr == nil && latest != nil && latest.ConfirmedAt == nil {
-				return nil, nil, ErrEmailNotConfirmed
-			}
+		// Password is correct but the account is off: either still waiting for
+		// its email confirmation, or disabled by staff.
+		if user.AwaitingConfirmation {
+			return nil, nil, ErrEmailNotConfirmed
 		}
 		return nil, nil, ErrInvalidCredentials
 	}
@@ -719,9 +718,8 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 }
 
 // ConfirmEmail validates a confirmation token and enables the user account.
-// NOTE: If an admin disables a user during the confirmation window, confirming
-// the token will re-enable them. Admins should delete pending confirmation
-// tokens when manually disabling a user, or re-disable after the user confirms.
+// Only an account still awaiting confirmation is enabled: a disable clears
+// that state, so a token cannot re-enable a banned account.
 func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
 	if token == "" {
 		return ErrInvalidConfirmToken
@@ -746,12 +744,16 @@ func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
 		return ErrInvalidConfirmToken
 	}
 
-	if user.Enabled {
-		// Already confirmed, idempotent success
-		return nil
+	if !user.AwaitingConfirmation {
+		if user.Enabled {
+			// Already confirmed, idempotent success
+			return nil
+		}
+		return ErrInvalidConfirmToken
 	}
 
 	user.Enabled = true
+	user.AwaitingConfirmation = false
 	// Confirming email is activation for the confirmation-required flow: it
 	// proves control of the account even before any authenticated request is
 	// made. See ActivatedAt on model.User and BE-8.19.
@@ -783,9 +785,10 @@ func (s *AuthService) ResendConfirmation(ctx context.Context, req ResendConfirma
 		return nil
 	}
 
-	if user.Enabled {
-		// Already confirmed — return success to prevent account status enumeration.
-		slog.Info("resend confirmation skipped: account already confirmed", "user_id", user.ID)
+	if !user.AwaitingConfirmation {
+		// Confirmed, or disabled by staff — the same silent success either way,
+		// so the response reveals nothing about the account's state.
+		slog.Info("resend confirmation skipped: account not awaiting confirmation", "user_id", user.ID)
 		return nil
 	}
 

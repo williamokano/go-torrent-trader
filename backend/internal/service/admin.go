@@ -493,7 +493,14 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	}
 	if req.Enabled != nil {
 		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
-		user.Enabled = *req.Enabled
+		if *req.Enabled {
+			// Staff enabling an unconfirmed account stands in for the
+			// confirmation.
+			user.Enabled = true
+			user.AwaitingConfirmation = false
+		} else {
+			user.Disable()
+		}
 	}
 	if req.Warned != nil {
 		record("warned", strconv.FormatBool(user.Warned), strconv.FormatBool(*req.Warned))
@@ -964,7 +971,7 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 	}
 
 	// 1. Disable the user FIRST (the critical operation)
-	target.Enabled = false
+	target.Disable()
 	if req.DurationDays != nil && *req.DurationDays > 0 {
 		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
 		target.DisabledUntil = &until
