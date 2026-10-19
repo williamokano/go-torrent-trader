@@ -970,13 +970,16 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 	}
 
 	// 1. Disable the user FIRST (the critical operation)
-	ban := model.DisablePatch()
-	if req.DurationDays != nil && *req.DurationDays > 0 {
-		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
-		ban.DisabledUntil = model.To(&until)
+	// A timed ban never shortens one already in force for good: an account
+	// that is off with no expiry stays off with no expiry.
+	var until *time.Time
+	alreadyPermanent := !target.Enabled && target.DisabledUntil == nil
+	if req.DurationDays != nil && *req.DurationDays > 0 && !alreadyPermanent {
+		t := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
+		until = &t
 	}
 
-	if err := s.users.UpdateFields(ctx, target.ID, ban); err != nil {
+	if err := s.users.UpdateFields(ctx, target.ID, model.DisablePatch(until)); err != nil {
 		return nil, fmt.Errorf("disable user: %w", err)
 	}
 	result.Banned = true

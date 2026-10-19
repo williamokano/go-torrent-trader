@@ -241,8 +241,9 @@ func (m *memUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPa
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.Update(ctx, u)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
 }
 
 func (m *memUserRepo) Update(_ context.Context, _ *model.User) error { return nil }

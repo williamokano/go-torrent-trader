@@ -360,7 +360,8 @@ func TestLiftWarningRecordsWhoLiftedIt(t *testing.T) {
 	warnings := newStubWarningRepo()
 	warnings.byID[1] = &model.Warning{ID: 1, UserID: 9, Status: model.WarningStatusActive}
 	target := &model.User{ID: 9, Username: "target", Warned: true}
-	h := newWarningHandler(warnings, newStubUserRepo(target, &model.User{ID: 1, Username: "admin"}))
+	users := newStubUserRepo(target, &model.User{ID: 1, Username: "admin"})
+	h := newWarningHandler(warnings, users)
 
 	req := authed(httptest.NewRequest(http.MethodPost, "/api/v1/admin/warnings/1/lift", strings.NewReader(`{"reason":"appealed"}`)), 1, 100)
 	req = withURLParam(req, "id", "1")
@@ -384,7 +385,7 @@ func TestLiftWarningRecordsWhoLiftedIt(t *testing.T) {
 		t.Errorf("lifted_reason = %v, want \"appealed\"", updated.LiftedReason)
 	}
 	// No active warnings remain, so the user's warned flag must be cleared.
-	if target.Warned {
+	if stored, _ := users.GetByID(context.Background(), 9); stored.Warned {
 		t.Error("user.Warned = true, want false once the last active warning is lifted")
 	}
 }

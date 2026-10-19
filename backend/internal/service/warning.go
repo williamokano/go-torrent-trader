@@ -186,7 +186,7 @@ func (s *WarningService) IssueHnRBan(ctx context.Context, userID int64, reason s
 
 	s.sendSystemPM(ctx, userID, "Account Disabled - Hit-and-Run", reason)
 
-	if err := s.users.UpdateFields(ctx, user.ID, model.DisablePatch()); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.DisablePatch(nil)); err != nil {
 		return fmt.Errorf("disable user: %w", err)
 	}
 
@@ -251,7 +251,7 @@ func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int
 	// Send PM with ban reason BEFORE disabling the account
 	s.sendSystemPM(ctx, w.UserID, "Account Disabled - Ratio Ban", banMessage)
 
-	if err := s.users.UpdateFields(ctx, user.ID, model.DisablePatch()); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.DisablePatch(nil)); err != nil {
 		return fmt.Errorf("disable user: %w", err)
 	}
 
@@ -428,13 +428,17 @@ func (s *WarningService) clearWarnedIfNone(ctx context.Context, userID int64) er
 
 	// A warning issued between the count and the write set the flag just
 	// before it was cleared. Issuing creates the warning before setting the
-	// flag, so a second count sees it, and the flag goes back.
-	count, err = s.warnings.CountActiveByUser(ctx, userID)
+	// flag, so a second look sees it, and the flag goes back — with the
+	// expiry the active warnings carry, so a timed warning still lapses.
+	active, err := s.warnings.ListByUser(ctx, userID, false)
 	if err != nil {
-		return fmt.Errorf("recount active warnings: %w", err)
+		return fmt.Errorf("recheck active warnings: %w", err)
 	}
-	if count > 0 {
-		if err := s.users.UpdateFields(ctx, userID, model.UserPatch{Warned: model.To(true)}); err != nil {
+	if len(active) > 0 {
+		if err := s.users.UpdateFields(ctx, userID, model.UserPatch{
+			Warned:    model.To(true),
+			WarnUntil: model.To(latestExpiry(active)),
+		}); err != nil {
 			return fmt.Errorf("restore user warned flag: %w", err)
 		}
 	}
@@ -473,4 +477,19 @@ func (s *WarningService) actorFromUserID(ctx context.Context, userID int64) even
 		actor.Username = u.Username
 	}
 	return actor
+}
+
+// latestExpiry is when a set of active warnings stops warning the member: the
+// latest expiry among them, or nil when any of them never expires.
+func latestExpiry(warnings []model.Warning) *time.Time {
+	var latest *time.Time
+	for _, w := range warnings {
+		if w.ExpiresAt == nil {
+			return nil
+		}
+		if latest == nil || w.ExpiresAt.After(*latest) {
+			latest = w.ExpiresAt
+		}
+	}
+	return latest
 }

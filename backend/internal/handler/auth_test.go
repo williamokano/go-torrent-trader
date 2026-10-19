@@ -116,8 +116,9 @@ func (m *mockUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserP
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.Update(ctx, u)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
 }
 
 func (m *mockUserRepo) Update(_ context.Context, user *model.User) error {
@@ -268,8 +269,9 @@ func (m *mockUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p 
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.UpdateWithHistory(ctx, u, entries)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.UpdateWithHistory(ctx, &next, entries)
 }
 
 func (m *mockUserRepo) UpdateWithHistory(_ context.Context, user *model.User, entries []model.UserEditHistory) error {

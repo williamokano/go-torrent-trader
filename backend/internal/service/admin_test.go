@@ -393,7 +393,8 @@ func TestAdminResetPassword_AutoGenerate(t *testing.T) {
 	}
 
 	// Verify password actually works
-	ok, err := VerifyPassword(newPass, target.PasswordHash)
+	stored, _ := userRepo.GetByID(context.Background(), target.ID)
+	ok, err := VerifyPassword(newPass, stored.PasswordHash)
 	if err != nil {
 		t.Fatalf("verify password: %v", err)
 	}
@@ -416,7 +417,8 @@ func TestAdminResetPassword_WithPassword(t *testing.T) {
 		t.Errorf("expected provided password, got %s", newPass)
 	}
 
-	ok, err := VerifyPassword("MyNewPassword123!", target.PasswordHash)
+	stored, _ := userRepo.GetByID(context.Background(), target.ID)
+	ok, err := VerifyPassword("MyNewPassword123!", stored.PasswordHash)
 	if err != nil {
 		t.Fatalf("verify password: %v", err)
 	}

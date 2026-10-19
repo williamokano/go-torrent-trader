@@ -44,7 +44,7 @@ func TestLoginDoesNotRevertConcurrentStaffWrites(t *testing.T) {
 		check func(t *testing.T, got *model.User)
 	}{
 		"ban": {
-			patch: model.DisablePatch,
+			patch: func() model.UserPatch { return model.DisablePatch(nil) },
 			check: func(t *testing.T, got *model.User) {
 				if got.Enabled {
 					t.Error("the login re-enabled a banned account")
@@ -188,9 +188,7 @@ func TestUserRepoLiftExpiredBans(t *testing.T) {
 
 	timedBan := func(until time.Time) *model.User {
 		u := newUser(t, db)
-		p := model.DisablePatch()
-		p.DisabledUntil = model.To(&until)
-		if err := repo.UpdateFields(ctx, u.ID, p); err != nil {
+		if err := repo.UpdateFields(ctx, u.ID, model.DisablePatch(&until)); err != nil {
 			t.Fatalf("ban: %v", err)
 		}
 		return u
@@ -198,7 +196,7 @@ func TestUserRepoLiftExpiredBans(t *testing.T) {
 	expired := timedBan(past)
 	running := timedBan(future)
 	madePermanent := timedBan(past)
-	if err := repo.UpdateFields(ctx, madePermanent.ID, model.DisablePatch()); err != nil {
+	if err := repo.UpdateFields(ctx, madePermanent.ID, model.DisablePatch(nil)); err != nil {
 		t.Fatalf("permanent ban: %v", err)
 	}
 

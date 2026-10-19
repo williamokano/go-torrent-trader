@@ -179,6 +179,7 @@ func (r *UserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p mode
 }
 
 // LiftExpiredBans re-enables every account whose timed ban ended before now,
+// writing what model.UserPatch.SetEnabled(true) writes — keep the two alike;
 // checking that as each row is written: an account whose ban was made
 // permanent (disabled_until cleared) after any earlier read is not touched.
 // Lifting a ban also counts as activation, as enabling does everywhere.
@@ -223,7 +224,8 @@ func setColumn[T any](b *setBuilder, column string, f model.Set[T]) {
 
 // updateUserFields builds the UPDATE for a patch. Column names come from the
 // fixed list below, never from input, so the Sprintf is not an injection
-// risk. It returns sql.ErrNoRows for an unknown id.
+// risk. It returns sql.ErrNoRows for an unknown id; an empty patch writes,
+// and checks, nothing.
 func updateUserFields(ctx context.Context, q DBTX, id int64, p model.UserPatch) error {
 	sets, args := userPatchSets(p)
 	if len(sets) == 0 {
@@ -268,8 +270,8 @@ func userPatchSets(p model.UserPatch) ([]string, []any) {
 	setColumn(&b, "donor", p.Donor)
 	setColumn(&b, "ip", p.IP)
 	setColumn(&b, "last_login", p.LastLogin)
-	setColumn(&b, "disabled_until", p.DisabledUntil)
-	if p.EndConfirmation {
+	setColumn(&b, "disabled_until", p.DisabledUntil())
+	if p.EndsConfirmation() {
 		b.sets = append(b.sets, "awaiting_confirmation = false")
 	}
 	if p.ActivateAt.Valid {
@@ -458,11 +460,6 @@ func (r *UserRepo) List(ctx context.Context, opts repository.ListUsersOptions) (
 	if opts.Enabled != nil {
 		where += fmt.Sprintf(" AND enabled = $%d", argIdx)
 		args = append(args, *opts.Enabled)
-		argIdx++
-	}
-	if opts.DisabledUntilBefore != nil {
-		where += fmt.Sprintf(" AND disabled_until IS NOT NULL AND disabled_until < $%d", argIdx)
-		args = append(args, *opts.DisabledUntilBefore)
 		argIdx++
 	}
 

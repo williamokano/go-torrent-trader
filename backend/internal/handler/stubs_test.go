@@ -98,8 +98,9 @@ func (s *stubUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserP
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return s.Update(ctx, u)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return s.Update(ctx, &next)
 }
 
 func (s *stubUserRepo) Update(_ context.Context, u *model.User) error {
@@ -202,8 +203,9 @@ func (s *stubUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p 
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return s.UpdateWithHistory(ctx, u, entries)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return s.UpdateWithHistory(ctx, &next, entries)
 }
 
 func (s *stubUserRepo) UpdateWithHistory(ctx context.Context, u *model.User, _ []model.UserEditHistory) error {

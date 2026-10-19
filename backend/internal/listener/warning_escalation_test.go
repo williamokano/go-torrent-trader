@@ -248,8 +248,9 @@ func (m *mockEscalationUserRepo) UpdateFields(ctx context.Context, id int64, p m
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.Update(ctx, u)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
 }
 
 func (m *mockEscalationUserRepo) Update(_ context.Context, u *model.User) error {

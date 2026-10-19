@@ -19,7 +19,7 @@ type memEditHistoryRepo struct {
 	entries []model.UserEditHistory
 }
 
-// push is how mockUserRepo's UpdateWithHistory/SetStats/SetInvites deliver
+// push is how mockUserRepo's UpdateFieldsWithHistory/SetStats/SetInvites deliver
 // audit entries in this test's fixture — mirroring production, where those
 // writes insert into user_edit_history directly rather than through Record.
 func (m *memEditHistoryRepo) push(entries []model.UserEditHistory) {

@@ -15,7 +15,7 @@ import (
 
 // historyRecorder is implemented by fakeEditHistoryRepo (admin_edit_history_test.go)
 // so mockUserRepo and fakeBonusRepo can push audit entries directly into it —
-// mirroring how, in production, UserRepo.UpdateWithHistory/SetStats/SetInvites
+// mirroring how, in production, UserRepo.UpdateFieldsWithHistory/SetStats/SetInvites
 // and BonusRepo.SetPoints each insert into the same user_edit_history table
 // within their own transaction, independent of UserEditHistoryRepo.Record.
 type historyRecorder interface {
@@ -28,7 +28,7 @@ type mockUserRepo struct {
 	users       []*model.User
 	nextID      int64
 	historySink historyRecorder // optional; entries are discarded if nil
-	// updateErr/statsErr/invitesErr independently fail UpdateWithHistory/
+	// updateErr/statsErr/invitesErr independently fail UpdateFieldsWithHistory/
 	// SetStats/SetInvites without mutating state or pushing history —
 	// simulating that one method's write+audit transaction failing. Kept as
 	// three separate fields (not one shared error) so a test can prove a
@@ -126,8 +126,9 @@ func (m *mockUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserP
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.Update(ctx, u)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
 }
 
 func (m *mockUserRepo) Update(_ context.Context, user *model.User) error {
@@ -181,11 +182,6 @@ func (m *mockUserRepo) List(_ context.Context, opts repository.ListUsersOptions)
 	for _, u := range m.users {
 		if opts.Enabled != nil && u.Enabled != *opts.Enabled {
 			continue
-		}
-		if opts.DisabledUntilBefore != nil {
-			if u.DisabledUntil == nil || !u.DisabledUntil.Before(*opts.DisabledUntilBefore) {
-				continue
-			}
 		}
 		result = append(result, *u)
 	}
@@ -259,8 +255,9 @@ func (m *mockUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p 
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.UpdateWithHistory(ctx, u, entries)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.UpdateWithHistory(ctx, &next, entries)
 }
 
 func (m *mockUserRepo) UpdateWithHistory(_ context.Context, user *model.User, entries []model.UserEditHistory) error {

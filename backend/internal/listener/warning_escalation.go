@@ -86,7 +86,7 @@ func RegisterWarningEscalationListener(
 			}
 
 			// Disable the user's account.
-			if err := userRepo.UpdateFields(ctx, user.ID, model.DisablePatch()); err != nil {
+			if err := userRepo.UpdateFields(ctx, user.ID, model.DisablePatch(nil)); err != nil {
 				slog.Error("warning_escalation: failed to disable user",
 					"user_id", e.UserID,
 					"error", err,

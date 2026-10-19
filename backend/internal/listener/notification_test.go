@@ -141,8 +141,9 @@ func (m *mockNotifUsers) UpdateFields(ctx context.Context, id int64, p model.Use
 	if u == nil {
 		return sql.ErrNoRows // what the real repository reports
 	}
-	u.Apply(p)
-	return m.Update(ctx, u)
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
 }
 
 func (m *mockNotifUsers) Update(_ context.Context, _ *model.User) error { return nil }

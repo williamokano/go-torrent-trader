@@ -471,8 +471,9 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	}
 	if err := s.users.UpdateFields(ctx, user.ID, login); err != nil {
 		slog.Error("failed to update last login", "user_id", user.ID, "error", err)
+	} else {
+		user.Apply(login)
 	}
-	user.Apply(login)
 
 	s.eventBus.Publish(ctx, &event.UserLoginEvent{
 		Base:   event.NewBase(event.UserLogin, event.Actor{ID: user.ID, Username: user.Username}),

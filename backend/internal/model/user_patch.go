@@ -35,16 +35,17 @@ type UserPatch struct {
 	Info           Set[*string]
 	// enabled is only reachable through SetEnabled, which keeps the pending
 	// confirmation and the temporary-ban expiry in step with it.
-	enabled       Set[bool]
-	Parked        Set[bool]
-	Warned        Set[bool]
-	WarnUntil     Set[*time.Time]
-	Donor         Set[bool]
-	IP            Set[*string]
-	LastLogin     Set[*time.Time]
-	DisabledUntil Set[*time.Time]
-	// EndConfirmation clears awaiting_confirmation.
-	EndConfirmation bool
+	enabled   Set[bool]
+	Parked    Set[bool]
+	Warned    Set[bool]
+	WarnUntil Set[*time.Time]
+	Donor     Set[bool]
+	IP        Set[*string]
+	LastLogin Set[*time.Time]
+	// disabledUntil and endConfirmation move with enabled, so only
+	// SetEnabled and DisablePatch write them.
+	disabledUntil   Set[*time.Time]
+	endConfirmation bool
 	// ActivateAt stamps activated_at, only if the account has none yet.
 	ActivateAt Set[time.Time]
 }
@@ -54,25 +55,31 @@ type UserPatch struct {
 // enabling an unconfirmed account stands in for the confirmation — which is
 // also why turning on counts as the account's activation. It also clears
 // any temporary-ban expiry, so an old expiry cannot later lift a ban that is
-// meant to be permanent; a timed ban sets DisabledUntil after this.
+// meant to be permanent; DisablePatch is the way to set one.
 func (p *UserPatch) SetEnabled(on bool, now time.Time) {
 	p.enabled = To(on)
-	p.EndConfirmation = true
-	p.DisabledUntil = To[*time.Time](nil)
+	p.endConfirmation = true
+	p.disabledUntil = To[*time.Time](nil)
 	if on {
 		p.ActivateAt = To(now)
 	}
 }
 
 // Enabled reports the change SetEnabled recorded, if any.
-func (p UserPatch) Enabled() Set[bool] {
-	return p.enabled
-}
+func (p UserPatch) Enabled() Set[bool] { return p.enabled }
 
-// DisablePatch turns an account off; see SetEnabled.
-func DisablePatch() UserPatch {
+// DisabledUntil reports the temporary-ban expiry the patch writes, if any.
+func (p UserPatch) DisabledUntil() Set[*time.Time] { return p.disabledUntil }
+
+// EndsConfirmation reports whether the patch clears awaiting_confirmation.
+func (p UserPatch) EndsConfirmation() bool { return p.endConfirmation }
+
+// DisablePatch turns an account off; see SetEnabled. A non-nil until makes
+// it a timed ban that LiftExpiredBans ends; nil makes it permanent.
+func DisablePatch(until *time.Time) UserPatch {
 	var p UserPatch
 	p.SetEnabled(false, time.Time{})
+	p.disabledUntil = To(until)
 	return p
 }
 
@@ -102,8 +109,8 @@ func (u *User) Apply(p UserPatch) {
 	set(&u.Donor, p.Donor)
 	set(&u.IP, p.IP)
 	set(&u.LastLogin, p.LastLogin)
-	set(&u.DisabledUntil, p.DisabledUntil)
-	if p.EndConfirmation {
+	set(&u.DisabledUntil, p.disabledUntil)
+	if p.endConfirmation {
 		u.AwaitingConfirmation = false
 	}
 	if p.ActivateAt.Valid && u.ActivatedAt == nil {

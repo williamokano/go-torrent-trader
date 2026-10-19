@@ -27,7 +27,7 @@ func TestUserApplyPatch(t *testing.T) {
 		t.Error("an unpatched field changed")
 	}
 
-	u.Apply(DisablePatch())
+	u.Apply(DisablePatch(nil))
 	if u.Enabled || u.AwaitingConfirmation {
 		t.Errorf("after disable: enabled=%v awaiting=%v", u.Enabled, u.AwaitingConfirmation)
 	}
