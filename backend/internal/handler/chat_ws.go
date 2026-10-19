@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,9 @@ import (
 const (
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
+
+	// Time allowed for the close frame to a dropped client.
+	closeFrameWait = time.Second
 
 	// Time allowed to read the next pong message from the peer.
 	pongWait = 60 * time.Second
@@ -69,7 +73,7 @@ func (c *ChatClient) closeConn() {
 	})
 }
 
-// stop tells the writer to send a close frame and exit; queued messages are
+// stop tells the writer to exit, usually after a close frame; queued messages are
 // dropped. The hub stops a client once, as it removes it, but stopOnce keeps a
 // second call harmless rather than a close-of-closed-channel panic.
 func (c *ChatClient) stop() {
@@ -595,7 +599,7 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Start the write pump (single writer goroutine per connection).
 	go client.writePump()
 
-	// readPump runs in the current goroutine (HandleWebSocket exits when it returns).
+	// readPump runs on its own goroutine; HandleWebSocket returns immediately.
 	go client.readPump()
 }
 
@@ -667,7 +671,7 @@ func (c *ChatClient) readPump() {
 	// the process.
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("chat read loop panicked", "user_id", c.userID, "panic", r)
+			slog.Error("chat read loop panicked", "user_id", c.userID, "panic", r, "stack", string(debug.Stack()))
 		}
 		c.hub.unregister <- c
 		c.closeConn()
@@ -758,7 +762,7 @@ func (c *ChatClient) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("chat write loop panicked", "user_id", c.userID, "panic", r)
+			slog.Error("chat write loop panicked", "user_id", c.userID, "panic", r, "stack", string(debug.Stack()))
 		}
 		ticker.Stop()
 		c.closeConn()
@@ -767,8 +771,9 @@ func (c *ChatClient) writePump() {
 	for {
 		select {
 		case <-c.done:
-			// The hub dropped this client — send a close frame.
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			// The hub dropped this client — send a close frame. Briefly: a
+			// client dropped for not reading will not read this either.
+			_ = c.conn.SetWriteDeadline(time.Now().Add(closeFrameWait))
 			_ = c.conn.WriteMessage(websocket.CloseMessage, nil)
 			return
 
@@ -832,6 +837,7 @@ func (h *ChatHub) handleIncomingMessage(client *ChatClient, text string) {
 
 	msg, err := h.chatSvc.SendMessage(ctx, client.userID, text)
 	if err != nil {
+		slog.Debug("chat message rejected", "user_id", client.userID, "error", err)
 		errPayload, _ := json.Marshal(map[string]interface{}{
 			"type":    "error",
 			"message": err.Error(),

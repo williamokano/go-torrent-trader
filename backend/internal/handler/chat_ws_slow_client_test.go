@@ -2,7 +2,10 @@ package handler
 
 import (
 	"bytes"
+	"errors"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
@@ -13,9 +16,6 @@ import (
 // rate-limit warning) must be discarded, not panic: a send on a closed
 // channel would take the whole server process down.
 func TestChatHub_DroppedSlowClientCanStillBeAnsweredSafely(t *testing.T) {
-	if testing.Short() {
-		t.Skip("fills a socket's buffers; slow under -short")
-	}
 	h := newWSHarness(t, nil)
 	h.session(t, "slow", 7, model.Permissions{})
 	conn := h.mustDial(t, "slow") // never read from: the client is "slow"
@@ -40,8 +40,43 @@ func TestChatHub_DroppedSlowClientCanStillBeAnsweredSafely(t *testing.T) {
 	}
 
 	// The server closing the connection means the reader has finished with
-	// the flood; a panic would have aborted the test binary before this.
-	expectClosed(t, conn)
+	// the flood; a panic would have aborted the test binary before this. The
+	// writer may sit out a full write deadline on the stalled socket first,
+	// hence a longer wait than expectClosed's.
+	_ = conn.SetReadDeadline(time.Now().Add(3 * writeWait))
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				t.Fatal("the dropped client's connection stayed open")
+			}
+			return
+		}
+	}
+}
+
+// The hub drops a client whose queue is full by stopping it, never by
+// closing its queue, so the client's own goroutines can still offer it
+// messages afterwards.
+func TestChatHub_DropStopsClientWithoutClosingQueue(t *testing.T) {
+	h := newWSHarness(t, nil)
+	c := &ChatClient{hub: h.hub, userID: 9, send: make(chan []byte, 1), done: make(chan struct{})}
+	h.hub.register <- c
+	waitForClients(t, h, 9, 1)
+
+	c.send <- []byte("fills the queue")
+	h.hub.broadcast <- ChatBroadcast{Data: []byte("overflows it")}
+	waitForClients(t, h, 9, 0)
+
+	select {
+	case <-c.done:
+	default:
+		t.Fatal("a dropped client was not stopped")
+	}
+	<-c.send // the queued frame is still there: the queue was not closed
+	if c.trySend([]byte("late reply")) {
+		t.Fatal("a stopped client accepted a message")
+	}
 }
 
 // Every producer can still offer a message to a client the hub has stopped;
