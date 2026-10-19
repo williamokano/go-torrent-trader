@@ -158,3 +158,54 @@ func TestCleanupHandler_PreservesActivatedButBannedUsers(t *testing.T) {
 		t.Errorf("genuinely abandoned unconfirmed registration survived cleanup: err=%v, want sql.ErrNoRows", err)
 	}
 }
+
+// An abandoned registration still has the rows a real one leaves behind: the
+// activity log entry its registration wrote, the invite it registered with,
+// a password reset it asked for, a message someone sent it. Any one of them
+// used to refuse the delete and fail the whole purge, so nothing was ever
+// removed. The account goes; the log entry stays without its actor.
+func TestCleanupHandler_PurgesRegistrationWithDependents(t *testing.T) {
+	db := requireDB(t)
+	ctx := context.Background()
+	repo := postgres.NewUserRepo(db)
+	oldEnough := time.Now().Add(-30 * 24 * time.Hour)
+	now := time.Now()
+
+	inviter := newCleanupTestUser(t, db, true, oldEnough, &now)
+	abandoned := newCleanupTestUser(t, db, false, oldEnough, nil)
+
+	var logID int64
+	if err := db.QueryRow(`INSERT INTO activity_logs (event_type, actor_id, message) VALUES ('user_registered', $1, 'joined') RETURNING id`, abandoned.ID).Scan(&logID); err != nil {
+		t.Fatalf("activity log: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO invites (inviter_id, token, used_by_id, used_at, expires_at) VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '1 day')`,
+		inviter.ID, fmt.Sprintf("tok-%d", abandoned.ID), abandoned.ID); err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+		abandoned.ID, fmt.Sprintf("hash-%d", abandoned.ID)); err != nil {
+		t.Fatalf("password reset: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO messages (sender_id, receiver_id, subject, body) VALUES ($1, $2, 'hi', 'welcome')`, inviter.ID, abandoned.ID); err != nil {
+		t.Fatalf("message: %v", err)
+	}
+
+	deps := &WorkerDeps{PeerRepo: &mockPeerRepo{}, TorrentRepo: &mockTorrentRepo{}, DB: db}
+	if err := NewCleanupHandler(deps)(ctx, &river.Job[CleanupPeersArgs]{}); err != nil {
+		t.Fatalf("cleanup handler: %v", err)
+	}
+
+	if _, err := repo.GetByID(ctx, abandoned.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("abandoned registration survived the purge: err=%v", err)
+	}
+	var actor *int64
+	if err := db.QueryRow(`SELECT actor_id FROM activity_logs WHERE id = $1`, logID).Scan(&actor); err != nil {
+		t.Fatalf("activity log entry went with the account: %v", err)
+	}
+	if actor != nil {
+		t.Errorf("activity log actor = %d, want NULL once the account is gone", *actor)
+	}
+	if _, err := repo.GetByID(ctx, inviter.ID); err != nil {
+		t.Errorf("the inviter went with the invitee: %v", err)
+	}
+}
