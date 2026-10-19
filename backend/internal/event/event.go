@@ -197,6 +197,8 @@ type TorrentEditedEvent struct {
 	// rename, a description tweak and a ban all reached the log as the same
 	// sentence before this field existed.
 	BannedChanged *bool `json:"banned_changed,omitempty"`
+	// BecameAnonymous is set when this edit made the torrent anonymous.
+	BecameAnonymous bool `json:"became_anonymous,omitempty"`
 	TorrentPrivacy
 }
 
@@ -268,8 +270,9 @@ type TorrentModeratedEvent struct {
 }
 
 // TorrentPublishedEvent is the single canonical "this torrent is now public"
-// signal, emitted at exactly two points: approval of a pending torrent, and an
-// upload that auto-approves because moderation is off. External notification
+// signal, emitted at three points: approval of a pending torrent, an upload
+// that auto-approves because moderation is off, and an edit (an unban) that
+// makes an approved torrent public again. External notification
 // connectors (BE-10) subscribe to this and nothing else — they never hook into
 // the moderation flow's internals, so a new publish path only has to emit here.
 //
@@ -277,10 +280,9 @@ type TorrentModeratedEvent struct {
 // happens at the emitter so no downstream consumer can leak the real uploader,
 // even by accident. Renderers print "Anonymous".
 //
-// This event is intentionally NOT subscribed by the activity log: the log
-// already records torrent_uploaded and torrent_moderated for the same
-// transitions, and keeping it out means the payload is never serialized into
-// activity_logs.metadata at all.
+// The activity log writes the public "uploaded" line from this event, credited
+// to the uploader (or "Anonymous", with no actor). Its payload, uploader_id
+// included, is stored as that entry's metadata, which only staff can read.
 type TorrentPublishedEvent struct {
 	Base
 	TorrentID    int64     `json:"torrent_id"`

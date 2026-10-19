@@ -94,6 +94,22 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s submitted torrent: %s", e.Actor.Username, e.TorrentName), e.Actor, true
 	})
 
+	// When a torrent turns anonymous, entries already public under the
+	// uploader's name go staff-only with it.
+	bus.Subscribe(event.TorrentEdited, func(ctx context.Context, evt event.Event) error {
+		e := evt.(*event.TorrentEditedEvent)
+		if !e.BecameAnonymous {
+			return nil
+		}
+		if err := logSvc.HideTorrentEntries(ctx, e.TorrentID); err != nil {
+			slog.Error("failed to hide activity of a torrent made anonymous", "torrent_id", e.TorrentID, "error", err)
+			return fmt.Errorf("hide torrent activity: %w", err)
+		}
+		return nil
+	})
+
+	// Credited to the uploader, not to whoever triggered the publish (an
+	// approving moderator): this line is what members read as the upload.
 	listen(event.TorrentPublished, func(evt event.Event) (string, event.Actor) {
 		e := evt.(*event.TorrentPublishedEvent)
 		if e.Anonymous {

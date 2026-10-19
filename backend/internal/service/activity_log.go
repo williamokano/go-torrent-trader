@@ -44,3 +44,8 @@ func (s *ActivityLogService) List(ctx context.Context, opts repository.ListActiv
 	}
 	return s.logs.List(ctx, opts)
 }
+
+// HideTorrentEntries makes every existing entry about a torrent staff-only.
+func (s *ActivityLogService) HideTorrentEntries(ctx context.Context, torrentID int64) error {
+	return s.logs.HideTorrentEntries(ctx, torrentID)
+}

@@ -359,7 +359,8 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 	// With moderation off the upload is public the moment it lands, so this is
 	// also its publish point. Re-fetch so the event carries the JOIN-resolved
 	// category name the announcement renderers need — the model built above only
-	// has the IDs. A failed re-fetch loses the announcement, not the upload.
+	// has the IDs. A failed re-fetch loses the announcement and the public
+	// activity log line, not the upload.
 	if torrent.ModerationStatus == model.ModerationApproved {
 		published, err := s.torrents.GetByID(ctx, torrent.ID)
 		if err != nil {
@@ -514,6 +515,8 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 		return nil, notFoundOrWrapped(err, "load torrent for edit")
 	}
 	wasBanned := torrent.Banned
+	wasAnonymous := torrent.Anonymous
+	wasPublic := isPublic(torrent)
 
 	isOwner := torrent.UploaderID == userID
 
@@ -607,7 +610,20 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 		TorrentName:    torrent.Name,
 		BannedChanged:  bannedChanged,
 		TorrentPrivacy: torrentPrivacy(torrent, userID),
+		// Entries already public under the uploader's name are hidden by the
+		// activity log once the torrent turns anonymous.
+		BecameAnonymous: torrent.Anonymous && !wasAnonymous,
 	})
+
+	// An approved torrent that was banned is announced when unbanned: it is
+	// public from here on, and nothing else would publish it.
+	if !wasPublic && isPublic(torrent) {
+		if published, err := s.torrents.GetByID(ctx, torrent.ID); err != nil {
+			slog.Error("torrent: failed to re-fetch torrent made public by an edit", "torrent_id", torrent.ID, "error", err)
+		} else {
+			s.publishPublished(ctx, published, userID)
+		}
+	}
 
 	return torrent, nil
 }
@@ -1164,6 +1180,12 @@ func (s *TorrentService) rewriteAnnounce(data []byte, passkey *string) ([]byte, 
 	}
 
 	return result, nil
+}
+
+// isPublic reports whether members can see torrent: approved, not banned, not
+// hidden. It is publishPublished's rule for "now public".
+func isPublic(torrent *model.Torrent) bool {
+	return torrent.ModerationStatus == model.ModerationApproved && !torrent.Banned && torrent.Visible
 }
 
 // torrentPrivacy is what a torrent event may show members about torrent when

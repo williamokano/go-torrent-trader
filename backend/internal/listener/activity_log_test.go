@@ -14,9 +14,15 @@ import (
 )
 
 type mockActivityLogRepo struct {
-	mu   sync.Mutex
-	logs []*model.ActivityLog
-	id   int64
+	mu     sync.Mutex
+	logs   []*model.ActivityLog
+	id     int64
+	hidden []int64 // torrents whose entries HideTorrentEntries was asked to hide
+}
+
+func (r *mockActivityLogRepo) HideTorrentEntries(_ context.Context, torrentID int64) error {
+	r.hidden = append(r.hidden, torrentID)
+	return nil
 }
 
 func (m *mockActivityLogRepo) Create(_ context.Context, log *model.ActivityLog) error {
@@ -362,11 +368,6 @@ func TestListener_BackupDownloaded(t *testing.T) {
 	}
 }
 
-// TorrentPublished is deliberately not logged: the activity log already records
-// torrent_uploaded and torrent_moderated for the same two transitions, so a
-// third row per publish would be pure noise. Keeping the event out also means
-// its payload — which carries the anonymous flag — is never serialized into
-// activity_logs.metadata at all.
 // A torrent becoming public is what members see as its upload, credited to
 // its uploader — or to "Anonymous", with no actor to filter by.
 func TestListener_TorrentPublishedIsThePublicUpload(t *testing.T) {
@@ -523,5 +524,20 @@ func TestListener_TorrentEntriesRespectPrivacy(t *testing.T) {
 				t.Errorf("staff_only = %v, want %v", got.StaffOnly, tc.wantStaffOnly)
 			}
 		})
+	}
+}
+
+// Turning a torrent anonymous hides the entries that already named its
+// uploader; any other edit hides nothing.
+func TestListener_TorrentMadeAnonymousHidesItsEntries(t *testing.T) {
+	repo, bus := setup()
+	bob := event.Actor{ID: 5, Username: "bob"}
+
+	bus.Publish(context.Background(), &event.TorrentEditedEvent{Base: event.NewBase(event.TorrentEdited, bob), TorrentID: 7, TorrentName: "T"})
+	bus.Publish(context.Background(), &event.TorrentEditedEvent{Base: event.NewBase(event.TorrentEdited, bob), TorrentID: 7, TorrentName: "T",
+		BecameAnonymous: true, TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}})
+
+	if len(repo.hidden) != 1 || repo.hidden[0] != 7 {
+		t.Errorf("hidden = %v, want torrent 7 hidden once", repo.hidden)
 	}
 }

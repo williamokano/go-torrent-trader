@@ -412,6 +412,8 @@ type stubActivityLogRepo struct {
 	listErr  error
 }
 
+func (*stubActivityLogRepo) HideTorrentEntries(context.Context, int64) error { return nil }
+
 func (s *stubActivityLogRepo) Create(_ context.Context, _ *model.ActivityLog) error { return nil }
 func (s *stubActivityLogRepo) List(_ context.Context, opts repository.ListActivityLogsOptions) ([]model.ActivityLog, int64, error) {
 	s.lastOpts = opts

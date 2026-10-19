@@ -18,6 +18,8 @@ type fakeActivityLogRepo struct {
 	logs     []model.ActivityLog
 }
 
+func (*fakeActivityLogRepo) HideTorrentEntries(context.Context, int64) error { return nil }
+
 func (f *fakeActivityLogRepo) Create(_ context.Context, _ *model.ActivityLog) error {
 	return nil
 }

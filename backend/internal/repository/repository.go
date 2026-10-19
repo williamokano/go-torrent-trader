@@ -566,6 +566,10 @@ type GroupWriteRepository interface {
 type ActivityLogRepository interface {
 	Create(ctx context.Context, log *model.ActivityLog) error
 	List(ctx context.Context, opts ListActivityLogsOptions) ([]model.ActivityLog, int64, error)
+	// HideTorrentEntries makes every existing entry about a torrent
+	// staff-only — for when its uploader turns anonymous after entries
+	// naming them were already public.
+	HideTorrentEntries(ctx context.Context, torrentID int64) error
 }
 
 // ListActivityLogsOptions holds filtering and pagination options for activity logs.

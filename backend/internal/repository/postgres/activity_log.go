@@ -32,6 +32,16 @@ func (r *ActivityLogRepo) Create(ctx context.Context, log *model.ActivityLog) er
 	return nil
 }
 
+func (r *ActivityLogRepo) HideTorrentEntries(ctx context.Context, torrentID int64) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE activity_logs SET staff_only = true
+		WHERE event_type IN ('torrent_uploaded', 'torrent_published', 'torrent_edited', 'torrent_deleted')
+		  AND (metadata ->> 'torrent_id')::bigint = $1`, torrentID)
+	if err != nil {
+		return fmt.Errorf("hide torrent activity: %w", err)
+	}
+	return nil
+}
+
 func (r *ActivityLogRepo) List(ctx context.Context, opts repository.ListActivityLogsOptions) ([]model.ActivityLog, int64, error) {
 	page := opts.Page
 	if page <= 0 {
