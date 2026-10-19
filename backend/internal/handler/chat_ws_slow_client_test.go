@@ -1,64 +1,47 @@
 package handler
 
 import (
-	"encoding/json"
+	"bytes"
 	"testing"
-	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
-func (h *ChatHub) localClientCount() int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.clients)
-}
-
 // A member whose client stops reading is dropped by the hub once its send
-// queue fills — but the connection's reader keeps running until the writer
-// gives up. Anything the reader then queues for that client (here, the
+// queue fills — but the connection's reader can keep running until the
+// writer gives up. Anything then queued for that client (here, the
 // rate-limit warning) must be discarded, not panic: a send on a closed
 // channel would take the whole server process down.
 func TestChatHub_DroppedSlowClientCanStillBeAnsweredSafely(t *testing.T) {
+	if testing.Short() {
+		t.Skip("fills a socket's buffers; slow under -short")
+	}
 	h := newWSHarness(t, nil)
 	h.session(t, "slow", 7, model.Permissions{})
 	conn := h.mustDial(t, "slow") // never read from: the client is "slow"
-
-	deadline := time.Now().Add(5 * time.Second)
-	for h.hub.localClientCount() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("client never registered")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForClients(t, h, 7, 1)
 
 	// Large frames fill the socket buffers so the writer blocks, then the
 	// queue fills behind it and the hub drops the client.
-	payload := make([]byte, 64<<10)
-	for i := range payload {
-		payload[i] = 'x'
-	}
-	for i := 0; h.hub.localClientCount() > 0; i++ {
+	payload := bytes.Repeat([]byte("x"), 64<<10)
+	for i := 0; h.clientsOf(7) > 0; i++ {
 		if i > 20000 {
 			t.Fatal("the hub never dropped the slow client")
 		}
 		h.hub.broadcast <- ChatBroadcast{Data: payload}
 	}
 
-	// If the reader is still alive, flood past the rate limit so it answers.
-	// The server may already have closed the connection, which is fine.
-	raw, _ := json.Marshal(map[string]string{"type": "message", "text": "flood"})
+	// Flood past the rate limit so a still-running reader answers. The server
+	// may already have closed the connection, which is fine.
 	for i := 0; i < 20; i++ {
-		if err := conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+		if writeText(conn, "flood") != nil {
 			break
 		}
 	}
 
-	// Give the reader time to process the flood; a panic would abort the
-	// test binary here.
-	time.Sleep(500 * time.Millisecond)
+	// The server closing the connection means the reader has finished with
+	// the flood; a panic would have aborted the test binary before this.
+	expectClosed(t, conn)
 }
 
 // Every producer can still offer a message to a client the hub has stopped;
@@ -78,5 +61,29 @@ func TestChatClient_TrySendAfterStop(t *testing.T) {
 	<-c.send // make room, so only done can refuse
 	if c.trySend([]byte("c")) {
 		t.Fatal("trySend after stop reported success")
+	}
+}
+
+// A panic while handling one member's message ends that member's connection
+// and nothing else: the read loop runs outside the router's Recoverer.
+func TestChatHub_PanicInMessageHandlingClosesOnlyThatConnection(t *testing.T) {
+	h := newWSHarness(t, nil)
+	h.session(t, "boom", 7, model.Permissions{})
+	conn := h.mustDial(t, "boom")
+	waitForClients(t, h, 7, 1)
+
+	h.messages.createPanic = true
+	if err := writeText(conn, "hello"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	expectClosed(t, conn)
+	waitForClients(t, h, 7, 0)
+
+	// The process — and the hub — are still serving.
+	h.messages.createPanic = false
+	conn2 := h.mustDial(t, "boom")
+	waitForClients(t, h, 7, 1)
+	if err := writeText(conn2, "still here"); err != nil {
+		t.Fatalf("write after recovery: %v", err)
 	}
 }

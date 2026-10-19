@@ -70,7 +70,8 @@ func (c *ChatClient) closeConn() {
 }
 
 // stop tells the writer to send a close frame and exit; queued messages are
-// dropped. Safe to call more than once and from any goroutine.
+// dropped. The hub stops a client once, as it removes it, but stopOnce keeps a
+// second call harmless rather than a close-of-closed-channel panic.
 func (c *ChatClient) stop() {
 	c.stopOnce.Do(func() { close(c.done) })
 }
@@ -414,7 +415,8 @@ func (h *ChatHub) sendToUserLocal(userID int64, payload []byte) {
 
 	for client := range h.clients {
 		if client.userID == userID {
-			// Buffer full — skip (will be cleaned up on next broadcast).
+			// Buffer full: skip. A client that stays behind is dropped by the
+			// next broadcast.
 			client.trySend(payload)
 		}
 	}
@@ -660,7 +662,13 @@ func (h *ChatHub) sendMuteStatus(client *ChatClient) {
 // readPump reads messages from the WebSocket connection.
 // There is at most one reader per connection.
 func (c *ChatClient) readPump() {
+	// The pumps run on their own goroutines, outside the router's Recoverer:
+	// a panic in one member's message handling must end that connection, not
+	// the process.
 	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("chat read loop panicked", "user_id", c.userID, "panic", r)
+		}
 		c.hub.unregister <- c
 		c.closeConn()
 	}()
@@ -749,6 +757,9 @@ func (c *ChatClient) readPump() {
 func (c *ChatClient) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("chat write loop panicked", "user_id", c.userID, "panic", r)
+		}
 		ticker.Stop()
 		c.closeConn()
 	}()
@@ -762,6 +773,13 @@ func (c *ChatClient) writePump() {
 			return
 
 		case message := <-c.send:
+			// select picks at random when both are ready; don't spend another
+			// write deadline on a client that has already been dropped.
+			select {
+			case <-c.done:
+				return
+			default:
+			}
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
