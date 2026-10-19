@@ -20,14 +20,24 @@ func NewActivityLogRepo(db *sql.DB) repository.ActivityLogRepository {
 }
 
 func (r *ActivityLogRepo) Create(ctx context.Context, log *model.ActivityLog) error {
-	query := `INSERT INTO activity_logs (event_type, actor_id, message, metadata)
-		VALUES ($1, $2, $3, $4)
+	query := `INSERT INTO activity_logs (event_type, actor_id, message, metadata, staff_only)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at`
 	err := r.db.QueryRowContext(ctx, query,
-		log.EventType, log.ActorID, log.Message, log.Metadata,
+		log.EventType, log.ActorID, log.Message, log.Metadata, log.StaffOnly,
 	).Scan(&log.ID, &log.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create activity log: %w", err)
+	}
+	return nil
+}
+
+func (r *ActivityLogRepo) HideTorrentEntries(ctx context.Context, torrentID int64) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE activity_logs SET staff_only = true
+		WHERE event_type IN ('torrent_uploaded', 'torrent_published', 'torrent_edited', 'torrent_deleted')
+		  AND (metadata ->> 'torrent_id')::bigint = $1`, torrentID)
+	if err != nil {
+		return fmt.Errorf("hide torrent activity: %w", err)
 	}
 	return nil
 }
@@ -53,6 +63,9 @@ func (r *ActivityLogRepo) List(ctx context.Context, opts repository.ListActivity
 		where += fmt.Sprintf(" AND al.event_type = $%d", argIdx)
 		args = append(args, *opts.EventType)
 		argIdx++
+	}
+	if opts.ExcludeStaffOnlyRows {
+		where += " AND NOT al.staff_only"
 	}
 	if opts.ActorID != nil {
 		where += fmt.Sprintf(" AND al.actor_id = $%d", argIdx)
@@ -81,7 +94,7 @@ func (r *ActivityLogRepo) List(ctx context.Context, opts repository.ListActivity
 
 	// Fetch with actor username
 	offset := (page - 1) * perPage
-	query := fmt.Sprintf(`SELECT al.id, al.event_type, al.actor_id, al.message, al.metadata, al.created_at
+	query := fmt.Sprintf(`SELECT al.id, al.event_type, al.actor_id, al.message, al.metadata, al.staff_only, al.created_at
 		FROM activity_logs al
 		%s ORDER BY al.created_at DESC LIMIT $%d OFFSET $%d`,
 		where, argIdx, argIdx+1)
@@ -97,7 +110,7 @@ func (r *ActivityLogRepo) List(ctx context.Context, opts repository.ListActivity
 	for rows.Next() {
 		var l model.ActivityLog
 		var metadata []byte
-		if err := rows.Scan(&l.ID, &l.EventType, &l.ActorID, &l.Message, &metadata, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.EventType, &l.ActorID, &l.Message, &metadata, &l.StaffOnly, &l.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan activity log: %w", err)
 		}
 		if metadata != nil {

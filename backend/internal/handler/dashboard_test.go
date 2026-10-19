@@ -35,6 +35,8 @@ type mockActivityLogRepo struct {
 	err  error
 }
 
+func (*mockActivityLogRepo) HideTorrentEntries(context.Context, int64) error { return nil }
+
 func (m *mockActivityLogRepo) Create(_ context.Context, _ *model.ActivityLog) error {
 	return nil
 }

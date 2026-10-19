@@ -19,9 +19,11 @@ import (
 // to the product activity log. Each event type gets its own listener — a
 // closure that knows how to build the log message for that specific event.
 func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogService, userRepo repository.UserRepository) {
-	listen := func(evtType event.Type, buildMsg func(event.Event) (string, event.Actor)) {
+	// listenEntry records an entry whose visibility depends on the event, not
+	// only on its type; listen, below, is the common case of a public one.
+	listenEntry := func(evtType event.Type, buildEntry func(event.Event) (string, event.Actor, bool)) {
 		bus.Subscribe(evtType, func(ctx context.Context, evt event.Event) error {
-			msg, actor := buildMsg(evt)
+			msg, actor, staffOnly := buildEntry(evt)
 			metadata := marshalMetadata(evt)
 			var actorID *int64
 			if actor.ID != 0 {
@@ -32,12 +34,20 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 				ActorID:   actorID,
 				Message:   msg,
 				Metadata:  metadata,
+				StaffOnly: staffOnly,
 			}
 			if err := logSvc.Create(ctx, entry); err != nil {
 				slog.Error("failed to write activity log", "event_type", string(evt.EventType()), "error", err)
 				return fmt.Errorf("write activity log: %w", err)
 			}
 			return nil
+		})
+	}
+
+	listen := func(evtType event.Type, buildMsg func(event.Event) (string, event.Actor)) {
+		listenEntry(evtType, func(evt event.Event) (string, event.Actor, bool) {
+			msg, actor := buildMsg(evt)
+			return msg, actor, false
 		})
 	}
 
@@ -76,12 +86,40 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s deleted %s", e.Actor.Username, e.Username), e.Actor
 	})
 
-	listen(event.TorrentUploaded, func(evt event.Event) (string, event.Actor) {
+	// The upload itself is the staff audit line: the torrent may still await
+	// moderation, and the uploader may be anonymous. Members learn of it from
+	// TorrentPublished, below, once it is public.
+	listenEntry(event.TorrentUploaded, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentUploadedEvent)
-		return fmt.Sprintf("%s uploaded torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
+		return fmt.Sprintf("%s submitted torrent: %s", e.Actor.Username, e.TorrentName), e.Actor, true
 	})
 
-	listen(event.TorrentEdited, func(evt event.Event) (string, event.Actor) {
+	// When a torrent turns anonymous, entries already public under the
+	// uploader's name go staff-only with it.
+	bus.Subscribe(event.TorrentEdited, func(ctx context.Context, evt event.Event) error {
+		e := evt.(*event.TorrentEditedEvent)
+		if !e.BecameAnonymous {
+			return nil
+		}
+		if err := logSvc.HideTorrentEntries(ctx, e.TorrentID); err != nil {
+			slog.Error("failed to hide activity of a torrent made anonymous", "torrent_id", e.TorrentID, "error", err)
+			return fmt.Errorf("hide torrent activity: %w", err)
+		}
+		return nil
+	})
+
+	// Credited to the uploader, not to whoever triggered the publish (an
+	// approving moderator): this line is what members read as the upload.
+	listen(event.TorrentPublished, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.TorrentPublishedEvent)
+		if e.Anonymous {
+			return fmt.Sprintf("Anonymous uploaded torrent: %s", e.Name), event.Actor{}
+		}
+		return fmt.Sprintf("%s uploaded torrent: %s", e.UploaderName, e.Name),
+			event.Actor{ID: e.UploaderID, Username: e.UploaderName}
+	})
+
+	listenEntry(event.TorrentEdited, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentEditedEvent)
 		// A ban is named, because the log is the only place it is recorded and
 		// "edited torrent" is indistinguishable from a rename. An edit that also
@@ -92,14 +130,14 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 			if *e.BannedChanged {
 				verb = "banned"
 			}
-			return fmt.Sprintf("%s %s torrent: %s", e.Actor.Username, verb, e.TorrentName), e.Actor
+			return torrentEntry(verb, e.Actor, e.TorrentName, e.TorrentPrivacy)
 		}
-		return fmt.Sprintf("%s edited torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
+		return torrentEntry("edited", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
-	listen(event.TorrentDeleted, func(evt event.Event) (string, event.Actor) {
+	listenEntry(event.TorrentDeleted, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentDeletedEvent)
-		return fmt.Sprintf("%s deleted torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
+		return torrentEntry("deleted", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
 	listen(event.TorrentReported, func(evt event.Event) (string, event.Actor) {
@@ -445,4 +483,20 @@ func marshalMetadata(evt event.Event) *string {
 	}
 	s := string(data)
 	return &s
+}
+
+// torrentEntry builds the log entry for a torrent edit or delete. A torrent
+// not public is logged for staff only, by name. On a public one, an anonymous
+// uploader acting on their own torrent is shown as "Anonymous" and recorded
+// with no actor, so members can neither read nor filter their way to the
+// name; staff still find it in the event's metadata.
+func torrentEntry(verb string, actor event.Actor, name string, p event.TorrentPrivacy) (string, event.Actor, bool) {
+	who := actor.Username
+	switch {
+	case p.Hidden:
+		return fmt.Sprintf("%s %s torrent: %s", who, verb, name), actor, true
+	case p.AnonymousActor:
+		who, actor = "Anonymous", event.Actor{}
+	}
+	return fmt.Sprintf("%s %s torrent: %s", who, verb, name), actor, false
 }
