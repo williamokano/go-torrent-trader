@@ -32,12 +32,18 @@ type stubChatMessageRepo struct {
 	lastBeforeID int64
 
 	createErr error
-	listErr   error
-	deleteErr error
-	bulkErr   error
+	// createPanic makes Create panic, standing in for any bug reached from
+	// a member's message.
+	createPanic bool
+	listErr     error
+	deleteErr   error
+	bulkErr     error
 }
 
 func (s *stubChatMessageRepo) Create(_ context.Context, msg *model.ChatMessage) error {
+	if s.createPanic {
+		panic("stub: create")
+	}
 	if s.createErr != nil {
 		return s.createErr
 	}

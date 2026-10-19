@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,9 @@ import (
 const (
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
+
+	// Time allowed for the close frame to a dropped client.
+	closeFrameWait = time.Second
 
 	// Time allowed to read the next pong message from the peer.
 	pongWait = 60 * time.Second
@@ -44,17 +48,22 @@ const (
 
 // ChatClient represents a connected WebSocket client.
 type ChatClient struct {
-	hub            *ChatHub
-	conn           *websocket.Conn
-	closeOnce      sync.Once // Ensures conn.Close() is called exactly once.
-	userID         int64
-	accessToken    string // For periodic re-validation.
-	perms          model.Permissions
+	hub         *ChatHub
+	conn        *websocket.Conn
+	closeOnce   sync.Once // Ensures conn.Close() is called exactly once.
+	userID      int64
+	accessToken string // For periodic re-validation.
+	perms       model.Permissions
+	// send is never closed: producers on other goroutines (the read loop,
+	// backfill) cannot coordinate with a close, and a send on a closed
+	// channel panics the process. done signals the end instead.
 	send           chan []byte // Buffered channel of outbound messages.
-	lastMsg        time.Time   // Rate limiting: time of last sent message.
-	msgCount       int         // Rate limiting: messages in current window.
-	strikeCount    int         // Anti-spam: consecutive rate limit violations.
-	lastStrikeTime time.Time   // Anti-spam: when the last strike occurred.
+	done           chan struct{}
+	stopOnce       sync.Once
+	lastMsg        time.Time // Rate limiting: time of last sent message.
+	msgCount       int       // Rate limiting: messages in current window.
+	strikeCount    int       // Anti-spam: consecutive rate limit violations.
+	lastStrikeTime time.Time // Anti-spam: when the last strike occurred.
 }
 
 // closeConn safely closes the WebSocket connection exactly once.
@@ -62,6 +71,30 @@ func (c *ChatClient) closeConn() {
 	c.closeOnce.Do(func() {
 		_ = c.conn.Close()
 	})
+}
+
+// stop tells the writer to exit, usually after a close frame; queued messages are
+// dropped. The hub stops a client once, as it removes it, but stopOnce keeps a
+// second call harmless rather than a close-of-closed-channel panic.
+func (c *ChatClient) stop() {
+	c.stopOnce.Do(func() { close(c.done) })
+}
+
+// trySend queues a message for the writer without blocking. It reports false
+// when the queue is full or the client has been stopped; the message is
+// dropped either way. Every send to a client goes through here.
+func (c *ChatClient) trySend(msg []byte) bool {
+	select {
+	case <-c.done:
+		return false
+	default:
+	}
+	select {
+	case c.send <- msg:
+		return true
+	default:
+		return false
+	}
 }
 
 // ChatBroadcast is a message to broadcast to all connected clients.
@@ -315,7 +348,7 @@ func (h *ChatHub) Run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				close(client.send)
+				client.stop()
 			}
 			h.mu.Unlock()
 			slog.Debug("chat client disconnected", "user_id", client.userID)
@@ -324,9 +357,7 @@ func (h *ChatHub) Run() {
 			h.mu.RLock()
 			var deadClients []*ChatClient
 			for client := range h.clients {
-				select {
-				case client.send <- msg.Data:
-				default:
+				if !client.trySend(msg.Data) {
 					// Client's send buffer is full — drop it.
 					deadClients = append(deadClients, client)
 				}
@@ -339,7 +370,7 @@ func (h *ChatHub) Run() {
 				for _, client := range deadClients {
 					if _, ok := h.clients[client]; ok {
 						delete(h.clients, client)
-						close(client.send)
+						client.stop()
 					}
 				}
 				h.mu.Unlock()
@@ -388,11 +419,9 @@ func (h *ChatHub) sendToUserLocal(userID int64, payload []byte) {
 
 	for client := range h.clients {
 		if client.userID == userID {
-			select {
-			case client.send <- payload:
-			default:
-				// Buffer full — skip (will be cleaned up on next broadcast).
-			}
+			// Buffer full: skip. A client that stays behind is dropped by the
+			// next broadcast.
+			client.trySend(payload)
 		}
 	}
 }
@@ -556,6 +585,7 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		accessToken: token,
 		perms:       sess.Permissions,
 		send:        make(chan []byte, 1024),
+		done:        make(chan struct{}),
 	}
 
 	h.register <- client
@@ -569,7 +599,7 @@ func (h *ChatHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Start the write pump (single writer goroutine per connection).
 	go client.writePump()
 
-	// readPump runs in the current goroutine (HandleWebSocket exits when it returns).
+	// readPump runs on its own goroutine; HandleWebSocket returns immediately.
 	go client.readPump()
 }
 
@@ -599,9 +629,7 @@ func (h *ChatHub) sendBackfill(client *ChatClient) {
 	}
 
 	// Send via the client's send channel (writePump handles the actual write).
-	select {
-	case client.send <- data:
-	default:
+	if !client.trySend(data) {
 		slog.Debug("failed to send backfill, client send buffer full")
 	}
 }
@@ -630,9 +658,7 @@ func (h *ChatHub) sendMuteStatus(client *ChatClient) {
 		return
 	}
 
-	select {
-	case client.send <- data:
-	default:
+	if !client.trySend(data) {
 		slog.Debug("failed to send mute status, client send buffer full")
 	}
 }
@@ -640,7 +666,13 @@ func (h *ChatHub) sendMuteStatus(client *ChatClient) {
 // readPump reads messages from the WebSocket connection.
 // There is at most one reader per connection.
 func (c *ChatClient) readPump() {
+	// The pumps run on their own goroutines, outside the router's Recoverer:
+	// a panic in one member's message handling must end that connection, not
+	// the process.
 	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("chat read loop panicked", "user_id", c.userID, "panic", r, "stack", string(debug.Stack()))
+		}
 		c.hub.unregister <- c
 		c.closeConn()
 	}()
@@ -710,10 +742,7 @@ func (c *ChatClient) readPump() {
 					"type":    "error",
 					"message": settings.rateLimitMessage,
 				})
-				select {
-				case c.send <- errPayload:
-				default:
-				}
+				c.trySend(errPayload)
 			}
 			continue
 		}
@@ -732,19 +761,31 @@ func (c *ChatClient) readPump() {
 func (c *ChatClient) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("chat write loop panicked", "user_id", c.userID, "panic", r, "stack", string(debug.Stack()))
+		}
 		ticker.Stop()
 		c.closeConn()
 	}()
 
 	for {
 		select {
-		case message, ok := <-c.send:
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				// Hub closed the channel — send close frame.
-				_ = c.conn.WriteMessage(websocket.CloseMessage, nil)
+		case <-c.done:
+			// The hub dropped this client — send a close frame. Briefly: a
+			// client dropped for not reading will not read this either.
+			_ = c.conn.SetWriteDeadline(time.Now().Add(closeFrameWait))
+			_ = c.conn.WriteMessage(websocket.CloseMessage, nil)
+			return
+
+		case message := <-c.send:
+			// select picks at random when both are ready; don't spend another
+			// write deadline on a client that has already been dropped.
+			select {
+			case <-c.done:
 				return
+			default:
 			}
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
@@ -796,14 +837,12 @@ func (h *ChatHub) handleIncomingMessage(client *ChatClient, text string) {
 
 	msg, err := h.chatSvc.SendMessage(ctx, client.userID, text)
 	if err != nil {
+		slog.Debug("chat message rejected", "user_id", client.userID, "error", err)
 		errPayload, _ := json.Marshal(map[string]interface{}{
 			"type":    "error",
 			"message": err.Error(),
 		})
-		select {
-		case client.send <- errPayload:
-		default:
-		}
+		client.trySend(errPayload)
 		return
 	}
 
