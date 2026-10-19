@@ -9,5 +9,8 @@ type ActivityLog struct {
 	ActorID   *int64
 	Message   string
 	Metadata  *string // JSON, optional extra data
+	// StaffOnly hides this entry from members whatever its event type: an
+	// upload still awaiting moderation is not public yet.
+	StaffOnly bool
 	CreatedAt time.Time
 }

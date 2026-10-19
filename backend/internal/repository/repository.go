@@ -577,8 +577,10 @@ type ListActivityLogsOptions struct {
 	IncludeStaffOnly bool
 	// ExcludeEventTypes filters out entries with these event types.
 	ExcludeEventTypes []string
-	Page              int
-	PerPage           int
+	// ExcludeStaffOnlyRows filters out entries flagged staff-only on their own.
+	ExcludeStaffOnlyRows bool
+	Page                 int
+	PerPage              int
 }
 
 // ReseedRequestRepository defines persistence operations for reseed requests.

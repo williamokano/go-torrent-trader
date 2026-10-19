@@ -456,3 +456,47 @@ func TestChatDeletionsAreStaffOnlyButMutesAreNot(t *testing.T) {
 		}
 	}
 }
+
+// Upload, edit and delete entries show members only what the torrent allows:
+// nothing while it awaits moderation, and "Anonymous" with no actor for its
+// anonymous uploader — the actor stays in the staff-only metadata.
+func TestListener_TorrentEntriesRespectPrivacy(t *testing.T) {
+	bob := event.Actor{ID: 5, Username: "bob"}
+	cases := []struct {
+		name          string
+		evt           event.Event
+		wantMsg       string
+		wantActor     bool
+		wantStaffOnly bool
+	}{
+		{"anonymous upload", &event.TorrentUploadedEvent{Base: event.NewBase(event.TorrentUploaded, bob), TorrentID: 1, TorrentName: "T",
+			TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}}, "Anonymous uploaded torrent: T", false, false},
+		{"anonymous uploader edits", &event.TorrentEditedEvent{Base: event.NewBase(event.TorrentEdited, bob), TorrentID: 1, TorrentName: "T",
+			TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}}, "Anonymous edited torrent: T", false, false},
+		{"anonymous uploader deletes", &event.TorrentDeletedEvent{Base: event.NewBase(event.TorrentDeleted, bob), TorrentID: 1, TorrentName: "T",
+			TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}}, "Anonymous deleted torrent: T", false, false},
+		{"upload awaiting moderation", &event.TorrentUploadedEvent{Base: event.NewBase(event.TorrentUploaded, bob), TorrentID: 1, TorrentName: "T",
+			TorrentPrivacy: event.TorrentPrivacy{Hidden: true, AnonymousActor: true}}, "bob uploaded torrent: T", true, true},
+		{"public named upload", &event.TorrentUploadedEvent{Base: event.NewBase(event.TorrentUploaded, bob), TorrentID: 1, TorrentName: "T"},
+			"bob uploaded torrent: T", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, bus := setup()
+			bus.Publish(context.Background(), tc.evt)
+			if len(repo.logs) != 1 {
+				t.Fatalf("expected 1 log, got %d", len(repo.logs))
+			}
+			got := repo.logs[0]
+			if got.Message != tc.wantMsg {
+				t.Errorf("message = %q, want %q", got.Message, tc.wantMsg)
+			}
+			if (got.ActorID != nil) != tc.wantActor {
+				t.Errorf("actor_id = %v, want present=%v", got.ActorID, tc.wantActor)
+			}
+			if got.StaffOnly != tc.wantStaffOnly {
+				t.Errorf("staff_only = %v, want %v", got.StaffOnly, tc.wantStaffOnly)
+			}
+		})
+	}
+}

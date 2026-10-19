@@ -351,9 +351,10 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 	}
 
 	s.eventBus.Publish(ctx, &event.TorrentUploadedEvent{
-		Base:        event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, uploaderID)),
-		TorrentID:   torrent.ID,
-		TorrentName: torrent.Name,
+		Base:           event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, uploaderID)),
+		TorrentID:      torrent.ID,
+		TorrentName:    torrent.Name,
+		TorrentPrivacy: torrentPrivacy(torrent, uploaderID),
 	})
 
 	// With moderation off the upload is public the moment it lands, so this is
@@ -602,10 +603,11 @@ func (s *TorrentService) EditTorrent(ctx context.Context, torrentID, userID int6
 	}
 
 	s.eventBus.Publish(ctx, &event.TorrentEditedEvent{
-		Base:          event.NewBase(event.TorrentEdited, s.actorFromUserID(ctx, userID)),
-		TorrentID:     torrent.ID,
-		TorrentName:   torrent.Name,
-		BannedChanged: bannedChanged,
+		Base:           event.NewBase(event.TorrentEdited, s.actorFromUserID(ctx, userID)),
+		TorrentID:      torrent.ID,
+		TorrentName:    torrent.Name,
+		BannedChanged:  bannedChanged,
+		TorrentPrivacy: torrentPrivacy(torrent, userID),
 	})
 
 	return torrent, nil
@@ -801,9 +803,10 @@ func (s *TorrentService) DeleteTorrent(ctx context.Context, torrentID, userID in
 	}
 
 	s.eventBus.Publish(ctx, &event.TorrentDeletedEvent{
-		Base:        event.NewBase(event.TorrentDeleted, s.actorFromUserID(ctx, userID)),
-		TorrentID:   torrentID,
-		TorrentName: torrent.Name,
+		Base:           event.NewBase(event.TorrentDeleted, s.actorFromUserID(ctx, userID)),
+		TorrentID:      torrentID,
+		TorrentName:    torrent.Name,
+		TorrentPrivacy: torrentPrivacy(torrent, userID),
 	})
 
 	return nil
@@ -955,6 +958,16 @@ func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID i
 		return nil, fmt.Errorf("approve torrent: %w", err)
 	}
 	s.publishModerated(ctx, torrent, userID, model.ModerationApproved)
+	// The upload was logged for staff only while it waited; approval is when
+	// members first see it, credited to its uploader (or "Anonymous").
+	approved := *torrent
+	approved.ModerationStatus = model.ModerationApproved
+	s.eventBus.Publish(ctx, &event.TorrentUploadedEvent{
+		Base:           event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, torrent.UploaderID)),
+		TorrentID:      torrent.ID,
+		TorrentName:    torrent.Name,
+		TorrentPrivacy: torrentPrivacy(&approved, torrent.UploaderID),
+	})
 	published, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
 		return nil, err
@@ -1162,4 +1175,14 @@ func (s *TorrentService) rewriteAnnounce(data []byte, passkey *string) ([]byte, 
 	}
 
 	return result, nil
+}
+
+// torrentPrivacy is what a torrent event may show members about torrent when
+// actorID acted on it: nothing while it is not yet approved, and not the
+// actor's name when the actor is its anonymous uploader.
+func torrentPrivacy(torrent *model.Torrent, actorID int64) event.TorrentPrivacy {
+	return event.TorrentPrivacy{
+		Hidden:         torrent.ModerationStatus != model.ModerationApproved,
+		AnonymousActor: torrent.Anonymous && actorID == torrent.UploaderID,
+	}
 }

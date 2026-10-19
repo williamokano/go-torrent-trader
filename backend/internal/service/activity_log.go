@@ -31,6 +31,7 @@ func (s *ActivityLogService) Create(ctx context.Context, log *model.ActivityLog)
 func (s *ActivityLogService) List(ctx context.Context, opts repository.ListActivityLogsOptions) ([]model.ActivityLog, int64, error) {
 	if !opts.IncludeStaffOnly {
 		opts.ExcludeEventTypes = append(opts.ExcludeEventTypes, event.StaffOnlyTypeStrings()...)
+		opts.ExcludeStaffOnlyRows = true
 	}
 	if opts.Page <= 0 {
 		opts.Page = 1

@@ -19,9 +19,11 @@ import (
 // to the product activity log. Each event type gets its own listener — a
 // closure that knows how to build the log message for that specific event.
 func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogService, userRepo repository.UserRepository) {
-	listen := func(evtType event.Type, buildMsg func(event.Event) (string, event.Actor)) {
+	// listenEntry is listen for entries whose visibility depends on the
+	// event, not only on its type.
+	listenEntry := func(evtType event.Type, buildEntry func(event.Event) (string, event.Actor, bool)) {
 		bus.Subscribe(evtType, func(ctx context.Context, evt event.Event) error {
-			msg, actor := buildMsg(evt)
+			msg, actor, staffOnly := buildEntry(evt)
 			metadata := marshalMetadata(evt)
 			var actorID *int64
 			if actor.ID != 0 {
@@ -32,12 +34,20 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 				ActorID:   actorID,
 				Message:   msg,
 				Metadata:  metadata,
+				StaffOnly: staffOnly,
 			}
 			if err := logSvc.Create(ctx, entry); err != nil {
 				slog.Error("failed to write activity log", "event_type", string(evt.EventType()), "error", err)
 				return fmt.Errorf("write activity log: %w", err)
 			}
 			return nil
+		})
+	}
+
+	listen := func(evtType event.Type, buildMsg func(event.Event) (string, event.Actor)) {
+		listenEntry(evtType, func(evt event.Event) (string, event.Actor, bool) {
+			msg, actor := buildMsg(evt)
+			return msg, actor, false
 		})
 	}
 
@@ -76,12 +86,12 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s deleted %s", e.Actor.Username, e.Username), e.Actor
 	})
 
-	listen(event.TorrentUploaded, func(evt event.Event) (string, event.Actor) {
+	listenEntry(event.TorrentUploaded, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentUploadedEvent)
-		return fmt.Sprintf("%s uploaded torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
+		return torrentEntry("%s uploaded torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
-	listen(event.TorrentEdited, func(evt event.Event) (string, event.Actor) {
+	listenEntry(event.TorrentEdited, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentEditedEvent)
 		// A ban is named, because the log is the only place it is recorded and
 		// "edited torrent" is indistinguishable from a rename. An edit that also
@@ -92,14 +102,14 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 			if *e.BannedChanged {
 				verb = "banned"
 			}
-			return fmt.Sprintf("%s %s torrent: %s", e.Actor.Username, verb, e.TorrentName), e.Actor
+			return torrentEntry("%s "+verb+" torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
 		}
-		return fmt.Sprintf("%s edited torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
+		return torrentEntry("%s edited torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
-	listen(event.TorrentDeleted, func(evt event.Event) (string, event.Actor) {
+	listenEntry(event.TorrentDeleted, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentDeletedEvent)
-		return fmt.Sprintf("%s deleted torrent: %s", e.Actor.Username, e.TorrentName), e.Actor
+		return torrentEntry("%s deleted torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
 	listen(event.TorrentReported, func(evt event.Event) (string, event.Actor) {
@@ -445,4 +455,19 @@ func marshalMetadata(evt event.Event) *string {
 	}
 	s := string(data)
 	return &s
+}
+
+// torrentEntry builds the log entry for a torrent upload, edit or delete. A
+// torrent not yet public is logged for staff only, by name. On a public one,
+// an anonymous uploader acting on their own torrent is shown as "Anonymous"
+// and recorded with no actor, so members can neither read nor filter their
+// way to the name; staff still find it in the event's metadata.
+func torrentEntry(format string, actor event.Actor, name string, p event.TorrentPrivacy) (string, event.Actor, bool) {
+	if p.Hidden {
+		return fmt.Sprintf(format, actor.Username, name), actor, true
+	}
+	if p.AnonymousActor {
+		return fmt.Sprintf(format, "Anonymous", name), event.Actor{}, false
+	}
+	return fmt.Sprintf(format, actor.Username, name), actor, false
 }

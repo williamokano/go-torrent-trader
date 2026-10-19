@@ -171,6 +171,18 @@ type TorrentUploadedEvent struct {
 	Base
 	TorrentID   int64  `json:"torrent_id"`
 	TorrentName string `json:"torrent_name"`
+	TorrentPrivacy
+}
+
+// TorrentPrivacy says how much a torrent event may show to members. Staff
+// always see everything: the actor stays in the event's metadata.
+type TorrentPrivacy struct {
+	// Hidden is set while the torrent is not public — still awaiting
+	// moderation, or rejected. Its log entry is then staff-only.
+	Hidden bool `json:"hidden,omitempty"`
+	// AnonymousActor is set when the actor is the torrent's anonymous
+	// uploader, who must not be named to members.
+	AnonymousActor bool `json:"anonymous_actor,omitempty"`
 }
 
 type TorrentEditedEvent struct {
@@ -186,12 +198,14 @@ type TorrentEditedEvent struct {
 	// rename, a description tweak and a ban all reached the log as the same
 	// sentence before this field existed.
 	BannedChanged *bool `json:"banned_changed,omitempty"`
+	TorrentPrivacy
 }
 
 type TorrentDeletedEvent struct {
 	Base
 	TorrentID   int64  `json:"torrent_id"`
 	TorrentName string `json:"torrent_name"`
+	TorrentPrivacy
 }
 
 type TorrentReportedEvent struct {
