@@ -13,8 +13,9 @@ import (
 // existing table is already accounted for. Merged migrations are immutable, so
 // these are recorded rather than fixed in place.
 var knownSkippedCreates = map[string]bool{
-	// forums, forum_topics and forum_posts already existed from 007; the
-	// constraints its CREATE bodies described were applied by 097.
+	// forums, forum_topics and forum_posts already existed from 007. 097
+	// applied the constraints from its CREATE bodies that are still wanted;
+	// the author cascades were declined on purpose.
 	"039_create_forums.sql": true,
 }
 
@@ -33,8 +34,10 @@ func TestMigrationsNeverRecreateAnExistingTable(t *testing.T) {
 	}
 	sort.Strings(files)
 
-	create := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)`)
-	drop := regexp.MustCompile(`(?i)DROP\s+TABLE\s+(IF\s+EXISTS\s+)?(\w+)`)
+	// Names may be quoted or schema-qualified; the table is the last part.
+	create := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?`)
+	drop := regexp.MustCompile(`(?i)DROP\s+TABLE\s+(IF\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?`)
+	comment := regexp.MustCompile(`--[^\n]*`)
 	existing := map[string]string{} // table -> migration that created it
 
 	for _, path := range files {
@@ -46,6 +49,7 @@ func TestMigrationsNeverRecreateAnExistingTable(t *testing.T) {
 		if i := strings.Index(up, "-- +goose Down"); i >= 0 {
 			up = up[:i]
 		}
+		up = comment.ReplaceAllString(up, "")
 		name := filepath.Base(path)
 
 		// Statements run in order, so walk drops and creates by position.
