@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
@@ -266,14 +267,38 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// announce, started or not (a reaped peer comes back without one), just
 	// records its counters; crediting them would let any client claim
 	// arbitrary totals under a fresh peer_id.
+	//
+	// The previous state comes from an atomic swap, not from the lookup: a
+	// client that fires several announces at once would otherwise have each
+	// one measured against the same stored counters — the same bytes credited
+	// again, the same leecher-to-seeder change counted again. From here on
+	// existingPeer is the state this announce replaced; a peer removed since
+	// the lookup is a new peer (it has already passed, or been exempt from,
+	// the new-peer gates above — a removal in that window is rare enough to
+	// let it through).
 	var uploadDelta, downloadDelta int64
-	if existingPeer != nil {
-		// Clamp at zero: counters restart when the client does.
-		uploadDelta = max(0, req.Uploaded-existingPeer.Uploaded)
-		downloadDelta = max(0, req.Downloaded-existingPeer.Downloaded)
-	}
-
 	isSeeder := req.Left == 0
+	swapped := false
+	if existingPeer != nil {
+		prev, found, err := s.peers.SwapState(ctx, torrent.ID, user.ID, req.PeerID, model.PeerState{
+			Uploaded: req.Uploaded, Downloaded: req.Downloaded, LeftBytes: req.Left, Seeder: isSeeder,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("swap peer state: %w", err)
+		}
+		if found {
+			replaced := *existingPeer
+			replaced.Uploaded, replaced.Downloaded = prev.Uploaded, prev.Downloaded
+			replaced.LeftBytes, replaced.Seeder = prev.LeftBytes, prev.Seeder
+			existingPeer = &replaced
+			swapped = true
+			// Clamp at zero: counters restart when the client does.
+			uploadDelta = max(0, req.Uploaded-prev.Uploaded)
+			downloadDelta = max(0, req.Downloaded-prev.Downloaded)
+		} else {
+			existingPeer = nil
+		}
+	}
 
 	// Fire-and-forget cheat detection — errors logged but never block announce.
 	if s.cheatDetection != nil {
@@ -303,7 +328,13 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	default:
 		// started or regular announce
 		if err := s.handleAnnounce(ctx, torrent, user, existingPeer, req, isSeeder); err != nil {
-			return nil, fmt.Errorf("handle announce: %w", err)
+			// Once the swap has moved this peer's baseline, the traffic it
+			// measured must still be credited below: a retry would measure
+			// nothing. Only a brand-new peer that could not be stored fails.
+			if !swapped {
+				return nil, fmt.Errorf("handle announce: %w", err)
+			}
+			slog.Error("failed to refresh peer after swap", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
 		}
 	}
 
@@ -729,7 +760,7 @@ func (s *TrackerService) getWaitTimeTiers(ctx context.Context) []WaitTimeTier {
 func buildCompactPeerList(peers []model.Peer, excludePeerID []byte, maxPeers int) []byte {
 	var eligible []model.Peer
 	for _, p := range peers {
-		if bytesEqual(p.PeerID, excludePeerID) {
+		if bytes.Equal(p.PeerID, excludePeerID) {
 			continue
 		}
 		ip := net.ParseIP(p.IP)
@@ -758,18 +789,6 @@ func buildCompactPeerList(peers []model.Peer, excludePeerID []byte, maxPeers int
 	}
 
 	return buf
-}
-
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // countedDownload applies freeleech policy to a raw download delta. A free

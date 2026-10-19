@@ -7,11 +7,16 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // StalePeerCutoff defines how long after the last announce a peer is
-// considered stale. This is typically announce_interval * 1.5.
-const StalePeerCutoff = 45 * time.Minute
+// considered stale: two and a half announce intervals. A removed peer comes
+// back with no baseline and its traffic since the last announce goes
+// uncredited, so one missed announce (a sleeping laptop, a network blip)
+// must not be enough to remove it — at 1.5 intervals it was.
+const StalePeerCutoff = 5 * service.DefaultInterval * time.Second / 2
 
 // NewSendEmailHandler returns a handler that sends emails using the provided EmailSender.
 func NewSendEmailHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Job[SendEmailArgs]) error {

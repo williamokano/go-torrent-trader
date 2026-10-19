@@ -10,6 +10,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // --- mock PeerRepository ---------------------------------------------------
@@ -42,6 +43,10 @@ func (m *mockPeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error) {
 func (m *mockPeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
+func (*mockPeerRepo) SwapState(context.Context, int64, int64, []byte, model.PeerState) (model.PeerState, bool, error) {
+	return model.PeerState{}, false, nil
+}
+
 func (m *mockPeerRepo) DeleteStale(_ context.Context, before time.Time) (int64, error) {
 	m.deleteStaleCall = &before
 	return m.deleteStaleCount, m.deleteStaleErr
@@ -149,7 +154,7 @@ func TestCleanupHandler_RemovesStalePeers(t *testing.T) {
 		t.Fatal("expected DeleteStale to be called")
 	}
 
-	// The cutoff should be approximately now - 30 minutes.
+	// The cutoff should be approximately now - StalePeerCutoff.
 	expectedCutoff := before.Add(-StalePeerCutoff)
 	diff := peerRepo.deleteStaleCall.Sub(expectedCutoff)
 	if diff < 0 {
@@ -195,5 +200,13 @@ func TestCleanupHandler_NoPeersRemovedSkipsRecount(t *testing.T) {
 
 	if err := handler(context.Background(), task); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// One missed announce must not get a peer removed: it would come back with no
+// baseline and lose the credit for everything since its last announce.
+func TestStalePeerCutoffOutlastsAMissedAnnounce(t *testing.T) {
+	if interval := time.Duration(service.DefaultInterval) * time.Second; StalePeerCutoff <= 2*interval {
+		t.Fatalf("StalePeerCutoff = %v, want more than two announce intervals (%v)", StalePeerCutoff, 2*interval)
 	}
 }

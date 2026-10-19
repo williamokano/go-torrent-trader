@@ -111,6 +111,13 @@ type PeerRepository interface {
 	CountByTorrent(ctx context.Context, torrentID int64) (int, error)
 	CountTotalByUser(ctx context.Context, userID int64) (int, error)
 	Upsert(ctx context.Context, peer *model.Peer) error
+	// SwapState stores a peer's reported counters, bytes left and seeder
+	// flag, and returns the ones they replace, in one statement that locks
+	// the row: concurrent announces of the same peer each see a different
+	// previous state, so the same bytes are never credited twice and a
+	// leecher-to-seeder change is counted once. found is false when the peer
+	// is not stored. Upsert never rewrites these columns on an existing row.
+	SwapState(ctx context.Context, torrentID, userID int64, peerID []byte, next model.PeerState) (prev model.PeerState, found bool, err error)
 	Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error
 	DeleteStale(ctx context.Context, before time.Time) (int64, error)
 }

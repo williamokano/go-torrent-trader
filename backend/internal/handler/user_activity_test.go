@@ -50,6 +50,10 @@ func (m *mockActivityPeerRepo) Upsert(context.Context, *model.Peer) error { retu
 func (m *mockActivityPeerRepo) Delete(context.Context, int64, int64, []byte) error {
 	return nil
 }
+func (*mockActivityPeerRepo) SwapState(context.Context, int64, int64, []byte, model.PeerState) (model.PeerState, bool, error) {
+	return model.PeerState{}, false, nil
+}
+
 func (m *mockActivityPeerRepo) DeleteStale(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
