@@ -207,6 +207,9 @@ func (m *mockUserRepoForMessage) Count(context.Context) (int64, error) { return 
 func (m *mockUserRepoForMessage) Create(context.Context, *model.User) error {
 	return nil
 }
+func (*mockUserRepoForMessage) UpdateFields(context.Context, int64, model.UserPatch) error {
+	return nil
+}
 func (m *mockUserRepoForMessage) Update(context.Context, *model.User) error {
 	return nil
 }

@@ -67,20 +67,13 @@ func newCleanupTestUser(t *testing.T, db *sql.DB, enabled bool, createdAt time.T
 	return u
 }
 
-// banUser disables the user the way the admin ban paths do (AdminService.
-// UpdateUser / QuickBanUser: read-modify-write the whole row, through
-// User.Disable, which also ends any pending confirmation) — in particular, it
-// must not clobber ActivatedAt.
+// banUser disables the user the way the ban paths do — a DisablePatch, which
+// also ends any pending confirmation and leaves ActivatedAt alone.
 func banUser(t *testing.T, repo *postgres.UserRepo, u *model.User) {
 	t.Helper()
 	ctx := context.Background()
 
-	fresh, err := repo.GetByID(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("GetByID before ban: %v", err)
-	}
-	fresh.Disable()
-	if err := repo.Update(ctx, fresh); err != nil {
+	if err := repo.UpdateFields(ctx, u.ID, model.DisablePatch(nil)); err != nil {
 		t.Fatalf("banning user: %v", err)
 	}
 }

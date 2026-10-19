@@ -178,6 +178,19 @@ func (m *mockInviteUserRepo) Create(_ context.Context, user *model.User) error {
 	return nil
 }
 
+func (m *mockInviteUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
+	}
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
+}
+
 func (m *mockInviteUserRepo) Update(_ context.Context, user *model.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

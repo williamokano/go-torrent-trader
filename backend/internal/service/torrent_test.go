@@ -233,6 +233,19 @@ func (m *memUserRepo) Count(_ context.Context) (int64, error) {
 }
 
 func (m *memUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *memUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
+	}
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
+}
+
 func (m *memUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
 func (m *memUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
 	return false, nil

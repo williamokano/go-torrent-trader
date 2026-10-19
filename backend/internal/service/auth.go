@@ -456,18 +456,23 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ip string) (*
 	}
 
 	// Update last login — non-fatal, log and continue
+	// Only these columns: a login takes an Argon2 hash's time between reading
+	// the user and writing back, and a ban, demotion or password reset that
+	// lands in between must survive it.
 	now := time.Now()
-	user.LastLogin = &now
-	user.IP = &ip
-	// A successful login proves the account is under someone's control even
-	// if this is the only authenticated request they ever make — set once,
-	// so it reads as "first activated at", not "last login". See ActivatedAt
-	// on model.User and BE-8.19.
-	if user.ActivatedAt == nil {
-		user.ActivatedAt = &now
+	login := model.UserPatch{
+		LastLogin: model.To(&now),
+		IP:        model.To(&ip),
+		// A successful login proves the account is under someone's control
+		// even if this is the only authenticated request they ever make —
+		// set once, so it reads as "first activated at", not "last login".
+		// See ActivatedAt on model.User and BE-8.19.
+		ActivateAt: model.To(now),
 	}
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, login); err != nil {
 		slog.Error("failed to update last login", "user_id", user.ID, "error", err)
+	} else {
+		user.Apply(login)
 	}
 
 	s.eventBus.Publish(ctx, &event.UserLoginEvent{
@@ -579,13 +584,13 @@ func (s *AuthService) upgradePasswordHash(ctx context.Context, user *model.User,
 		return
 	}
 
-	user.PasswordHash = hashed
-	user.PasswordScheme = SchemeArgon2id
-	if err := s.users.Update(ctx, user); err != nil {
+	upgrade := model.UserPatch{PasswordHash: model.To(hashed), PasswordScheme: model.To(SchemeArgon2id)}
+	if err := s.users.UpdateFields(ctx, user.ID, upgrade); err != nil {
 		slog.Error("could not store a re-hashed migrated password",
 			"user_id", user.ID, "error", err)
 		return
 	}
+	user.Apply(upgrade)
 	slog.Info("upgraded a migrated password to argon2id", "user_id", user.ID)
 }
 
@@ -706,9 +711,10 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	user.PasswordHash = newHash
-	user.PasswordScheme = "argon2id"
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{
+		PasswordHash:   model.To(newHash),
+		PasswordScheme: model.To(SchemeArgon2id),
+	}); err != nil {
 		return fmt.Errorf("update password: %w", err)
 	}
 

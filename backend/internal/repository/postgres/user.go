@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -11,9 +12,9 @@ import (
 )
 
 // userColumns lists every column in the users table in scan order.
-// bonus_points is read here but deliberately NOT written by Create/Update:
-// all writes to it go through BonusRepo's atomic statements, so the full-row
-// Update can never clobber points awarded concurrently by the bonus worker.
+// bonus_points is read here but deliberately NOT written by Create or
+// UpdateFields: all writes to it go through BonusRepo's atomic statements, so
+// no other write can clobber points awarded concurrently by the bonus worker.
 const userColumns = `id, username, email, password_hash, password_scheme, passkey,
 	group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 	ip, last_login, last_access, invites, bonus_points, warned, warn_until, donor,
@@ -145,36 +146,27 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 }
 
-// Update writes every user-editable column except can_download, can_upload,
-// can_chat, can_invite, invites, uploaded, and downloaded. The four privilege
-// flags are governed by RestrictionService; invites is governed by
-// InviteService/InviteDistributionService's AdjustInvites and AdminService's
-// SetInvites; uploaded/downloaded are governed by IncrementStats (announce
-// accrual) and AdminService's SetStats. All seven are deliberately excluded
-// here — mirroring how bonus_points is excluded — so a stale read-modify-write
-// elsewhere (login's LastLogin write, an admin profile save) can never clobber
-// a privilege flag changed concurrently by a restriction apply/lift, an invite
-// balance changed concurrently by a grant/decrement, or stats accrued
-// concurrently by an announce. Use SetPrivilegeFlag, AdjustInvites,
-// SetInvites, or SetStats to change one of those columns.
-func (r *UserRepo) Update(ctx context.Context, user *model.User) error {
-	return updateUserRow(ctx, r.db, user)
+// UpdateFields writes the columns the patch sets, and nothing else. Columns
+// with their own atomic writers — the privilege flags (SetPrivilegeFlag),
+// invites (AdjustInvites/SetInvites), stats (IncrementStats/SetStats) and
+// bonus points (BonusRepo) — are not in UserPatch at all.
+func (r *UserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	return updateUserFields(ctx, r.db, id, p)
 }
 
-// UpdateWithHistory is Update plus an audit trail: the full-row write and the
-// user_edit_history rows describing it are committed in a single transaction,
+// UpdateFieldsWithHistory is UpdateFields plus an audit trail: the write and
+// the user_edit_history rows describing it are committed in one transaction,
 // so a failed audit insert rolls back the update instead of leaving a
-// persisted change with no trail. This is AdminService's path for the profile
-// fields it diffs (username, email, group, enabled, warned, ...); a nil or
-// empty entries slice skips the audit insert but still performs the update.
-func (r *UserRepo) UpdateWithHistory(ctx context.Context, user *model.User, entries []model.UserEditHistory) error {
+// persisted change with no trail. A nil or empty entries slice skips the
+// audit insert but still performs the update.
+func (r *UserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("update user with history: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := updateUserRow(ctx, tx, user); err != nil {
+	if err := updateUserFields(ctx, tx, id, p); err != nil {
 		return fmt.Errorf("update user with history: %w", err)
 	}
 	if err := insertEditHistoryTx(ctx, tx, entries); err != nil {
@@ -186,32 +178,107 @@ func (r *UserRepo) UpdateWithHistory(ctx context.Context, user *model.User, entr
 	return nil
 }
 
-// updateUserRow runs the full-row UPDATE. awaiting_confirmation can only be
-// cleared here, never set: a row read while pending and written back after a
-// concurrent disable must not make the account confirmable again. Only Create
-// sets it.
-//
-// It runs against either the pool or an open transaction (DBTX is satisfied
-// by both *sql.DB and *sql.Tx), so Update and UpdateWithHistory share one
-// query instead of drifting apart.
-func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
-	query := `UPDATE users SET
-		username = $1, email = $2, password_hash = $3, password_scheme = $4,
-		passkey = $5, group_id = $6, avatar = $7, title = $8, info = $9,
-		enabled = $10, parked = $11, ip = $12, last_login = $13, last_access = $14,
-		warned = $15, warn_until = $16, donor = $17, invited_by = $18,
-		can_forum = $19, disabled_until = $20, activated_at = $21,
-		awaiting_confirmation = awaiting_confirmation AND $22, updated_at = NOW()
-	WHERE id = $23
-	RETURNING updated_at`
+// LiftExpiredBans re-enables every account whose timed ban ended before now,
+// writing what model.UserPatch.SetEnabled(true) writes — keep the two alike;
+// checking that as each row is written: an account whose ban was made
+// permanent (disabled_until cleared) after any earlier read is not touched.
+// Lifting a ban also counts as activation, as enabling does everywhere.
+func (r *UserRepo) LiftExpiredBans(ctx context.Context, now time.Time) ([]model.User, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		UPDATE users SET
+			enabled = true, awaiting_confirmation = false,
+			activated_at = COALESCE(activated_at, $1),
+			disabled_until = NULL, updated_at = NOW()
+		WHERE enabled = false AND disabled_until IS NOT NULL AND disabled_until < $1
+		RETURNING id, username`, now)
+	if err != nil {
+		return nil, fmt.Errorf("lift expired bans: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
 
-	return q.QueryRowContext(ctx, query,
-		user.Username, user.Email, user.PasswordHash, user.PasswordScheme,
-		user.Passkey, user.GroupID, user.Avatar, user.Title, user.Info,
-		user.Enabled, user.Parked, user.IP, user.LastLogin, user.LastAccess,
-		user.Warned, user.WarnUntil, user.Donor, user.InvitedBy,
-		user.CanForum, user.DisabledUntil, user.ActivatedAt, user.AwaitingConfirmation, user.ID,
-	).Scan(&user.UpdatedAt)
+	var lifted []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.Username); err != nil {
+			return nil, fmt.Errorf("lift expired bans: scan: %w", err)
+		}
+		lifted = append(lifted, u)
+	}
+	return lifted, rows.Err()
+}
+
+// setBuilder collects the SET clauses and arguments of an UPDATE.
+type setBuilder struct {
+	sets []string
+	args []any
+}
+
+// setColumn adds "column = $n" when the patch field is set.
+func setColumn[T any](b *setBuilder, column string, f model.Set[T]) {
+	if !f.Valid {
+		return
+	}
+	b.args = append(b.args, f.Value)
+	b.sets = append(b.sets, fmt.Sprintf("%s = $%d", column, len(b.args)))
+}
+
+// updateUserFields builds the UPDATE for a patch. Column names come from the
+// fixed list below, never from input, so the Sprintf is not an injection
+// risk. It returns sql.ErrNoRows for an unknown id; an empty patch writes,
+// and checks, nothing.
+func updateUserFields(ctx context.Context, q DBTX, id int64, p model.UserPatch) error {
+	sets, args := userPatchSets(p)
+	if len(sets) == 0 {
+		return nil
+	}
+
+	args = append(args, id)
+	query := fmt.Sprintf("UPDATE users SET %s, updated_at = NOW() WHERE id = $%d",
+		strings.Join(sets, ", "), len(args))
+	res, err := q.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// userPatchSets turns a patch into SET clauses: one per field the patch
+// sets. The column list must match model.UserPatch field for field; a test
+// checks it does.
+func userPatchSets(p model.UserPatch) ([]string, []any) {
+	var b setBuilder
+	setColumn(&b, "username", p.Username)
+	setColumn(&b, "email", p.Email)
+	setColumn(&b, "password_hash", p.PasswordHash)
+	setColumn(&b, "password_scheme", p.PasswordScheme)
+	setColumn(&b, "passkey", p.Passkey)
+	setColumn(&b, "group_id", p.GroupID)
+	setColumn(&b, "avatar", p.Avatar)
+	setColumn(&b, "title", p.Title)
+	setColumn(&b, "info", p.Info)
+	setColumn(&b, "enabled", p.Enabled())
+	setColumn(&b, "parked", p.Parked)
+	setColumn(&b, "warned", p.Warned)
+	setColumn(&b, "warn_until", p.WarnUntil)
+	setColumn(&b, "donor", p.Donor)
+	setColumn(&b, "ip", p.IP)
+	setColumn(&b, "last_login", p.LastLogin)
+	setColumn(&b, "disabled_until", p.DisabledUntil())
+	if p.EndsConfirmation() {
+		b.sets = append(b.sets, "awaiting_confirmation = false")
+	}
+	if p.ActivateAt.Valid {
+		b.args = append(b.args, p.ActivateAt.Value)
+		b.sets = append(b.sets, fmt.Sprintf("activated_at = COALESCE(activated_at, $%d)", len(b.args)))
+	}
+	return b.sets, b.args
 }
 
 // privilegeFlagColumn maps a validated restriction type to its users table
@@ -238,7 +305,7 @@ func privilegeFlagColumn(restrictionType string) (string, bool) {
 }
 
 // SetPrivilegeFlag atomically sets a single privilege column for a user,
-// bypassing Update's full-row write. This is the only path that may change
+// outside UserPatch. This is the only path that may change
 // can_download, can_upload, can_chat, or can_invite.
 func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restrictionType string, value bool) error {
 	column, ok := privilegeFlagColumn(restrictionType)
@@ -265,9 +332,8 @@ func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restricti
 // UPDATE users SET invites = invites + $1 — mirroring how bonus_points is
 // adjusted (BonusRepo.AwardPoints). InviteService.CreateInvite's decrement and
 // InviteDistributionService's auto-grant both use this instead of a
-// read-modify-write through Update, so those two paths (and any concurrent
-// full-row Update, which no longer touches invites at all) can never clobber
-// each other's write to this column.
+// read-modify-write, so those two paths (and any patch, which has no invites
+// field) can never clobber each other's write to this column.
 func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE users SET invites = invites + $1, updated_at = NOW() WHERE id = $2`, delta, userID)
@@ -285,7 +351,7 @@ func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64)
 }
 
 // SetInvites atomically sets a user's invite balance to an absolute value —
-// UPDATE users SET invites = $1 — bypassing Update's full-row write. This is
+// UPDATE users SET invites = $1, outside UserPatch. This is
 // AdminService's path for an admin's explicit "set invites to N" edit; unlike
 // AdjustInvites it is not a delta, so two racing calls are a plain
 // last-write-wins on the same column (the admin's intended target value),
@@ -322,8 +388,8 @@ func (r *UserRepo) SetInvites(ctx context.Context, userID int64, invites int, en
 	return nil
 }
 
-// SetStats atomically sets a user's uploaded/downloaded counters — bypassing
-// Update's (now stats-free) full-row write — for AdminService's admin edit
+// SetStats atomically sets a user's uploaded/downloaded counters — outside
+// UserPatch, which has no stats fields — for AdminService's admin edit
 // path only; announce accrual continues to go through IncrementStats. Each
 // of uploaded and downloaded is independently optional (COALESCE keeps the
 // current DB value when nil): an admin edit that only touches one of the two
@@ -394,11 +460,6 @@ func (r *UserRepo) List(ctx context.Context, opts repository.ListUsersOptions) (
 	if opts.Enabled != nil {
 		where += fmt.Sprintf(" AND enabled = $%d", argIdx)
 		args = append(args, *opts.Enabled)
-		argIdx++
-	}
-	if opts.DisabledUntilBefore != nil {
-		where += fmt.Sprintf(" AND disabled_until IS NOT NULL AND disabled_until < $%d", argIdx)
-		args = append(args, *opts.DisabledUntilBefore)
 		argIdx++
 	}
 

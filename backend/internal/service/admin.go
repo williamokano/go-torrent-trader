@@ -115,10 +115,10 @@ type AdminUpdateUserRequest struct {
 
 // adminUserWriteRepository is repository.UserRepository plus the
 // admin-edit-only writes AdminService needs: an atomic absolute invite
-// balance set, an atomic stats (uploaded/downloaded) set, and a full-row
-// update — each committing its user_edit_history rows in the same
-// transaction as the write it describes. (Named for what it does, not just
-// invites, now that it also covers stats and the full-row update — it grew
+// balance set, an atomic stats (uploaded/downloaded) set, a patch write and
+// the expired-ban lift — each audited write committing its user_edit_history
+// rows in the same transaction as the write it describes. (Named for what it
+// does, not just invites, now that it also covers stats and patches — it grew
 // past its original invites-only scope over BE-8.17/BE-8.18.) Kept local to
 // this file rather than added to repository.UserRepository, so the many
 // existing mocks implementing UserRepository elsewhere in the test suite are
@@ -131,12 +131,16 @@ type adminUserWriteRepository interface {
 	SetInvites(ctx context.Context, userID int64, invites int, entries []model.UserEditHistory) error
 	// SetStats atomically sets uploaded/downloaded (independently, via nil to
 	// leave a counter untouched) and their audit entries in one transaction —
-	// bypassing UpdateWithHistory's full-row write, which no longer touches
-	// either column, so a stale read elsewhere can never clobber stats
+	// UserPatch has no stats fields, so a stale read elsewhere can never clobber stats
 	// accrued concurrently by an announce.
 	SetStats(ctx context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error
-	// UpdateWithHistory is Update plus its audit entries, committed together.
-	UpdateWithHistory(ctx context.Context, user *model.User, entries []model.UserEditHistory) error
+	// LiftExpiredBans re-enables, in one statement, every account whose
+	// timed ban ended before now, and returns them. The condition is checked
+	// as the row is written, so a ban made permanent in the meantime stays.
+	LiftExpiredBans(ctx context.Context, now time.Time) ([]model.User, error)
+	// UpdateFieldsWithHistory is UpdateFields plus its audit entries,
+	// committed together.
+	UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error
 }
 
 // AdminService handles admin-only business logic.
@@ -208,7 +212,7 @@ func (s *AdminService) SetBonusRepo(repo repository.BonusRepository) {
 
 // SetEditHistoryRepo sets the repository used to read back the audit trail of
 // admin edits to user profile fields (ListUserEditHistory). Writes no longer
-// go through this repo's Record: UpdateWithHistory, SetStats, SetInvites, and
+// go through this repo's Record: UpdateFieldsWithHistory, SetStats, SetInvites, and
 // BonusRepository.SetPoints each insert their own audit rows in the same
 // transaction as the write they describe.
 func (s *AdminService) SetEditHistoryRepo(repo repository.UserEditHistoryRepository) {
@@ -440,7 +444,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	// Every field change is diffed into the edit-history audit trail: one row
 	// per field with the old value, new value and acting admin. Each batch is
 	// built here, then handed to the write that persists the fields it
-	// describes (UpdateWithHistory/SetStats/SetInvites/BonusRepo.SetPoints),
+	// describes (UpdateFieldsWithHistory/SetStats/SetInvites/BonusRepo.SetPoints),
 	// which commits the write and the audit rows in one transaction — not
 	// recorded as a separate best-effort step afterward.
 	var audit []model.UserEditHistory
@@ -458,28 +462,29 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		})
 	}
 
+	var patch model.UserPatch
 	if req.Username != nil {
 		if !usernameRe.MatchString(*req.Username) {
 			return nil, ErrAdminInvalidUsername
 		}
 		record("username", user.Username, *req.Username)
-		user.Username = *req.Username
+		patch.Username = model.To(*req.Username)
 	}
 	if req.Email != nil {
 		record("email", user.Email, *req.Email)
-		user.Email = *req.Email
+		patch.Email = model.To(*req.Email)
 	}
 	if req.Avatar != nil {
 		record("avatar", derefString(user.Avatar), *req.Avatar)
-		user.Avatar = req.Avatar
+		patch.Avatar = model.To(req.Avatar)
 	}
 	if req.Title != nil {
 		record("title", derefString(user.Title), *req.Title)
-		user.Title = req.Title
+		patch.Title = model.To(req.Title)
 	}
 	if req.Info != nil {
 		record("info", derefString(user.Info), *req.Info)
-		user.Info = req.Info
+		patch.Info = model.To(req.Info)
 	}
 	if req.GroupID != nil {
 		newGroup, err := s.groups.GetByID(ctx, *req.GroupID)
@@ -489,39 +494,35 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		if user.GroupID != *req.GroupID {
 			record("group", oldGroupName, newGroup.Name)
 		}
-		user.GroupID = *req.GroupID
+		patch.GroupID = model.To(*req.GroupID)
 	}
 	if req.Enabled != nil {
 		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
-		if *req.Enabled {
-			user.Enable()
-		} else {
-			user.Disable()
-		}
+		patch.SetEnabled(*req.Enabled, time.Now())
 	}
 	if req.Warned != nil {
 		record("warned", strconv.FormatBool(user.Warned), strconv.FormatBool(*req.Warned))
-		user.Warned = *req.Warned
+		patch.Warned = model.To(*req.Warned)
 	}
 	if req.Donor != nil {
 		record("donor", strconv.FormatBool(user.Donor), strconv.FormatBool(*req.Donor))
-		user.Donor = *req.Donor
+		patch.Donor = model.To(*req.Donor)
 	}
 	if req.Parked != nil {
 		record("parked", strconv.FormatBool(user.Parked), strconv.FormatBool(*req.Parked))
-		user.Parked = *req.Parked
+		patch.Parked = model.To(*req.Parked)
 	}
 
-	// UpdateWithHistory commits the full-row write and its audit rows in one
-	// transaction: a failed audit insert now rolls back the update, instead of
-	// (as before this story) the update landing with the audit recorded
-	// best-effort afterward.
-	if err := s.users.UpdateWithHistory(ctx, user, audit); err != nil {
+	// Only the fields this request names are written, together with their
+	// audit rows in one transaction: a failed audit insert rolls back the
+	// update, and a field another admin changed meanwhile is left alone.
+	if err := s.users.UpdateFieldsWithHistory(ctx, user.ID, patch, audit); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
+	user.Apply(patch)
 	audit = nil
 
-	// Publish events for the state changes UpdateWithHistory just committed,
+	// Publish events for the state changes just committed,
 	// right away rather than after the independent stats/invites/bonus writes
 	// below: those are separate transactions against unrelated columns, and a
 	// later one failing must not leave an already-persisted ban/unban/warn/
@@ -569,9 +570,8 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		})
 	}
 
-	// Uploaded/downloaded are set through the dedicated SetStats method, never
-	// the full-row Update: Update no longer writes either column at all, so a
-	// stale read elsewhere (this same handler, minted at request start) can
+	// Uploaded/downloaded are set through the dedicated SetStats method:
+	// UserPatch has no stats fields, so a stale read elsewhere (this same handler, minted at request start) can
 	// never clobber stats accrued concurrently by an announce — the same race
 	// BE-8.16 closed for the privilege flags and BE-8.17 closed for invites,
 	// now closed here for stats. uploaded/downloaded are independently
@@ -597,8 +597,8 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		audit = nil
 	}
 
-	// Invites are set through the dedicated SetInvites method, never the
-	// full-row Update: two concurrent writers (this admin edit and an
+	// Invites are set through the dedicated SetInvites method, never a patch:
+	// two concurrent writers (this admin edit and an
 	// auto-grant or invite creation elsewhere) could otherwise clobber each
 	// other via a stale read, the same race BE-8.16 closed for the privilege
 	// flags and this story closes for invites.
@@ -612,7 +612,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		audit = nil
 	}
 
-	// Bonus points are set through the bonus repo, never the full-row Update:
+	// Bonus points are set through the bonus repo, never a patch:
 	// the dedicated path takes a row lock and writes the admin_adjust ledger
 	// entry, so it coexists with concurrent worker awards.
 	if req.BonusPoints != nil {
@@ -766,8 +766,12 @@ func (s *AdminService) ResetPassword(ctx context.Context, actorID, userID int64,
 		return "", fmt.Errorf("hash password: %w", err)
 	}
 
-	target.PasswordHash = hash
-	if err := s.users.Update(ctx, target); err != nil {
+	// The scheme goes with the hash: a migrated member still on a legacy
+	// scheme would otherwise have the new hash checked the old way.
+	if err := s.users.UpdateFields(ctx, target.ID, model.UserPatch{
+		PasswordHash:   model.To(hash),
+		PasswordScheme: model.To(SchemeArgon2id),
+	}); err != nil {
 		return "", fmt.Errorf("update user: %w", err)
 	}
 
@@ -820,9 +824,7 @@ func (s *AdminService) ResetPasskey(ctx context.Context, actorID, userID int64) 
 		return "", fmt.Errorf("generate passkey: %w", err)
 	}
 	passkey := token[:32]
-	target.Passkey = &passkey
-
-	if err := s.users.Update(ctx, target); err != nil {
+	if err := s.users.UpdateFields(ctx, target.ID, model.UserPatch{Passkey: model.To(&passkey)}); err != nil {
 		return "", fmt.Errorf("update passkey: %w", err)
 	}
 
@@ -968,13 +970,16 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 	}
 
 	// 1. Disable the user FIRST (the critical operation)
-	target.Disable()
-	if req.DurationDays != nil && *req.DurationDays > 0 {
-		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
-		target.DisabledUntil = &until
+	// A timed ban never shortens one already in force for good: an account
+	// that is off with no expiry stays off with no expiry.
+	var until *time.Time
+	alreadyPermanent := !target.Enabled && target.DisabledUntil == nil
+	if req.DurationDays != nil && *req.DurationDays > 0 && !alreadyPermanent {
+		t := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
+		until = &t
 	}
 
-	if err := s.users.Update(ctx, target); err != nil {
+	if err := s.users.UpdateFields(ctx, target.ID, model.DisablePatch(until)); err != nil {
 		return nil, fmt.Errorf("disable user: %w", err)
 	}
 	result.Banned = true
@@ -1085,39 +1090,20 @@ func splitEmail(email string) string {
 // ReEnableExpiredBans re-enables users whose disabled_until has passed.
 // Returns the number of users re-enabled.
 func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
-	now := time.Now()
-	disabled := false
-	users, _, err := s.users.List(ctx, repository.ListUsersOptions{
-		Enabled:             &disabled,
-		DisabledUntilBefore: &now,
-		PerPage:             1000,
-		Page:                1,
-	})
+	lifted, err := s.users.LiftExpiredBans(ctx, time.Now())
 	if err != nil {
-		return 0, fmt.Errorf("list expired temp bans: %w", err)
+		return 0, fmt.Errorf("lift expired temp bans: %w", err)
 	}
 
-	count := 0
-	for i := range users {
-		u := &users[i]
-		u.Enable()
-		u.DisabledUntil = nil
-		if err := s.users.Update(ctx, u); err != nil {
-			slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)
-			continue
-		}
-		count++
-
-		// Publish unban event
-		systemActor := event.Actor{ID: 0, Username: "System"}
+	systemActor := event.Actor{ID: 0, Username: "System"}
+	for _, u := range lifted {
 		s.eventBus.Publish(ctx, &event.UserUnbannedEvent{
 			Base:     event.NewBase(event.UserUnbanned, systemActor),
 			UserID:   u.ID,
 			Username: u.Username,
 		})
 	}
-
-	return count, nil
+	return len(lifted), nil
 }
 
 // ListGroups returns all groups ordered by level.

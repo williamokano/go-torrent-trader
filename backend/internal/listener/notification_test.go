@@ -2,6 +2,7 @@ package listener
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -132,6 +133,19 @@ func (m *mockNotifUsers) GetByPasskey(_ context.Context, _ string) (*model.User,
 }
 func (m *mockNotifUsers) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockNotifUsers) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *mockNotifUsers) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
+	}
+	next := *u // a failed write must leave the stored user as it was
+	next.Apply(p)
+	return m.Update(ctx, &next)
+}
+
 func (m *mockNotifUsers) Update(_ context.Context, _ *model.User) error { return nil }
 func (m *mockNotifUsers) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
 	return false, nil

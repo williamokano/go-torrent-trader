@@ -173,20 +173,14 @@ func TestAdminUpdateUser_GroupChangeRecordsNames(t *testing.T) {
 }
 
 // TestAdminUpdateUser_UpdateWithHistoryFailureAbortsWholeUpdate is the
-// regression test for this story's headline change: UpdateWithHistory commits
-// the diffed profile fields and their audit rows in one transaction, so a
-// failure there — including an audit-insert failure — must abort the whole
-// call, instead of BE-8.17's best-effort behavior (a failed audit recording
-// was logged and swallowed, leaving the already-committed update in place
-// with no trail). UpdateWithHistory runs first, before SetStats/SetInvites/
-// SetPoints, so failing it here also proves those later stages never run —
-// asserted via Uploaded, since admin.go only mutates user.Uploaded *after*
-// SetStats succeeds (unlike the fields UpdateWithHistory itself diffs, which
-// are mutated on the shared *model.User before UpdateWithHistory is even
-// called — mockUserRepo.GetByID hands back that same live pointer rather than
-// a defensive copy, so asserting on one of those wouldn't actually prove
-// UpdateWithHistory's failure prevented persistence, just that the caller's
-// own in-memory diff happened, which is true either way).
+// regression test for this story's headline change: UpdateFieldsWithHistory
+// commits the diffed profile fields and their audit rows in one transaction,
+// so a failure there — including an audit-insert failure — must abort the
+// whole call, instead of BE-8.17's best-effort behavior (a failed audit
+// recording was logged and swallowed, leaving the already-committed update in
+// place with no trail). It runs first, before SetStats/SetInvites/SetPoints,
+// so failing it here also proves those later stages never run — asserted via
+// Uploaded, which only SetStats writes.
 // mockUserRepo.updateErr stands in for "the shared transaction failed" —
 // from the caller's side, a real Postgres rollback and this mock's refusal
 // to mutate state look the same: the write is not observable afterward.
@@ -230,11 +224,11 @@ func TestAdminUpdateUser_UpdateWithHistoryFailureAbortsWholeUpdate(t *testing.T)
 }
 
 // TestAdminUpdateUser_LaterStageFailureLeavesEarlierWriteCommitted documents
-// the accepted shape of the remaining trade-off: UpdateWithHistory, SetStats,
+// the accepted shape of the remaining trade-off: UpdateFieldsWithHistory, SetStats,
 // SetInvites, and BonusRepo.SetPoints are four independent transactions, each
 // atomic with its own audit rows, not one whole-request transaction (that
 // wasn't this story's scope — see BE-8.18's "accepted trade-offs" note). So
-// when an earlier stage (here, UpdateWithHistory, banning the user) commits
+// when an earlier stage (here, UpdateFieldsWithHistory, banning the user) commits
 // and a later, unrelated stage (SetStats) then fails, the ban and its audit
 // row are durable and — the specific gap this test guards — the UserBanned
 // event still fires, because event publishing now happens right after

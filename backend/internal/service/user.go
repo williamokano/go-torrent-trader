@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -137,19 +139,21 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 		return nil, ErrUserNotFound
 	}
 
+	var profile model.UserPatch
 	if req.Avatar != nil {
-		user.Avatar = req.Avatar
+		profile.Avatar = model.To(req.Avatar)
 	}
 	if req.Title != nil {
-		user.Title = req.Title
+		profile.Title = model.To(req.Title)
 	}
 	if req.Info != nil {
-		user.Info = req.Info
+		profile.Info = model.To(req.Info)
 	}
 
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, profile); err != nil {
 		return nil, fmt.Errorf("update profile: %w", err)
 	}
+	user.Apply(profile)
 
 	pub := s.buildPublicProfile(ctx, user)
 	return buildOwnerProfile(user, pub), nil
@@ -177,10 +181,10 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, currentA
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	user.PasswordHash = newHash
-	user.PasswordScheme = "argon2id"
-
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{
+		PasswordHash:   model.To(newHash),
+		PasswordScheme: model.To(SchemeArgon2id),
+	}); err != nil {
 		return fmt.Errorf("update password: %w", err)
 	}
 
@@ -192,19 +196,15 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, currentA
 
 // RegeneratePasskey generates a new 32-char hex passkey for the user.
 func (s *UserService) RegeneratePasskey(ctx context.Context, userID int64) (string, error) {
-	user, err := s.users.GetByID(ctx, userID)
-	if err != nil {
-		return "", ErrUserNotFound
-	}
-
 	token, err := GenerateToken()
 	if err != nil {
 		return "", fmt.Errorf("generate passkey: %w", err)
 	}
 	passkey := token[:32]
-	user.Passkey = &passkey
-
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, userID, model.UserPatch{Passkey: model.To(&passkey)}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrUserNotFound
+		}
 		return "", fmt.Errorf("update passkey: %w", err)
 	}
 

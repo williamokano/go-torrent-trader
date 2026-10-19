@@ -104,8 +104,8 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		// older than 7 days would otherwise be hard-deleted, cascading away their
 		// torrents/notes/warnings and erasing the ban record itself.
 		// awaiting_confirmation is the pending signal — every disable clears it
-		// (model.User.Disable), so this also spares a member banned before they
-		// ever confirmed.
+		// (model.UserPatch.SetEnabled), so this also spares a member banned
+		// before they ever confirmed.
 		//
 		// activated_at IS NULL is kept as a backstop "never activated" signal (BE-8.19):
 		// model.User.ActivatedAt is stamped exactly once — at registration when

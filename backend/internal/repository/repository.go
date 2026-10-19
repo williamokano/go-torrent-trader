@@ -20,7 +20,8 @@ type UserRepository interface {
 	GetByPasskey(ctx context.Context, passkey string) (*model.User, error)
 	Count(ctx context.Context) (int64, error)
 	Create(ctx context.Context, user *model.User) error
-	Update(ctx context.Context, user *model.User) error
+	// UpdateFields writes only the columns the patch sets.
+	UpdateFields(ctx context.Context, id int64, p model.UserPatch) error
 	IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error
 	// ConfirmPendingEmail enables an account that is still awaiting email
 	// confirmation and ends that state, in one statement, stamping
@@ -35,14 +36,13 @@ type UserRepository interface {
 
 // ListUsersOptions holds filtering and pagination options for listing users.
 type ListUsersOptions struct {
-	Search              string
-	GroupID             *int64
-	Enabled             *bool
-	DisabledUntilBefore *time.Time // Filter users whose disabled_until IS NOT NULL AND < this time
-	SortBy              string     // username, created_at, uploaded, downloaded
-	SortOrder           string     // asc, desc
-	Page                int
-	PerPage             int
+	Search    string
+	GroupID   *int64
+	Enabled   *bool
+	SortBy    string // username, created_at, uploaded, downloaded
+	SortOrder string // asc, desc
+	Page      int
+	PerPage   int
 }
 
 // TorrentRepository defines persistence operations for torrents.
