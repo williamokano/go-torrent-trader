@@ -273,9 +273,12 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// one measured against the same stored counters — the same bytes credited
 	// again, the same leecher-to-seeder change counted again. From here on
 	// existingPeer is the state this announce replaced; a peer removed since
-	// the lookup is a new peer.
+	// the lookup is a new peer (it has already passed, or been exempt from,
+	// the new-peer gates above — a removal in that window is rare enough to
+	// let it through).
 	var uploadDelta, downloadDelta int64
 	isSeeder := req.Left == 0
+	swapped := false
 	if existingPeer != nil {
 		prev, found, err := s.peers.SwapState(ctx, torrent.ID, user.ID, req.PeerID, model.PeerState{
 			Uploaded: req.Uploaded, Downloaded: req.Downloaded, LeftBytes: req.Left, Seeder: isSeeder,
@@ -288,6 +291,7 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 			replaced.Uploaded, replaced.Downloaded = prev.Uploaded, prev.Downloaded
 			replaced.LeftBytes, replaced.Seeder = prev.LeftBytes, prev.Seeder
 			existingPeer = &replaced
+			swapped = true
 			// Clamp at zero: counters restart when the client does.
 			uploadDelta = max(0, req.Uploaded-prev.Uploaded)
 			downloadDelta = max(0, req.Downloaded-prev.Downloaded)
@@ -324,7 +328,13 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	default:
 		// started or regular announce
 		if err := s.handleAnnounce(ctx, torrent, user, existingPeer, req, isSeeder); err != nil {
-			return nil, fmt.Errorf("handle announce: %w", err)
+			// Once the swap has moved this peer's baseline, the traffic it
+			// measured must still be credited below: a retry would measure
+			// nothing. Only a brand-new peer that could not be stored fails.
+			if !swapped {
+				return nil, fmt.Errorf("handle announce: %w", err)
+			}
+			slog.Error("failed to refresh peer after swap", "torrent_id", torrent.ID, "user_id", user.ID, "error", err)
 		}
 	}
 

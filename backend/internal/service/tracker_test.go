@@ -213,6 +213,11 @@ type trackerMockPeerRepo struct {
 	// lookupErr, when set, is returned by GetByTorrentUserAndPeerID in place
 	// of a result — a failed query rather than "no such peer".
 	lookupErr error
+	// upsertErr, when set, fails every Upsert.
+	upsertErr error
+	// reapBeforeSwap removes the peer just before a swap reaches it — the
+	// cleanup job running between an announce's lookup and its swap.
+	reapBeforeSwap bool
 }
 
 func newTrackerMockPeerRepo() *trackerMockPeerRepo {
@@ -262,6 +267,9 @@ func (m *trackerMockPeerRepo) ListByTorrent(_ context.Context, torrentID int64, 
 func (m *trackerMockPeerRepo) Upsert(_ context.Context, peer *model.Peer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.upsertErr != nil {
+		return m.upsertErr
+	}
 	for i, p := range m.peers {
 		if p.TorrentID == peer.TorrentID && p.UserID == peer.UserID && bytes.Equal(p.PeerID, peer.PeerID) {
 			// As in production: an existing row's counters and seeder flag
@@ -280,6 +288,9 @@ func (m *trackerMockPeerRepo) Upsert(_ context.Context, peer *model.Peer) error 
 func (m *trackerMockPeerRepo) SwapState(_ context.Context, torrentID, userID int64, peerID []byte, next model.PeerState) (model.PeerState, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.reapBeforeSwap {
+		m.peers = nil
+	}
 	for _, p := range m.peers {
 		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
 			prev := model.PeerState{Uploaded: p.Uploaded, Downloaded: p.Downloaded, LeftBytes: p.LeftBytes, Seeder: p.Seeder}

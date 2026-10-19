@@ -147,3 +147,53 @@ func TestAnnounce_StoppedKnownPeerIsCredited(t *testing.T) {
 		t.Errorf("credited %d/%d, want 4000/1000", up, down)
 	}
 }
+
+// The swap moves a peer's baseline before the peer row is refreshed. If that
+// refresh fails, the traffic the swap measured is still credited — a retry
+// would measure nothing and the bytes would be lost.
+func TestAnnounce_CreditsSwappedTrafficWhenPeerRefreshFails(t *testing.T) {
+	svc, userRepo, _, peerRepo := setupTracker()
+	if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventStarted, 0, 0)); err != nil {
+		t.Fatalf("started: %v", err)
+	}
+	peerRepo.mu.Lock()
+	peerRepo.upsertErr = errors.New("connection reset")
+	peerRepo.mu.Unlock()
+
+	if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventEmpty, 3000, 0)); err != nil {
+		t.Fatalf("announce failed after a successful swap: %v", err)
+	}
+	if up, _ := userTotals(userRepo); up != 3000 {
+		t.Errorf("uploaded = %d, want the swapped 3000 credited", up)
+	}
+}
+
+// A peer removed between the lookup and the swap has no baseline left: it
+// is stored again as a new peer and credited nothing.
+func TestAnnounce_PeerReapedBeforeSwapIsNew(t *testing.T) {
+	svc, userRepo, torrentRepo, peerRepo := setupTracker()
+	if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventStarted, 0, 0)); err != nil {
+		t.Fatalf("started: %v", err)
+	}
+	peerRepo.mu.Lock()
+	peerRepo.reapBeforeSwap = true
+	peerRepo.mu.Unlock()
+
+	if _, err := svc.Announce(context.Background(), creditReq(testPeerID(), EventEmpty, 9000, 0)); err != nil {
+		t.Fatalf("announce: %v", err)
+	}
+	if up, _ := userTotals(userRepo); up != 0 {
+		t.Errorf("uploaded = %d, want 0 for a peer with no baseline", up)
+	}
+	peerRepo.mu.Lock()
+	n := len(peerRepo.peers)
+	peerRepo.mu.Unlock()
+	if n != 1 {
+		t.Errorf("peers stored = %d, want the reaped peer stored again", n)
+	}
+	torrentRepo.mu.Lock()
+	defer torrentRepo.mu.Unlock()
+	if got := torrentRepo.torrents[0].Seeders + torrentRepo.torrents[0].Leechers; got != 2 {
+		t.Errorf("swarm count = %d, want it counted again as a new peer (the reap's decrement is the cleanup job's)", got)
+	}
+}

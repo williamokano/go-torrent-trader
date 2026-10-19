@@ -50,15 +50,17 @@ func TestConcurrentAnnouncesCreditTrafficOnce(t *testing.T) {
 
 	peerID := []byte("-QB0000-concurrency1")
 	announce := func(uploaded, left int64, ev service.AnnounceEvent) error {
+		downloaded := uploaded / 2
 		_, err := tracker.Announce(ctx, service.AnnounceRequest{
-			Passkey:  passkey,
-			InfoHash: tor.InfoHash,
-			PeerID:   peerID,
-			IP:       "10.0.0.1",
-			Port:     6881,
-			Uploaded: uploaded,
-			Left:     left,
-			Event:    ev,
+			Passkey:    passkey,
+			InfoHash:   tor.InfoHash,
+			PeerID:     peerID,
+			IP:         "10.0.0.1",
+			Port:       6881,
+			Uploaded:   uploaded,
+			Downloaded: downloaded,
+			Left:       left,
+			Event:      ev,
 		})
 		return err
 	}
@@ -92,8 +94,8 @@ func TestConcurrentAnnouncesCreditTrafficOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if got.Uploaded != 1000 {
-		t.Errorf("uploaded = %d after 20 concurrent announces of +1000, want exactly 1000", got.Uploaded)
+	if got.Uploaded != 1000 || got.Downloaded != 500 {
+		t.Errorf("uploaded=%d downloaded=%d after 20 concurrent announces of +1000/+500, want exactly 1000/500", got.Uploaded, got.Downloaded)
 	}
 
 	// The leecher became a seeder once, however many announces said so.
