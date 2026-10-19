@@ -27,18 +27,21 @@ func TestCreateUserRedeemingRegistersOnce(t *testing.T) {
 	}
 
 	const n = 10
+	// Fixtures are built up front: uniq and t.Fatalf are not for goroutines.
+	group := anyGroupID(t, db)
+	racers := make([]*model.User, n)
+	for i := range racers {
+		name := uniq("racer")
+		racers[i] = &model.User{Username: name, Email: name + "@example.test", PasswordHash: "h", PasswordScheme: "argon2id", GroupID: group}
+	}
 	var wg sync.WaitGroup
 	results := make(chan error, n)
-	for i := 0; i < n; i++ {
+	for _, u := range racers {
 		wg.Add(1)
-		go func(i int) {
+		go func(u *model.User) {
 			defer wg.Done()
-			name := uniq("racer")
-			results <- invites.CreateUserRedeeming(ctx, inv.Token, &model.User{
-				Username: name, Email: name + "@example.test", PasswordHash: "h", PasswordScheme: "argon2id",
-				GroupID: anyGroupID(t, db),
-			})
-		}(i)
+			results <- invites.CreateUserRedeeming(ctx, inv.Token, u)
+		}(u)
 	}
 	wg.Wait()
 	close(results)
@@ -147,14 +150,18 @@ func TestCreateInviteSpendingSpendsTheLastInviteOnce(t *testing.T) {
 	invites := NewInviteRepo(db)
 
 	const n = 10
+	tokens := make([]string, n)
+	for i := range tokens {
+		tokens[i] = uniq("tok")
+	}
 	var wg sync.WaitGroup
 	results := make(chan error, n)
-	for i := 0; i < n; i++ {
+	for _, tok := range tokens {
 		wg.Add(1)
-		go func() {
+		go func(tok string) {
 			defer wg.Done()
-			results <- invites.CreateInviteSpending(ctx, &model.Invite{InviterID: inviter.ID, Token: uniq("tok"), ExpiresAt: time.Now().Add(time.Hour)})
-		}()
+			results <- invites.CreateInviteSpending(ctx, &model.Invite{InviterID: inviter.ID, Token: tok, ExpiresAt: time.Now().Add(time.Hour)})
+		}(tok)
 	}
 	wg.Wait()
 	close(results)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -14,12 +15,12 @@ import (
 // what it needs and nothing more.
 
 // uniq makes a name unique per call, so tests that do not reset the database
-// between them cannot collide on a UNIQUE constraint.
-var uniqCounter int
+// between them cannot collide on a UNIQUE constraint. Atomic, so concurrency
+// tests can call it from their goroutines.
+var uniqCounter atomic.Int64
 
 func uniq(prefix string) string {
-	uniqCounter++
-	return fmt.Sprintf("%s%d", prefix, uniqCounter)
+	return fmt.Sprintf("%s%d", prefix, uniqCounter.Add(1))
 }
 
 // anyGroupID returns a seeded group. Groups come from the migrations and are
