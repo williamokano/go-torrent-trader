@@ -130,9 +130,13 @@ func (m *mockNotifUsers) GetByEmail(_ context.Context, _ string) (*model.User, e
 func (m *mockNotifUsers) GetByPasskey(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil
 }
-func (m *mockNotifUsers) Count(_ context.Context) (int64, error)                { return 0, nil }
-func (m *mockNotifUsers) Create(_ context.Context, _ *model.User) error         { return nil }
-func (m *mockNotifUsers) Update(_ context.Context, _ *model.User) error         { return nil }
+func (m *mockNotifUsers) Count(_ context.Context) (int64, error)        { return 0, nil }
+func (m *mockNotifUsers) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *mockNotifUsers) Update(_ context.Context, _ *model.User) error { return nil }
+func (m *mockNotifUsers) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockNotifUsers) IncrementStats(_ context.Context, _, _, _ int64) error { return nil }
 func (m *mockNotifUsers) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil

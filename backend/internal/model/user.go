@@ -61,3 +61,10 @@ func (u *User) Disable() {
 	u.Enabled = false
 	u.AwaitingConfirmation = false
 }
+
+// Enable turns the account on. Staff enabling an account that is still
+// awaiting confirmation stands in for the confirmation.
+func (u *User) Enable() {
+	u.Enabled = true
+	u.AwaitingConfirmation = false
+}

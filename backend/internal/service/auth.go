@@ -739,30 +739,21 @@ func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
 		return ErrInvalidConfirmToken
 	}
 
-	user, err := s.users.GetByID(ctx, ec.UserID)
-	if err != nil || user == nil {
-		return ErrInvalidConfirmToken
+	// One conditional statement, so a disable committed between any read
+	// and this write still wins. It also stamps ActivatedAt: confirming
+	// proves control of the account even before any authenticated request
+	// (see ActivatedAt on model.User and BE-8.19).
+	confirmed, err := s.users.ConfirmPendingEmail(ctx, ec.UserID, time.Now())
+	if err != nil {
+		return fmt.Errorf("enable user: %w", err)
 	}
-
-	if !user.AwaitingConfirmation {
-		if user.Enabled {
+	if !confirmed {
+		user, err := s.users.GetByID(ctx, ec.UserID)
+		if err == nil && user.Enabled {
 			// Already confirmed, idempotent success
 			return nil
 		}
 		return ErrInvalidConfirmToken
-	}
-
-	user.Enabled = true
-	user.AwaitingConfirmation = false
-	// Confirming email is activation for the confirmation-required flow: it
-	// proves control of the account even before any authenticated request is
-	// made. See ActivatedAt on model.User and BE-8.19.
-	if user.ActivatedAt == nil {
-		now := time.Now()
-		user.ActivatedAt = &now
-	}
-	if err := s.users.Update(ctx, user); err != nil {
-		return fmt.Errorf("enable user: %w", err)
 	}
 
 	slog.Info("email confirmed", "user_id", ec.UserID)

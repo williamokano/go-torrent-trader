@@ -47,10 +47,12 @@ func newCleanupTestUser(t *testing.T, db *sql.DB, enabled bool, createdAt time.T
 		GroupID:        anyGroupID(t, db),
 		Enabled:        enabled,
 		ActivatedAt:    activatedAt,
-		CanDownload:    true,
-		CanUpload:      true,
-		CanChat:        true,
-		CanForum:       true,
+		// Register's needsConfirmation path: off, never activated, pending.
+		AwaitingConfirmation: !enabled && activatedAt == nil,
+		CanDownload:          true,
+		CanUpload:            true,
+		CanChat:              true,
+		CanForum:             true,
 	}
 	if err := postgres.NewUserRepo(db).Create(context.Background(), u); err != nil {
 		t.Fatalf("creating user: %v", err)
@@ -75,7 +77,7 @@ func banUser(t *testing.T, repo *postgres.UserRepo, u *model.User) {
 	if err != nil {
 		t.Fatalf("GetByID before ban: %v", err)
 	}
-	fresh.Enabled = false
+	fresh.Disable()
 	if err := repo.Update(ctx, fresh); err != nil {
 		t.Fatalf("banning user: %v", err)
 	}
@@ -132,6 +134,12 @@ func TestCleanupHandler_PreservesActivatedButBannedUsers(t *testing.T) {
 	// nothing should stop cleanup from reclaiming it.
 	abandoned := newCleanupTestUser(t, db, false, oldEnough, nil)
 
+	// Pending, then banned before ever confirming: ActivatedAt is still nil,
+	// but the ban ended the pending state, so this is a ban record, not an
+	// abandoned sign-up.
+	bannedBeforeConfirming := newCleanupTestUser(t, db, false, oldEnough, nil)
+	banUser(t, repo, bannedBeforeConfirming)
+
 	deps := &WorkerDeps{
 		PeerRepo:    &mockPeerRepo{},
 		TorrentRepo: &mockTorrentRepo{},
@@ -147,6 +155,9 @@ func TestCleanupHandler_PreservesActivatedButBannedUsers(t *testing.T) {
 	}
 	if _, err := repo.GetByID(ctx, bannedRightAfterRegistration.ID); err != nil {
 		t.Errorf("user banned immediately after registration was deleted by cleanup: %v", err)
+	}
+	if _, err := repo.GetByID(ctx, bannedBeforeConfirming.ID); err != nil {
+		t.Errorf("user banned before confirming was deleted by cleanup: %v", err)
 	}
 	if _, err := repo.GetByID(ctx, abandoned.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("genuinely abandoned unconfirmed registration survived cleanup: err=%v, want sql.ErrNoRows", err)

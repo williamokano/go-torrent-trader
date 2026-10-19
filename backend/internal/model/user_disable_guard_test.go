@@ -10,7 +10,9 @@ import (
 
 // A ban that sets Enabled=false by hand leaves AwaitingConfirmation as it
 // was, and a still-pending account could then confirm its email and switch
-// itself back on. Disabling goes through User.Disable everywhere.
+// itself back on. Disabling goes through User.Disable everywhere. A tripwire,
+// not a proof: it sees only plain assignments, and is meant to give way once
+// disabling is a targeted repository write.
 func TestAccountsAreOnlyDisabledThroughDisable(t *testing.T) {
 	assign := regexp.MustCompile(`\.Enabled\s*=\s*false\b`)
 	root := ".." // backend/internal

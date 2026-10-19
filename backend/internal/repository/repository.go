@@ -22,6 +22,12 @@ type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	Update(ctx context.Context, user *model.User) error
 	IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error
+	// ConfirmPendingEmail enables an account that is still awaiting email
+	// confirmation and ends that state, in one statement, stamping
+	// activated_at if it is unset. It reports false, changing nothing, when
+	// the account is not awaiting confirmation — so a disable that commits
+	// first always wins.
+	ConfirmPendingEmail(ctx context.Context, id int64, at time.Time) (bool, error)
 	List(ctx context.Context, opts ListUsersOptions) ([]model.User, int64, error)
 	ListStaff(ctx context.Context) ([]model.User, error)
 	UpdateLastAccess(ctx context.Context, id int64) error

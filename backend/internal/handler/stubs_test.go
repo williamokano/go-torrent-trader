@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/middleware"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -96,6 +97,10 @@ func (s *stubUserRepo) Update(_ context.Context, u *model.User) error {
 	s.users[u.ID] = u
 	return nil
 }
+func (s *stubUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (s *stubUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error { return nil }
 func (s *stubUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil

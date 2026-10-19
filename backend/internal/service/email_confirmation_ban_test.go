@@ -3,10 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
-
-	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 )
 
 // registerPending registers the bootstrap admin and then a member who still
@@ -127,7 +126,7 @@ func TestConfirmEmail_ClearsAwaitingConfirmation(t *testing.T) {
 	}
 }
 
-func pendingUser(t *testing.T, repo *mockUserRepo, id int64) {
+func makePending(t *testing.T, repo *mockUserRepo, id int64) {
 	t.Helper()
 	u, err := repo.GetByID(context.Background(), id)
 	if err != nil {
@@ -141,45 +140,32 @@ func pendingUser(t *testing.T, repo *mockUserRepo, id int64) {
 }
 
 // Every staff disable must end a pending confirmation; otherwise a member
-// banned before confirming could confirm their way back in.
-func TestAdminDisablePathsEndPendingConfirmation(t *testing.T) {
+// banned before confirming could confirm their way back in. Staff enabling
+// an unconfirmed account stands in for the confirmation.
+func TestAdminPathsEndPendingConfirmation(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("update user disables", func(t *testing.T) {
-		userRepo := newMockUserRepo()
-		svc := NewAdminService(userRepo, newMockAdminGroupRepo(), event.NewInMemoryBus())
-		target := createTestUserForAdmin(t, userRepo, 5)
-		pendingUser(t, userRepo, target.ID)
+	for _, enable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("update user enabled=%v", enable), func(t *testing.T) {
+			svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+			target := createTestUserForAdmin(t, userRepo, 5)
+			makePending(t, userRepo, target.ID)
 
-		off := false
-		if _, err := svc.UpdateUser(ctx, 99, target.ID, AdminUpdateUserRequest{Enabled: &off}); err != nil {
-			t.Fatalf("update: %v", err)
-		}
-		if u, _ := userRepo.GetByID(ctx, target.ID); u.AwaitingConfirmation {
-			t.Error("disabling through UpdateUser left the confirmation pending")
-		}
-	})
-
-	t.Run("update user enables", func(t *testing.T) {
-		userRepo := newMockUserRepo()
-		svc := NewAdminService(userRepo, newMockAdminGroupRepo(), event.NewInMemoryBus())
-		target := createTestUserForAdmin(t, userRepo, 5)
-		pendingUser(t, userRepo, target.ID)
-
-		on := true
-		if _, err := svc.UpdateUser(ctx, 99, target.ID, AdminUpdateUserRequest{Enabled: &on}); err != nil {
-			t.Fatalf("update: %v", err)
-		}
-		if u, _ := userRepo.GetByID(ctx, target.ID); !u.Enabled || u.AwaitingConfirmation {
-			t.Errorf("enabled=%v awaiting=%v, want staff enabling to stand in for confirmation", u.Enabled, u.AwaitingConfirmation)
-		}
-	})
+			if _, err := svc.UpdateUser(ctx, 99, target.ID, AdminUpdateUserRequest{Enabled: &enable}); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+			u, _ := userRepo.GetByID(ctx, target.ID)
+			if u.Enabled != enable || u.AwaitingConfirmation {
+				t.Errorf("enabled=%v awaiting=%v, want %v/false", u.Enabled, u.AwaitingConfirmation, enable)
+			}
+		})
+	}
 
 	t.Run("quick ban", func(t *testing.T) {
 		svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
 		admin := createTestUserForAdmin(t, userRepo, 1)
 		target := createTestUserForAdmin(t, userRepo, 5)
-		pendingUser(t, userRepo, target.ID)
+		makePending(t, userRepo, target.ID)
 
 		if _, err := svc.QuickBanUser(ctx, admin.ID, target.ID, QuickBanRequest{Reason: "spam"}); err != nil {
 			t.Fatalf("quick ban: %v", err)

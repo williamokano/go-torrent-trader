@@ -247,6 +247,10 @@ func (m *mockEscalationUserRepo) Update(_ context.Context, u *model.User) error 
 	m.users[u.ID] = &cp
 	return nil
 }
+func (m *mockEscalationUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockEscalationUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error {
 	return nil
 }

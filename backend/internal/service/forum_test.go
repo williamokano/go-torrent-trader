@@ -325,9 +325,13 @@ func (m *mockForumUserRepo) GetByEmail(_ context.Context, _ string) (*model.User
 func (m *mockForumUserRepo) GetByPasskey(_ context.Context, _ string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
-func (m *mockForumUserRepo) Count(_ context.Context) (int64, error)                      { return 0, nil }
-func (m *mockForumUserRepo) Create(_ context.Context, _ *model.User) error               { return nil }
-func (m *mockForumUserRepo) Update(_ context.Context, _ *model.User) error               { return nil }
+func (m *mockForumUserRepo) Count(_ context.Context) (int64, error)        { return 0, nil }
+func (m *mockForumUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *mockForumUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
+func (m *mockForumUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockForumUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error { return nil }
 func (m *mockForumUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil

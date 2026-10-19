@@ -1100,3 +1100,65 @@ func TestUserRepoRoundTripsAwaitingConfirmation(t *testing.T) {
 		t.Fatalf("update disturbed another column: %+v", after)
 	}
 }
+
+// Confirmation is one conditional write: it enables only an account that is
+// still awaiting confirmation, so a disable committed first always wins.
+func TestUserRepoConfirmPendingEmail(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+
+	newPending := func() *model.User {
+		u := &model.User{
+			Username: uniq("pending"), Email: uniq("pending") + "@example.test",
+			PasswordHash: "hash", PasswordScheme: "argon2id",
+			GroupID: anyGroupID(t, db), AwaitingConfirmation: true,
+		}
+		if err := repo.Create(ctx, u); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		return u
+	}
+
+	pending := newPending()
+	at := time.Now().Truncate(time.Second)
+	ok, err := repo.ConfirmPendingEmail(ctx, pending.ID, at)
+	if err != nil || !ok {
+		t.Fatalf("ConfirmPendingEmail = (%v, %v), want (true, nil)", ok, err)
+	}
+	got, _ := repo.GetByID(ctx, pending.ID)
+	if !got.Enabled || got.AwaitingConfirmation || got.ActivatedAt == nil || !got.ActivatedAt.Equal(at) {
+		t.Fatalf("after confirm: enabled=%v awaiting=%v activated=%v", got.Enabled, got.AwaitingConfirmation, got.ActivatedAt)
+	}
+	if ok, _ := repo.ConfirmPendingEmail(ctx, pending.ID, at); ok {
+		t.Error("a second confirmation reported success")
+	}
+
+	banned := newPending()
+	banned.Disable()
+	if err := repo.Update(ctx, banned); err != nil {
+		t.Fatalf("ban: %v", err)
+	}
+	if ok, err := repo.ConfirmPendingEmail(ctx, banned.ID, at); err != nil || ok {
+		t.Fatalf("confirming a banned account = (%v, %v), want (false, nil)", ok, err)
+	}
+	if got, _ := repo.GetByID(ctx, banned.ID); got.Enabled {
+		t.Fatal("confirmation re-enabled a banned account")
+	}
+}
+
+// The schema refuses an account that is both on and still awaiting
+// confirmation.
+func TestSchemaRejectsEnabledAndAwaiting(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO users (username, email, password_hash, group_id, enabled, awaiting_confirmation)
+		 VALUES ($1, $2, 'hash', $3, true, true)`,
+		uniq("both"), uniq("both")+"@example.test", anyGroupID(t, db))
+	if err == nil {
+		t.Fatal("an enabled account awaiting confirmation was accepted")
+	}
+}

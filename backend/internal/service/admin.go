@@ -494,10 +494,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	if req.Enabled != nil {
 		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
 		if *req.Enabled {
-			// Staff enabling an unconfirmed account stands in for the
-			// confirmation.
-			user.Enabled = true
-			user.AwaitingConfirmation = false
+			user.Enable()
 		} else {
 			user.Disable()
 		}
@@ -1103,7 +1100,7 @@ func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
 	count := 0
 	for i := range users {
 		u := &users[i]
-		u.Enabled = true
+		u.Enable()
 		u.DisabledUntil = nil
 		if err := s.users.Update(ctx, u); err != nil {
 			slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)

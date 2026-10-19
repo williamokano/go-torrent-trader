@@ -16,5 +16,10 @@ WHERE enabled = false
     WHERE ec.user_id = users.id AND ec.confirmed_at IS NULL
   );
 
+-- An account cannot be both on and still waiting to confirm.
+ALTER TABLE users ADD CONSTRAINT users_awaiting_confirmation_disabled
+  CHECK (NOT (enabled AND awaiting_confirmation));
+
 -- +goose Down
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_awaiting_confirmation_disabled;
 ALTER TABLE users DROP COLUMN IF EXISTS awaiting_confirmation;

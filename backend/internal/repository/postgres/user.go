@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -104,6 +105,21 @@ func (r *UserRepo) Count(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
 	return count, err
+}
+
+func (r *UserRepo) ConfirmPendingEmail(ctx context.Context, id int64, at time.Time) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE users SET
+		enabled = true, awaiting_confirmation = false,
+		activated_at = COALESCE(activated_at, $2), updated_at = NOW()
+	WHERE id = $1 AND awaiting_confirmation`, id, at)
+	if err != nil {
+		return false, fmt.Errorf("confirm pending email: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("confirm pending email: rows affected: %w", err)
+	}
+	return n == 1, nil
 }
 
 func (r *UserRepo) Create(ctx context.Context, user *model.User) error {

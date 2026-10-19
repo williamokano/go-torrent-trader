@@ -52,6 +52,10 @@ func (r *announceUserRepo) GetByEmail(context.Context, string) (*model.User, err
 func (r *announceUserRepo) Count(context.Context) (int64, error)      { return 0, nil }
 func (r *announceUserRepo) Create(context.Context, *model.User) error { return nil }
 func (r *announceUserRepo) Update(context.Context, *model.User) error { return nil }
+func (r *announceUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (r *announceUserRepo) IncrementStats(context.Context, int64, int64, int64) error {
 	return nil
 }

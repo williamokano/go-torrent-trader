@@ -183,6 +183,10 @@ func (r *mockChatUserRepo) Create(context.Context, *model.User) error {
 func (r *mockChatUserRepo) Update(context.Context, *model.User) error {
 	return nil
 }
+func (r *mockChatUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (r *mockChatUserRepo) IncrementStats(context.Context, int64, int64, int64) error {
 	return nil
 }
