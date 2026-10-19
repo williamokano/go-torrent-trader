@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
@@ -123,24 +124,9 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		// "never activated" under last_access and get caught by this same bug.
 		// activated_at requires no follow-up request, so it only stays NULL for
 		// an account that was created and genuinely never activated at all.
-		// Exclude users who still have a pending (unclaimed, unexpired) email confirmation.
-		res, err = deps.DB.ExecContext(ctx, `
-			DELETE FROM users
-			WHERE awaiting_confirmation
-			  AND activated_at IS NULL
-			  AND created_at < NOW() - INTERVAL '7 days'
-			  AND NOT EXISTS (
-			    SELECT 1 FROM email_confirmations ec
-			    WHERE ec.user_id = users.id
-			      AND ec.confirmed_at IS NULL
-			      AND ec.expires_at > NOW()
-			  )
-		`)
-		if err != nil {
-			slog.Error("cleanup: failed to delete expired registrations", "error", err)
-		} else if n, _ := res.RowsAffected(); n > 0 {
-			slog.Info("cleanup: expired registrations deleted", "count", n)
-		}
+		// Users who still hold a pending (unclaimed, unexpired) email
+		// confirmation are excluded; see purgeExpiredRegistrations.
+		purgeExpiredRegistrations(ctx, deps.DB)
 
 		// 5. Remove expired invite tokens
 		res, err = deps.DB.ExecContext(ctx, `
@@ -194,4 +180,87 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 
 		return nil
 	}
+}
+
+// expiredRegistrationsSQL deletes registrations that were never activated and
+// whose confirmation has lapsed — all of them, or only the one whose id is $1.
+//
+// Two things go in the same statement rather than by cascade. Messages sent
+// to the account: a cascade on messages.receiver_id would also silently
+// delete a real member's mail should members ever be deleted (the no-action
+// key is checked at the end of the statement, after both deletes). And the
+// invite the account registered with goes by cascade, but its slot is given
+// back to the inviter, who should not lose it to someone who never confirmed.
+const expiredRegistrationsSQL = `
+	WITH expired AS (
+	  SELECT id FROM users
+	  WHERE ($1::bigint IS NULL OR id = $1)
+	    AND awaiting_confirmation
+	    AND activated_at IS NULL
+	    AND created_at < NOW() - INTERVAL '7 days'
+	    AND NOT EXISTS (
+	      SELECT 1 FROM email_confirmations ec
+	      WHERE ec.user_id = users.id
+	        AND ec.confirmed_at IS NULL
+	        AND ec.expires_at > NOW()
+	    )
+	), mail AS (
+	  DELETE FROM messages WHERE receiver_id IN (SELECT id FROM expired)
+	), refund AS (
+	  UPDATE users u SET invites = u.invites + r.n
+	  FROM (
+	    SELECT inviter_id, COUNT(*) AS n FROM invites
+	    WHERE used_by_id IN (SELECT id FROM expired)
+	    GROUP BY inviter_id
+	  ) r
+	  WHERE u.id = r.inviter_id
+	)
+	DELETE FROM users WHERE id IN (SELECT id FROM expired)`
+
+// purgeExpiredRegistrations removes expired registrations in one statement.
+// If anything blocks it — one account holding a row nobody planned for — it
+// falls back to one account at a time, so the rest still go and the account
+// that would not is named in the log, instead of the whole purge failing
+// silently on every run.
+func purgeExpiredRegistrations(ctx context.Context, db *sql.DB) {
+	res, err := db.ExecContext(ctx, expiredRegistrationsSQL, nil)
+	if err == nil {
+		if n, _ := res.RowsAffected(); n > 0 {
+			slog.Info("cleanup: expired registrations deleted", "count", n)
+		}
+		return
+	}
+	slog.Warn("cleanup: expired registrations could not be deleted together, retrying one by one", "error", err)
+
+	rows, err := db.QueryContext(ctx, `SELECT id FROM users
+		WHERE awaiting_confirmation AND activated_at IS NULL AND created_at < NOW() - INTERVAL '7 days'`)
+	if err != nil {
+		slog.Error("cleanup: failed to list expired registrations", "error", err)
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			slog.Error("cleanup: failed to read expired registration", "error", err)
+			_ = rows.Close()
+			return
+		}
+		ids = append(ids, id)
+	}
+	_ = rows.Close()
+
+	deleted, failed := 0, 0
+	for _, id := range ids {
+		res, err := db.ExecContext(ctx, expiredRegistrationsSQL, id)
+		if err != nil {
+			failed++
+			slog.Error("cleanup: expired registration could not be deleted", "user_id", id, "error", err)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			deleted++
+		}
+	}
+	slog.Info("cleanup: expired registrations deleted one by one", "count", deleted, "failed", failed)
 }
