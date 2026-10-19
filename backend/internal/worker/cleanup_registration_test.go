@@ -208,4 +208,14 @@ func TestCleanupHandler_PurgesRegistrationWithDependents(t *testing.T) {
 	if _, err := repo.GetByID(ctx, inviter.ID); err != nil {
 		t.Errorf("the inviter went with the invitee: %v", err)
 	}
+	var invites, resets, mail int
+	if err := db.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM invites WHERE inviter_id = $1),
+		(SELECT COUNT(*) FROM password_resets WHERE user_id = $2),
+		(SELECT COUNT(*) FROM messages WHERE receiver_id = $2)`, inviter.ID, abandoned.ID).Scan(&invites, &resets, &mail); err != nil {
+		t.Fatalf("count leftovers: %v", err)
+	}
+	if invites != 0 || resets != 0 || mail != 0 {
+		t.Errorf("left behind invites=%d resets=%d messages=%d, want none", invites, resets, mail)
+	}
 }

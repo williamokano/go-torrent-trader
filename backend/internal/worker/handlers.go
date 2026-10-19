@@ -124,17 +124,27 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		// activated_at requires no follow-up request, so it only stays NULL for
 		// an account that was created and genuinely never activated at all.
 		// Exclude users who still have a pending (unclaimed, unexpired) email confirmation.
+		//
+		// Messages sent to an expired registration go in the same statement
+		// rather than by a cascade on messages.receiver_id, which would also
+		// silently delete a real member's mail should members ever be deleted.
+		// The no-action key is checked at the end of the statement, after both.
 		res, err = deps.DB.ExecContext(ctx, `
-			DELETE FROM users
-			WHERE awaiting_confirmation
-			  AND activated_at IS NULL
-			  AND created_at < NOW() - INTERVAL '7 days'
-			  AND NOT EXISTS (
-			    SELECT 1 FROM email_confirmations ec
-			    WHERE ec.user_id = users.id
-			      AND ec.confirmed_at IS NULL
-			      AND ec.expires_at > NOW()
-			  )
+			WITH expired AS (
+			  SELECT id FROM users
+			  WHERE awaiting_confirmation
+			    AND activated_at IS NULL
+			    AND created_at < NOW() - INTERVAL '7 days'
+			    AND NOT EXISTS (
+			      SELECT 1 FROM email_confirmations ec
+			      WHERE ec.user_id = users.id
+			        AND ec.confirmed_at IS NULL
+			        AND ec.expires_at > NOW()
+			    )
+			), mail AS (
+			  DELETE FROM messages WHERE receiver_id IN (SELECT id FROM expired)
+			)
+			DELETE FROM users WHERE id IN (SELECT id FROM expired)
 		`)
 		if err != nil {
 			slog.Error("cleanup: failed to delete expired registrations", "error", err)
