@@ -72,6 +72,10 @@ func (m *trackerMockUserRepo) Count(_ context.Context) (int64, error) {
 func (m *trackerMockUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
 func (m *trackerMockUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
 
+func (m *trackerMockUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *trackerMockUserRepo) IncrementStats(_ context.Context, id int64, uploadDelta, downloadDelta int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

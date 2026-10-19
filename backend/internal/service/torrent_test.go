@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/zeebo/bencode"
 
@@ -231,8 +232,12 @@ func (m *memUserRepo) Count(_ context.Context) (int64, error) {
 	return int64(len(m.users)), nil
 }
 
-func (m *memUserRepo) Create(_ context.Context, _ *model.User) error               { return nil }
-func (m *memUserRepo) Update(_ context.Context, _ *model.User) error               { return nil }
+func (m *memUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *memUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
+func (m *memUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *memUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error { return nil }
 func (m *memUserRepo) List(_ context.Context, _ repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil

@@ -133,9 +133,13 @@ func (m *mockActivityUserRepo) GetByEmail(context.Context, string) (*model.User,
 func (m *mockActivityUserRepo) GetByPasskey(context.Context, string) (*model.User, error) {
 	return nil, nil
 }
-func (m *mockActivityUserRepo) Count(context.Context) (int64, error)                      { return 0, nil }
-func (m *mockActivityUserRepo) Create(context.Context, *model.User) error                 { return nil }
-func (m *mockActivityUserRepo) Update(context.Context, *model.User) error                 { return nil }
+func (m *mockActivityUserRepo) Count(context.Context) (int64, error)      { return 0, nil }
+func (m *mockActivityUserRepo) Create(context.Context, *model.User) error { return nil }
+func (m *mockActivityUserRepo) Update(context.Context, *model.User) error { return nil }
+func (m *mockActivityUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockActivityUserRepo) IncrementStats(context.Context, int64, int64, int64) error { return nil }
 func (m *mockActivityUserRepo) List(context.Context, repository.ListUsersOptions) ([]model.User, int64, error) {
 	return nil, 0, nil

@@ -100,13 +100,14 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		// 4. Delete expired pending registrations (never activated, older than 7 days)
 		//
 		// enabled=false alone is NOT a safe signal here: banning a user also sets
-		// enabled=false (see AdminService.UpdateUser / QuickBanUser), and neither
-		// path touches activated_at. So a banned user whose *registration* happens
-		// to be older than 7 days would otherwise match and be hard-deleted here,
-		// cascading away their torrents/notes/warnings and erasing the ban record
-		// itself.
+		// enabled=false, so a banned user whose *registration* happens to be
+		// older than 7 days would otherwise be hard-deleted, cascading away their
+		// torrents/notes/warnings and erasing the ban record itself.
+		// awaiting_confirmation is the pending signal — every disable clears it
+		// (model.User.Disable), so this also spares a member banned before they
+		// ever confirmed.
 		//
-		// activated_at IS NULL is the "never activated" signal (BE-8.19):
+		// activated_at IS NULL is kept as a backstop "never activated" signal (BE-8.19):
 		// model.User.ActivatedAt is stamped exactly once — at registration when
 		// no email confirmation is required, at email confirmation, or at first
 		// login, whichever happens first (see AuthService.Register/Login/
@@ -120,7 +121,7 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		// Exclude users who still have a pending (unclaimed, unexpired) email confirmation.
 		res, err = deps.DB.ExecContext(ctx, `
 			DELETE FROM users
-			WHERE enabled = false
+			WHERE awaiting_confirmation
 			  AND activated_at IS NULL
 			  AND created_at < NOW() - INTERVAL '7 days'
 			  AND NOT EXISTS (

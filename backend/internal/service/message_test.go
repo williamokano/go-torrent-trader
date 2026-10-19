@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -209,6 +210,10 @@ func (m *mockUserRepoForMessage) Create(context.Context, *model.User) error {
 func (m *mockUserRepoForMessage) Update(context.Context, *model.User) error {
 	return nil
 }
+func (m *mockUserRepoForMessage) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockUserRepoForMessage) IncrementStats(context.Context, int64, int64, int64) error {
 	return nil
 }

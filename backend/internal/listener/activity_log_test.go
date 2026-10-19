@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
@@ -82,6 +83,10 @@ func (r *mockUserRepo) GetByPasskey(context.Context, string) (*model.User, error
 func (r *mockUserRepo) Count(context.Context) (int64, error)      { return 0, nil }
 func (r *mockUserRepo) Create(context.Context, *model.User) error { return nil }
 func (r *mockUserRepo) Update(context.Context, *model.User) error { return nil }
+func (r *mockUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (r *mockUserRepo) IncrementStats(context.Context, int64, int64, int64) error {
 	return nil
 }

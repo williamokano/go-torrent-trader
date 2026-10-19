@@ -247,6 +247,10 @@ func (m *mockEscalationUserRepo) Update(_ context.Context, u *model.User) error 
 	m.users[u.ID] = &cp
 	return nil
 }
+func (m *mockEscalationUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockEscalationUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error {
 	return nil
 }
@@ -824,5 +828,43 @@ func TestWarningEscalation_EqualThresholds(t *testing.T) {
 	}
 	if len(restrictionRepo.restrictions) != 0 {
 		t.Errorf("expected 0 restrictions when thresholds are equal, got %d", len(restrictionRepo.restrictions))
+	}
+}
+
+// A registration still awaiting confirmation is off but not banned: reaching
+// the ban threshold must end the pending state, or confirming the email
+// would switch the account back on.
+func TestWarningEscalation_BansAccountAwaitingConfirmation(t *testing.T) {
+	warnings := []*model.Warning{
+		{ID: 1, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 2, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+		{ID: 3, UserID: 10, Type: model.WarningTypeManual, Status: model.WarningStatusActive},
+	}
+
+	bus, _, _, userRepo, _, _, _ := setupEscalation(
+		map[string]string{
+			"warning_escalation_enabled": "true",
+			"warning_count_restrict":     "2",
+			"warning_count_ban":          "3",
+		},
+		warnings,
+	)
+
+	userRepo.mu.Lock()
+	userRepo.users[10].Enabled = false
+	userRepo.users[10].AwaitingConfirmation = true
+	userRepo.mu.Unlock()
+
+	bus.Publish(context.Background(), &event.WarningIssuedEvent{
+		Base:        event.NewBase(event.WarningIssued, event.Actor{ID: 1, Username: "admin"}),
+		WarningID:   3,
+		UserID:      10,
+		Username:    "testuser",
+		WarningType: model.WarningTypeManual,
+	})
+
+	u, _ := userRepo.GetByID(context.Background(), 10)
+	if u.Enabled || u.AwaitingConfirmation {
+		t.Errorf("enabled=%v awaiting=%v after escalation ban, want false/false", u.Enabled, u.AwaitingConfirmation)
 	}
 }

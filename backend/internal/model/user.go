@@ -27,18 +27,25 @@ type User struct {
 	// happens first. Unlike LastAccess (only touched by ActivityTracker, on a
 	// *subsequent* authenticated request, debounced every 5 minutes),
 	// ActivatedAt requires no follow-up request, so it stays nil precisely for
-	// registrations that were never activated at all. This is what the
-	// cleanup worker's expired-registration purge (BE-8.19) keys off of.
+	// registrations that were never activated at all. The cleanup worker's
+	// expired-registration purge (BE-8.19) keys off AwaitingConfirmation, with
+	// this as a backstop.
 	ActivatedAt *time.Time
-	Invites     int
-	BonusPoints int64
-	Warned      bool
-	WarnUntil   *time.Time
-	Donor       bool
-	InvitedBy   *int64
-	CanDownload bool
-	CanUpload   bool
-	CanChat     bool
+	// AwaitingConfirmation is true from a registration that needs email
+	// confirmation until the email is confirmed. It is what makes a disabled
+	// account confirmable: a ban also sets Enabled=false, so Enabled alone
+	// cannot tell the two apart. Confirming, Enable and Disable all clear it,
+	// and the schema forbids it alongside Enabled.
+	AwaitingConfirmation bool
+	Invites              int
+	BonusPoints          int64
+	Warned               bool
+	WarnUntil            *time.Time
+	Donor                bool
+	InvitedBy            *int64
+	CanDownload          bool
+	CanUpload            bool
+	CanChat              bool
 	// CanFeed is the per-user half of live feed access: the class grants it,
 	// and a restriction can take it away from one member without moving them
 	// out of their class.
@@ -48,4 +55,23 @@ type User struct {
 	DisabledUntil *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+// Disable turns the account off. It also ends any pending email confirmation,
+// so confirming can never undo a ban.
+func (u *User) Disable() {
+	u.Enabled = false
+	u.AwaitingConfirmation = false
+}
+
+// Enable turns the account on. Enabling an account that is still awaiting
+// confirmation stands in for the confirmation, so it also counts as the
+// account's activation.
+func (u *User) Enable() {
+	u.Enabled = true
+	u.AwaitingConfirmation = false
+	if u.ActivatedAt == nil {
+		now := time.Now()
+		u.ActivatedAt = &now
+	}
 }

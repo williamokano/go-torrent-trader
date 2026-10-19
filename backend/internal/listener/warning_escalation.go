@@ -75,7 +75,9 @@ func RegisterWarningEscalationListener(
 				)
 				return nil
 			}
-			if !user.Enabled {
+			// An account that is off only because it never confirmed is not
+			// banned yet: it could still confirm its way in.
+			if !user.Enabled && !user.AwaitingConfirmation {
 				slog.Info("warning_escalation: user already disabled, skipping ban",
 					"user_id", e.UserID,
 					"username", e.Username,
@@ -84,7 +86,7 @@ func RegisterWarningEscalationListener(
 			}
 
 			// Disable the user's account.
-			user.Enabled = false
+			user.Disable()
 			if err := userRepo.Update(ctx, user); err != nil {
 				slog.Error("warning_escalation: failed to disable user",
 					"user_id", e.UserID,

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
 	"github.com/williamokano/go-torrent-trader/backend/internal/handler"
@@ -116,6 +117,25 @@ func (m *mockUserRepo) Update(_ context.Context, user *model.User) error {
 		}
 	}
 	return errors.New("not found")
+}
+
+func (m *mockUserRepo) ConfirmPendingEmail(_ context.Context, id int64, at time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			if !u.AwaitingConfirmation {
+				return false, nil
+			}
+			u.Enabled = true
+			u.AwaitingConfirmation = false
+			if u.ActivatedAt == nil {
+				u.ActivatedAt = &at
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *mockUserRepo) IncrementStats(_ context.Context, id int64, uploadedDelta, downloadedDelta int64) error {

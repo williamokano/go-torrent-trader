@@ -174,6 +174,10 @@ func (m *mockUserRepoForRestrictions) Update(_ context.Context, u *model.User) e
 	m.users[u.ID] = &cp
 	return nil
 }
+func (m *mockUserRepoForRestrictions) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockUserRepoForRestrictions) IncrementStats(_ context.Context, _ int64, _, _ int64) error {
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
@@ -17,7 +18,7 @@ const userColumns = `id, username, email, password_hash, password_scheme, passke
 	group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 	ip, last_login, last_access, invites, bonus_points, warned, warn_until, donor,
 	invited_by, can_download, can_upload, can_chat, can_forum, can_invite, can_feed, disabled_until,
-	activated_at, created_at, updated_at`
+	activated_at, awaiting_confirmation, created_at, updated_at`
 
 // UserRepo implements repository.UserRepository using PostgreSQL.
 type UserRepo struct {
@@ -42,7 +43,7 @@ func scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
 		&u.Enabled, &u.Parked, &u.IP, &u.LastLogin, &u.LastAccess,
 		&u.Invites, &u.BonusPoints, &u.Warned, &u.WarnUntil, &u.Donor,
 		&u.InvitedBy, &u.CanDownload, &u.CanUpload, &u.CanChat, &u.CanForum, &u.CanInvite, &u.CanFeed,
-		&u.DisabledUntil, &u.ActivatedAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.DisabledUntil, &u.ActivatedAt, &u.AwaitingConfirmation, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -106,16 +107,32 @@ func (r *UserRepo) Count(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+func (r *UserRepo) ConfirmPendingEmail(ctx context.Context, id int64, at time.Time) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE users SET
+		enabled = true, awaiting_confirmation = false,
+		activated_at = COALESCE(activated_at, $2), updated_at = NOW()
+	WHERE id = $1 AND awaiting_confirmation`, id, at)
+	if err != nil {
+		return false, fmt.Errorf("confirm pending email: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("confirm pending email: rows affected: %w", err)
+	}
+	return n == 1, nil
+}
+
 func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	query := `INSERT INTO users (
 		username, email, password_hash, password_scheme, passkey,
 		group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 		ip, last_login, last_access, invites, warned, warn_until, donor, invited_by,
-		can_download, can_upload, can_chat, can_forum, can_invite, can_feed, disabled_until, activated_at
+		can_download, can_upload, can_chat, can_forum, can_invite, can_feed, disabled_until, activated_at,
+		awaiting_confirmation
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 		$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-		$22, $23, $24, $25, $26, $27, $28, $29
+		$22, $23, $24, $25, $26, $27, $28, $29, $30
 	) RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -124,7 +141,7 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 		user.Info, user.Enabled, user.Parked, user.IP, user.LastLogin,
 		user.LastAccess, user.Invites, user.Warned, user.WarnUntil, user.Donor,
 		user.InvitedBy, user.CanDownload, user.CanUpload, user.CanChat, user.CanForum, user.CanInvite, user.CanFeed, user.DisabledUntil,
-		user.ActivatedAt,
+		user.ActivatedAt, user.AwaitingConfirmation,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 }
 
@@ -169,17 +186,23 @@ func (r *UserRepo) UpdateWithHistory(ctx context.Context, user *model.User, entr
 	return nil
 }
 
-// updateUserRow runs the full-row UPDATE against either the pool or an
-// open transaction (DBTX is satisfied by both *sql.DB and *sql.Tx), so
-// Update and UpdateWithHistory share one query instead of drifting apart.
+// updateUserRow runs the full-row UPDATE. awaiting_confirmation can only be
+// cleared here, never set: a row read while pending and written back after a
+// concurrent disable must not make the account confirmable again. Only Create
+// sets it.
+//
+// It runs against either the pool or an open transaction (DBTX is satisfied
+// by both *sql.DB and *sql.Tx), so Update and UpdateWithHistory share one
+// query instead of drifting apart.
 func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
 	query := `UPDATE users SET
 		username = $1, email = $2, password_hash = $3, password_scheme = $4,
 		passkey = $5, group_id = $6, avatar = $7, title = $8, info = $9,
 		enabled = $10, parked = $11, ip = $12, last_login = $13, last_access = $14,
 		warned = $15, warn_until = $16, donor = $17, invited_by = $18,
-		can_forum = $19, disabled_until = $20, activated_at = $21, updated_at = NOW()
-	WHERE id = $22
+		can_forum = $19, disabled_until = $20, activated_at = $21,
+		awaiting_confirmation = awaiting_confirmation AND $22, updated_at = NOW()
+	WHERE id = $23
 	RETURNING updated_at`
 
 	return q.QueryRowContext(ctx, query,
@@ -187,7 +210,7 @@ func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
 		user.Passkey, user.GroupID, user.Avatar, user.Title, user.Info,
 		user.Enabled, user.Parked, user.IP, user.LastLogin, user.LastAccess,
 		user.Warned, user.WarnUntil, user.Donor, user.InvitedBy,
-		user.CanForum, user.DisabledUntil, user.ActivatedAt, user.ID,
+		user.CanForum, user.DisabledUntil, user.ActivatedAt, user.AwaitingConfirmation, user.ID,
 	).Scan(&user.UpdatedAt)
 }
 

@@ -493,7 +493,11 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	}
 	if req.Enabled != nil {
 		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
-		user.Enabled = *req.Enabled
+		if *req.Enabled {
+			user.Enable()
+		} else {
+			user.Disable()
+		}
 	}
 	if req.Warned != nil {
 		record("warned", strconv.FormatBool(user.Warned), strconv.FormatBool(*req.Warned))
@@ -964,7 +968,7 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 	}
 
 	// 1. Disable the user FIRST (the critical operation)
-	target.Enabled = false
+	target.Disable()
 	if req.DurationDays != nil && *req.DurationDays > 0 {
 		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
 		target.DisabledUntil = &until
@@ -1096,7 +1100,7 @@ func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
 	count := 0
 	for i := range users {
 		u := &users[i]
-		u.Enabled = true
+		u.Enable()
 		u.DisabledUntil = nil
 		if err := s.users.Update(ctx, u); err != nil {
 			slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)

@@ -224,6 +224,10 @@ func (m *mockInviteUserRepo) Update(_ context.Context, user *model.User) error {
 	return errors.New("not found")
 }
 
+func (m *mockInviteUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func (m *mockInviteUserRepo) IncrementStats(_ context.Context, _ int64, _, _ int64) error {
 	return nil
 }
