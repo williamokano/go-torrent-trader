@@ -57,8 +57,8 @@ off — from the admin panel, without a deploy.
 ```bash
 git clone https://github.com/williamokano/go-torrent-trader.git
 cd go-torrent-trader
-cp .env.example .env      # then edit it
-docker compose -f docker-compose.stack.yml up -d
+cp stack.env.example stack.env      # then set the two passwords
+docker compose --env-file stack.env -f docker-compose.stack.yml up -d
 ```
 
 Full instructions, including reverse proxy and first-admin setup, are on the
