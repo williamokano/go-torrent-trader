@@ -37,21 +37,20 @@ func TestAnnounce_MemberPeersPerTorrentCapped(t *testing.T) {
 // Seeders are never turned away by the per-torrent cap: refusing one only
 // starves the swarm.
 func TestAnnounce_TorrentCapNeverRefusesSeeders(t *testing.T) {
-	svc, _, _, peerRepo := setupTrackerWithSettings(map[string]string{SettingTrackerMaxPeersPerTorrent: "2"})
-	addPeers(peerRepo, 10, 1, 201)
-	addPeers(peerRepo, 11, 1, 202)
+	svc, _, torrentRepo, _ := setupTrackerWithSettings(map[string]string{SettingTrackerMaxPeersPerTorrent: "2"})
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].Leechers = 2 // the cap counts leechers
+	torrentRepo.mu.Unlock()
 
 	seed := leecherReq()
 	seed.Left = 0
 	if _, err := svc.Announce(context.Background(), seed); err != nil {
 		t.Fatalf("a seeder was refused by a full torrent: %v", err)
 	}
-	if _, err := svc.Announce(context.Background(), func() AnnounceRequest {
-		r := leecherReq()
-		r.PeerID = append([]byte(nil), r.PeerID...)
-		r.PeerID[0] ^= 0xff
-		return r
-	}()); !errors.Is(err, ErrTooManyPeers) {
+	leecher := leecherReq()
+	leecher.PeerID = append([]byte(nil), leecher.PeerID...)
+	leecher.PeerID[0] ^= 0xff // another client
+	if _, err := svc.Announce(context.Background(), leecher); !errors.Is(err, ErrTooManyPeers) {
 		t.Fatalf("a leecher on a full torrent err = %v, want ErrTooManyPeers", err)
 	}
 }

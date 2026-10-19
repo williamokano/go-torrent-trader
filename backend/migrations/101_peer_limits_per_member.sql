@@ -12,6 +12,7 @@ UPDATE site_settings SET value = '0'
     WHERE key = 'tracker_max_peers_per_torrent' AND value = '50';
 
 -- +goose Down
+-- Restores 50 wherever the cap is 0, including an operator's own 0.
 UPDATE site_settings SET value = '50'
     WHERE key = 'tracker_max_peers_per_torrent' AND value = '0';
 DELETE FROM site_settings WHERE key = 'tracker_max_peers_per_user_torrent';

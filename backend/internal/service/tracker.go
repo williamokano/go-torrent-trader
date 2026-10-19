@@ -240,6 +240,9 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	}
 
 	// Connection limits: only enforce for NEW peers (not updates to existing ones).
+	// Each is checked by count before the peer is stored, so announces racing
+	// in at once can overshoot a cap by a few peers; these are soft abuse
+	// limits, and the stale-peer cleanup removes whatever never comes back.
 	if existingPeer == nil && req.Event != EventStopped && s.siteSettings != nil {
 		// One member's peers on one torrent: without this, a single account
 		// announcing under many peer_ids could fill the torrent's cap below
@@ -255,16 +258,12 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 			}
 		}
 
-		// Seeders are never turned away: refusing one only starves the swarm.
+		// The per-torrent cap is on leechers: seeders are never turned away
+		// (refusing one only starves the swarm), so they do not fill it either.
+		// The torrent's own leecher count is close enough for a soft cap.
 		maxPerTorrent := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerTorrent, 0)
-		if maxPerTorrent > 0 && req.Left > 0 {
-			torrentPeerCount, err := s.peers.CountByTorrent(ctx, torrent.ID)
-			if err != nil {
-				return nil, fmt.Errorf("count peers by torrent: %w", err)
-			}
-			if torrentPeerCount >= maxPerTorrent {
-				return nil, ErrTooManyPeers
-			}
+		if maxPerTorrent > 0 && req.Left > 0 && torrent.Leechers >= maxPerTorrent {
+			return nil, ErrTooManyPeers
 		}
 
 		maxPerUser := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerUser, 100)
