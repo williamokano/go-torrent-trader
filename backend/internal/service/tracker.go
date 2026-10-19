@@ -266,11 +266,22 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	// announce, started or not (a reaped peer comes back without one), just
 	// records its counters; crediting them would let any client claim
 	// arbitrary totals under a fresh peer_id.
+	//
+	// The baseline comes from an atomic swap, not from existingPeer: a client
+	// that fires several announces at once would otherwise have each one
+	// measured against the same stored counters and credited the same bytes
+	// again. A peer removed since the lookup simply has no baseline.
 	var uploadDelta, downloadDelta int64
 	if existingPeer != nil {
-		// Clamp at zero: counters restart when the client does.
-		uploadDelta = max(0, req.Uploaded-existingPeer.Uploaded)
-		downloadDelta = max(0, req.Downloaded-existingPeer.Downloaded)
+		prevUp, prevDown, found, err := s.peers.SwapCounters(ctx, torrent.ID, user.ID, req.PeerID, req.Uploaded, req.Downloaded)
+		if err != nil {
+			return nil, fmt.Errorf("swap peer counters: %w", err)
+		}
+		if found {
+			// Clamp at zero: counters restart when the client does.
+			uploadDelta = max(0, req.Uploaded-prevUp)
+			downloadDelta = max(0, req.Downloaded-prevDown)
+		}
 	}
 
 	isSeeder := req.Left == 0

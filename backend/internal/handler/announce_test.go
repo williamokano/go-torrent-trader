@@ -166,6 +166,19 @@ func (r *announcePeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, er
 	return 0, nil
 }
 
+func (m *announcePeerRepo) SwapCounters(_ context.Context, torrentID, userID int64, peerID []byte, uploaded, downloaded int64) (int64, int64, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.peers {
+		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
+			prevUp, prevDown := p.Uploaded, p.Downloaded
+			p.Uploaded, p.Downloaded = uploaded, downloaded
+			return prevUp, prevDown, true, nil
+		}
+	}
+	return 0, 0, false, nil
+}
+
 func (r *announcePeerRepo) Delete(_ context.Context, torrentID, userID int64, peerID []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

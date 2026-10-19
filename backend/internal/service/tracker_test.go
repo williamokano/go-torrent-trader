@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -270,6 +271,19 @@ func (m *trackerMockPeerRepo) Upsert(_ context.Context, peer *model.Peer) error 
 	peer.ID = int64(len(m.peers) + 1)
 	m.peers = append(m.peers, peer)
 	return nil
+}
+
+func (m *trackerMockPeerRepo) SwapCounters(_ context.Context, torrentID, userID int64, peerID []byte, uploaded, downloaded int64) (int64, int64, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.peers {
+		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
+			prevUp, prevDown := p.Uploaded, p.Downloaded
+			p.Uploaded, p.Downloaded = uploaded, downloaded
+			return prevUp, prevDown, true, nil
+		}
+	}
+	return 0, 0, false, nil
 }
 
 func (m *trackerMockPeerRepo) Delete(_ context.Context, torrentID, userID int64, peerID []byte) error {

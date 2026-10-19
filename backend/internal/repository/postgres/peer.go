@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -180,6 +181,31 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 		peer.Uploaded, peer.Downloaded, peer.LeftBytes, peer.Seeder,
 		peer.Agent, peer.StartedAt, peer.LastAnnounce,
 	).Scan(&peer.ID, &peer.StartedAt)
+}
+
+func (r *PeerRepo) SwapCounters(ctx context.Context, torrentID, userID int64, peerID []byte, uploaded, downloaded int64) (int64, int64, bool, error) {
+	// The subquery's FOR UPDATE makes a concurrent swap of the same peer wait,
+	// then read the row as this one left it (READ COMMITTED re-checks a locked
+	// row), so each swap returns the counters the previous one stored.
+	var prevUp, prevDown int64
+	err := r.db.QueryRowContext(ctx, `
+		UPDATE peers p SET uploaded = $4, downloaded = $5
+		FROM (
+			SELECT id, uploaded, downloaded FROM peers
+			WHERE torrent_id = $1 AND user_id = $2 AND peer_id = $3
+			FOR UPDATE
+		) old
+		WHERE p.id = old.id
+		RETURNING old.uploaded, old.downloaded`,
+		torrentID, userID, peerID, uploaded, downloaded,
+	).Scan(&prevUp, &prevDown)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("swapping peer counters: %w", err)
+	}
+	return prevUp, prevDown, true, nil
 }
 
 func (r *PeerRepo) Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error {
