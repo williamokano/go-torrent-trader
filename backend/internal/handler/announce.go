@@ -197,6 +197,8 @@ func mapAnnounceError(err error) string {
 		return "Too many peers on this torrent"
 	case errors.Is(err, service.ErrTooManyConns):
 		return "Too many connections"
+	case errors.Is(err, service.ErrTooManyOwnPeers):
+		return "Too many of your clients on this torrent"
 	case errors.Is(err, service.ErrInvalidCounters):
 		return "invalid uploaded, downloaded or left"
 	default:

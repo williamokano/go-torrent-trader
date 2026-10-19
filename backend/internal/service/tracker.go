@@ -27,6 +27,7 @@ var (
 	ErrDownloadSuspended  = errors.New("download privilege suspended")
 	ErrTooManyPeers       = errors.New("too many peers on this torrent")
 	ErrTooManyConns       = errors.New("too many connections")
+	ErrTooManyOwnPeers    = errors.New("too many of your peers on this torrent")
 	ErrInvalidCounters    = errors.New("uploaded, downloaded and left must not be negative")
 )
 
@@ -240,8 +241,23 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 
 	// Connection limits: only enforce for NEW peers (not updates to existing ones).
 	if existingPeer == nil && req.Event != EventStopped && s.siteSettings != nil {
-		maxPerTorrent := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerTorrent, 50)
-		if maxPerTorrent > 0 {
+		// One member's peers on one torrent: without this, a single account
+		// announcing under many peer_ids could fill the torrent's cap below
+		// and turn every other member away.
+		maxOwn := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerUserTorrent, 3)
+		if maxOwn > 0 {
+			own, err := s.peers.CountByTorrentAndUser(ctx, torrent.ID, user.ID)
+			if err != nil {
+				return nil, fmt.Errorf("count own peers on torrent: %w", err)
+			}
+			if own >= maxOwn {
+				return nil, ErrTooManyOwnPeers
+			}
+		}
+
+		// Seeders are never turned away: refusing one only starves the swarm.
+		maxPerTorrent := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerTorrent, 0)
+		if maxPerTorrent > 0 && req.Left > 0 {
 			torrentPeerCount, err := s.peers.CountByTorrent(ctx, torrent.ID)
 			if err != nil {
 				return nil, fmt.Errorf("count peers by torrent: %w", err)

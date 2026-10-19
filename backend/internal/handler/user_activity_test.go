@@ -43,6 +43,10 @@ func (m *mockActivityPeerRepo) CountByUser(context.Context, int64) (int, int, er
 func (m *mockActivityPeerRepo) CountByTorrent(context.Context, int64) (int, error) {
 	return 0, nil
 }
+func (*mockActivityPeerRepo) CountByTorrentAndUser(context.Context, int64, int64) (int, error) {
+	return 0, nil
+}
+
 func (m *mockActivityPeerRepo) CountTotalByUser(context.Context, int64) (int, error) {
 	return 0, nil
 }
