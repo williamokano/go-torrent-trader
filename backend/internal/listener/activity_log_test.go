@@ -201,8 +201,10 @@ func TestListener_TorrentUploaded(t *testing.T) {
 	if len(repo.logs) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(repo.logs))
 	}
-	if repo.logs[0].Message != "bob uploaded torrent: My.Torrent.2026" {
-		t.Errorf("unexpected message: %s", repo.logs[0].Message)
+	// The upload is staff's audit line; members hear of it from
+	// torrent_published once the torrent is public.
+	if repo.logs[0].Message != "bob submitted torrent: My.Torrent.2026" || !repo.logs[0].StaffOnly {
+		t.Errorf("message = %q staff_only = %v, want the staff-only submission line", repo.logs[0].Message, repo.logs[0].StaffOnly)
 	}
 	if repo.logs[0].Metadata == nil {
 		t.Error("expected metadata to be set")
@@ -365,19 +367,44 @@ func TestListener_BackupDownloaded(t *testing.T) {
 // third row per publish would be pure noise. Keeping the event out also means
 // its payload — which carries the anonymous flag — is never serialized into
 // activity_logs.metadata at all.
-func TestListener_TorrentPublishedIsNotLogged(t *testing.T) {
-	repo, bus := setup()
-
-	bus.Publish(context.Background(), &event.TorrentPublishedEvent{
-		Base:         event.NewBase(event.TorrentPublished, event.Actor{ID: 9, Username: "mod"}),
-		TorrentID:    42,
-		Name:         "Some.Release-GROUP",
-		UploaderID:   5,
-		UploaderName: "alice",
-	})
-
-	if len(repo.logs) != 0 {
-		t.Fatalf("torrent_published wrote %d activity log entries, want 0", len(repo.logs))
+// A torrent becoming public is what members see as its upload, credited to
+// its uploader — or to "Anonymous", with no actor to filter by.
+func TestListener_TorrentPublishedIsThePublicUpload(t *testing.T) {
+	cases := []struct {
+		name      string
+		anonymous bool
+		wantMsg   string
+		wantActor bool
+	}{
+		{"named", false, "alice uploaded torrent: Some.Release-GROUP", true},
+		{"anonymous", true, "Anonymous uploaded torrent: Some.Release-GROUP", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, bus := setup()
+			uploaderName := "alice"
+			if tc.anonymous {
+				uploaderName = "" // publishPublished drops it at the source
+			}
+			bus.Publish(context.Background(), &event.TorrentPublishedEvent{
+				Base:         event.NewBase(event.TorrentPublished, event.Actor{ID: 9, Username: "mod"}),
+				TorrentID:    42,
+				Name:         "Some.Release-GROUP",
+				UploaderID:   5,
+				UploaderName: uploaderName,
+				Anonymous:    tc.anonymous,
+			})
+			if len(repo.logs) != 1 {
+				t.Fatalf("got %d entries, want 1", len(repo.logs))
+			}
+			got := repo.logs[0]
+			if got.Message != tc.wantMsg || got.StaffOnly {
+				t.Errorf("message = %q staff_only = %v, want %q public", got.Message, got.StaffOnly, tc.wantMsg)
+			}
+			if (got.ActorID != nil) != tc.wantActor || (got.ActorID != nil && *got.ActorID != 5) {
+				t.Errorf("actor_id = %v, want the uploader only when named", got.ActorID)
+			}
+		})
 	}
 }
 
@@ -457,7 +484,7 @@ func TestChatDeletionsAreStaffOnlyButMutesAreNot(t *testing.T) {
 	}
 }
 
-// Upload, edit and delete entries show members only what the torrent allows:
+// Edit and delete entries show members only what the torrent allows:
 // nothing while it awaits moderation, and "Anonymous" with no actor for its
 // anonymous uploader — the actor stays in the staff-only metadata.
 func TestListener_TorrentEntriesRespectPrivacy(t *testing.T) {
@@ -469,16 +496,14 @@ func TestListener_TorrentEntriesRespectPrivacy(t *testing.T) {
 		wantActor     bool
 		wantStaffOnly bool
 	}{
-		{"anonymous upload", &event.TorrentUploadedEvent{Base: event.NewBase(event.TorrentUploaded, bob), TorrentID: 1, TorrentName: "T",
-			TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}}, "Anonymous uploaded torrent: T", false, false},
 		{"anonymous uploader edits", &event.TorrentEditedEvent{Base: event.NewBase(event.TorrentEdited, bob), TorrentID: 1, TorrentName: "T",
 			TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}}, "Anonymous edited torrent: T", false, false},
 		{"anonymous uploader deletes", &event.TorrentDeletedEvent{Base: event.NewBase(event.TorrentDeleted, bob), TorrentID: 1, TorrentName: "T",
 			TorrentPrivacy: event.TorrentPrivacy{AnonymousActor: true}}, "Anonymous deleted torrent: T", false, false},
-		{"upload awaiting moderation", &event.TorrentUploadedEvent{Base: event.NewBase(event.TorrentUploaded, bob), TorrentID: 1, TorrentName: "T",
-			TorrentPrivacy: event.TorrentPrivacy{Hidden: true, AnonymousActor: true}}, "bob uploaded torrent: T", true, true},
-		{"public named upload", &event.TorrentUploadedEvent{Base: event.NewBase(event.TorrentUploaded, bob), TorrentID: 1, TorrentName: "T"},
-			"bob uploaded torrent: T", true, false},
+		{"edit of a torrent awaiting moderation", &event.TorrentEditedEvent{Base: event.NewBase(event.TorrentEdited, bob), TorrentID: 1, TorrentName: "T",
+			TorrentPrivacy: event.TorrentPrivacy{Hidden: true, AnonymousActor: true}}, "bob edited torrent: T", true, true},
+		{"public named edit", &event.TorrentEditedEvent{Base: event.NewBase(event.TorrentEdited, bob), TorrentID: 1, TorrentName: "T"},
+			"bob edited torrent: T", true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

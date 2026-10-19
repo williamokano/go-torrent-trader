@@ -19,8 +19,8 @@ import (
 // to the product activity log. Each event type gets its own listener — a
 // closure that knows how to build the log message for that specific event.
 func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogService, userRepo repository.UserRepository) {
-	// listenEntry is listen for entries whose visibility depends on the
-	// event, not only on its type.
+	// listenEntry records an entry whose visibility depends on the event, not
+	// only on its type; listen, below, is the common case of a public one.
 	listenEntry := func(evtType event.Type, buildEntry func(event.Event) (string, event.Actor, bool)) {
 		bus.Subscribe(evtType, func(ctx context.Context, evt event.Event) error {
 			msg, actor, staffOnly := buildEntry(evt)
@@ -86,9 +86,21 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 		return fmt.Sprintf("%s deleted %s", e.Actor.Username, e.Username), e.Actor
 	})
 
+	// The upload itself is the staff audit line: the torrent may still await
+	// moderation, and the uploader may be anonymous. Members learn of it from
+	// TorrentPublished, below, once it is public.
 	listenEntry(event.TorrentUploaded, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentUploadedEvent)
-		return torrentEntry("%s uploaded torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
+		return fmt.Sprintf("%s submitted torrent: %s", e.Actor.Username, e.TorrentName), e.Actor, true
+	})
+
+	listen(event.TorrentPublished, func(evt event.Event) (string, event.Actor) {
+		e := evt.(*event.TorrentPublishedEvent)
+		if e.Anonymous {
+			return fmt.Sprintf("Anonymous uploaded torrent: %s", e.Name), event.Actor{}
+		}
+		return fmt.Sprintf("%s uploaded torrent: %s", e.UploaderName, e.Name),
+			event.Actor{ID: e.UploaderID, Username: e.UploaderName}
 	})
 
 	listenEntry(event.TorrentEdited, func(evt event.Event) (string, event.Actor, bool) {
@@ -102,14 +114,14 @@ func RegisterActivityLogListeners(bus event.Bus, logSvc *service.ActivityLogServ
 			if *e.BannedChanged {
 				verb = "banned"
 			}
-			return torrentEntry("%s "+verb+" torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
+			return torrentEntry(verb, e.Actor, e.TorrentName, e.TorrentPrivacy)
 		}
-		return torrentEntry("%s edited torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
+		return torrentEntry("edited", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
 	listenEntry(event.TorrentDeleted, func(evt event.Event) (string, event.Actor, bool) {
 		e := evt.(*event.TorrentDeletedEvent)
-		return torrentEntry("%s deleted torrent: %s", e.Actor, e.TorrentName, e.TorrentPrivacy)
+		return torrentEntry("deleted", e.Actor, e.TorrentName, e.TorrentPrivacy)
 	})
 
 	listen(event.TorrentReported, func(evt event.Event) (string, event.Actor) {
@@ -457,17 +469,18 @@ func marshalMetadata(evt event.Event) *string {
 	return &s
 }
 
-// torrentEntry builds the log entry for a torrent upload, edit or delete. A
-// torrent not yet public is logged for staff only, by name. On a public one,
-// an anonymous uploader acting on their own torrent is shown as "Anonymous"
-// and recorded with no actor, so members can neither read nor filter their
-// way to the name; staff still find it in the event's metadata.
-func torrentEntry(format string, actor event.Actor, name string, p event.TorrentPrivacy) (string, event.Actor, bool) {
-	if p.Hidden {
-		return fmt.Sprintf(format, actor.Username, name), actor, true
+// torrentEntry builds the log entry for a torrent edit or delete. A torrent
+// not public is logged for staff only, by name. On a public one, an anonymous
+// uploader acting on their own torrent is shown as "Anonymous" and recorded
+// with no actor, so members can neither read nor filter their way to the
+// name; staff still find it in the event's metadata.
+func torrentEntry(verb string, actor event.Actor, name string, p event.TorrentPrivacy) (string, event.Actor, bool) {
+	who := actor.Username
+	switch {
+	case p.Hidden:
+		return fmt.Sprintf("%s %s torrent: %s", who, verb, name), actor, true
+	case p.AnonymousActor:
+		who, actor = "Anonymous", event.Actor{}
 	}
-	if p.AnonymousActor {
-		return fmt.Sprintf(format, "Anonymous", name), event.Actor{}, false
-	}
-	return fmt.Sprintf(format, actor.Username, name), actor, false
+	return fmt.Sprintf("%s %s torrent: %s", who, verb, name), actor, false
 }

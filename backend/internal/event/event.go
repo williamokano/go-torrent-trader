@@ -171,7 +171,6 @@ type TorrentUploadedEvent struct {
 	Base
 	TorrentID   int64  `json:"torrent_id"`
 	TorrentName string `json:"torrent_name"`
-	TorrentPrivacy
 }
 
 // TorrentPrivacy says how much a torrent event may show to members. Staff

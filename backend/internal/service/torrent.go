@@ -351,10 +351,9 @@ func (s *TorrentService) Upload(ctx context.Context, fileData []byte, req Upload
 	}
 
 	s.eventBus.Publish(ctx, &event.TorrentUploadedEvent{
-		Base:           event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, uploaderID)),
-		TorrentID:      torrent.ID,
-		TorrentName:    torrent.Name,
-		TorrentPrivacy: torrentPrivacy(torrent, uploaderID),
+		Base:        event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, uploaderID)),
+		TorrentID:   torrent.ID,
+		TorrentName: torrent.Name,
 	})
 
 	// With moderation off the upload is public the moment it lands, so this is
@@ -958,16 +957,6 @@ func (s *TorrentService) ApproveTorrent(ctx context.Context, torrentID, userID i
 		return nil, fmt.Errorf("approve torrent: %w", err)
 	}
 	s.publishModerated(ctx, torrent, userID, model.ModerationApproved)
-	// The upload was logged for staff only while it waited; approval is when
-	// members first see it, credited to its uploader (or "Anonymous").
-	approved := *torrent
-	approved.ModerationStatus = model.ModerationApproved
-	s.eventBus.Publish(ctx, &event.TorrentUploadedEvent{
-		Base:           event.NewBase(event.TorrentUploaded, s.actorFromUserID(ctx, torrent.UploaderID)),
-		TorrentID:      torrent.ID,
-		TorrentName:    torrent.Name,
-		TorrentPrivacy: torrentPrivacy(&approved, torrent.UploaderID),
-	})
 	published, err := s.torrents.GetByID(ctx, torrentID)
 	if err != nil {
 		return nil, err
@@ -1178,11 +1167,13 @@ func (s *TorrentService) rewriteAnnounce(data []byte, passkey *string) ([]byte, 
 }
 
 // torrentPrivacy is what a torrent event may show members about torrent when
-// actorID acted on it: nothing while it is not yet approved, and not the
-// actor's name when the actor is its anonymous uploader.
+// actorID acted on it: nothing while it is not public (awaiting moderation,
+// rejected, or hidden), and not the actor's name when the actor is its
+// anonymous uploader. A ban does not hide the entry: naming bans is what the
+// log is for.
 func torrentPrivacy(torrent *model.Torrent, actorID int64) event.TorrentPrivacy {
 	return event.TorrentPrivacy{
-		Hidden:         torrent.ModerationStatus != model.ModerationApproved,
+		Hidden:         torrent.ModerationStatus != model.ModerationApproved || !torrent.Visible,
 		AnonymousActor: torrent.Anonymous && actorID == torrent.UploaderID,
 	}
 }
