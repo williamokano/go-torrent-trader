@@ -349,13 +349,12 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 	// An invited registration creates the account and spends the invite in
 	// one transaction: two registrations racing on one invite cannot both
 	// get an account.
-	var createErr error
 	if validatedInvite != nil {
-		createErr = s.inviteService.RegisterInvitee(ctx, validatedInvite, user)
+		err = s.inviteService.RegisterInvitee(ctx, validatedInvite, user)
 	} else {
-		createErr = s.users.Create(ctx, user)
+		err = s.users.Create(ctx, user)
 	}
-	if err := createErr; err != nil {
+	if err != nil {
 		if errors.Is(err, ErrInviteRedeemed) {
 			return nil, ErrInvalidInviteCode
 		}

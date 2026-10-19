@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -66,36 +65,24 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 		return nil, ErrNoInvitesRemaining
 	}
 
-	// Take the invite first, with a decrement that refuses to go below zero:
-	// the balance read above is only a fast path, and two concurrent calls
-	// both passing it must not both spend the same last invite.
-	if err := s.users.AdjustInvites(ctx, inviterID, -1); err != nil {
-		if errors.Is(err, repository.ErrInsufficientInvites) {
-			return nil, ErrNoInvitesRemaining
-		}
-		return nil, fmt.Errorf("decrement invites: %w", err)
-	}
-	refund := func() {
-		if err := s.users.AdjustInvites(ctx, inviterID, 1); err != nil {
-			slog.Error("could not refund an invite after a failed create", "user_id", inviterID, "error", err)
-		}
-	}
-
-	// Generate invite token
 	token, err := GenerateToken()
 	if err != nil {
-		refund()
 		return nil, fmt.Errorf("generate invite token: %w", err)
 	}
-
 	invite := &model.Invite{
 		InviterID: inviterID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(inviteExpiryDuration),
 	}
 
-	if err := s.invites.Create(ctx, invite); err != nil {
-		refund()
+	// The balance and privilege read above are only a fast path for the
+	// error message. Spending the invite and creating it are one
+	// transaction that re-checks both, so two concurrent calls cannot both
+	// spend the last invite, and a failure cannot lose one.
+	if err := s.invites.CreateInviteSpending(ctx, invite); err != nil {
+		if errors.Is(err, repository.ErrInsufficientInvites) {
+			return nil, ErrNoInvitesRemaining
+		}
 		return nil, fmt.Errorf("create invite: %w", err)
 	}
 

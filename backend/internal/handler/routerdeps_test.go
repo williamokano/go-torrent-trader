@@ -53,6 +53,7 @@ func (nopInviteRepo) ListByInviter(context.Context, int64, int, int) ([]model.In
 }
 func (nopInviteRepo) Redeem(context.Context, string, int64) error                    { return nil }
 func (nopInviteRepo) CreateUserRedeeming(context.Context, string, *model.User) error { return nil }
+func (nopInviteRepo) CreateInviteSpending(context.Context, *model.Invite) error      { return nil }
 func (nopInviteRepo) CountPendingByInviter(context.Context, int64) (int, error)      { return 0, nil }
 func (nopInviteRepo) Delete(context.Context, int64) error                            { return sql.ErrNoRows }
 

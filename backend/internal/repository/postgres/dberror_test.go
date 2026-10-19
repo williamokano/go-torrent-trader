@@ -584,7 +584,8 @@ func TestRepositoriesPropagateDBErrors(t *testing.T) {
 			_, _, err := NewInviteRepo(db).ListByInviter(ctx, 1, 1, 10)
 			return err
 		},
-		"InviteRepo.Redeem": func() error { return NewInviteRepo(db).Redeem(ctx, "t", 1) },
+		"InviteRepo.CreateUserRedeeming":  func() error { return NewInviteRepo(db).CreateUserRedeeming(ctx, "t", &model.User{}) },
+		"InviteRepo.CreateInviteSpending": func() error { return NewInviteRepo(db).CreateInviteSpending(ctx, &model.Invite{InviterID: 1}) },
 		"InviteRepo.CountPendingByInviter": func() error {
 			_, err := NewInviteRepo(db).CountPendingByInviter(ctx, 1)
 			return err

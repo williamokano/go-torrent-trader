@@ -378,7 +378,7 @@ func TestInviteRepoCreateRedeemAndCount(t *testing.T) {
 		t.Errorf("pending = %d, want 1", pending)
 	}
 
-	if err := repo.Redeem(ctx, inv.Token, invitee.ID); err != nil {
+	if err := redeemInvite(ctx, db, inv.Token, invitee.ID); err != nil {
 		t.Fatalf("Redeem: %v", err)
 	}
 
@@ -475,7 +475,7 @@ func TestInviteRepoDeleteRefusesRedeemed(t *testing.T) {
 	if err := repo.Create(ctx, inv); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := repo.Redeem(ctx, inv.Token, invitee.ID); err != nil {
+	if err := redeemInvite(ctx, db, inv.Token, invitee.ID); err != nil {
 		t.Fatalf("Redeem: %v", err)
 	}
 

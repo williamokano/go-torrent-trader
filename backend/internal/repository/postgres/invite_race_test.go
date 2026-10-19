@@ -133,3 +133,70 @@ func TestAdjustInvitesNeverGoesNegative(t *testing.T) {
 		t.Error("the schema accepted a negative invite balance")
 	}
 }
+
+// Ten concurrent invites from an inviter with one left: exactly one invite
+// exists afterwards and the balance is zero.
+func TestCreateInviteSpendingSpendsTheLastInviteOnce(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	inviter := newUser(t, db)
+	if err := NewUserRepo(db).SetInvites(ctx, inviter.ID, 1, nil); err != nil {
+		t.Fatalf("set invites: %v", err)
+	}
+	invites := NewInviteRepo(db)
+
+	const n = 10
+	var wg sync.WaitGroup
+	results := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- invites.CreateInviteSpending(ctx, &model.Invite{InviterID: inviter.ID, Token: uniq("tok"), ExpiresAt: time.Now().Add(time.Hour)})
+		}()
+	}
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil && !errors.Is(err, repository.ErrInsufficientInvites) {
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+
+	var created, balance int
+	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM invites WHERE inviter_id = $1), (SELECT invites FROM users WHERE id = $1)`, inviter.ID).Scan(&created, &balance); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if created != 1 || balance != 0 {
+		t.Errorf("invites created=%d balance=%d, want 1 and 0", created, balance)
+	}
+}
+
+// A restricted inviter's outstanding invite registers nobody, even when the
+// restriction lands after the invite was checked.
+func TestCreateUserRedeemingRefusesAVoidedInvite(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	inviter := newUser(t, db)
+	invites := NewInviteRepo(db)
+	inv := &model.Invite{InviterID: inviter.ID, Token: uniq("tok"), ExpiresAt: time.Now().Add(time.Hour)}
+	if err := invites.Create(ctx, inv); err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+	if err := NewUserRepo(db).SetPrivilegeFlag(ctx, inviter.ID, model.RestrictionTypeInvite, false); err != nil {
+		t.Fatalf("restrict inviter: %v", err)
+	}
+
+	name := uniq("voided")
+	err := invites.CreateUserRedeeming(ctx, inv.Token, &model.User{
+		Username: name, Email: name + "@example.test", PasswordHash: "h", PasswordScheme: "argon2id", GroupID: anyGroupID(t, db),
+	})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("err = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := NewUserRepo(db).GetByUsername(ctx, name); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("an account was created on a voided invite (err = %v)", err)
+	}
+}
