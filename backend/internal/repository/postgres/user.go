@@ -336,14 +336,13 @@ func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restricti
 
 // AdjustInvites atomically applies a delta to a user's invite balance —
 // UPDATE users SET invites = invites + $1 — mirroring how bonus_points is
-// adjusted (BonusRepo.AwardPoints). InviteService.CreateInvite's decrement and
-// InviteDistributionService's auto-grant both use this instead of a
-// read-modify-write, so those two paths (and any patch, which has no invites
-// field) can never clobber each other's write to this column.
+// adjusted (BonusRepo.AwardPoints). InviteDistributionService's auto-grant
+// uses this instead of a read-modify-write, so it (and any patch, which has
+// no invites field) can never clobber another write to this column. Spending
+// an invite goes through InviteRepo.CreateInviteSpending instead.
 func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64) error {
-	// A decrement that would go below zero changes nothing: checking the
-	// balance first and decrementing after let two concurrent invites both
-	// pass the check and spend the same last invite.
+	// Defence in depth for a negative delta: one that would take the balance
+	// below zero changes nothing (the schema refuses it too).
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE users SET invites = invites + $1, updated_at = NOW() WHERE id = $2 AND invites + $1 >= 0`, delta, userID)
 	if err != nil {

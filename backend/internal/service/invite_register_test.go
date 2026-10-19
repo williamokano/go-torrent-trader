@@ -58,3 +58,19 @@ func TestRegister_InviteRegistersOneAccount(t *testing.T) {
 		t.Error("a second account was created on one invite")
 	}
 }
+
+// A negative invite balance is refused before anything is written.
+func TestAdminUpdateUser_RejectsNegativeInvites(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+	target := createTestUserForAdmin(t, userRepo, 5)
+	title := "kept"
+	neg := -1
+
+	_, err := svc.UpdateUser(context.Background(), 99, target.ID, AdminUpdateUserRequest{Title: &title, Invites: &neg})
+	if !errors.Is(err, ErrAdminInvalidInvites) {
+		t.Fatalf("err = %v, want ErrAdminInvalidInvites", err)
+	}
+	if got, _ := userRepo.GetByID(context.Background(), target.ID); got.Title != nil {
+		t.Error("a rejected request still wrote another field")
+	}
+}

@@ -25,8 +25,8 @@ var (
 const inviteExpiryDuration = 7 * 24 * time.Hour
 
 // inviteAdjustRepository is repository.UserRepository plus the atomic invite
-// balance adjustment. Kept local to this file (and reused by
-// InviteDistributionService, same package) rather than added to
+// balance adjustment InviteDistributionService (same package) grants with.
+// Kept local to this file rather than added to
 // repository.UserRepository, so the many existing mocks implementing
 // UserRepository elsewhere in the test suite are untouched — the same
 // approach service/restriction.go uses for privilegeFlagRepository.
@@ -97,8 +97,11 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 // ValidateInvite checks if an invite token is valid without redeeming it.
 func (s *InviteService) ValidateInvite(ctx context.Context, token string) (*model.Invite, error) {
 	invite, err := s.invites.GetByToken(ctx, token)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrInviteNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get invite: %w", err) // an outage is not a bad code
 	}
 
 	if invite.Redeemed {

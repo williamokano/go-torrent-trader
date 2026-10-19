@@ -856,8 +856,9 @@ var ErrEditConflict = errors.New("post body changed since it was read")
 // reported had it won the check, instead of a 500.
 var ErrUniqueViolation = errors.New("unique constraint violated")
 
-// ErrInsufficientInvites is returned by AdjustInvites when a decrement would
-// take the balance below zero; nothing is changed.
+// ErrInsufficientInvites is returned when an invite cannot be spent — a
+// decrement would take the balance below zero (AdjustInvites), or the inviter
+// has none left or may not invite (CreateInviteSpending). Nothing is changed.
 var ErrInsufficientInvites = errors.New("insufficient invites")
 
 // ForumPostRepository defines persistence operations for forum posts.

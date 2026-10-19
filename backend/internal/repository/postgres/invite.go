@@ -165,7 +165,7 @@ func (r *InviteRepo) CountPendingByInviter(ctx context.Context, inviterID int64)
 }
 
 // Delete removes an invite, but only while it is still unredeemed — guarded
-// the same way Redeem guards its UPDATE. Without this, a revoke racing a
+// the same way redeemInvite guards its UPDATE. Without this, a revoke racing a
 // concurrent registration could delete a row a redemption had just claimed,
 // silently destroying that invite's audit trail (used_by_id/used_at) out
 // from under an interleaved success. Callers that see sql.ErrNoRows after a

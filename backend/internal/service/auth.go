@@ -270,8 +270,12 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 				return nil, fmt.Errorf("invite service not configured")
 			}
 			invite, err := s.inviteService.ValidateInvite(ctx, req.InviteCode)
-			if err != nil {
+			if errors.Is(err, ErrInviteNotFound) || errors.Is(err, ErrInviteRedeemed) ||
+				errors.Is(err, ErrInviteExpired) || errors.Is(err, ErrInviteVoided) {
 				return nil, ErrInvalidInviteCode
+			}
+			if err != nil {
+				return nil, fmt.Errorf("validate invite: %w", err)
 			}
 			validatedInvite = invite
 		}

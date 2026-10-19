@@ -200,3 +200,32 @@ func TestCreateUserRedeemingRefusesAVoidedInvite(t *testing.T) {
 		t.Errorf("an account was created on a voided invite (err = %v)", err)
 	}
 }
+
+// A registration that fails on a taken username leaves the invite unspent,
+// so the invitee can try again with another name.
+func TestCreateUserRedeemingLeavesInviteOnUniqueViolation(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	inviter := newUser(t, db)
+	taken := newUser(t, db)
+	invites := NewInviteRepo(db)
+	inv := &model.Invite{InviterID: inviter.ID, Token: uniq("tok"), ExpiresAt: time.Now().Add(time.Hour)}
+	if err := invites.Create(ctx, inv); err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+
+	err := invites.CreateUserRedeeming(ctx, inv.Token, &model.User{
+		Username: taken.Username, Email: uniq("other") + "@example.test", PasswordHash: "h", PasswordScheme: "argon2id", GroupID: anyGroupID(t, db),
+	})
+	if err == nil {
+		t.Fatal("registration with a taken username succeeded")
+	}
+	got, err := invites.GetByToken(ctx, inv.Token)
+	if err != nil {
+		t.Fatalf("GetByToken: %v", err)
+	}
+	if got.Redeemed {
+		t.Error("the invite was spent by a registration that failed")
+	}
+}
