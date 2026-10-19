@@ -27,13 +27,15 @@ type User struct {
 	// happens first. Unlike LastAccess (only touched by ActivityTracker, on a
 	// *subsequent* authenticated request, debounced every 5 minutes),
 	// ActivatedAt requires no follow-up request, so it stays nil precisely for
-	// registrations that were never activated at all. This is what the
-	// cleanup worker's expired-registration purge (BE-8.19) keys off of.
+	// registrations that were never activated at all. The cleanup worker's
+	// expired-registration purge (BE-8.19) keys off AwaitingConfirmation, with
+	// this as a backstop.
 	ActivatedAt *time.Time
 	// AwaitingConfirmation is true from a registration that needs email
 	// confirmation until the email is confirmed. It is what makes a disabled
 	// account confirmable: a ban also sets Enabled=false, so Enabled alone
-	// cannot tell the two apart. Disable clears it.
+	// cannot tell the two apart. Confirming, Enable and Disable all clear it,
+	// and the schema forbids it alongside Enabled.
 	AwaitingConfirmation bool
 	Invites              int
 	BonusPoints          int64
@@ -62,9 +64,14 @@ func (u *User) Disable() {
 	u.AwaitingConfirmation = false
 }
 
-// Enable turns the account on. Staff enabling an account that is still
-// awaiting confirmation stands in for the confirmation.
+// Enable turns the account on. Enabling an account that is still awaiting
+// confirmation stands in for the confirmation, so it also counts as the
+// account's activation.
 func (u *User) Enable() {
 	u.Enabled = true
 	u.AwaitingConfirmation = false
+	if u.ActivatedAt == nil {
+		now := time.Now()
+		u.ActivatedAt = &now
+	}
 }

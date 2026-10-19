@@ -186,9 +186,14 @@ func (r *UserRepo) UpdateWithHistory(ctx context.Context, user *model.User, entr
 	return nil
 }
 
-// updateUserRow runs the full-row UPDATE against either the pool or an
-// open transaction (DBTX is satisfied by both *sql.DB and *sql.Tx), so
-// Update and UpdateWithHistory share one query instead of drifting apart.
+// updateUserRow runs the full-row UPDATE. awaiting_confirmation can only be
+// cleared here, never set: a row read while pending and written back after a
+// concurrent disable must not make the account confirmable again. Only Create
+// sets it.
+//
+// It runs against either the pool or an open transaction (DBTX is satisfied
+// by both *sql.DB and *sql.Tx), so Update and UpdateWithHistory share one
+// query instead of drifting apart.
 func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
 	query := `UPDATE users SET
 		username = $1, email = $2, password_hash = $3, password_scheme = $4,
@@ -196,7 +201,7 @@ func updateUserRow(ctx context.Context, q DBTX, user *model.User) error {
 		enabled = $10, parked = $11, ip = $12, last_login = $13, last_access = $14,
 		warned = $15, warn_until = $16, donor = $17, invited_by = $18,
 		can_forum = $19, disabled_until = $20, activated_at = $21,
-		awaiting_confirmation = $22, updated_at = NOW()
+		awaiting_confirmation = awaiting_confirmation AND $22, updated_at = NOW()
 	WHERE id = $23
 	RETURNING updated_at`
 

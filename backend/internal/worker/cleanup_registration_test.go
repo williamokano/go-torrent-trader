@@ -33,7 +33,8 @@ var cleanupUserCounter int
 // the cleanup handler only matches registrations older than 7 days.
 // activatedAt is passed straight through to Create, mirroring how
 // AuthService.Register stamps ActivatedAt itself for no-confirmation
-// registrations (nil left as-is is the pending-confirmation state).
+// registrations. A disabled, never-activated user is created pending, the
+// way Register's needsConfirmation path does.
 func newCleanupTestUser(t *testing.T, db *sql.DB, enabled bool, createdAt time.Time, activatedAt *time.Time) *model.User {
 	t.Helper()
 	cleanupUserCounter++
@@ -66,9 +67,10 @@ func newCleanupTestUser(t *testing.T, db *sql.DB, enabled bool, createdAt time.T
 	return u
 }
 
-// banUser flips enabled=false the way the admin ban paths do (AdminService.
-// UpdateUser / QuickBanUser: read-modify-write the whole row), without
-// touching any other field — in particular, it must not clobber ActivatedAt.
+// banUser disables the user the way the admin ban paths do (AdminService.
+// UpdateUser / QuickBanUser: read-modify-write the whole row, through
+// User.Disable, which also ends any pending confirmation) — in particular, it
+// must not clobber ActivatedAt.
 func banUser(t *testing.T, repo *postgres.UserRepo, u *model.User) {
 	t.Helper()
 	ctx := context.Background()

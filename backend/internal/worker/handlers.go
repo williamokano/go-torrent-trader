@@ -107,7 +107,7 @@ func NewCleanupHandler(deps *WorkerDeps) func(ctx context.Context, job *river.Jo
 		// (model.User.Disable), so this also spares a member banned before they
 		// ever confirmed.
 		//
-		// activated_at IS NULL is kept as a second "never activated" signal (BE-8.19):
+		// activated_at IS NULL is kept as a backstop "never activated" signal (BE-8.19):
 		// model.User.ActivatedAt is stamped exactly once — at registration when
 		// no email confirmation is required, at email confirmation, or at first
 		// login, whichever happens first (see AuthService.Register/Login/

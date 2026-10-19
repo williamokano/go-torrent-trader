@@ -145,7 +145,7 @@ func usersPlan() TablePlan {
 			"updated_at":            "added, the registration date — the legacy schema records no modification time",
 			"warn_until":            "NULL — legacy warnings are a flag with no expiry, so a warned member stays warned until staff clear it",
 			"disabled_until":        "NULL — legacy enabled is permanent, not timed",
-			"awaiting_confirmation": "true for a legacy status of pending, so the member can ask for a confirmation email and finish signing up; false otherwise",
+			"awaiting_confirmation": "true when the legacy status is pending and the account is disabled, so the member can ask for a confirmation email and finish signing up; false otherwise — an enabled account can never be awaiting confirmation",
 			"can_upload":            "true — the legacy schema grants this by class, not per member, and groups.can_upload already carries it",
 			"can_download":          "true — see can_upload",
 			"can_invite":            "true — see can_upload",

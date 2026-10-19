@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -303,7 +304,8 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 	}
 	passkey := passkeyFull[:32]
 
-	// When email confirmation is required, create user with enabled=false
+	// When email confirmation is required, create user with enabled=false and
+	// awaiting_confirmation=true
 	// First user (admin bootstrap) always skips email confirmation
 	needsConfirmation := s.requireEmailConfirm && !isFirstUser
 
@@ -749,10 +751,14 @@ func (s *AuthService) ConfirmEmail(ctx context.Context, token string) error {
 	}
 	if !confirmed {
 		user, err := s.users.GetByID(ctx, ec.UserID)
-		if err == nil && user.Enabled {
-			// Already confirmed, idempotent success
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("confirm email: load user %d: %w", ec.UserID, err)
+		}
+		if user != nil && user.Enabled {
+			// Already confirmed, or enabled by staff: idempotent success
 			return nil
 		}
+		slog.Info("email confirmation refused: account not awaiting confirmation", "user_id", ec.UserID)
 		return ErrInvalidConfirmToken
 	}
 

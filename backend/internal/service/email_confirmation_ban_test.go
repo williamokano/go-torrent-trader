@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/event"
+	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
 // registerPending registers the bootstrap admin and then a member who still
@@ -174,4 +177,55 @@ func TestAdminPathsEndPendingConfirmation(t *testing.T) {
 			t.Errorf("enabled=%v awaiting=%v after quick ban, want false/false", u.Enabled, u.AwaitingConfirmation)
 		}
 	})
+}
+
+// The automatic bans end a pending confirmation too: a member still waiting
+// to confirm who is banned must not be able to confirm their way back in.
+func TestWarningBansEndPendingConfirmation(t *testing.T) {
+	ctx := context.Background()
+	bans := map[string]func(*WarningService) error{
+		"hnr ban": func(svc *WarningService) error { return svc.IssueHnRBan(ctx, 1, "hit-and-runs") },
+		"ratio ban": func(svc *WarningService) error {
+			w, err := svc.IssueRatioWarning(ctx, 1, "low ratio")
+			if err != nil {
+				return err
+			}
+			return svc.EscalateRatioWarning(ctx, w.ID, "Account disabled")
+		},
+	}
+	for name, ban := range bans {
+		t.Run(name, func(t *testing.T) {
+			userRepo := newMockUserRepoForWarnings()
+			userRepo.addUser(&model.User{ID: 1, Username: "pending", AwaitingConfirmation: true})
+			svc := NewWarningService(newMockWarningRepo(), userRepo, newMockMessageRepoForWarnings(), event.NewInMemoryBus())
+
+			if err := ban(svc); err != nil {
+				t.Fatalf("ban: %v", err)
+			}
+			if u, _ := userRepo.GetByID(ctx, 1); u.Enabled || u.AwaitingConfirmation {
+				t.Errorf("enabled=%v awaiting=%v after %s, want false/false", u.Enabled, u.AwaitingConfirmation, name)
+			}
+		})
+	}
+}
+
+// A timed ban that expires turns the account on through Enable, which counts
+// as activation: an account banned before it ever confirmed comes back
+// activated, not pending and not purgeable.
+func TestReEnableExpiredBansActivatesAccount(t *testing.T) {
+	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
+	target := createTestUserForAdmin(t, userRepo, 5)
+	target.Disable()
+	target.ActivatedAt = nil
+	past := time.Now().Add(-time.Hour)
+	target.DisabledUntil = &past
+	_ = userRepo.Update(context.Background(), target)
+
+	if _, err := svc.ReEnableExpiredBans(context.Background()); err != nil {
+		t.Fatalf("re-enable: %v", err)
+	}
+	u, _ := userRepo.GetByID(context.Background(), target.ID)
+	if !u.Enabled || u.AwaitingConfirmation || u.ActivatedAt == nil {
+		t.Errorf("enabled=%v awaiting=%v activated=%v, want an enabled, activated account", u.Enabled, u.AwaitingConfirmation, u.ActivatedAt)
+	}
 }

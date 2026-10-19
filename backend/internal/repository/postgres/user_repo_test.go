@@ -1162,3 +1162,65 @@ func TestSchemaRejectsEnabledAndAwaiting(t *testing.T) {
 		t.Fatal("an enabled account awaiting confirmation was accepted")
 	}
 }
+
+// The full-row Update may clear awaiting_confirmation but never set it: a row
+// read while pending and written back after a concurrent disable must not
+// make the account confirmable again.
+func TestUserRepoUpdateNeverSetsAwaitingConfirmation(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+
+	u := &model.User{
+		Username: uniq("stale"), Email: uniq("stale") + "@example.test",
+		PasswordHash: "hash", PasswordScheme: "argon2id",
+		GroupID: anyGroupID(t, db), AwaitingConfirmation: true,
+	}
+	if err := repo.Create(ctx, u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stale := *u // read while pending
+
+	banned := *u
+	banned.Disable()
+	if err := repo.Update(ctx, &banned); err != nil {
+		t.Fatalf("ban: %v", err)
+	}
+	if err := repo.Update(ctx, &stale); err != nil {
+		t.Fatalf("stale write: %v", err)
+	}
+
+	got, _ := repo.GetByID(ctx, u.ID)
+	if got.AwaitingConfirmation {
+		t.Fatal("a stale full-row write made a banned account confirmable again")
+	}
+	if ok, _ := repo.ConfirmPendingEmail(ctx, u.ID, time.Now()); ok {
+		t.Fatal("the banned account could be confirmed")
+	}
+}
+
+// Confirming keeps an activation that already happened.
+func TestUserRepoConfirmPendingEmailKeepsActivatedAt(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+
+	earlier := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	u := &model.User{
+		Username: uniq("act"), Email: uniq("act") + "@example.test",
+		PasswordHash: "hash", PasswordScheme: "argon2id",
+		GroupID: anyGroupID(t, db), AwaitingConfirmation: true, ActivatedAt: &earlier,
+	}
+	if err := repo.Create(ctx, u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if ok, err := repo.ConfirmPendingEmail(ctx, u.ID, time.Now()); err != nil || !ok {
+		t.Fatalf("confirm = (%v, %v)", ok, err)
+	}
+	got, _ := repo.GetByID(ctx, u.ID)
+	if got.ActivatedAt == nil || !got.ActivatedAt.Equal(earlier) {
+		t.Fatalf("activated_at = %v, want the earlier %v kept", got.ActivatedAt, earlier)
+	}
+}
