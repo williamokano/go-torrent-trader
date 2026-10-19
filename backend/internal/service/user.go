@@ -137,19 +137,21 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 		return nil, ErrUserNotFound
 	}
 
+	var profile model.UserPatch
 	if req.Avatar != nil {
-		user.Avatar = req.Avatar
+		profile.Avatar = model.To(req.Avatar)
 	}
 	if req.Title != nil {
-		user.Title = req.Title
+		profile.Title = model.To(req.Title)
 	}
 	if req.Info != nil {
-		user.Info = req.Info
+		profile.Info = model.To(req.Info)
 	}
 
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, profile); err != nil {
 		return nil, fmt.Errorf("update profile: %w", err)
 	}
+	user.Apply(profile)
 
 	pub := s.buildPublicProfile(ctx, user)
 	return buildOwnerProfile(user, pub), nil
@@ -177,10 +179,10 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, currentA
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	user.PasswordHash = newHash
-	user.PasswordScheme = "argon2id"
-
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{
+		PasswordHash:   model.To(newHash),
+		PasswordScheme: model.To(SchemeArgon2id),
+	}); err != nil {
 		return fmt.Errorf("update password: %w", err)
 	}
 
@@ -202,9 +204,7 @@ func (s *UserService) RegeneratePasskey(ctx context.Context, userID int64) (stri
 		return "", fmt.Errorf("generate passkey: %w", err)
 	}
 	passkey := token[:32]
-	user.Passkey = &passkey
-
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{Passkey: model.To(&passkey)}); err != nil {
 		return "", fmt.Errorf("update passkey: %w", err)
 	}
 

@@ -54,7 +54,7 @@ func banUser(t *testing.T, repo *mockUserRepo, userID int64) {
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
-	user.Disable()
+	user.Apply(model.DisablePatch())
 	if err := repo.Update(context.Background(), user); err != nil {
 		t.Fatalf("ban: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestWarningBansEndPendingConfirmation(t *testing.T) {
 func TestReEnableExpiredBansActivatesAccount(t *testing.T) {
 	svc, userRepo, _, _, _, _ := newAdminServiceForBanTests(t)
 	target := createTestUserForAdmin(t, userRepo, 5)
-	target.Disable()
+	target.Apply(model.DisablePatch())
 	target.ActivatedAt = nil
 	past := time.Now().Add(-time.Hour)
 	target.DisabledUntil = &past

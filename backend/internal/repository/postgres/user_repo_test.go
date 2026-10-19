@@ -295,12 +295,11 @@ func TestUserRepoUpdateWithHistory_RecordsAtomically(t *testing.T) {
 	u := newUser(t, db)
 	admin := newUser(t, db)
 
-	u.Title = ptr("Elite")
 	entries := []model.UserEditHistory{
 		{UserID: u.ID, ChangedBy: &admin.ID, ChangedByUsername: admin.Username, Field: "title", OldValue: "", NewValue: "Elite"},
 	}
-	if err := repo.UpdateWithHistory(ctx, u, entries); err != nil {
-		t.Fatalf("UpdateWithHistory: %v", err)
+	if err := repo.UpdateFieldsWithHistory(ctx, u.ID, model.UserPatch{Title: model.To(ptr("Elite"))}, entries); err != nil {
+		t.Fatalf("UpdateFieldsWithHistory: %v", err)
 	}
 
 	got, err := repo.GetByID(ctx, u.ID)
@@ -335,11 +334,10 @@ func TestUserRepoUpdateWithHistory_AuditFailureRollsBackWrite(t *testing.T) {
 	u := newUser(t, db)
 
 	bogusAdmin := int64(999999999)
-	u.Title = ptr("should not persist")
 	entries := []model.UserEditHistory{
 		{UserID: u.ID, ChangedBy: &bogusAdmin, Field: "title", OldValue: "", NewValue: "should not persist"},
 	}
-	if err := repo.UpdateWithHistory(ctx, u, entries); err == nil {
+	if err := repo.UpdateFieldsWithHistory(ctx, u.ID, model.UserPatch{Title: model.To(ptr("should not persist"))}, entries); err == nil {
 		t.Fatal("expected an error from the changed_by FK violation")
 	}
 
@@ -1085,7 +1083,7 @@ func TestUserRepoRoundTripsAwaitingConfirmation(t *testing.T) {
 		t.Fatalf("awaiting=%v enabled=%v, want true/false after Create", stored.AwaitingConfirmation, stored.Enabled)
 	}
 
-	stored.Disable()
+	stored.Apply(model.DisablePatch())
 	if err := repo.Update(ctx, stored); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -1136,7 +1134,7 @@ func TestUserRepoConfirmPendingEmail(t *testing.T) {
 	}
 
 	banned := newPending()
-	banned.Disable()
+	banned.Apply(model.DisablePatch())
 	if err := repo.Update(ctx, banned); err != nil {
 		t.Fatalf("ban: %v", err)
 	}
@@ -1183,7 +1181,7 @@ func TestUserRepoUpdateNeverSetsAwaitingConfirmation(t *testing.T) {
 	stale := *u // read while pending
 
 	banned := *u
-	banned.Disable()
+	banned.Apply(model.DisablePatch())
 	if err := repo.Update(ctx, &banned); err != nil {
 		t.Fatalf("ban: %v", err)
 	}

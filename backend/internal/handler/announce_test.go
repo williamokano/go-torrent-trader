@@ -49,9 +49,10 @@ func (r *announceUserRepo) GetByUsernames(context.Context, []string) ([]model.Us
 func (r *announceUserRepo) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, sql.ErrNoRows
 }
-func (r *announceUserRepo) Count(context.Context) (int64, error)      { return 0, nil }
-func (r *announceUserRepo) Create(context.Context, *model.User) error { return nil }
-func (r *announceUserRepo) Update(context.Context, *model.User) error { return nil }
+func (r *announceUserRepo) Count(context.Context) (int64, error)                     { return 0, nil }
+func (r *announceUserRepo) Create(context.Context, *model.User) error                { return nil }
+func (*announceUserRepo) UpdateFields(context.Context, int64, model.UserPatch) error { return nil }
+func (r *announceUserRepo) Update(context.Context, *model.User) error                { return nil }
 func (r *announceUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
 	return false, nil
 }

@@ -145,7 +145,8 @@ func (m *mockNewsUserRepo) Count(context.Context) (int64, error) { return 0, nil
 func (m *mockNewsUserRepo) Create(context.Context, *model.User) error {
 	return errors.New("not implemented")
 }
-func (m *mockNewsUserRepo) Update(context.Context, *model.User) error { return nil }
+func (*mockNewsUserRepo) UpdateFields(context.Context, int64, model.UserPatch) error { return nil }
+func (m *mockNewsUserRepo) Update(context.Context, *model.User) error                { return nil }
 func (m *mockNewsUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
 	return false, nil
 }

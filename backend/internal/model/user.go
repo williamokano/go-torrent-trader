@@ -56,22 +56,3 @@ type User struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
-
-// Disable turns the account off. It also ends any pending email confirmation,
-// so confirming can never undo a ban.
-func (u *User) Disable() {
-	u.Enabled = false
-	u.AwaitingConfirmation = false
-}
-
-// Enable turns the account on. Enabling an account that is still awaiting
-// confirmation stands in for the confirmation, so it also counts as the
-// account's activation.
-func (u *User) Enable() {
-	u.Enabled = true
-	u.AwaitingConfirmation = false
-	if u.ActivatedAt == nil {
-		now := time.Now()
-		u.ActivatedAt = &now
-	}
-}

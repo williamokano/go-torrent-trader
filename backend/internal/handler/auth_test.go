@@ -107,6 +107,15 @@ func (m *mockUserRepo) Create(_ context.Context, user *model.User) error {
 	return nil
 }
 
+func (m *mockUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return m.Update(ctx, u)
+}
+
 func (m *mockUserRepo) Update(_ context.Context, user *model.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -225,6 +234,15 @@ func (m *mockUserRepo) SetStats(_ context.Context, userID int64, uploaded, downl
 		}
 	}
 	return errors.New("not found")
+}
+
+func (m *mockUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return m.UpdateWithHistory(ctx, u, entries)
 }
 
 func (m *mockUserRepo) UpdateWithHistory(_ context.Context, user *model.User, entries []model.UserEditHistory) error {

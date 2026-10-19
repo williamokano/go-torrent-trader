@@ -132,6 +132,15 @@ func (m *mockNotifUsers) GetByPasskey(_ context.Context, _ string) (*model.User,
 }
 func (m *mockNotifUsers) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockNotifUsers) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *mockNotifUsers) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return m.Update(ctx, u)
+}
+
 func (m *mockNotifUsers) Update(_ context.Context, _ *model.User) error { return nil }
 func (m *mockNotifUsers) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
 	return false, nil

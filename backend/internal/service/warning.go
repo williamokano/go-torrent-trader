@@ -66,13 +66,14 @@ func (s *WarningService) IssueManualWarning(ctx context.Context, userID int64, r
 	}
 
 	// Set warned flag on user
-	user.Warned = true
+	warned := model.UserPatch{Warned: model.To(true)}
 	if expiresAt != nil {
-		user.WarnUntil = expiresAt
+		warned.WarnUntil = model.To(expiresAt)
 	}
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, warned); err != nil {
 		return nil, fmt.Errorf("update user warned flag: %w", err)
 	}
+	user.Apply(warned)
 
 	// Send PM to the warned user from the issuer
 	s.sendPM(ctx, issuedByID, userID, "Warning Issued", reason)
@@ -111,10 +112,10 @@ func (s *WarningService) IssueRatioWarning(ctx context.Context, userID int64, me
 	}
 
 	// Set warned flag on user
-	user.Warned = true
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{Warned: model.To(true)}); err != nil {
 		return nil, fmt.Errorf("update user warned flag: %w", err)
 	}
+	user.Warned = true
 
 	// Send PM notification to user
 	s.sendSystemPM(ctx, userID, "Ratio Warning", message)
@@ -153,10 +154,10 @@ func (s *WarningService) IssueHnRWarning(ctx context.Context, userID int64, mess
 		return nil, fmt.Errorf("create hnr warning: %w", err)
 	}
 
-	user.Warned = true
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{Warned: model.To(true)}); err != nil {
 		return nil, fmt.Errorf("update user warned flag: %w", err)
 	}
+	user.Warned = true
 
 	s.sendSystemPM(ctx, userID, "Hit-and-Run Warning", message)
 
@@ -187,8 +188,7 @@ func (s *WarningService) IssueHnRBan(ctx context.Context, userID int64, reason s
 
 	s.sendSystemPM(ctx, userID, "Account Disabled - Hit-and-Run", reason)
 
-	user.Disable()
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.DisablePatch()); err != nil {
 		return fmt.Errorf("disable user: %w", err)
 	}
 
@@ -253,8 +253,7 @@ func (s *WarningService) EscalateRatioWarning(ctx context.Context, warningID int
 	// Send PM with ban reason BEFORE disabling the account
 	s.sendSystemPM(ctx, w.UserID, "Account Disabled - Ratio Ban", banMessage)
 
-	user.Disable()
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.UpdateFields(ctx, user.ID, model.DisablePatch()); err != nil {
 		return fmt.Errorf("disable user: %w", err)
 	}
 
@@ -424,9 +423,10 @@ func (s *WarningService) clearWarnedIfNone(ctx context.Context, userID int64) er
 		if err != nil {
 			return fmt.Errorf("get user: %w", err)
 		}
-		user.Warned = false
-		user.WarnUntil = nil
-		if err := s.users.Update(ctx, user); err != nil {
+		if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{
+			Warned:    model.To(false),
+			WarnUntil: model.To[*time.Time](nil),
+		}); err != nil {
 			return fmt.Errorf("clear user warned flag: %w", err)
 		}
 	}

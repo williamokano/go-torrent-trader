@@ -425,6 +425,26 @@ func TestAdminResetPassword_WithPassword(t *testing.T) {
 	}
 }
 
+// A member migrated from the legacy site still has their hash marked with the
+// old scheme. A reset stores an Argon2id hash, so it must store the scheme
+// with it — or the next login checks the new hash the old way and fails.
+func TestAdminResetPassword_StoresArgon2idScheme(t *testing.T) {
+	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
+
+	admin := createTestUserForAdmin(t, userRepo, 1)
+	target := createTestUserForAdmin(t, userRepo, 5)
+	target.PasswordScheme = SchemeLegacyMD5
+	_ = userRepo.Update(context.Background(), target)
+
+	if _, err := svc.ResetPassword(context.Background(), admin.ID, target.ID, "MyNewPassword123!"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	got, _ := userRepo.GetByID(context.Background(), target.ID)
+	if got.PasswordScheme != SchemeArgon2id {
+		t.Errorf("scheme = %q after a reset, want %q", got.PasswordScheme, SchemeArgon2id)
+	}
+}
+
 func TestAdminResetPassword_InsufficientLevel(t *testing.T) {
 	svc, userRepo, _, _, _ := newAdminServiceWithDeps(t)
 

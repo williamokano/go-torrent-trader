@@ -167,6 +167,15 @@ func (m *mockUserRepoForRestrictions) GetByPasskey(_ context.Context, _ string) 
 }
 func (m *mockUserRepoForRestrictions) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockUserRepoForRestrictions) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *mockUserRepoForRestrictions) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return m.Update(ctx, u)
+}
+
 func (m *mockUserRepoForRestrictions) Update(_ context.Context, u *model.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -20,7 +20,8 @@ type UserRepository interface {
 	GetByPasskey(ctx context.Context, passkey string) (*model.User, error)
 	Count(ctx context.Context) (int64, error)
 	Create(ctx context.Context, user *model.User) error
-	Update(ctx context.Context, user *model.User) error
+	// UpdateFields writes only the columns the patch sets.
+	UpdateFields(ctx context.Context, id int64, p model.UserPatch) error
 	IncrementStats(ctx context.Context, id int64, uploadedDelta, downloadedDelta int64) error
 	// ConfirmPendingEmail enables an account that is still awaiting email
 	// confirmation and ends that state, in one statement, stamping

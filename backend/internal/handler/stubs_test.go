@@ -89,6 +89,15 @@ func (s *stubUserRepo) Count(_ context.Context) (int64, error) { return int64(le
 func (s *stubUserRepo) Create(_ context.Context, _ *model.User) error {
 	return nil
 }
+func (s *stubUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := s.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return s.Update(ctx, u)
+}
+
 func (s *stubUserRepo) Update(_ context.Context, u *model.User) error {
 	if s.updErr != nil {
 		return s.updErr
@@ -159,6 +168,15 @@ func (s *stubUserRepo) SetStats(_ context.Context, userID int64, uploaded, downl
 		u.Downloaded = *downloaded
 	}
 	return nil
+}
+
+func (s *stubUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error {
+	u, err := s.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return s.UpdateWithHistory(ctx, u, entries)
 }
 
 func (s *stubUserRepo) UpdateWithHistory(ctx context.Context, u *model.User, _ []model.UserEditHistory) error {

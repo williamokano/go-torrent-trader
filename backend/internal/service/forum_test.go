@@ -327,6 +327,15 @@ func (m *mockForumUserRepo) GetByPasskey(_ context.Context, _ string) (*model.Us
 }
 func (m *mockForumUserRepo) Count(_ context.Context) (int64, error)        { return 0, nil }
 func (m *mockForumUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *mockForumUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return m.Update(ctx, u)
+}
+
 func (m *mockForumUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
 func (m *mockForumUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {
 	return false, nil

@@ -131,12 +131,12 @@ type adminUserWriteRepository interface {
 	SetInvites(ctx context.Context, userID int64, invites int, entries []model.UserEditHistory) error
 	// SetStats atomically sets uploaded/downloaded (independently, via nil to
 	// leave a counter untouched) and their audit entries in one transaction —
-	// bypassing UpdateWithHistory's full-row write, which no longer touches
-	// either column, so a stale read elsewhere can never clobber stats
+	// UserPatch has no stats fields, so a stale read elsewhere can never clobber stats
 	// accrued concurrently by an announce.
 	SetStats(ctx context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error
-	// UpdateWithHistory is Update plus its audit entries, committed together.
-	UpdateWithHistory(ctx context.Context, user *model.User, entries []model.UserEditHistory) error
+	// UpdateFieldsWithHistory is UpdateFields plus its audit entries,
+	// committed together.
+	UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error
 }
 
 // AdminService handles admin-only business logic.
@@ -458,28 +458,29 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		})
 	}
 
+	var patch model.UserPatch
 	if req.Username != nil {
 		if !usernameRe.MatchString(*req.Username) {
 			return nil, ErrAdminInvalidUsername
 		}
 		record("username", user.Username, *req.Username)
-		user.Username = *req.Username
+		patch.Username = model.To(*req.Username)
 	}
 	if req.Email != nil {
 		record("email", user.Email, *req.Email)
-		user.Email = *req.Email
+		patch.Email = model.To(*req.Email)
 	}
 	if req.Avatar != nil {
 		record("avatar", derefString(user.Avatar), *req.Avatar)
-		user.Avatar = req.Avatar
+		patch.Avatar = model.To(req.Avatar)
 	}
 	if req.Title != nil {
 		record("title", derefString(user.Title), *req.Title)
-		user.Title = req.Title
+		patch.Title = model.To(req.Title)
 	}
 	if req.Info != nil {
 		record("info", derefString(user.Info), *req.Info)
-		user.Info = req.Info
+		patch.Info = model.To(req.Info)
 	}
 	if req.GroupID != nil {
 		newGroup, err := s.groups.GetByID(ctx, *req.GroupID)
@@ -489,39 +490,35 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		if user.GroupID != *req.GroupID {
 			record("group", oldGroupName, newGroup.Name)
 		}
-		user.GroupID = *req.GroupID
+		patch.GroupID = model.To(*req.GroupID)
 	}
 	if req.Enabled != nil {
 		record("enabled", strconv.FormatBool(user.Enabled), strconv.FormatBool(*req.Enabled))
-		if *req.Enabled {
-			user.Enable()
-		} else {
-			user.Disable()
-		}
+		patch.SetEnabled(*req.Enabled, time.Now())
 	}
 	if req.Warned != nil {
 		record("warned", strconv.FormatBool(user.Warned), strconv.FormatBool(*req.Warned))
-		user.Warned = *req.Warned
+		patch.Warned = model.To(*req.Warned)
 	}
 	if req.Donor != nil {
 		record("donor", strconv.FormatBool(user.Donor), strconv.FormatBool(*req.Donor))
-		user.Donor = *req.Donor
+		patch.Donor = model.To(*req.Donor)
 	}
 	if req.Parked != nil {
 		record("parked", strconv.FormatBool(user.Parked), strconv.FormatBool(*req.Parked))
-		user.Parked = *req.Parked
+		patch.Parked = model.To(*req.Parked)
 	}
 
-	// UpdateWithHistory commits the full-row write and its audit rows in one
-	// transaction: a failed audit insert now rolls back the update, instead of
-	// (as before this story) the update landing with the audit recorded
-	// best-effort afterward.
-	if err := s.users.UpdateWithHistory(ctx, user, audit); err != nil {
+	// Only the fields this request names are written, together with their
+	// audit rows in one transaction: a failed audit insert rolls back the
+	// update, and a field another admin changed meanwhile is left alone.
+	if err := s.users.UpdateFieldsWithHistory(ctx, user.ID, patch, audit); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
+	user.Apply(patch)
 	audit = nil
 
-	// Publish events for the state changes UpdateWithHistory just committed,
+	// Publish events for the state changes just committed,
 	// right away rather than after the independent stats/invites/bonus writes
 	// below: those are separate transactions against unrelated columns, and a
 	// later one failing must not leave an already-persisted ban/unban/warn/
@@ -766,8 +763,12 @@ func (s *AdminService) ResetPassword(ctx context.Context, actorID, userID int64,
 		return "", fmt.Errorf("hash password: %w", err)
 	}
 
-	target.PasswordHash = hash
-	if err := s.users.Update(ctx, target); err != nil {
+	// The scheme goes with the hash: a migrated member still on a legacy
+	// scheme would otherwise have the new hash checked the old way.
+	if err := s.users.UpdateFields(ctx, target.ID, model.UserPatch{
+		PasswordHash:   model.To(hash),
+		PasswordScheme: model.To(SchemeArgon2id),
+	}); err != nil {
 		return "", fmt.Errorf("update user: %w", err)
 	}
 
@@ -820,9 +821,7 @@ func (s *AdminService) ResetPasskey(ctx context.Context, actorID, userID int64) 
 		return "", fmt.Errorf("generate passkey: %w", err)
 	}
 	passkey := token[:32]
-	target.Passkey = &passkey
-
-	if err := s.users.Update(ctx, target); err != nil {
+	if err := s.users.UpdateFields(ctx, target.ID, model.UserPatch{Passkey: model.To(&passkey)}); err != nil {
 		return "", fmt.Errorf("update passkey: %w", err)
 	}
 
@@ -968,13 +967,13 @@ func (s *AdminService) QuickBanUser(ctx context.Context, actorID, targetID int64
 	}
 
 	// 1. Disable the user FIRST (the critical operation)
-	target.Disable()
+	ban := model.DisablePatch()
 	if req.DurationDays != nil && *req.DurationDays > 0 {
 		until := time.Now().Add(time.Duration(*req.DurationDays) * 24 * time.Hour)
-		target.DisabledUntil = &until
+		ban.DisabledUntil = model.To(&until)
 	}
 
-	if err := s.users.Update(ctx, target); err != nil {
+	if err := s.users.UpdateFields(ctx, target.ID, ban); err != nil {
 		return nil, fmt.Errorf("disable user: %w", err)
 	}
 	result.Banned = true
@@ -1100,9 +1099,9 @@ func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
 	count := 0
 	for i := range users {
 		u := &users[i]
-		u.Enable()
-		u.DisabledUntil = nil
-		if err := s.users.Update(ctx, u); err != nil {
+		unban := model.EnablePatch(now)
+		unban.DisabledUntil = model.To[*time.Time](nil)
+		if err := s.users.UpdateFields(ctx, u.ID, unban); err != nil {
 			slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)
 			continue
 		}

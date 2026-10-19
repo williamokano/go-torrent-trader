@@ -180,6 +180,7 @@ func (r *mockChatUserRepo) Count(context.Context) (int64, error) { return 0, nil
 func (r *mockChatUserRepo) Create(context.Context, *model.User) error {
 	return nil
 }
+func (*mockChatUserRepo) UpdateFields(context.Context, int64, model.UserPatch) error { return nil }
 func (r *mockChatUserRepo) Update(context.Context, *model.User) error {
 	return nil
 }

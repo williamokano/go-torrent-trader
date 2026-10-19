@@ -70,6 +70,15 @@ func (m *trackerMockUserRepo) Count(_ context.Context) (int64, error) {
 }
 
 func (m *trackerMockUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
+func (m *trackerMockUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
+	u, err := m.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return err
+	}
+	u.Apply(p)
+	return m.Update(ctx, u)
+}
+
 func (m *trackerMockUserRepo) Update(_ context.Context, _ *model.User) error { return nil }
 
 func (m *trackerMockUserRepo) ConfirmPendingEmail(_ context.Context, _ int64, _ time.Time) (bool, error) {

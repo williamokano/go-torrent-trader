@@ -75,12 +75,7 @@ func banUser(t *testing.T, repo *postgres.UserRepo, u *model.User) {
 	t.Helper()
 	ctx := context.Background()
 
-	fresh, err := repo.GetByID(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("GetByID before ban: %v", err)
-	}
-	fresh.Disable()
-	if err := repo.Update(ctx, fresh); err != nil {
+	if err := repo.UpdateFields(ctx, u.ID, model.DisablePatch()); err != nil {
 		t.Fatalf("banning user: %v", err)
 	}
 }

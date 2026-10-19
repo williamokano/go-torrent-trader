@@ -79,9 +79,11 @@ func TestRepositoriesPropagateDBErrors(t *testing.T) {
 			_, err := NewUserRepo(db).Count(ctx)
 			return err
 		},
-		"UserRepo.Update": func() error { return NewUserRepo(db).Update(ctx, &model.User{ID: 1}) },
-		"UserRepo.UpdateWithHistory": func() error {
-			return NewUserRepo(db).UpdateWithHistory(ctx, &model.User{ID: 1}, nil)
+		"UserRepo.UpdateFields": func() error {
+			return NewUserRepo(db).UpdateFields(ctx, 1, model.UserPatch{Parked: model.To(true)})
+		},
+		"UserRepo.UpdateFieldsWithHistory": func() error {
+			return NewUserRepo(db).UpdateFieldsWithHistory(ctx, 1, model.UserPatch{Parked: model.To(true)}, nil)
 		},
 		"UserRepo.SetPrivilegeFlag": func() error {
 			return NewUserRepo(db).SetPrivilegeFlag(ctx, 1, model.RestrictionTypeDownload, false)
