@@ -20,7 +20,14 @@ ALTER TABLE forum_topics DROP CONSTRAINT IF EXISTS forum_topics_last_post_by_fke
 ALTER TABLE forum_topics ADD CONSTRAINT forum_topics_last_post_by_fkey
     FOREIGN KEY (last_post_by) REFERENCES users(id) ON DELETE SET NULL;
 
+-- Deleting a topic now really removes its posts, and each removed post sets
+-- the replies that quote it to NULL: without an index that is one scan of
+-- forum_posts per deleted post.
+CREATE INDEX IF NOT EXISTS idx_forum_posts_reply_to_post_id
+    ON forum_posts(reply_to_post_id) WHERE reply_to_post_id IS NOT NULL;
+
 -- +goose Down
+DROP INDEX IF EXISTS idx_forum_posts_reply_to_post_id;
 ALTER TABLE forum_topics DROP CONSTRAINT IF EXISTS forum_topics_last_post_by_fkey;
 ALTER TABLE forum_topics ADD CONSTRAINT forum_topics_last_post_by_fkey
     FOREIGN KEY (last_post_by) REFERENCES users(id);

@@ -34,7 +34,7 @@ func TestForumServiceDeleteTopicRemovesItsPosts(t *testing.T) {
 	if err := postRepo.CreateEdit(ctx, &model.ForumPostEdit{PostID: firstPost, EditedBy: &authorID, Diff: "@@ -1 +1 @@\n-a\n+b\n"}); err != nil {
 		t.Fatalf("CreateEdit: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO topic_subscriptions (user_id, topic_id) VALUES ($1, $2)`, replierID, topicID); err != nil {
+	if err := NewTopicSubscriptionRepo(db).Subscribe(ctx, replierID, topicID); err != nil {
 		t.Fatalf("subscribing: %v", err)
 	}
 
@@ -45,25 +45,27 @@ func TestForumServiceDeleteTopicRemovesItsPosts(t *testing.T) {
 	}
 
 	var posts, edits, subs int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1`, topicID).Scan(&posts); err != nil {
-		t.Fatalf("count posts: %v", err)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM forum_post_edits WHERE post_id = $1`, firstPost).Scan(&edits); err != nil {
-		t.Fatalf("count edits: %v", err)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM topic_subscriptions WHERE topic_id = $1`, topicID).Scan(&subs); err != nil {
-		t.Fatalf("count subscriptions: %v", err)
+	if err := db.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1),
+		(SELECT COUNT(*) FROM forum_post_edits WHERE post_id = $2),
+		(SELECT COUNT(*) FROM topic_subscriptions WHERE topic_id = $1)`,
+		topicID, firstPost).Scan(&posts, &edits, &subs); err != nil {
+		t.Fatalf("count leftovers: %v", err)
 	}
 	if posts != 0 || edits != 0 || subs != 0 {
 		t.Errorf("left behind posts=%d edits=%d subscriptions=%d, want all 0", posts, edits, subs)
 	}
 
 	var forumPosts, forumTopics int
-	if err := db.QueryRow(`SELECT post_count, topic_count FROM forums WHERE id = $1`, forumID).Scan(&forumPosts, &forumTopics); err != nil {
+	var lastPost *int64
+	if err := db.QueryRow(`SELECT post_count, topic_count, last_post_id FROM forums WHERE id = $1`, forumID).Scan(&forumPosts, &forumTopics, &lastPost); err != nil {
 		t.Fatalf("read forum counts: %v", err)
 	}
 	if forumTopics != 1 || forumPosts != 1 {
 		t.Errorf("forum counts topics=%d posts=%d, want 1/1 (the other topic)", forumTopics, forumPosts)
+	}
+	if lastPost == nil || *lastPost != keptPost {
+		t.Errorf("forum last_post_id = %v, want %d (the latest post left)", lastPost, keptPost)
 	}
 	if _, err := postRepo.GetByID(ctx, keptPost); err != nil {
 		t.Errorf("a post in another topic went with it: %v", err)
@@ -93,13 +95,36 @@ func TestForumUserReferencesClearOnUserDelete(t *testing.T) {
 	}
 
 	var editedBy, lastPostBy *int64
-	if err := db.QueryRow(`SELECT edited_by FROM forum_posts WHERE id = $1`, postID).Scan(&editedBy); err != nil {
-		t.Fatalf("read post: %v", err)
-	}
-	if err := db.QueryRow(`SELECT last_post_by FROM forum_topics WHERE id = $1`, topicID).Scan(&lastPostBy); err != nil {
-		t.Fatalf("read topic: %v", err)
+	if err := db.QueryRow(`SELECT
+		(SELECT edited_by FROM forum_posts WHERE id = $1),
+		(SELECT last_post_by FROM forum_topics WHERE id = $2)`,
+		postID, topicID).Scan(&editedBy, &lastPostBy); err != nil {
+		t.Fatalf("read references: %v", err)
 	}
 	if editedBy != nil || lastPostBy != nil {
 		t.Errorf("edited_by=%v last_post_by=%v, want both NULL", editedBy, lastPostBy)
+	}
+}
+
+// Removing a member who wrote in the forum is refused rather than cascading:
+// their topics hold other members' replies, which must not go with them.
+func TestForumAuthorCannotBeHardDeleted(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+
+	authorID := seedUser(t, db, "author")
+	replierID := seedUser(t, db, "replier")
+	topicID := seedTopic(t, db, seedForum(t, db), authorID)
+	seedPost(t, db, topicID, replierID, "someone else's reply", time.Now())
+
+	if _, err := db.Exec(`DELETE FROM users WHERE id = $1`, authorID); err == nil {
+		t.Fatal("deleting a topic's author succeeded; their thread and its replies went with them")
+	}
+	var replies int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM forum_posts WHERE topic_id = $1`, topicID).Scan(&replies); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if replies != 1 {
+		t.Errorf("replies = %d, want the other member's reply kept", replies)
 	}
 }
