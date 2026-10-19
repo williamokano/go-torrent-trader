@@ -169,8 +169,11 @@ func (m *mockUserRepoForRestrictions) Count(_ context.Context) (int64, error)   
 func (m *mockUserRepoForRestrictions) Create(_ context.Context, _ *model.User) error { return nil }
 func (m *mockUserRepoForRestrictions) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
 	u, err := m.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return m.Update(ctx, u)

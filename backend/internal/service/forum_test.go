@@ -329,8 +329,11 @@ func (m *mockForumUserRepo) Count(_ context.Context) (int64, error)        { ret
 func (m *mockForumUserRepo) Create(_ context.Context, _ *model.User) error { return nil }
 func (m *mockForumUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
 	u, err := m.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return m.Update(ctx, u)

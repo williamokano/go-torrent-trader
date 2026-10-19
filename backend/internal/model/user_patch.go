@@ -3,6 +3,8 @@ package model
 import "time"
 
 // Set is one field of a UserPatch: written when Valid, left alone otherwise.
+// Not sql.Null: there, not valid means "write NULL"; here it means "leave
+// the column as it is", and a Set[*T] can still write NULL with To(nil).
 type Set[T any] struct {
 	Value T
 	Valid bool
@@ -31,14 +33,16 @@ type UserPatch struct {
 	Avatar         Set[*string]
 	Title          Set[*string]
 	Info           Set[*string]
-	Enabled        Set[bool]
-	Parked         Set[bool]
-	Warned         Set[bool]
-	WarnUntil      Set[*time.Time]
-	Donor          Set[bool]
-	IP             Set[*string]
-	LastLogin      Set[*time.Time]
-	DisabledUntil  Set[*time.Time]
+	// enabled is only reachable through SetEnabled, which keeps the pending
+	// confirmation and the temporary-ban expiry in step with it.
+	enabled       Set[bool]
+	Parked        Set[bool]
+	Warned        Set[bool]
+	WarnUntil     Set[*time.Time]
+	Donor         Set[bool]
+	IP            Set[*string]
+	LastLogin     Set[*time.Time]
+	DisabledUntil Set[*time.Time]
 	// EndConfirmation clears awaiting_confirmation.
 	EndConfirmation bool
 	// ActivateAt stamps activated_at, only if the account has none yet.
@@ -48,13 +52,21 @@ type UserPatch struct {
 // SetEnabled turns the account on or off. Either way it ends any pending
 // email confirmation: off, so confirming can never undo a ban; on, because
 // enabling an unconfirmed account stands in for the confirmation — which is
-// also why turning on counts as the account's activation.
+// also why turning on counts as the account's activation. It also clears
+// any temporary-ban expiry, so an old expiry cannot later lift a ban that is
+// meant to be permanent; a timed ban sets DisabledUntil after this.
 func (p *UserPatch) SetEnabled(on bool, now time.Time) {
-	p.Enabled = To(on)
+	p.enabled = To(on)
 	p.EndConfirmation = true
+	p.DisabledUntil = To[*time.Time](nil)
 	if on {
 		p.ActivateAt = To(now)
 	}
+}
+
+// Enabled reports the change SetEnabled recorded, if any.
+func (p UserPatch) Enabled() Set[bool] {
+	return p.enabled
 }
 
 // DisablePatch turns an account off; see SetEnabled.
@@ -83,7 +95,7 @@ func (u *User) Apply(p UserPatch) {
 	set(&u.Avatar, p.Avatar)
 	set(&u.Title, p.Title)
 	set(&u.Info, p.Info)
-	set(&u.Enabled, p.Enabled)
+	set(&u.Enabled, p.enabled)
 	set(&u.Parked, p.Parked)
 	set(&u.Warned, p.Warned)
 	set(&u.WarnUntil, p.WarnUntil)

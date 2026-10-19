@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -194,17 +196,15 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, currentA
 
 // RegeneratePasskey generates a new 32-char hex passkey for the user.
 func (s *UserService) RegeneratePasskey(ctx context.Context, userID int64) (string, error) {
-	user, err := s.users.GetByID(ctx, userID)
-	if err != nil {
-		return "", ErrUserNotFound
-	}
-
 	token, err := GenerateToken()
 	if err != nil {
 		return "", fmt.Errorf("generate passkey: %w", err)
 	}
 	passkey := token[:32]
-	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{Passkey: model.To(&passkey)}); err != nil {
+	if err := s.users.UpdateFields(ctx, userID, model.UserPatch{Passkey: model.To(&passkey)}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrUserNotFound
+		}
 		return "", fmt.Errorf("update passkey: %w", err)
 	}
 

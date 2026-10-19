@@ -83,8 +83,8 @@ func (s *RestrictionService) ApplyRestriction(ctx context.Context, userID int64,
 		return nil, fmt.Errorf("create restriction: %w", err)
 	}
 
-	// Update the user flag via a targeted column write — never a full-row
-	// Update — so a concurrent stale write elsewhere cannot clobber it.
+	// Update the user flag via its own targeted column write, so a concurrent
+	// write elsewhere cannot clobber it.
 	if err := s.users.SetPrivilegeFlag(ctx, userID, restrictionType, false); err != nil {
 		return nil, fmt.Errorf("update user flag: %w", err)
 	}

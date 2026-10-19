@@ -115,10 +115,10 @@ type AdminUpdateUserRequest struct {
 
 // adminUserWriteRepository is repository.UserRepository plus the
 // admin-edit-only writes AdminService needs: an atomic absolute invite
-// balance set, an atomic stats (uploaded/downloaded) set, and a full-row
-// update — each committing its user_edit_history rows in the same
-// transaction as the write it describes. (Named for what it does, not just
-// invites, now that it also covers stats and the full-row update — it grew
+// balance set, an atomic stats (uploaded/downloaded) set, a patch write and
+// the expired-ban lift — each audited write committing its user_edit_history
+// rows in the same transaction as the write it describes. (Named for what it
+// does, not just invites, now that it also covers stats and patches — it grew
 // past its original invites-only scope over BE-8.17/BE-8.18.) Kept local to
 // this file rather than added to repository.UserRepository, so the many
 // existing mocks implementing UserRepository elsewhere in the test suite are
@@ -134,6 +134,10 @@ type adminUserWriteRepository interface {
 	// UserPatch has no stats fields, so a stale read elsewhere can never clobber stats
 	// accrued concurrently by an announce.
 	SetStats(ctx context.Context, userID int64, uploaded, downloaded *int64, entries []model.UserEditHistory) error
+	// LiftExpiredBans re-enables, in one statement, every account whose
+	// timed ban ended before now, and returns them. The condition is checked
+	// as the row is written, so a ban made permanent in the meantime stays.
+	LiftExpiredBans(ctx context.Context, now time.Time) ([]model.User, error)
 	// UpdateFieldsWithHistory is UpdateFields plus its audit entries,
 	// committed together.
 	UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error
@@ -208,7 +212,7 @@ func (s *AdminService) SetBonusRepo(repo repository.BonusRepository) {
 
 // SetEditHistoryRepo sets the repository used to read back the audit trail of
 // admin edits to user profile fields (ListUserEditHistory). Writes no longer
-// go through this repo's Record: UpdateWithHistory, SetStats, SetInvites, and
+// go through this repo's Record: UpdateFieldsWithHistory, SetStats, SetInvites, and
 // BonusRepository.SetPoints each insert their own audit rows in the same
 // transaction as the write they describe.
 func (s *AdminService) SetEditHistoryRepo(repo repository.UserEditHistoryRepository) {
@@ -440,7 +444,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 	// Every field change is diffed into the edit-history audit trail: one row
 	// per field with the old value, new value and acting admin. Each batch is
 	// built here, then handed to the write that persists the fields it
-	// describes (UpdateWithHistory/SetStats/SetInvites/BonusRepo.SetPoints),
+	// describes (UpdateFieldsWithHistory/SetStats/SetInvites/BonusRepo.SetPoints),
 	// which commits the write and the audit rows in one transaction — not
 	// recorded as a separate best-effort step afterward.
 	var audit []model.UserEditHistory
@@ -566,9 +570,8 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		})
 	}
 
-	// Uploaded/downloaded are set through the dedicated SetStats method, never
-	// the full-row Update: Update no longer writes either column at all, so a
-	// stale read elsewhere (this same handler, minted at request start) can
+	// Uploaded/downloaded are set through the dedicated SetStats method:
+	// UserPatch has no stats fields, so a stale read elsewhere (this same handler, minted at request start) can
 	// never clobber stats accrued concurrently by an announce — the same race
 	// BE-8.16 closed for the privilege flags and BE-8.17 closed for invites,
 	// now closed here for stats. uploaded/downloaded are independently
@@ -594,8 +597,8 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		audit = nil
 	}
 
-	// Invites are set through the dedicated SetInvites method, never the
-	// full-row Update: two concurrent writers (this admin edit and an
+	// Invites are set through the dedicated SetInvites method, never a patch:
+	// two concurrent writers (this admin edit and an
 	// auto-grant or invite creation elsewhere) could otherwise clobber each
 	// other via a stale read, the same race BE-8.16 closed for the privilege
 	// flags and this story closes for invites.
@@ -609,7 +612,7 @@ func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, re
 		audit = nil
 	}
 
-	// Bonus points are set through the bonus repo, never the full-row Update:
+	// Bonus points are set through the bonus repo, never a patch:
 	// the dedicated path takes a row lock and writes the admin_adjust ledger
 	// entry, so it coexists with concurrent worker awards.
 	if req.BonusPoints != nil {
@@ -1084,39 +1087,20 @@ func splitEmail(email string) string {
 // ReEnableExpiredBans re-enables users whose disabled_until has passed.
 // Returns the number of users re-enabled.
 func (s *AdminService) ReEnableExpiredBans(ctx context.Context) (int, error) {
-	now := time.Now()
-	disabled := false
-	users, _, err := s.users.List(ctx, repository.ListUsersOptions{
-		Enabled:             &disabled,
-		DisabledUntilBefore: &now,
-		PerPage:             1000,
-		Page:                1,
-	})
+	lifted, err := s.users.LiftExpiredBans(ctx, time.Now())
 	if err != nil {
-		return 0, fmt.Errorf("list expired temp bans: %w", err)
+		return 0, fmt.Errorf("lift expired temp bans: %w", err)
 	}
 
-	count := 0
-	for i := range users {
-		u := &users[i]
-		unban := model.EnablePatch(now)
-		unban.DisabledUntil = model.To[*time.Time](nil)
-		if err := s.users.UpdateFields(ctx, u.ID, unban); err != nil {
-			slog.Error("re-enable expired ban: failed to update user", "user_id", u.ID, "error", err)
-			continue
-		}
-		count++
-
-		// Publish unban event
-		systemActor := event.Actor{ID: 0, Username: "System"}
+	systemActor := event.Actor{ID: 0, Username: "System"}
+	for _, u := range lifted {
 		s.eventBus.Publish(ctx, &event.UserUnbannedEvent{
 			Base:     event.NewBase(event.UserUnbanned, systemActor),
 			UserID:   u.ID,
 			Username: u.Username,
 		})
 	}
-
-	return count, nil
+	return len(lifted), nil
 }
 
 // ListGroups returns all groups ordered by level.

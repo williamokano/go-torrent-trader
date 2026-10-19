@@ -82,7 +82,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 	}
 
 	// Decrement user's invite count via the atomic delta primitive, not a
-	// read-modify-write through Update: two concurrent CreateInvite calls (or
+	// read-modify-write: two concurrent CreateInvite calls (or
 	// an admin profile save landing on a stale read) could otherwise clobber
 	// each other's write to this column — the same class of race BE-8.16
 	// closed for the privilege flags.

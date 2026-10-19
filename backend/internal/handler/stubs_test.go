@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"time"
@@ -91,8 +92,11 @@ func (s *stubUserRepo) Create(_ context.Context, _ *model.User) error {
 }
 func (s *stubUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
 	u, err := s.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return s.Update(ctx, u)
@@ -170,10 +174,33 @@ func (s *stubUserRepo) SetStats(_ context.Context, userID int64, uploaded, downl
 	return nil
 }
 
+func (s *stubUserRepo) LiftExpiredBans(ctx context.Context, now time.Time) ([]model.User, error) {
+	all, _, err := s.List(ctx, repository.ListUsersOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var lifted []model.User
+	for i := range all {
+		u, err := s.GetByID(ctx, all[i].ID)
+		if err != nil || u == nil || u.Enabled || u.DisabledUntil == nil || !u.DisabledUntil.Before(now) {
+			continue
+		}
+		u.Apply(model.EnablePatch(now))
+		if err := s.Update(ctx, u); err != nil {
+			return nil, err
+		}
+		lifted = append(lifted, *u)
+	}
+	return lifted, nil
+}
+
 func (s *stubUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error {
 	u, err := s.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return s.UpdateWithHistory(ctx, u, entries)

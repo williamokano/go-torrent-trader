@@ -115,7 +115,6 @@ func (s *WarningService) IssueRatioWarning(ctx context.Context, userID int64, me
 	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{Warned: model.To(true)}); err != nil {
 		return nil, fmt.Errorf("update user warned flag: %w", err)
 	}
-	user.Warned = true
 
 	// Send PM notification to user
 	s.sendSystemPM(ctx, userID, "Ratio Warning", message)
@@ -157,7 +156,6 @@ func (s *WarningService) IssueHnRWarning(ctx context.Context, userID int64, mess
 	if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{Warned: model.To(true)}); err != nil {
 		return nil, fmt.Errorf("update user warned flag: %w", err)
 	}
-	user.Warned = true
 
 	s.sendSystemPM(ctx, userID, "Hit-and-Run Warning", message)
 
@@ -418,16 +416,26 @@ func (s *WarningService) clearWarnedIfNone(ctx context.Context, userID int64) er
 	if err != nil {
 		return fmt.Errorf("count active warnings: %w", err)
 	}
-	if count == 0 {
-		user, err := s.users.GetByID(ctx, userID)
-		if err != nil {
-			return fmt.Errorf("get user: %w", err)
-		}
-		if err := s.users.UpdateFields(ctx, user.ID, model.UserPatch{
-			Warned:    model.To(false),
-			WarnUntil: model.To[*time.Time](nil),
-		}); err != nil {
-			return fmt.Errorf("clear user warned flag: %w", err)
+	if count > 0 {
+		return nil
+	}
+	if err := s.users.UpdateFields(ctx, userID, model.UserPatch{
+		Warned:    model.To(false),
+		WarnUntil: model.To[*time.Time](nil),
+	}); err != nil {
+		return fmt.Errorf("clear user warned flag: %w", err)
+	}
+
+	// A warning issued between the count and the write set the flag just
+	// before it was cleared. Issuing creates the warning before setting the
+	// flag, so a second count sees it, and the flag goes back.
+	count, err = s.warnings.CountActiveByUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("recount active warnings: %w", err)
+	}
+	if count > 0 {
+		if err := s.users.UpdateFields(ctx, userID, model.UserPatch{Warned: model.To(true)}); err != nil {
+			return fmt.Errorf("restore user warned flag: %w", err)
 		}
 	}
 	return nil

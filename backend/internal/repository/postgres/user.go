@@ -12,9 +12,9 @@ import (
 )
 
 // userColumns lists every column in the users table in scan order.
-// bonus_points is read here but deliberately NOT written by Create/Update:
-// all writes to it go through BonusRepo's atomic statements, so the full-row
-// Update can never clobber points awarded concurrently by the bonus worker.
+// bonus_points is read here but deliberately NOT written by Create or
+// UpdateFields: all writes to it go through BonusRepo's atomic statements, so
+// no other write can clobber points awarded concurrently by the bonus worker.
 const userColumns = `id, username, email, password_hash, password_scheme, passkey,
 	group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
 	ip, last_login, last_access, invites, bonus_points, warned, warn_until, donor,
@@ -178,74 +178,54 @@ func (r *UserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p mode
 	return nil
 }
 
+// LiftExpiredBans re-enables every account whose timed ban ended before now,
+// checking that as each row is written: an account whose ban was made
+// permanent (disabled_until cleared) after any earlier read is not touched.
+// Lifting a ban also counts as activation, as enabling does everywhere.
+func (r *UserRepo) LiftExpiredBans(ctx context.Context, now time.Time) ([]model.User, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		UPDATE users SET
+			enabled = true, awaiting_confirmation = false,
+			activated_at = COALESCE(activated_at, $1),
+			disabled_until = NULL, updated_at = NOW()
+		WHERE enabled = false AND disabled_until IS NOT NULL AND disabled_until < $1
+		RETURNING id, username`, now)
+	if err != nil {
+		return nil, fmt.Errorf("lift expired bans: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var lifted []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.Username); err != nil {
+			return nil, fmt.Errorf("lift expired bans: scan: %w", err)
+		}
+		lifted = append(lifted, u)
+	}
+	return lifted, rows.Err()
+}
+
+// setBuilder collects the SET clauses and arguments of an UPDATE.
+type setBuilder struct {
+	sets []string
+	args []any
+}
+
+// setColumn adds "column = $n" when the patch field is set.
+func setColumn[T any](b *setBuilder, column string, f model.Set[T]) {
+	if !f.Valid {
+		return
+	}
+	b.args = append(b.args, f.Value)
+	b.sets = append(b.sets, fmt.Sprintf("%s = $%d", column, len(b.args)))
+}
+
 // updateUserFields builds the UPDATE for a patch. Column names come from the
 // fixed list below, never from input, so the Sprintf is not an injection
 // risk. It returns sql.ErrNoRows for an unknown id.
 func updateUserFields(ctx context.Context, q DBTX, id int64, p model.UserPatch) error {
-	var sets []string
-	var args []any
-	add := func(column string, v any) {
-		args = append(args, v)
-		sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
-	}
-	if p.Username.Valid {
-		add("username", p.Username.Value)
-	}
-	if p.Email.Valid {
-		add("email", p.Email.Value)
-	}
-	if p.PasswordHash.Valid {
-		add("password_hash", p.PasswordHash.Value)
-	}
-	if p.PasswordScheme.Valid {
-		add("password_scheme", p.PasswordScheme.Value)
-	}
-	if p.Passkey.Valid {
-		add("passkey", p.Passkey.Value)
-	}
-	if p.GroupID.Valid {
-		add("group_id", p.GroupID.Value)
-	}
-	if p.Avatar.Valid {
-		add("avatar", p.Avatar.Value)
-	}
-	if p.Title.Valid {
-		add("title", p.Title.Value)
-	}
-	if p.Info.Valid {
-		add("info", p.Info.Value)
-	}
-	if p.Enabled.Valid {
-		add("enabled", p.Enabled.Value)
-	}
-	if p.Parked.Valid {
-		add("parked", p.Parked.Value)
-	}
-	if p.Warned.Valid {
-		add("warned", p.Warned.Value)
-	}
-	if p.WarnUntil.Valid {
-		add("warn_until", p.WarnUntil.Value)
-	}
-	if p.Donor.Valid {
-		add("donor", p.Donor.Value)
-	}
-	if p.IP.Valid {
-		add("ip", p.IP.Value)
-	}
-	if p.LastLogin.Valid {
-		add("last_login", p.LastLogin.Value)
-	}
-	if p.DisabledUntil.Valid {
-		add("disabled_until", p.DisabledUntil.Value)
-	}
-	if p.EndConfirmation {
-		sets = append(sets, "awaiting_confirmation = false")
-	}
-	if p.ActivateAt.Valid {
-		args = append(args, p.ActivateAt.Value)
-		sets = append(sets, fmt.Sprintf("activated_at = COALESCE(activated_at, $%d)", len(args)))
-	}
+	sets, args := userPatchSets(p)
 	if len(sets) == 0 {
 		return nil
 	}
@@ -265,6 +245,38 @@ func updateUserFields(ctx context.Context, q DBTX, id int64, p model.UserPatch) 
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// userPatchSets turns a patch into SET clauses: one per field the patch
+// sets. The column list must match model.UserPatch field for field; a test
+// checks it does.
+func userPatchSets(p model.UserPatch) ([]string, []any) {
+	var b setBuilder
+	setColumn(&b, "username", p.Username)
+	setColumn(&b, "email", p.Email)
+	setColumn(&b, "password_hash", p.PasswordHash)
+	setColumn(&b, "password_scheme", p.PasswordScheme)
+	setColumn(&b, "passkey", p.Passkey)
+	setColumn(&b, "group_id", p.GroupID)
+	setColumn(&b, "avatar", p.Avatar)
+	setColumn(&b, "title", p.Title)
+	setColumn(&b, "info", p.Info)
+	setColumn(&b, "enabled", p.Enabled())
+	setColumn(&b, "parked", p.Parked)
+	setColumn(&b, "warned", p.Warned)
+	setColumn(&b, "warn_until", p.WarnUntil)
+	setColumn(&b, "donor", p.Donor)
+	setColumn(&b, "ip", p.IP)
+	setColumn(&b, "last_login", p.LastLogin)
+	setColumn(&b, "disabled_until", p.DisabledUntil)
+	if p.EndConfirmation {
+		b.sets = append(b.sets, "awaiting_confirmation = false")
+	}
+	if p.ActivateAt.Valid {
+		b.args = append(b.args, p.ActivateAt.Value)
+		b.sets = append(b.sets, fmt.Sprintf("activated_at = COALESCE(activated_at, $%d)", len(b.args)))
+	}
+	return b.sets, b.args
 }
 
 // privilegeFlagColumn maps a validated restriction type to its users table
@@ -291,7 +303,7 @@ func privilegeFlagColumn(restrictionType string) (string, bool) {
 }
 
 // SetPrivilegeFlag atomically sets a single privilege column for a user,
-// bypassing Update's full-row write. This is the only path that may change
+// outside UserPatch. This is the only path that may change
 // can_download, can_upload, can_chat, or can_invite.
 func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restrictionType string, value bool) error {
 	column, ok := privilegeFlagColumn(restrictionType)
@@ -318,9 +330,8 @@ func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restricti
 // UPDATE users SET invites = invites + $1 — mirroring how bonus_points is
 // adjusted (BonusRepo.AwardPoints). InviteService.CreateInvite's decrement and
 // InviteDistributionService's auto-grant both use this instead of a
-// read-modify-write through Update, so those two paths (and any concurrent
-// full-row Update, which no longer touches invites at all) can never clobber
-// each other's write to this column.
+// read-modify-write, so those two paths (and any patch, which has no invites
+// field) can never clobber each other's write to this column.
 func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE users SET invites = invites + $1, updated_at = NOW() WHERE id = $2`, delta, userID)
@@ -338,7 +349,7 @@ func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64)
 }
 
 // SetInvites atomically sets a user's invite balance to an absolute value —
-// UPDATE users SET invites = $1 — bypassing Update's full-row write. This is
+// UPDATE users SET invites = $1, outside UserPatch. This is
 // AdminService's path for an admin's explicit "set invites to N" edit; unlike
 // AdjustInvites it is not a delta, so two racing calls are a plain
 // last-write-wins on the same column (the admin's intended target value),
@@ -375,8 +386,8 @@ func (r *UserRepo) SetInvites(ctx context.Context, userID int64, invites int, en
 	return nil
 }
 
-// SetStats atomically sets a user's uploaded/downloaded counters — bypassing
-// Update's (now stats-free) full-row write — for AdminService's admin edit
+// SetStats atomically sets a user's uploaded/downloaded counters — outside
+// UserPatch, which has no stats fields — for AdminService's admin edit
 // path only; announce accrual continues to go through IncrementStats. Each
 // of uploaded and downloaded is independently optional (COALESCE keeps the
 // current DB value when nil): an admin edit that only touches one of the two

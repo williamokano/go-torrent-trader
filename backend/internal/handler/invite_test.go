@@ -214,8 +214,11 @@ func (m *mockInviteUserRepo) Create(_ context.Context, user *model.User) error {
 
 func (m *mockInviteUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
 	u, err := m.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return m.Update(ctx, u)

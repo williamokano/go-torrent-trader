@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -57,7 +58,7 @@ func (m *mockUserRepo) GetByID(_ context.Context, id int64) (*model.User, error)
 			return u, nil
 		}
 	}
-	return nil, errors.New("not found")
+	return nil, sql.ErrNoRows
 }
 
 func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (*model.User, error) {
@@ -119,8 +120,11 @@ func (m *mockUserRepo) Create(_ context.Context, user *model.User) error {
 
 func (m *mockUserRepo) UpdateFields(ctx context.Context, id int64, p model.UserPatch) error {
 	u, err := m.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return m.Update(ctx, u)
@@ -227,10 +231,33 @@ func (m *mockUserRepo) SetStats(_ context.Context, userID int64, uploaded, downl
 	return errors.New("not found")
 }
 
+func (m *mockUserRepo) LiftExpiredBans(ctx context.Context, now time.Time) ([]model.User, error) {
+	all, _, err := m.List(ctx, repository.ListUsersOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var lifted []model.User
+	for i := range all {
+		u, err := m.GetByID(ctx, all[i].ID)
+		if err != nil || u == nil || u.Enabled || u.DisabledUntil == nil || !u.DisabledUntil.Before(now) {
+			continue
+		}
+		u.Apply(model.EnablePatch(now))
+		if err := m.Update(ctx, u); err != nil {
+			return nil, err
+		}
+		lifted = append(lifted, *u)
+	}
+	return lifted, nil
+}
+
 func (m *mockUserRepo) UpdateFieldsWithHistory(ctx context.Context, id int64, p model.UserPatch, entries []model.UserEditHistory) error {
 	u, err := m.GetByID(ctx, id)
-	if err != nil || u == nil {
+	if err != nil {
 		return err
+	}
+	if u == nil {
+		return sql.ErrNoRows // what the real repository reports
 	}
 	u.Apply(p)
 	return m.UpdateWithHistory(ctx, u, entries)

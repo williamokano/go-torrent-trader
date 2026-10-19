@@ -1,6 +1,7 @@
 package model
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -33,3 +34,42 @@ func TestUserApplyPatch(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// Every UserPatch field must change the user in Apply, so the in-memory copy
+// a caller keeps matches what was written.
+func TestApplyCoversEveryPatchField(t *testing.T) {
+	samples := map[reflect.Type]reflect.Value{
+		reflect.TypeOf(""):                reflect.ValueOf("x"),
+		reflect.TypeOf(int64(0)):          reflect.ValueOf(int64(7)),
+		reflect.TypeOf(true):              reflect.ValueOf(true),
+		reflect.TypeOf((*string)(nil)):    reflect.ValueOf(ptrTo("x")),
+		reflect.TypeOf((*time.Time)(nil)): reflect.ValueOf(ptrTo(time.Now())),
+		reflect.TypeOf(time.Time{}):       reflect.ValueOf(time.Now()),
+	}
+	pt := reflect.TypeOf(UserPatch{})
+	for i := 0; i < pt.NumField(); i++ {
+		field := pt.Field(i)
+		if !field.IsExported() {
+			continue // enabled: covered through SetEnabled above
+		}
+		var p UserPatch
+		fv := reflect.ValueOf(&p).Elem().Field(i)
+		if fv.Kind() == reflect.Bool {
+			fv.SetBool(true) // EndConfirmation
+		} else {
+			sample, ok := samples[fv.FieldByName("Value").Type()]
+			if !ok {
+				t.Fatalf("no sample value for %s", field.Name)
+			}
+			fv.FieldByName("Value").Set(sample)
+			fv.FieldByName("Valid").SetBool(true)
+		}
+
+		u := User{AwaitingConfirmation: true}
+		before := u
+		u.Apply(p)
+		if reflect.DeepEqual(u, before) {
+			t.Errorf("Apply ignores UserPatch.%s", field.Name)
+		}
+	}
+}
