@@ -175,3 +175,47 @@ func TestUserRepoUpdateFieldsEdges(t *testing.T) {
 		t.Error("an empty patch wrote the row")
 	}
 }
+
+// Lifting expired bans checks the expiry as each row is written: an expired
+// timed ban is lifted, a ban made permanent after an earlier timed one is
+// not, and neither is a timed ban still running.
+func TestUserRepoLiftExpiredBans(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewUserRepo(db)
+	past, future := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
+
+	timedBan := func(until time.Time) *model.User {
+		u := newUser(t, db)
+		p := model.DisablePatch()
+		p.DisabledUntil = model.To(&until)
+		if err := repo.UpdateFields(ctx, u.ID, p); err != nil {
+			t.Fatalf("ban: %v", err)
+		}
+		return u
+	}
+	expired := timedBan(past)
+	running := timedBan(future)
+	madePermanent := timedBan(past)
+	if err := repo.UpdateFields(ctx, madePermanent.ID, model.DisablePatch()); err != nil {
+		t.Fatalf("permanent ban: %v", err)
+	}
+
+	lifted, err := repo.LiftExpiredBans(ctx, time.Now())
+	if err != nil {
+		t.Fatalf("LiftExpiredBans: %v", err)
+	}
+	if len(lifted) != 1 || lifted[0].ID != expired.ID || lifted[0].Username != expired.Username {
+		t.Fatalf("lifted %+v, want only the expired ban", lifted)
+	}
+	for _, c := range []struct {
+		u    *model.User
+		want bool
+	}{{expired, true}, {running, false}, {madePermanent, false}} {
+		got, _ := repo.GetByID(ctx, c.u.ID)
+		if got.Enabled != c.want {
+			t.Errorf("user %s enabled = %v, want %v", c.u.Username, got.Enabled, c.want)
+		}
+	}
+}
