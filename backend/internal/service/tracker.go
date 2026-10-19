@@ -28,7 +28,15 @@ var (
 	ErrTooManyPeers       = errors.New("too many peers on this torrent")
 	ErrTooManyConns       = errors.New("too many connections")
 	ErrTooManyOwnPeers    = errors.New("too many of your peers on this torrent")
-	ErrInvalidCounters    = errors.New("uploaded, downloaded and left must not be negative")
+)
+
+// ownPeerActiveWindow is how recently a member's client must have announced
+// to count against their per-torrent cap: an interval and a half, so a live
+// client that misses nothing always counts and a restarted one soon stops.
+const ownPeerActiveWindow = 3 * DefaultInterval * time.Second / 2
+
+var (
+	ErrInvalidCounters = errors.New("uploaded, downloaded and left must not be negative")
 )
 
 // WaitTimeError is returned when a user must wait before downloading a new torrent.
@@ -246,10 +254,13 @@ func (s *TrackerService) Announce(ctx context.Context, req AnnounceRequest) (*An
 	if existingPeer == nil && req.Event != EventStopped && s.siteSettings != nil {
 		// One member's peers on one torrent: without this, a single account
 		// announcing under many peer_ids could fill the torrent's cap below
-		// and turn every other member away.
+		// and turn every other member away. Only clients heard from recently
+		// count: most pick a new peer_id on every start, so a crashed or
+		// restarted one leaves a row the cleanup only removes much later.
 		maxOwn := s.siteSettings.GetInt(ctx, SettingTrackerMaxPeersPerUserTorrent, 3)
 		if maxOwn > 0 {
-			own, err := s.peers.CountByTorrentAndUser(ctx, torrent.ID, user.ID)
+			recent := time.Now().Add(-ownPeerActiveWindow)
+			own, err := s.peers.CountByTorrentAndUser(ctx, torrent.ID, user.ID, recent)
 			if err != nil {
 				return nil, fmt.Errorf("count own peers on torrent: %w", err)
 			}

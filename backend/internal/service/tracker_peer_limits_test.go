@@ -4,17 +4,22 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 )
 
 func addPeers(repo *trackerMockPeerRepo, userID int64, n int, seed byte) {
+	addPeersAt(repo, userID, n, seed, time.Now())
+}
+
+func addPeersAt(repo *trackerMockPeerRepo, userID int64, n int, seed byte, lastAnnounce time.Time) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 	for i := 0; i < n; i++ {
 		pid := make([]byte, 20)
 		pid[0], pid[1] = seed, byte(i)
-		repo.peers = append(repo.peers, &model.Peer{TorrentID: 1, UserID: userID, PeerID: pid, IP: "10.0.0.1", Port: 6881})
+		repo.peers = append(repo.peers, &model.Peer{TorrentID: 1, UserID: userID, PeerID: pid, IP: "10.0.0.1", Port: 6881, LastAnnounce: lastAnnounce})
 	}
 }
 
@@ -63,5 +68,17 @@ func TestAnnounce_DefaultsDoNotLetOneMemberLockATorrent(t *testing.T) {
 
 	if _, err := svc.Announce(context.Background(), leecherReq()); err != nil {
 		t.Fatalf("another member was locked out: %v", err)
+	}
+}
+
+// Clients that have gone quiet do not count: most pick a new peer_id on every
+// start, so a member who restarts one would otherwise be locked out until the
+// cleanup removed the old row.
+func TestAnnounce_MemberCapIgnoresStaleClients(t *testing.T) {
+	svc, _, _, peerRepo := setupTrackerWithSettings(map[string]string{SettingTrackerMaxPeersPerUserTorrent: "3"})
+	addPeersAt(peerRepo, 1, 3, 200, time.Now().Add(-2*time.Hour)) // three clients that crashed
+
+	if _, err := svc.Announce(context.Background(), leecherReq()); err != nil {
+		t.Fatalf("a restarted client was refused because of stale rows: %v", err)
 	}
 }

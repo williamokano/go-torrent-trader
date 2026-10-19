@@ -255,7 +255,8 @@ func (s *SiteSettingsService) Set(ctx context.Context, key, value string, actor 
 				ErrInvalidSetting, key, HnRClearPricingModeFixed, HnRClearPricingModeDeficit)
 		}
 	case SettingHnRGraceAfterCompleteHours, SettingHnRSeedCreditCapMinutes, SettingHnRRetentionDays,
-		SettingHnRClearBasePoints, SettingHnRClearPointsPerGiB, SettingHnRClearPointsPerGiBDeficit:
+		SettingHnRClearBasePoints, SettingHnRClearPointsPerGiB, SettingHnRClearPointsPerGiBDeficit,
+		SettingTrackerMaxPeersPerTorrent, SettingTrackerMaxPeersPerUser, SettingTrackerMaxPeersPerUserTorrent:
 		// Every HnR numeric tunable is a non-negative whole number: a grace, a
 		// cap, a retention window, or a point price. None has a meaningful
 		// negative value, unlike the connector/announce-log retention keys

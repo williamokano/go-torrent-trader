@@ -327,12 +327,12 @@ func (m *trackerMockPeerRepo) CountByTorrent(_ context.Context, torrentID int64)
 	}
 	return count, nil
 }
-func (m *trackerMockPeerRepo) CountByTorrentAndUser(_ context.Context, torrentID, userID int64) (int, error) {
+func (m *trackerMockPeerRepo) CountByTorrentAndUser(_ context.Context, torrentID, userID int64, since time.Time) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
 	for _, p := range m.peers {
-		if p.TorrentID == torrentID && p.UserID == userID {
+		if p.TorrentID == torrentID && p.UserID == userID && !p.LastAnnounce.Before(since) {
 			n++
 		}
 	}

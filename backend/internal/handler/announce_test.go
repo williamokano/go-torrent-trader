@@ -166,12 +166,12 @@ func (r *announcePeerRepo) CountByUser(_ context.Context, _ int64) (int, int, er
 func (r *announcePeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
-func (r *announcePeerRepo) CountByTorrentAndUser(_ context.Context, torrentID, userID int64) (int, error) {
+func (r *announcePeerRepo) CountByTorrentAndUser(_ context.Context, torrentID, userID int64, since time.Time) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := 0
 	for _, p := range r.peers {
-		if p.TorrentID == torrentID && p.UserID == userID {
+		if p.TorrentID == torrentID && p.UserID == userID && !p.LastAnnounce.Before(since) {
 			n++
 		}
 	}
