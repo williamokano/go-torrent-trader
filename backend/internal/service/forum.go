@@ -1202,21 +1202,11 @@ func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model
 				return fmt.Errorf("move topic: %w", err)
 			}
 			// Recalculate old forum counts
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE forums SET
-					topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
-					post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
-					last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
-				WHERE id = $1`, oldForumID); err != nil {
+			if _, err := tx.ExecContext(ctx, recalcForumCountsSQL, oldForumID); err != nil {
 				return fmt.Errorf("recalculate old forum: %w", err)
 			}
 			// Recalculate new forum counts
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE forums SET
-					topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
-					post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
-					last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
-				WHERE id = $1`, targetForumID); err != nil {
+			if _, err := tx.ExecContext(ctx, recalcForumCountsSQL, targetForumID); err != nil {
 				return fmt.Errorf("recalculate new forum: %w", err)
 			}
 			return nil
@@ -1244,6 +1234,16 @@ func (s *ForumService) MoveTopic(ctx context.Context, topicID int64, perms model
 // DeleteTopic deletes a topic and all its posts.
 // Staff can delete any topic (subject to hierarchy). Topic owners can delete their own
 // topics within the grace period (30 minutes from creation).
+// recalcForumCountsSQL refreshes a forum's counters inside a transaction. It
+// must agree with ForumRepo.RecalculateCounts: soft-deleted posts are neither
+// counted nor shown as the latest post.
+const recalcForumCountsSQL = `
+	UPDATE forums SET
+		topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
+		post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 AND fp.deleted_at IS NULL), 0),
+		last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 AND fp.deleted_at IS NULL ORDER BY fp.created_at DESC LIMIT 1)
+	WHERE id = $1`
+
 func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, userID int64, perms model.Permissions, actor event.Actor, reason string) error {
 	topic, err := s.topics.GetByID(ctx, topicID)
 	if err != nil {
@@ -1280,12 +1280,7 @@ func (s *ForumService) DeleteTopic(ctx context.Context, topicID int64, userID in
 			if _, err := tx.ExecContext(ctx, "DELETE FROM forum_topics WHERE id = $1", topicID); err != nil {
 				return fmt.Errorf("delete topic: %w", err)
 			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE forums SET
-					topic_count = COALESCE((SELECT COUNT(*) FROM forum_topics WHERE forum_id = $1), 0),
-					post_count = COALESCE((SELECT COUNT(*) FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1), 0),
-					last_post_id = (SELECT fp.id FROM forum_posts fp JOIN forum_topics ft ON ft.id = fp.topic_id WHERE ft.forum_id = $1 ORDER BY fp.created_at DESC LIMIT 1)
-				WHERE id = $1`, forumID); err != nil {
+			if _, err := tx.ExecContext(ctx, recalcForumCountsSQL, forumID); err != nil {
 				return fmt.Errorf("recalculate forum: %w", err)
 			}
 			return nil
