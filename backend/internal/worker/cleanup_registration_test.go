@@ -189,6 +189,13 @@ func TestCleanupHandler_PurgesRegistrationWithDependents(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO messages (sender_id, receiver_id, subject, body) VALUES ($1, $2, 'hi', 'welcome')`, inviter.ID, abandoned.ID); err != nil {
 		t.Fatalf("message: %v", err)
 	}
+	if _, err := db.Exec(`INSERT INTO chat_mutes (user_id, muted_by, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 day')`, abandoned.ID, inviter.ID); err != nil {
+		t.Fatalf("chat mute: %v", err)
+	}
+	var invitesBefore int
+	if err := db.QueryRow(`SELECT invites FROM users WHERE id = $1`, inviter.ID).Scan(&invitesBefore); err != nil {
+		t.Fatalf("inviter balance: %v", err)
+	}
 
 	deps := &WorkerDeps{PeerRepo: &mockPeerRepo{}, TorrentRepo: &mockTorrentRepo{}, DB: db}
 	if err := NewCleanupHandler(deps)(ctx, &river.Job[CleanupPeersArgs]{}); err != nil {
@@ -217,5 +224,41 @@ func TestCleanupHandler_PurgesRegistrationWithDependents(t *testing.T) {
 	}
 	if invites != 0 || resets != 0 || mail != 0 {
 		t.Errorf("left behind invites=%d resets=%d messages=%d, want none", invites, resets, mail)
+	}
+	var invitesAfter int
+	if err := db.QueryRow(`SELECT invites FROM users WHERE id = $1`, inviter.ID).Scan(&invitesAfter); err != nil {
+		t.Fatalf("inviter balance: %v", err)
+	}
+	if invitesAfter != invitesBefore+1 {
+		t.Errorf("inviter balance %d -> %d, want the spent invite given back", invitesBefore, invitesAfter)
+	}
+}
+
+// One expired registration holding a row nothing cascades (here a chat
+// message, which a never-activated account should not even have) must not
+// keep every other expired registration alive: the purge falls back to one
+// account at a time.
+func TestCleanupHandler_OneBlockedRegistrationDoesNotStopThePurge(t *testing.T) {
+	db := requireDB(t)
+	ctx := context.Background()
+	repo := postgres.NewUserRepo(db)
+	oldEnough := time.Now().Add(-30 * 24 * time.Hour)
+
+	blocked := newCleanupTestUser(t, db, false, oldEnough, nil)
+	free := newCleanupTestUser(t, db, false, oldEnough, nil)
+	if _, err := db.Exec(`INSERT INTO chat_messages (user_id, message) VALUES ($1, 'hello')`, blocked.ID); err != nil {
+		t.Fatalf("chat message: %v", err)
+	}
+
+	deps := &WorkerDeps{PeerRepo: &mockPeerRepo{}, TorrentRepo: &mockTorrentRepo{}, DB: db}
+	if err := NewCleanupHandler(deps)(ctx, &river.Job[CleanupPeersArgs]{}); err != nil {
+		t.Fatalf("cleanup handler: %v", err)
+	}
+
+	if _, err := repo.GetByID(ctx, free.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("a free expired registration survived because another was blocked: err=%v", err)
+	}
+	if _, err := repo.GetByID(ctx, blocked.ID); err != nil {
+		t.Errorf("the blocked registration should remain (and be logged): %v", err)
 	}
 }
