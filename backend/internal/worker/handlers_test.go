@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"errors"
-	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/model"
 	"github.com/williamokano/go-torrent-trader/backend/internal/repository"
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // --- mock PeerRepository ---------------------------------------------------
@@ -43,8 +43,8 @@ func (m *mockPeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error) {
 func (m *mockPeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
-func (*mockPeerRepo) SwapCounters(context.Context, int64, int64, []byte, int64, int64) (int64, int64, bool, error) {
-	return 0, 0, false, nil
+func (*mockPeerRepo) SwapState(context.Context, int64, int64, []byte, model.PeerState) (model.PeerState, bool, error) {
+	return model.PeerState{}, false, nil
 }
 
 func (m *mockPeerRepo) DeleteStale(_ context.Context, before time.Time) (int64, error) {

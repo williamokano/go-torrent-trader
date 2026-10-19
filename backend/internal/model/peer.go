@@ -18,3 +18,12 @@ type Peer struct {
 	StartedAt    time.Time
 	LastAnnounce time.Time
 }
+
+// PeerState is the part of a peer each announce reports and the tracker
+// measures the next announce against.
+type PeerState struct {
+	Uploaded   int64
+	Downloaded int64
+	LeftBytes  int64
+	Seeder     bool
+}

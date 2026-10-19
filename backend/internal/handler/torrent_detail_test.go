@@ -44,8 +44,8 @@ func (s *stubPeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error)  
 func (s *stubPeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (s *stubPeerRepo) Upsert(_ context.Context, _ *model.Peer) error            { return nil }
 func (s *stubPeerRepo) Delete(_ context.Context, _, _ int64, _ []byte) error     { return nil }
-func (*stubPeerRepo) SwapCounters(context.Context, int64, int64, []byte, int64, int64) (int64, int64, bool, error) {
-	return 0, 0, false, nil
+func (*stubPeerRepo) SwapState(context.Context, int64, int64, []byte, model.PeerState) (model.PeerState, bool, error) {
+	return model.PeerState{}, false, nil
 }
 
 func (s *stubPeerRepo) DeleteStale(_ context.Context, _ time.Time) (int64, error) {

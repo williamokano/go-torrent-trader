@@ -147,7 +147,11 @@ func (r *announcePeerRepo) Upsert(_ context.Context, peer *model.Peer) error {
 	defer r.mu.Unlock()
 	for i, p := range r.peers {
 		if p.TorrentID == peer.TorrentID && p.UserID == peer.UserID && string(p.PeerID) == string(peer.PeerID) {
-			r.peers[i] = peer
+			// As in production: an existing row's counters and seeder flag
+			// belong to SwapState.
+			r.peers[i].IP, r.peers[i].Port = peer.IP, peer.Port
+			r.peers[i].Agent, r.peers[i].LastAnnounce = peer.Agent, peer.LastAnnounce
+			peer.ID = p.ID
 			return nil
 		}
 	}
@@ -166,17 +170,17 @@ func (r *announcePeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, er
 	return 0, nil
 }
 
-func (m *announcePeerRepo) SwapCounters(_ context.Context, torrentID, userID int64, peerID []byte, uploaded, downloaded int64) (int64, int64, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, p := range m.peers {
+func (r *announcePeerRepo) SwapState(_ context.Context, torrentID, userID int64, peerID []byte, next model.PeerState) (model.PeerState, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.peers {
 		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
-			prevUp, prevDown := p.Uploaded, p.Downloaded
-			p.Uploaded, p.Downloaded = uploaded, downloaded
-			return prevUp, prevDown, true, nil
+			prev := model.PeerState{Uploaded: p.Uploaded, Downloaded: p.Downloaded, LeftBytes: p.LeftBytes, Seeder: p.Seeder}
+			p.Uploaded, p.Downloaded, p.LeftBytes, p.Seeder = next.Uploaded, next.Downloaded, next.LeftBytes, next.Seeder
+			return prev, true, nil
 		}
 	}
-	return 0, 0, false, nil
+	return model.PeerState{}, false, nil
 }
 
 func (r *announcePeerRepo) Delete(_ context.Context, torrentID, userID int64, peerID []byte) error {

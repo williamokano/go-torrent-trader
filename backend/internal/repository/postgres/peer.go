@@ -160,6 +160,10 @@ func (r *PeerRepo) CountTotalByUser(ctx context.Context, userID int64) (int, err
 	return count, nil
 }
 
+// Upsert stores a new peer, or refreshes an existing one's address, client
+// and announce time. An existing row's counters, bytes left and seeder flag
+// are SwapState's alone: rewriting them here from a request that finished
+// out of order would move the baseline backwards and credit bytes again.
 func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 	query := `INSERT INTO peers (
 		torrent_id, user_id, peer_id, ip, port, uploaded, downloaded,
@@ -168,10 +172,6 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 	ON CONFLICT (torrent_id, user_id, peer_id) DO UPDATE SET
 		ip = EXCLUDED.ip,
 		port = EXCLUDED.port,
-		uploaded = EXCLUDED.uploaded,
-		downloaded = EXCLUDED.downloaded,
-		left_bytes = EXCLUDED.left_bytes,
-		seeder = EXCLUDED.seeder,
 		agent = EXCLUDED.agent,
 		last_announce = EXCLUDED.last_announce
 	RETURNING id, started_at`
@@ -183,29 +183,29 @@ func (r *PeerRepo) Upsert(ctx context.Context, peer *model.Peer) error {
 	).Scan(&peer.ID, &peer.StartedAt)
 }
 
-func (r *PeerRepo) SwapCounters(ctx context.Context, torrentID, userID int64, peerID []byte, uploaded, downloaded int64) (int64, int64, bool, error) {
+func (r *PeerRepo) SwapState(ctx context.Context, torrentID, userID int64, peerID []byte, next model.PeerState) (model.PeerState, bool, error) {
 	// The subquery's FOR UPDATE makes a concurrent swap of the same peer wait,
 	// then read the row as this one left it (READ COMMITTED re-checks a locked
-	// row), so each swap returns the counters the previous one stored.
-	var prevUp, prevDown int64
+	// row), so each swap returns the state the previous one stored.
+	var prev model.PeerState
 	err := r.db.QueryRowContext(ctx, `
-		UPDATE peers p SET uploaded = $4, downloaded = $5
+		UPDATE peers p SET uploaded = $4, downloaded = $5, left_bytes = $6, seeder = $7
 		FROM (
-			SELECT id, uploaded, downloaded FROM peers
+			SELECT id, uploaded, downloaded, left_bytes, seeder FROM peers
 			WHERE torrent_id = $1 AND user_id = $2 AND peer_id = $3
 			FOR UPDATE
 		) old
 		WHERE p.id = old.id
-		RETURNING old.uploaded, old.downloaded`,
-		torrentID, userID, peerID, uploaded, downloaded,
-	).Scan(&prevUp, &prevDown)
+		RETURNING old.uploaded, old.downloaded, old.left_bytes, old.seeder`,
+		torrentID, userID, peerID, next.Uploaded, next.Downloaded, next.LeftBytes, next.Seeder,
+	).Scan(&prev.Uploaded, &prev.Downloaded, &prev.LeftBytes, &prev.Seeder)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, 0, false, nil
+		return model.PeerState{}, false, nil
 	}
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("swapping peer counters: %w", err)
+		return model.PeerState{}, false, fmt.Errorf("swapping peer state: %w", err)
 	}
-	return prevUp, prevDown, true, nil
+	return prev, true, nil
 }
 
 func (r *PeerRepo) Delete(ctx context.Context, torrentID, userID int64, peerID []byte) error {

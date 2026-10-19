@@ -49,7 +49,7 @@ func TestConcurrentAnnouncesCreditTrafficOnce(t *testing.T) {
 	tracker := service.NewTrackerService(NewUserRepo(db), NewTorrentRepo(db), peers)
 
 	peerID := []byte("-QB0000-concurrency1")
-	announce := func(uploaded int64, ev service.AnnounceEvent) error {
+	announce := func(uploaded, left int64, ev service.AnnounceEvent) error {
 		_, err := tracker.Announce(ctx, service.AnnounceRequest{
 			Passkey:  passkey,
 			InfoHash: tor.InfoHash,
@@ -57,12 +57,12 @@ func TestConcurrentAnnouncesCreditTrafficOnce(t *testing.T) {
 			IP:       "10.0.0.1",
 			Port:     6881,
 			Uploaded: uploaded,
-			Left:     0,
+			Left:     left,
 			Event:    ev,
 		})
 		return err
 	}
-	if err := announce(5000, service.EventStarted); err != nil {
+	if err := announce(5000, 100, service.EventStarted); err != nil { // a leecher
 		t.Fatalf("started: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestConcurrentAnnouncesCreditTrafficOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := announce(6000, service.EventEmpty); err != nil {
+			if err := announce(6000, 0, service.EventEmpty); err != nil { // now a seeder
 				errs <- err
 			}
 		}()
@@ -94,5 +94,14 @@ func TestConcurrentAnnouncesCreditTrafficOnce(t *testing.T) {
 	}
 	if got.Uploaded != 1000 {
 		t.Errorf("uploaded = %d after 20 concurrent announces of +1000, want exactly 1000", got.Uploaded)
+	}
+
+	// The leecher became a seeder once, however many announces said so.
+	swarm, err := NewTorrentRepo(db).GetByID(ctx, tor.ID)
+	if err != nil {
+		t.Fatalf("torrent: %v", err)
+	}
+	if swarm.Seeders != 1 || swarm.Leechers != 0 {
+		t.Errorf("seeders=%d leechers=%d, want 1/0", swarm.Seeders, swarm.Leechers)
 	}
 }

@@ -145,7 +145,7 @@ func (m *trackerMockTorrentRepo) GetByInfoHash(_ context.Context, infoHash []byt
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.torrents {
-		if bytesEqual(t.InfoHash, infoHash) {
+		if bytes.Equal(t.InfoHash, infoHash) {
 			return t, nil
 		}
 	}
@@ -237,7 +237,7 @@ func (m *trackerMockPeerRepo) GetByTorrentUserAndPeerID(_ context.Context, torre
 		return nil, m.lookupErr
 	}
 	for _, p := range m.peers {
-		if p.TorrentID == torrentID && p.UserID == userID && bytesEqual(p.PeerID, peerID) {
+		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
 			return p, nil
 		}
 	}
@@ -263,8 +263,12 @@ func (m *trackerMockPeerRepo) Upsert(_ context.Context, peer *model.Peer) error 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, p := range m.peers {
-		if p.TorrentID == peer.TorrentID && p.UserID == peer.UserID && bytesEqual(p.PeerID, peer.PeerID) {
-			m.peers[i] = peer
+		if p.TorrentID == peer.TorrentID && p.UserID == peer.UserID && bytes.Equal(p.PeerID, peer.PeerID) {
+			// As in production: an existing row's counters and seeder flag
+			// belong to SwapState.
+			m.peers[i].IP, m.peers[i].Port = peer.IP, peer.Port
+			m.peers[i].Agent, m.peers[i].LastAnnounce = peer.Agent, peer.LastAnnounce
+			peer.ID = p.ID
 			return nil
 		}
 	}
@@ -273,24 +277,24 @@ func (m *trackerMockPeerRepo) Upsert(_ context.Context, peer *model.Peer) error 
 	return nil
 }
 
-func (m *trackerMockPeerRepo) SwapCounters(_ context.Context, torrentID, userID int64, peerID []byte, uploaded, downloaded int64) (int64, int64, bool, error) {
+func (m *trackerMockPeerRepo) SwapState(_ context.Context, torrentID, userID int64, peerID []byte, next model.PeerState) (model.PeerState, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, p := range m.peers {
 		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
-			prevUp, prevDown := p.Uploaded, p.Downloaded
-			p.Uploaded, p.Downloaded = uploaded, downloaded
-			return prevUp, prevDown, true, nil
+			prev := model.PeerState{Uploaded: p.Uploaded, Downloaded: p.Downloaded, LeftBytes: p.LeftBytes, Seeder: p.Seeder}
+			p.Uploaded, p.Downloaded, p.LeftBytes, p.Seeder = next.Uploaded, next.Downloaded, next.LeftBytes, next.Seeder
+			return prev, true, nil
 		}
 	}
-	return 0, 0, false, nil
+	return model.PeerState{}, false, nil
 }
 
 func (m *trackerMockPeerRepo) Delete(_ context.Context, torrentID, userID int64, peerID []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, p := range m.peers {
-		if p.TorrentID == torrentID && p.UserID == userID && bytesEqual(p.PeerID, peerID) {
+		if p.TorrentID == torrentID && p.UserID == userID && bytes.Equal(p.PeerID, peerID) {
 			m.peers = append(m.peers[:i], m.peers[i+1:]...)
 			return nil
 		}

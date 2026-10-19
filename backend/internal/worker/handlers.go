@@ -3,11 +3,12 @@ package worker
 import (
 	"context"
 	"fmt"
-	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 	"log/slog"
 	"time"
 
 	"github.com/riverqueue/river"
+
+	"github.com/williamokano/go-torrent-trader/backend/internal/service"
 )
 
 // StalePeerCutoff defines how long after the last announce a peer is

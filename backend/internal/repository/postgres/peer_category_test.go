@@ -54,7 +54,10 @@ func TestPeerRepoUpsertInsertsThenUpdates(t *testing.T) {
 		t.Errorf("port = %d, want 6881", got.Port)
 	}
 
-	// Re-announcing the same peer must update the existing row, not add a second.
+	// Re-announcing the same peer must update the existing row, not add a
+	// second — its address and announce time, not its counters, which only
+	// SwapState writes on an existing row.
+	p.Port = 51413
 	p.Uploaded = 4096
 	p.Seeder = true
 	p.LeftBytes = 0
@@ -74,8 +77,48 @@ func TestPeerRepoUpsertInsertsThenUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByTorrentUserAndPeerID: %v", err)
 	}
-	if got.Uploaded != 4096 || !got.Seeder {
-		t.Errorf("uploaded=%d seeder=%v, want the announce to have been applied", got.Uploaded, got.Seeder)
+	if got.Port != 51413 {
+		t.Errorf("port = %d, want the re-announce's address applied", got.Port)
+	}
+	if got.Uploaded != 0 || got.Seeder {
+		t.Errorf("uploaded=%d seeder=%v, want Upsert to leave an existing row's counters to SwapState", got.Uploaded, got.Seeder)
+	}
+}
+
+// Two announces whose writes finish in the opposite order to their swaps
+// must not move the baseline backwards: the later Upsert of the earlier
+// announce leaves the counters the later swap stored.
+func TestPeerRepoSwapStateSurvivesOutOfOrderUpsert(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+
+	repo := NewPeerRepo(db)
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+	p := newPeer(t, db, tor.ID, u.ID, false)
+
+	swap := func(up int64) model.PeerState {
+		prev, found, err := repo.SwapState(ctx, tor.ID, u.ID, p.PeerID, model.PeerState{Uploaded: up, LeftBytes: 512})
+		if err != nil || !found {
+			t.Fatalf("SwapState(%d) = (%v, %v)", up, found, err)
+		}
+		return prev
+	}
+	if prev := swap(1000); prev.Uploaded != 0 {
+		t.Fatalf("first swap saw %d, want 0", prev.Uploaded)
+	}
+	if prev := swap(2000); prev.Uploaded != 1000 {
+		t.Fatalf("second swap saw %d, want 1000", prev.Uploaded)
+	}
+	// The first announce's peer write lands last, carrying its 1000.
+	stale := *p
+	stale.Uploaded = 1000
+	if err := repo.Upsert(ctx, &stale); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if prev := swap(2000); prev.Uploaded != 2000 {
+		t.Errorf("baseline = %d after an out-of-order write, want 2000 kept (a lower one re-credits bytes)", prev.Uploaded)
 	}
 }
 
