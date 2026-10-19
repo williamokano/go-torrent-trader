@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/williamokano/go-torrent-trader/backend/internal/event"
@@ -65,9 +66,25 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 		return nil, ErrNoInvitesRemaining
 	}
 
+	// Take the invite first, with a decrement that refuses to go below zero:
+	// the balance read above is only a fast path, and two concurrent calls
+	// both passing it must not both spend the same last invite.
+	if err := s.users.AdjustInvites(ctx, inviterID, -1); err != nil {
+		if errors.Is(err, repository.ErrInsufficientInvites) {
+			return nil, ErrNoInvitesRemaining
+		}
+		return nil, fmt.Errorf("decrement invites: %w", err)
+	}
+	refund := func() {
+		if err := s.users.AdjustInvites(ctx, inviterID, 1); err != nil {
+			slog.Error("could not refund an invite after a failed create", "user_id", inviterID, "error", err)
+		}
+	}
+
 	// Generate invite token
 	token, err := GenerateToken()
 	if err != nil {
+		refund()
 		return nil, fmt.Errorf("generate invite token: %w", err)
 	}
 
@@ -78,16 +95,8 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 	}
 
 	if err := s.invites.Create(ctx, invite); err != nil {
+		refund()
 		return nil, fmt.Errorf("create invite: %w", err)
-	}
-
-	// Decrement user's invite count via the atomic delta primitive, not a
-	// read-modify-write: two concurrent CreateInvite calls (or
-	// an admin profile save landing on a stale read) could otherwise clobber
-	// each other's write to this column — the same class of race BE-8.16
-	// closed for the privilege flags.
-	if err := s.users.AdjustInvites(ctx, inviterID, -1); err != nil {
-		return nil, fmt.Errorf("decrement invites: %w", err)
 	}
 
 	s.eventBus.Publish(ctx, &event.InviteCreatedEvent{
@@ -123,30 +132,24 @@ func (s *InviteService) ValidateInvite(ctx context.Context, token string) (*mode
 	return invite, nil
 }
 
-// RedeemInvite marks an invite as used by the given invitee.
-func (s *InviteService) RedeemInvite(ctx context.Context, token string, inviteeID int64) (*model.Invite, error) {
-	invite, err := s.ValidateInvite(ctx, token)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.invites.Redeem(ctx, token, inviteeID); err != nil {
-		return nil, fmt.Errorf("redeem invite: %w", err)
-	}
-
-	var inviteeUsername string
-	if invitee, err := s.users.GetByID(ctx, inviteeID); err == nil {
-		inviteeUsername = invitee.Username
+// RegisterInvitee creates the invitee's account and redeems their invite in
+// one transaction, so an invite registers at most one member however many
+// registrations race for it. invite is the one ValidateInvite returned.
+func (s *InviteService) RegisterInvitee(ctx context.Context, invite *model.Invite, user *model.User) error {
+	if err := s.invites.CreateUserRedeeming(ctx, invite.Token, user); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInviteRedeemed
+		}
+		return err
 	}
 	s.eventBus.Publish(ctx, &event.InviteRedeemedEvent{
-		Base:            event.NewBase(event.InviteRedeemed, event.Actor{ID: inviteeID, Username: inviteeUsername}),
+		Base:            event.NewBase(event.InviteRedeemed, event.Actor{ID: user.ID, Username: user.Username}),
 		InviteID:        invite.ID,
-		InviteeID:       inviteeID,
-		InviteeUsername: inviteeUsername,
-		Token:           token,
+		InviteeID:       user.ID,
+		InviteeUsername: user.Username,
+		Token:           invite.Token,
 	})
-
-	return invite, nil
+	return nil
 }
 
 // ListMyInvites returns a paginated list of invites created by the given user.

@@ -19,6 +19,10 @@ type mockInviteRepo struct {
 	mu      sync.Mutex
 	invites []*model.Invite
 	nextID  int64
+	// users receives the account CreateUserRedeeming creates.
+	users interface {
+		Create(ctx context.Context, user *model.User) error
+	}
 }
 
 func newMockInviteRepo() *mockInviteRepo {
@@ -92,6 +96,24 @@ func (m *mockInviteRepo) Redeem(_ context.Context, token string, inviteeID int64
 	for _, inv := range m.invites {
 		if inv.Token == token && inv.InviteeID == nil && time.Now().Before(inv.ExpiresAt) {
 			inv.InviteeID = &inviteeID
+			now := time.Now()
+			inv.RedeemedAt = &now
+			inv.Redeemed = true
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+
+func (m *mockInviteRepo) CreateUserRedeeming(ctx context.Context, token string, user *model.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, inv := range m.invites {
+		if inv.Token == token && inv.InviteeID == nil && time.Now().Before(inv.ExpiresAt) {
+			if err := m.users.Create(ctx, user); err != nil {
+				return err
+			}
+			inv.InviteeID = &user.ID
 			now := time.Now()
 			inv.RedeemedAt = &now
 			inv.Redeemed = true
@@ -226,6 +248,9 @@ func (m *mockInviteUserRepo) AdjustInvites(_ context.Context, userID int64, delt
 	defer m.mu.Unlock()
 	for _, u := range m.users {
 		if u.ID == userID {
+			if u.Invites+int(delta) < 0 {
+				return repository.ErrInsufficientInvites // as the real repository refuses
+			}
 			u.Invites += int(delta)
 			return nil
 		}
@@ -240,6 +265,7 @@ func newTestInviteService() (*InviteService, *mockInviteRepo, *mockInviteUserRep
 	userRepo := newMockInviteUserRepo()
 	bus := event.NewInMemoryBus()
 	svc := NewInviteService(inviteRepo, userRepo, bus)
+	inviteRepo.users = userRepo
 
 	// Create a test user with invites
 	_ = userRepo.Create(context.Background(), &model.User{
@@ -324,9 +350,6 @@ func TestInviteService_ValidateInvite_VoidedWhileInviterRestricted(t *testing.T)
 
 	if _, err := svc.ValidateInvite(context.Background(), invite.Token); !errors.Is(err, ErrInviteVoided) {
 		t.Errorf("expected ErrInviteVoided, got %v", err)
-	}
-	if _, err := svc.RedeemInvite(context.Background(), invite.Token, 2); !errors.Is(err, ErrInviteVoided) {
-		t.Errorf("redeem: expected ErrInviteVoided, got %v", err)
 	}
 
 	// Lifting the restriction makes the token valid again.
@@ -415,20 +438,45 @@ func TestInviteService_ValidateInvite_AlreadyRedeemed(t *testing.T) {
 	}
 }
 
-func TestInviteService_RedeemInvite_Success(t *testing.T) {
-	svc, _, _ := newTestInviteService()
+func TestInviteService_RegisterInvitee_Success(t *testing.T) {
+	svc, inviteRepo, userRepo := newTestInviteService()
 
 	invite, err := svc.CreateInvite(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("unexpected error creating invite: %v", err)
 	}
 
-	result, err := svc.RedeemInvite(context.Background(), invite.Token, 42)
-	if err != nil {
-		t.Fatalf("unexpected error redeeming invite: %v", err)
+	invitee := &model.User{Username: "invitee", Email: "invitee@example.com"}
+	if err := svc.RegisterInvitee(context.Background(), invite, invitee); err != nil {
+		t.Fatalf("unexpected error registering invitee: %v", err)
 	}
-	if result.ID != invite.ID {
-		t.Errorf("expected invite ID %d, got %d", invite.ID, result.ID)
+	if _, err := userRepo.GetByID(context.Background(), invitee.ID); err != nil {
+		t.Errorf("invitee account not created: %v", err)
+	}
+	got, _ := inviteRepo.GetByID(context.Background(), invite.ID)
+	if got.InviteeID == nil || *got.InviteeID != invitee.ID {
+		t.Errorf("invite redeemed by %v, want the new account %d", got.InviteeID, invitee.ID)
+	}
+}
+
+// A spent invite registers nobody: the second registration gets
+// ErrInviteRedeemed and no account.
+func TestInviteService_RegisterInvitee_InviteUsedOnce(t *testing.T) {
+	svc, _, userRepo := newTestInviteService()
+
+	invite, err := svc.CreateInvite(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := svc.RegisterInvitee(context.Background(), invite, &model.User{Username: "first", Email: "first@example.com"}); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second := &model.User{Username: "second", Email: "second@example.com"}
+	if err := svc.RegisterInvitee(context.Background(), invite, second); !errors.Is(err, ErrInviteRedeemed) {
+		t.Fatalf("second registration err = %v, want ErrInviteRedeemed", err)
+	}
+	if u, err := userRepo.GetByUsername(context.Background(), "second"); err == nil && u != nil {
+		t.Error("a second account was created on a spent invite")
 	}
 }
 
@@ -490,13 +538,13 @@ func TestInviteService_ListMyInvites_MarksVoidedWhenInviterSuspended(t *testing.
 }
 
 func TestInviteService_ListMyInvites_RedeemedNeverVoided(t *testing.T) {
-	svc, _, userRepo := newTestInviteService()
+	svc, inviteRepo, userRepo := newTestInviteService()
 
 	invite, err := svc.CreateInvite(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := svc.RedeemInvite(context.Background(), invite.Token, 42); err != nil {
+	if err := inviteRepo.Redeem(context.Background(), invite.Token, 42); err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
 
@@ -585,7 +633,7 @@ func TestInviteService_RevokeInvite_RejectsRedeemed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := svc.RedeemInvite(context.Background(), invite.Token, 42); err != nil {
+	if err := inviteRepo.Redeem(context.Background(), invite.Token, 42); err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
 

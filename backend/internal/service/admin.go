@@ -34,6 +34,7 @@ var (
 	// silently break every link to this account sitewide the moment an admin
 	// edits it, not just look wrong in a text field.
 	ErrAdminInvalidUsername = fmt.Errorf("username must be 3-20 alphanumeric characters or underscores")
+	ErrAdminInvalidInvites  = fmt.Errorf("invites must not be negative")
 )
 
 // AdminUserView is the user representation returned by admin endpoints.
@@ -423,6 +424,10 @@ func (s *AdminService) ListTorrents(ctx context.Context, opts repository.ListTor
 
 // UpdateUser modifies admin-editable fields on a user. actorID is the admin performing the action.
 func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID int64, req AdminUpdateUserRequest) (*AdminUserView, error) {
+	// Validated before any write: this request commits in several steps.
+	if req.Invites != nil && *req.Invites < 0 {
+		return nil, ErrAdminInvalidInvites
+	}
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return nil, ErrAdminUserNotFound

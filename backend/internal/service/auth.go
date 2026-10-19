@@ -346,7 +346,19 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 		user.InvitedBy = &validatedInvite.InviterID
 	}
 
-	if err := s.users.Create(ctx, user); err != nil {
+	// An invited registration creates the account and spends the invite in
+	// one transaction: two registrations racing on one invite cannot both
+	// get an account.
+	var createErr error
+	if validatedInvite != nil {
+		createErr = s.inviteService.RegisterInvitee(ctx, validatedInvite, user)
+	} else {
+		createErr = s.users.Create(ctx, user)
+	}
+	if err := createErr; err != nil {
+		if errors.Is(err, ErrInviteRedeemed) {
+			return nil, ErrInvalidInviteCode
+		}
 		// Map DB unique constraint violations to domain errors.
 		// This is the true race-condition safety net.
 		errMsg := err.Error()
@@ -359,13 +371,6 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest, ip stri
 			}
 		}
 		return nil, fmt.Errorf("create user: %w", err)
-	}
-
-	// Redeem the invite now that the user is created
-	if validatedInvite != nil && s.inviteService != nil {
-		if _, err := s.inviteService.RedeemInvite(ctx, req.InviteCode, user.ID); err != nil {
-			slog.Error("failed to redeem invite after registration", "user_id", user.ID, "invite_id", validatedInvite.ID, "error", err)
-		}
 	}
 
 	s.eventBus.Publish(ctx, &event.UserRegisteredEvent{

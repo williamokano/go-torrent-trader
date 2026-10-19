@@ -121,6 +121,34 @@ func (r *InviteRepo) Redeem(ctx context.Context, token string, inviteeID int64) 
 	return nil
 }
 
+func (r *InviteRepo) CreateUserRedeeming(ctx context.Context, token string, user *model.User) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("register invitee: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := insertUserRow(ctx, tx, user); err != nil {
+		return err // unwrapped, so the caller can still see a unique violation
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE invites SET used_by_id = $1, used_at = $2
+		WHERE token = $3 AND used_by_id IS NULL AND expires_at > NOW()`, user.ID, time.Now(), token)
+	if err != nil {
+		return fmt.Errorf("register invitee: redeem: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("register invitee: rows affected: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows // rolled back: no account without its invite
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("register invitee: commit: %w", err)
+	}
+	return nil
+}
+
 func (r *InviteRepo) CountPendingByInviter(ctx context.Context, inviterID int64) (int, error) {
 	var count int
 	query := `SELECT COUNT(*) FROM invites WHERE inviter_id = $1 AND used_by_id IS NULL AND expires_at > NOW()`

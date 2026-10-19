@@ -595,6 +595,11 @@ type InviteRepository interface {
 	GetByToken(ctx context.Context, token string) (*model.Invite, error)
 	ListByInviter(ctx context.Context, inviterID int64, page, perPage int) ([]model.Invite, int64, error)
 	Redeem(ctx context.Context, token string, inviteeID int64) error
+	// CreateUserRedeeming creates the invitee and redeems the invite in one
+	// transaction. When the invite is no longer redeemable (used, expired or
+	// unknown) it returns sql.ErrNoRows and no account is created — so one
+	// invite can never register two members, however many requests race.
+	CreateUserRedeeming(ctx context.Context, token string, user *model.User) error
 	CountPendingByInviter(ctx context.Context, inviterID int64) (int, error)
 	Delete(ctx context.Context, id int64) error
 }
@@ -845,6 +850,10 @@ var ErrEditConflict = errors.New("post body changed since it was read")
 // can turn the race it lost into the same readable conflict it would have
 // reported had it won the check, instead of a 500.
 var ErrUniqueViolation = errors.New("unique constraint violated")
+
+// ErrInsufficientInvites is returned by AdjustInvites when a decrement would
+// take the balance below zero; nothing is changed.
+var ErrInsufficientInvites = errors.New("insufficient invites")
 
 // ForumPostRepository defines persistence operations for forum posts.
 type ForumPostRepository interface {

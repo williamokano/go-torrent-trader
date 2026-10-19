@@ -26,6 +26,8 @@ type mockInviteRepo struct {
 	mu      sync.Mutex
 	invites []*model.Invite
 	nextID  int64
+	// users receives the account CreateUserRedeeming creates.
+	users repository.UserRepository
 }
 
 func newMockInviteRepo() *mockInviteRepo {
@@ -91,6 +93,27 @@ func (m *mockInviteRepo) ListByInviter(_ context.Context, inviterID int64, page,
 		end = len(filtered)
 	}
 	return filtered[start:end], total, nil
+}
+
+func (m *mockInviteRepo) CreateUserRedeeming(ctx context.Context, token string, user *model.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, inv := range m.invites {
+		if inv.Token == token && inv.InviteeID == nil && time.Now().Before(inv.ExpiresAt) {
+			if m.users == nil {
+				return errors.New("mockInviteRepo: no users repository wired")
+			}
+			if err := m.users.Create(ctx, user); err != nil {
+				return err
+			}
+			inv.InviteeID = &user.ID
+			now := time.Now()
+			inv.RedeemedAt = &now
+			inv.Redeemed = true
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 func (m *mockInviteRepo) Redeem(_ context.Context, token string, inviteeID int64) error {
@@ -266,6 +289,9 @@ func (m *mockInviteUserRepo) AdjustInvites(_ context.Context, userID int64, delt
 	defer m.mu.Unlock()
 	for _, u := range m.users {
 		if u.ID == userID {
+			if u.Invites+int(delta) < 0 {
+				return repository.ErrInsufficientInvites // as the real repository refuses
+			}
 			u.Invites += int(delta)
 			return nil
 		}

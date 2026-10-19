@@ -124,6 +124,12 @@ func (r *UserRepo) ConfirmPendingEmail(ctx context.Context, id int64, at time.Ti
 }
 
 func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
+	return insertUserRow(ctx, r.db, user)
+}
+
+// insertUserRow is the users INSERT, against the pool or an open transaction
+// (InviteRepo.CreateUserRedeeming runs it alongside the invite redemption).
+func insertUserRow(ctx context.Context, q DBTX, user *model.User) error {
 	query := `INSERT INTO users (
 		username, email, password_hash, password_scheme, passkey,
 		group_id, uploaded, downloaded, avatar, title, info, enabled, parked,
@@ -136,7 +142,7 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 		$22, $23, $24, $25, $26, $27, $28, $29, $30
 	) RETURNING id, created_at, updated_at`
 
-	return r.db.QueryRowContext(ctx, query,
+	return q.QueryRowContext(ctx, query,
 		user.Username, user.Email, user.PasswordHash, user.PasswordScheme, user.Passkey,
 		user.GroupID, user.Uploaded, user.Downloaded, user.Avatar, user.Title,
 		user.Info, user.Enabled, user.Parked, user.IP, user.LastLogin,
@@ -335,8 +341,11 @@ func (r *UserRepo) SetPrivilegeFlag(ctx context.Context, userID int64, restricti
 // read-modify-write, so those two paths (and any patch, which has no invites
 // field) can never clobber each other's write to this column.
 func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64) error {
+	// A decrement that would go below zero changes nothing: checking the
+	// balance first and decrementing after let two concurrent invites both
+	// pass the check and spend the same last invite.
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE users SET invites = invites + $1, updated_at = NOW() WHERE id = $2`, delta, userID)
+		`UPDATE users SET invites = invites + $1, updated_at = NOW() WHERE id = $2 AND invites + $1 >= 0`, delta, userID)
 	if err != nil {
 		return fmt.Errorf("adjust invites: %w", err)
 	}
@@ -345,6 +354,13 @@ func (r *UserRepo) AdjustInvites(ctx context.Context, userID int64, delta int64)
 		return fmt.Errorf("adjust invites rows affected: %w", err)
 	}
 	if n == 0 {
+		var exists bool
+		if err := r.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID).Scan(&exists); err != nil {
+			return fmt.Errorf("adjust invites: check user: %w", err)
+		}
+		if exists {
+			return repository.ErrInsufficientInvites
+		}
 		return sql.ErrNoRows
 	}
 	return nil
