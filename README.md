@@ -57,7 +57,7 @@ off — from the admin panel, without a deploy.
 ```bash
 git clone https://github.com/williamokano/go-torrent-trader.git
 cd go-torrent-trader
-cp stack.env.example stack.env      # then set the two passwords
+cp stack.env.example stack.env      # then set the two passwords and SITE_BASE_URL
 docker compose --env-file stack.env -f docker-compose.stack.yml up -d
 ```
 

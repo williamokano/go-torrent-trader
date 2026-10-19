@@ -143,6 +143,9 @@ $EDITOR stack.env</code></pre>
                 run automatically on start, so there is no separate setup step.
                 Watch the logs with
                 <code>docker compose --env-file stack.env -f docker-compose.stack.yml logs -f</code>.
+                Every other Compose command for the stack (<code>ps</code>,
+                <code>exec</code>, <code>down</code>) needs the same
+                <code>--env-file stack.env -f docker-compose.stack.yml</code>.
               </p>
             </li>
             <li>
