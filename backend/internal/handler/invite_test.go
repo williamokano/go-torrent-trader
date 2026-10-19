@@ -26,6 +26,13 @@ type mockInviteRepo struct {
 	mu      sync.Mutex
 	invites []*model.Invite
 	nextID  int64
+	// users receives the account CreateUserRedeeming creates, and is charged
+	// by CreateInviteSpending.
+	users interface {
+		Create(ctx context.Context, user *model.User) error
+		GetByID(ctx context.Context, id int64) (*model.User, error)
+		AdjustInvites(ctx context.Context, userID int64, delta int64) error
+	}
 }
 
 func newMockInviteRepo() *mockInviteRepo {
@@ -91,6 +98,43 @@ func (m *mockInviteRepo) ListByInviter(_ context.Context, inviterID int64, page,
 		end = len(filtered)
 	}
 	return filtered[start:end], total, nil
+}
+
+func (m *mockInviteRepo) CreateInviteSpending(ctx context.Context, invite *model.Invite) error {
+	// As the real repository: a restricted inviter or an empty balance
+	// spends nothing and creates nothing.
+	inviter, err := m.users.GetByID(ctx, invite.InviterID)
+	if err != nil {
+		return err
+	}
+	if !inviter.CanInvite {
+		return repository.ErrInsufficientInvites
+	}
+	if err := m.users.AdjustInvites(ctx, invite.InviterID, -1); err != nil {
+		return err
+	}
+	return m.Create(ctx, invite)
+}
+
+func (m *mockInviteRepo) CreateUserRedeeming(ctx context.Context, token string, user *model.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, inv := range m.invites {
+		if inv.Token == token && inv.InviteeID == nil && time.Now().Before(inv.ExpiresAt) {
+			if inviter, err := m.users.GetByID(ctx, inv.InviterID); err != nil || !inviter.CanInvite {
+				return sql.ErrNoRows // voided by the inviter's restriction
+			}
+			if err := m.users.Create(ctx, user); err != nil {
+				return err
+			}
+			inv.InviteeID = &user.ID
+			now := time.Now()
+			inv.RedeemedAt = &now
+			inv.Redeemed = true
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 func (m *mockInviteRepo) Redeem(_ context.Context, token string, inviteeID int64) error {
@@ -266,6 +310,9 @@ func (m *mockInviteUserRepo) AdjustInvites(_ context.Context, userID int64, delt
 	defer m.mu.Unlock()
 	for _, u := range m.users {
 		if u.ID == userID {
+			if u.Invites+int(delta) < 0 {
+				return repository.ErrInsufficientInvites // as the real repository refuses
+			}
 			u.Invites += int(delta)
 			return nil
 		}
@@ -281,6 +328,7 @@ func setupInviteRouter() (http.Handler, service.SessionStore, *mockInviteUserRep
 	sessions := testutil.NewMemorySessionStore()
 	bus := event.NewInMemoryBus()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
+	inviteRepo.users = userRepo
 	inviteSvc := service.NewInviteService(inviteRepo, userRepo, bus)
 
 	router := handler.NewRouter(&handler.Deps{
@@ -642,6 +690,7 @@ func TestHandleAdminRevokeInvite_RejectsRedeemed(t *testing.T) {
 	sessions := testutil.NewMemorySessionStore()
 	bus := event.NewInMemoryBus()
 	authSvc := service.NewAuthServiceWithTTL(userRepo, sessions, testutil.NewMemoryPasswordResetStore(), &testutil.NoopSender{}, "http://localhost:8080", service.DefaultAccessTokenTTL, service.DefaultRefreshTokenTTL, &mockGroupRepo{}, bus)
+	inviteRepo.users = userRepo
 	inviteSvc := service.NewInviteService(inviteRepo, userRepo, bus)
 	router := handler.NewRouter(&handler.Deps{
 		AuthService:   authSvc,

@@ -148,6 +148,9 @@ func (s *stubUserRepo) AdjustInvites(_ context.Context, userID int64, delta int6
 	if !ok {
 		return errors.New("user not found")
 	}
+	if u.Invites+int(delta) < 0 {
+		return repository.ErrInsufficientInvites // as the real repository refuses
+	}
 	u.Invites += int(delta)
 	return nil
 }

@@ -203,6 +203,9 @@ func (m *mockUserRepo) AdjustInvites(_ context.Context, userID int64, delta int6
 	defer m.mu.Unlock()
 	for _, u := range m.users {
 		if u.ID == userID {
+			if u.Invites+int(delta) < 0 {
+				return repository.ErrInsufficientInvites // as the real repository refuses
+			}
 			u.Invites += int(delta)
 			return nil
 		}

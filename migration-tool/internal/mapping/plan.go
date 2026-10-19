@@ -190,7 +190,7 @@ func usersPlan() TablePlan {
 			"notifs":       derive("notification_preferences", "Legacy packed preference string, superseded by notification_preferences."),
 			"invited_by":   mapTo("invited_by", "", ""),
 			"invitees":     derive("users.invited_by", "Space-separated ids, redundant with invited_by. Read only as a cross-check that the two agree."),
-			"invites":      mapTo("invites", "", ""),
+			"invites":      mapTo("invites", "", "Legacy smallint is signed and its decrement was unguarded; the target refuses a negative balance (CHECK invites >= 0), so clamp with GREATEST(invites, 0)."),
 			"invitedate":   skip("No target column."),
 			"team":         skip("Teams are not in the target schema yet."),
 			"tzoffset":     skip("Timezones are handled in the browser."),

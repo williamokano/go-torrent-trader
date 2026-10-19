@@ -125,7 +125,7 @@ func (h *AdminHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) 
 			ErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
 		case errors.Is(err, service.ErrAdminGroupNotFound):
 			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
-		case errors.Is(err, service.ErrAdminInvalidUsername):
+		case errors.Is(err, service.ErrAdminInvalidUsername), errors.Is(err, service.ErrAdminInvalidInvites):
 			ErrorResponse(w, http.StatusBadRequest, "bad_request", err.Error())
 		default:
 			ErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to update user")

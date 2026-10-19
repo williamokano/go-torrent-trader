@@ -356,7 +356,7 @@ func TestInviteRepoRedeemRejectsExpiredAndUsed(t *testing.T) {
 	if err := repo.Create(ctx, expired); err != nil {
 		t.Fatalf("Create(expired): %v", err)
 	}
-	if err := repo.Redeem(ctx, expired.Token, first.ID); !errors.Is(err, sql.ErrNoRows) {
+	if err := redeemInvite(ctx, db, expired.Token, first.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("Redeem(expired): err = %v, want sql.ErrNoRows", err)
 	}
 
@@ -369,12 +369,12 @@ func TestInviteRepoRedeemRejectsExpiredAndUsed(t *testing.T) {
 	if err := repo.Create(ctx, live); err != nil {
 		t.Fatalf("Create(live): %v", err)
 	}
-	if err := repo.Redeem(ctx, live.Token, first.ID); err != nil {
+	if err := redeemInvite(ctx, db, live.Token, first.ID); err != nil {
 		t.Fatalf("Redeem(live): %v", err)
 	}
 
 	// ...and not twice: the second redeemer must be rejected, not overwrite the first.
-	if err := repo.Redeem(ctx, live.Token, second.ID); !errors.Is(err, sql.ErrNoRows) {
+	if err := redeemInvite(ctx, db, live.Token, second.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("Redeem(already used): err = %v, want sql.ErrNoRows", err)
 	}
 
@@ -390,7 +390,7 @@ func TestInviteRepoRedeemRejectsExpiredAndUsed(t *testing.T) {
 	}
 
 	// An unknown token is a miss, not a panic.
-	if err := repo.Redeem(ctx, "no-such-token", first.ID); !errors.Is(err, sql.ErrNoRows) {
+	if err := redeemInvite(ctx, db, "no-such-token", first.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("Redeem(unknown token): err = %v, want sql.ErrNoRows", err)
 	}
 

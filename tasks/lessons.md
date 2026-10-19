@@ -436,3 +436,16 @@ local-only path that never republishes, rebuild on `OnResync`). Work that only o
 node can do goes to that node; don't let a queue hand it to whoever is free and hope.
 And a component reached only through the event bus is node-local by construction:
 the bus never leaves the process.
+
+## CI runs the race detector; run it locally on anything with goroutines
+
+A concurrency test called a fixture helper (`uniq`, a plain global counter)
+from its goroutines. It passed every local run and failed in CI, because CI
+runs `go test -race` and the local loop did not. The same race had already
+shown up locally once as an unexplained failure — two goroutines drew the same
+"unique" name — and was written off as a flake.
+
+**Rule:** any test that starts goroutines runs under `-race` before it is
+pushed. Build fixtures before the goroutines start, and never call `t.Fatal`
+or a non-thread-safe helper from inside them. A failure that will not
+reproduce is a race until shown otherwise, not a flake.

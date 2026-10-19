@@ -36,10 +36,13 @@ func scanInvite(row interface{ Scan(...any) error }) (*model.Invite, error) {
 const inviteColumns = `id, inviter_id, token, used_by_id, used_at, expires_at, created_at`
 
 func (r *InviteRepo) Create(ctx context.Context, invite *model.Invite) error {
-	query := `INSERT INTO invites (inviter_id, token, expires_at)
+	return insertInvite(ctx, r.db, invite)
+}
+
+func insertInvite(ctx context.Context, q DBTX, invite *model.Invite) error {
+	err := q.QueryRowContext(ctx, `INSERT INTO invites (inviter_id, token, expires_at)
 		VALUES ($1, $2, $3)
-		RETURNING id, created_at`
-	err := r.db.QueryRowContext(ctx, query,
+		RETURNING id, created_at`,
 		invite.InviterID, invite.Token, invite.ExpiresAt,
 	).Scan(&invite.ID, &invite.CreatedAt)
 	if err != nil {
@@ -104,18 +107,49 @@ func (r *InviteRepo) ListByInviter(ctx context.Context, inviterID int64, page, p
 	return invites, total, nil
 }
 
-func (r *InviteRepo) Redeem(ctx context.Context, token string, inviteeID int64) error {
-	query := `UPDATE invites SET used_by_id = $1, used_at = $2
-		WHERE token = $3 AND used_by_id IS NULL AND expires_at > NOW()`
-	res, err := r.db.ExecContext(ctx, query, inviteeID, time.Now(), token)
+func (r *InviteRepo) CreateInviteSpending(ctx context.Context, invite *model.Invite) error {
+	return repository.WithTx(ctx, r.db, func(ctx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE users SET invites = invites - 1, updated_at = NOW()
+			WHERE id = $1 AND invites > 0 AND can_invite`, invite.InviterID)
+		if err != nil {
+			return fmt.Errorf("spend invite: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("spend invite: rows affected: %w", err)
+		}
+		if n == 0 {
+			return repository.ErrInsufficientInvites
+		}
+		return insertInvite(ctx, tx, invite)
+	})
+}
+
+func (r *InviteRepo) CreateUserRedeeming(ctx context.Context, token string, user *model.User) error {
+	return repository.WithTx(ctx, r.db, func(ctx context.Context, tx *sql.Tx) error {
+		if err := insertUserRow(ctx, tx, user); err != nil {
+			return err // unwrapped, so the caller can still see a unique violation
+		}
+		return redeemInvite(ctx, tx, token, user.ID) // sql.ErrNoRows rolls the account back
+	})
+}
+
+// redeemInvite marks an invite used by inviteeID, if it still may be: unused,
+// unexpired, and its inviter still allowed to invite (a restriction voids
+// outstanding invites). It returns sql.ErrNoRows otherwise.
+func redeemInvite(ctx context.Context, q DBTX, token string, inviteeID int64) error {
+	res, err := q.ExecContext(ctx, `UPDATE invites SET used_by_id = $1, used_at = $2
+		WHERE token = $3 AND used_by_id IS NULL AND expires_at > NOW()
+		  AND EXISTS (SELECT 1 FROM users u WHERE u.id = invites.inviter_id AND u.can_invite)`,
+		inviteeID, time.Now(), token)
 	if err != nil {
 		return fmt.Errorf("redeem invite: %w", err)
 	}
-	rows, err := res.RowsAffected()
+	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("redeem invite rows affected: %w", err)
+		return fmt.Errorf("redeem invite: rows affected: %w", err)
 	}
-	if rows == 0 {
+	if n == 0 {
 		return sql.ErrNoRows
 	}
 	return nil
@@ -131,7 +165,7 @@ func (r *InviteRepo) CountPendingByInviter(ctx context.Context, inviterID int64)
 }
 
 // Delete removes an invite, but only while it is still unredeemed — guarded
-// the same way Redeem guards its UPDATE. Without this, a revoke racing a
+// the same way redeemInvite guards its UPDATE. Without this, a revoke racing a
 // concurrent registration could delete a row a redemption had just claimed,
 // silently destroying that invite's audit trail (used_by_id/used_at) out
 // from under an interleaved success. Callers that see sql.ErrNoRows after a

@@ -594,7 +594,17 @@ type InviteRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.Invite, error)
 	GetByToken(ctx context.Context, token string) (*model.Invite, error)
 	ListByInviter(ctx context.Context, inviterID int64, page, perPage int) ([]model.Invite, int64, error)
-	Redeem(ctx context.Context, token string, inviteeID int64) error
+	// CreateInviteSpending takes one invite from the inviter's balance and
+	// creates the invite in one transaction. When the inviter has none left
+	// or may not invite, it returns ErrInsufficientInvites and nothing
+	// changes.
+	CreateInviteSpending(ctx context.Context, invite *model.Invite) error
+	// CreateUserRedeeming creates the invitee and redeems the invite in one
+	// transaction. When the invite is no longer redeemable — used, expired,
+	// unknown, or voided by its inviter's restriction — it returns
+	// sql.ErrNoRows and no account is created, so one invite can never
+	// register two members however many requests race.
+	CreateUserRedeeming(ctx context.Context, token string, user *model.User) error
 	CountPendingByInviter(ctx context.Context, inviterID int64) (int, error)
 	Delete(ctx context.Context, id int64) error
 }
@@ -845,6 +855,11 @@ var ErrEditConflict = errors.New("post body changed since it was read")
 // can turn the race it lost into the same readable conflict it would have
 // reported had it won the check, instead of a 500.
 var ErrUniqueViolation = errors.New("unique constraint violated")
+
+// ErrInsufficientInvites is returned when an invite cannot be spent — a
+// decrement would take the balance below zero (AdjustInvites), or the inviter
+// has none left or may not invite (CreateInviteSpending). Nothing is changed.
+var ErrInsufficientInvites = errors.New("insufficient invites")
 
 // ForumPostRepository defines persistence operations for forum posts.
 type ForumPostRepository interface {

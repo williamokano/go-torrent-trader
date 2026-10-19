@@ -25,8 +25,8 @@ var (
 const inviteExpiryDuration = 7 * 24 * time.Hour
 
 // inviteAdjustRepository is repository.UserRepository plus the atomic invite
-// balance adjustment. Kept local to this file (and reused by
-// InviteDistributionService, same package) rather than added to
+// balance adjustment InviteDistributionService (same package) grants with.
+// Kept local to this file rather than added to
 // repository.UserRepository, so the many existing mocks implementing
 // UserRepository elsewhere in the test suite are untouched — the same
 // approach service/restriction.go uses for privilegeFlagRepository.
@@ -65,29 +65,25 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 		return nil, ErrNoInvitesRemaining
 	}
 
-	// Generate invite token
 	token, err := GenerateToken()
 	if err != nil {
 		return nil, fmt.Errorf("generate invite token: %w", err)
 	}
-
 	invite := &model.Invite{
 		InviterID: inviterID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(inviteExpiryDuration),
 	}
 
-	if err := s.invites.Create(ctx, invite); err != nil {
+	// The balance and privilege read above are only a fast path for the
+	// error message. Spending the invite and creating it are one
+	// transaction that re-checks both, so two concurrent calls cannot both
+	// spend the last invite, and a failure cannot lose one.
+	if err := s.invites.CreateInviteSpending(ctx, invite); err != nil {
+		if errors.Is(err, repository.ErrInsufficientInvites) {
+			return nil, ErrNoInvitesRemaining
+		}
 		return nil, fmt.Errorf("create invite: %w", err)
-	}
-
-	// Decrement user's invite count via the atomic delta primitive, not a
-	// read-modify-write: two concurrent CreateInvite calls (or
-	// an admin profile save landing on a stale read) could otherwise clobber
-	// each other's write to this column — the same class of race BE-8.16
-	// closed for the privilege flags.
-	if err := s.users.AdjustInvites(ctx, inviterID, -1); err != nil {
-		return nil, fmt.Errorf("decrement invites: %w", err)
 	}
 
 	s.eventBus.Publish(ctx, &event.InviteCreatedEvent{
@@ -101,8 +97,11 @@ func (s *InviteService) CreateInvite(ctx context.Context, inviterID int64) (*mod
 // ValidateInvite checks if an invite token is valid without redeeming it.
 func (s *InviteService) ValidateInvite(ctx context.Context, token string) (*model.Invite, error) {
 	invite, err := s.invites.GetByToken(ctx, token)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrInviteNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get invite: %w", err) // an outage is not a bad code
 	}
 
 	if invite.Redeemed {
@@ -123,30 +122,24 @@ func (s *InviteService) ValidateInvite(ctx context.Context, token string) (*mode
 	return invite, nil
 }
 
-// RedeemInvite marks an invite as used by the given invitee.
-func (s *InviteService) RedeemInvite(ctx context.Context, token string, inviteeID int64) (*model.Invite, error) {
-	invite, err := s.ValidateInvite(ctx, token)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.invites.Redeem(ctx, token, inviteeID); err != nil {
-		return nil, fmt.Errorf("redeem invite: %w", err)
-	}
-
-	var inviteeUsername string
-	if invitee, err := s.users.GetByID(ctx, inviteeID); err == nil {
-		inviteeUsername = invitee.Username
+// RegisterInvitee creates the invitee's account and redeems their invite in
+// one transaction, so an invite registers at most one member however many
+// registrations race for it. invite is the one ValidateInvite returned.
+func (s *InviteService) RegisterInvitee(ctx context.Context, invite *model.Invite, user *model.User) error {
+	if err := s.invites.CreateUserRedeeming(ctx, invite.Token, user); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInviteRedeemed
+		}
+		return err
 	}
 	s.eventBus.Publish(ctx, &event.InviteRedeemedEvent{
-		Base:            event.NewBase(event.InviteRedeemed, event.Actor{ID: inviteeID, Username: inviteeUsername}),
+		Base:            event.NewBase(event.InviteRedeemed, event.Actor{ID: user.ID, Username: user.Username}),
 		InviteID:        invite.ID,
-		InviteeID:       inviteeID,
-		InviteeUsername: inviteeUsername,
-		Token:           token,
+		InviteeID:       user.ID,
+		InviteeUsername: user.Username,
+		Token:           invite.Token,
 	})
-
-	return invite, nil
+	return nil
 }
 
 // ListMyInvites returns a paginated list of invites created by the given user.
