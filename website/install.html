@@ -113,10 +113,6 @@ $EDITOR stack.env</code></pre>
                   </td>
                 </tr>
                 <tr>
-                  <th scope="row"><code>S3_SECRET_KEY</code></th>
-                  <td>Same value as the MinIO password.</td>
-                </tr>
-                <tr>
                   <th scope="row"><code>SITE_NAME</code></th>
                   <td>What your community is called.</td>
                 </tr>
@@ -139,24 +135,26 @@ $EDITOR stack.env</code></pre>
             </li>
             <li>
               <h3>Bring it up</h3>
-              <pre><code>docker compose -f docker-compose.stack.yml up -d</code></pre>
+              <pre><code>docker compose --env-file stack.env -f docker-compose.stack.yml up -d</code></pre>
               <p>
-                Database migrations run automatically on start, so there is no
-                separate setup step. Watch the logs with
-                <code>docker compose -f docker-compose.stack.yml logs -f</code>.
+                <code>--env-file stack.env</code> matters: Compose reads only a
+                file named <code>.env</code> on its own, and without it the stack
+                refuses to start for want of the passwords. Database migrations
+                run automatically on start, so there is no separate setup step.
+                Watch the logs with
+                <code>docker compose --env-file stack.env -f docker-compose.stack.yml logs -f</code>.
+                Every other Compose command for the stack (<code>ps</code>,
+                <code>exec</code>, <code>down</code>) needs the same
+                <code>--env-file stack.env -f docker-compose.stack.yml</code>.
               </p>
             </li>
             <li>
               <h3>Create the first account</h3>
               <p>
-                Register through the web interface. The first account is an
-                ordinary member, so promote it to administrator directly in the
-                database — this is the only step that needs psql:
+                Register through the web interface. The first account on a new
+                site becomes its administrator, and needs no invite — so register
+                it yourself before the address is shared with anyone else.
               </p>
-              <pre><code>docker compose -f docker-compose.stack.yml exec postgres \
-  psql -U torrenttrader -d torrenttrader \
-  -c "UPDATE users SET group_id = (SELECT id FROM groups WHERE slug = 'administrator') WHERE username = 'YOUR_USERNAME';"</code></pre>
-              <p>Log out and back in, and the admin panel appears.</p>
             </li>
             <li>
               <h3>Decide who can join</h3>
