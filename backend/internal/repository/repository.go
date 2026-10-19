@@ -110,6 +110,9 @@ type PeerRepository interface {
 	CountByUser(ctx context.Context, userID int64) (seeding int, leeching int, err error)
 	CountByTorrent(ctx context.Context, torrentID int64) (int, error)
 	CountTotalByUser(ctx context.Context, userID int64) (int, error)
+	// CountByTorrentAndUser counts one member's peers on one torrent that
+	// have announced since the given time.
+	CountByTorrentAndUser(ctx context.Context, torrentID, userID int64, since time.Time) (int, error)
 	Upsert(ctx context.Context, peer *model.Peer) error
 	// SwapState stores a peer's reported counters, bytes left and seeder
 	// flag, and returns the ones they replace, in one statement that locks

@@ -151,6 +151,16 @@ func (r *PeerRepo) CountByTorrent(ctx context.Context, torrentID int64) (int, er
 	return count, nil
 }
 
+func (r *PeerRepo) CountByTorrentAndUser(ctx context.Context, torrentID, userID int64, since time.Time) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peers WHERE torrent_id = $1 AND user_id = $2 AND last_announce >= $3`,
+		torrentID, userID, since).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting peers by torrent and user: %w", err)
+	}
+	return count, nil
+}
+
 func (r *PeerRepo) CountTotalByUser(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peers WHERE user_id = $1`, userID).Scan(&count)

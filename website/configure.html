@@ -107,10 +107,19 @@
             <tbody>
               <tr>
                 <td><code>tracker_max_peers_per_torrent</code></td>
-                <td>—</td>
+                <td><code>0</code> (off)</td>
                 <td>
-                  Caps how many peers one torrent may hold. Protects the tracker
-                  from a single enormous swarm.
+                  Caps how many leechers one torrent may hold. Protects the
+                  tracker from a single enormous swarm. Seeders are always let in.
+                </td>
+              </tr>
+              <tr>
+                <td><code>tracker_max_peers_per_user_torrent</code></td>
+                <td><code>3</code></td>
+                <td>
+                  Caps how many clients one member may have running on a single
+                  torrent, so one account cannot fill a swarm and turn others
+                  away. A client that has stopped announcing stops counting.
                 </td>
               </tr>
               <tr>

@@ -327,6 +327,18 @@ func (m *trackerMockPeerRepo) CountByTorrent(_ context.Context, torrentID int64)
 	}
 	return count, nil
 }
+func (m *trackerMockPeerRepo) CountByTorrentAndUser(_ context.Context, torrentID, userID int64, since time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, p := range m.peers {
+		if p.TorrentID == torrentID && p.UserID == userID && !p.LastAnnounce.Before(since) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (m *trackerMockPeerRepo) CountTotalByUser(_ context.Context, userID int64) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -813,7 +825,7 @@ func TestBuildCompactPeerList_RespectsMaxPeers(t *testing.T) {
 }
 
 func TestAnnounce_MaxPeersPerTorrent_RejectsNewPeer(t *testing.T) {
-	svc, _, _, peerRepo := setupTrackerWithSettings(map[string]string{
+	svc, _, torrentRepo, peerRepo := setupTrackerWithSettings(map[string]string{
 		SettingTrackerMaxPeersPerTorrent: "2",
 	})
 
@@ -832,6 +844,11 @@ func TestAnnounce_MaxPeersPerTorrent_RejectsNewPeer(t *testing.T) {
 		})
 	}
 	peerRepo.mu.Unlock()
+
+	// The cap counts leechers, as the torrent records them.
+	torrentRepo.mu.Lock()
+	torrentRepo.torrents[0].Leechers = 2
+	torrentRepo.mu.Unlock()
 
 	_, err := svc.Announce(context.Background(), AnnounceRequest{
 		Passkey:  testPasskey(),

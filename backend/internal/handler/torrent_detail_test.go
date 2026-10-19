@@ -41,6 +41,10 @@ func (s *stubPeerRepo) ListByUserLeeching(_ context.Context, _ int64, _, _ int) 
 }
 func (s *stubPeerRepo) CountByUser(_ context.Context, _ int64) (int, int, error) { return 0, 0, nil }
 func (s *stubPeerRepo) CountByTorrent(_ context.Context, _ int64) (int, error)   { return 0, nil }
+func (*stubPeerRepo) CountByTorrentAndUser(context.Context, int64, int64, time.Time) (int, error) {
+	return 0, nil
+}
+
 func (s *stubPeerRepo) CountTotalByUser(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (s *stubPeerRepo) Upsert(_ context.Context, _ *model.Peer) error            { return nil }
 func (s *stubPeerRepo) Delete(_ context.Context, _, _ int64, _ []byte) error     { return nil }

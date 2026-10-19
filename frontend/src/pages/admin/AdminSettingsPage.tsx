@@ -194,7 +194,15 @@ const SETTING_DEFINITIONS: SettingConfig[] = [
     section: "Tracker connection limits",
     label: "Max Peers Per Torrent",
     description:
-      "Maximum number of peers allowed on a single torrent. New peers are rejected once this limit is reached. Set to 0 to disable. Default: 50.",
+      "Maximum number of peers allowed on a single torrent. New leechers are rejected once this limit is reached; seeders are always let in. Set to 0 to disable. Default: 0.",
+    type: "number",
+  },
+  {
+    key: "tracker_max_peers_per_user_torrent",
+    section: "Tracker connection limits",
+    label: "Max Peers Per User Per Torrent",
+    description:
+      "Maximum number of clients one member can have running on a single torrent, so one account cannot fill a swarm. Clients that have stopped announcing do not count. Set to 0 to disable. Default: 3.",
     type: "number",
   },
   {

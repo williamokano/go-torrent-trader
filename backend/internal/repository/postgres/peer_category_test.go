@@ -354,3 +354,27 @@ func TestPeerRepoGetByTorrentUserAndPeerIDMissingIsErrNoRows(t *testing.T) {
 		t.Fatalf("err = %v, want sql.ErrNoRows", err)
 	}
 }
+
+// A member's per-torrent count includes only clients heard from recently.
+func TestPeerRepoCountByTorrentAndUserSkipsQuietClients(t *testing.T) {
+	db := requireDB(t)
+	resetTestData(t, db)
+	ctx := context.Background()
+	repo := NewPeerRepo(db)
+	u := newUser(t, db)
+	tor := newTorrent(t, db, u.ID)
+
+	newPeer(t, db, tor.ID, u.ID, false) // announcing now
+	quiet := newPeer(t, db, tor.ID, u.ID, false)
+	if _, err := db.Exec(`UPDATE peers SET last_announce = NOW() - INTERVAL '3 hours' WHERE id = $1`, quiet.ID); err != nil {
+		t.Fatalf("age peer: %v", err)
+	}
+
+	n, err := repo.CountByTorrentAndUser(ctx, tor.ID, u.ID, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("count = %d, want only the client heard from recently", n)
+	}
+}
